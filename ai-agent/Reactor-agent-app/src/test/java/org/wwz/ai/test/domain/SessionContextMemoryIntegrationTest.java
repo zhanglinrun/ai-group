@@ -13,9 +13,15 @@ import org.wwz.ai.application.agent.execute.planexecute.PlanSolveAgentExecuteStr
 import org.wwz.ai.domain.agent.service.execute.planexecute.step.factory.DefaultPlanSolveAgentExecuteStrategyFactory;
 import org.wwz.ai.application.agent.execute.react.ReactAgentExecuteStrategy;
 import org.wwz.ai.domain.agent.service.execute.react.step.factory.DefaultReactAgentExecuteStrategyFactory;
+import org.wwz.ai.domain.agent.ledger.ExecutionLedgerQueryService;
+import org.wwz.ai.domain.agent.memory.ConversationMemoryManager;
+import org.wwz.ai.domain.agent.memory.ConversationMemoryManagerImpl;
+import org.wwz.ai.domain.agent.memory.LongTermMemoryService;
+import org.wwz.ai.domain.agent.memory.SessionContextMemoryService;
 import org.wwz.ai.infrastructure.reactor.service.impl.SessionContextMemoryServiceImpl;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * 单会话上下文记忆入口注入测试。
@@ -50,7 +56,7 @@ public class SessionContextMemoryIntegrationTest {
         ReactAgentExecuteStrategy strategy = new ReactAgentExecuteStrategy();
         ReflectionTestUtils.setField(strategy, "defaultReactAgentExecuteStrategyFactory", factory);
         ReflectionTestUtils.setField(strategy, "reactorConfig", new ReactorConfig());
-        ReflectionTestUtils.setField(strategy, "sessionContextMemoryService", memoryService);
+        ReflectionTestUtils.setField(strategy, "conversationMemoryManager", memoryManager(memoryService, ctx.queryService));
 
         AgentRequest request = AgentRequest.builder()
                 .requestId("req-react-current-001")
@@ -91,7 +97,7 @@ public class SessionContextMemoryIntegrationTest {
 
         PlanSolveAgentExecuteStrategy strategy = new PlanSolveAgentExecuteStrategy();
         ReflectionTestUtils.setField(strategy, "defaultPlanSolveAgentExecuteStrategyFactory", factory);
-        ReflectionTestUtils.setField(strategy, "sessionContextMemoryService", memoryService);
+        ReflectionTestUtils.setField(strategy, "conversationMemoryManager", memoryManager(memoryService, ctx.queryService));
 
         AgentRequest request = AgentRequest.builder()
                 .requestId("req-plan-current-001")
@@ -125,7 +131,7 @@ public class SessionContextMemoryIntegrationTest {
         ReactAgentExecuteStrategy strategy = new ReactAgentExecuteStrategy();
         ReflectionTestUtils.setField(strategy, "defaultReactAgentExecuteStrategyFactory", factory);
         ReflectionTestUtils.setField(strategy, "reactorConfig", new ReactorConfig());
-        ReflectionTestUtils.setField(strategy, "sessionContextMemoryService", Mockito.mock(org.wwz.ai.domain.agent.memory.SessionContextMemoryService.class));
+        ReflectionTestUtils.setField(strategy, "conversationMemoryManager", Mockito.mock(ConversationMemoryManager.class));
 
         AgentRequest request = AgentRequest.builder()
                 .requestId("req-react-current-002")
@@ -135,6 +141,17 @@ public class SessionContextMemoryIntegrationTest {
                 .build();
 
         strategy.execute(request, Mockito.mock(AgentSessionStream.class));
+    }
+
+    /**
+     * 构造仅启用中期(会话)记忆的管理器：长期记忆 mock 为空召回，ReactorConfig 默认关闭长期开关，
+     * 因此 assembleHistoryBlock 等价于直接返回会话历史，保持本用例校验"执行前注入历史"的原意。
+     */
+    private ConversationMemoryManager memoryManager(SessionContextMemoryService medium,
+                                                    ExecutionLedgerQueryService queryService) {
+        LongTermMemoryService longTerm = Mockito.mock(LongTermMemoryService.class);
+        Mockito.when(longTerm.recall(Mockito.any(), Mockito.any(), Mockito.any())).thenReturn(List.of());
+        return new ConversationMemoryManagerImpl(medium, longTerm, queryService, new ReactorConfig());
     }
 
     private void seedSimpleHistory(ExecutionLedgerFixtureFactory.LedgerTestContext ctx,

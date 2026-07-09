@@ -54,12 +54,28 @@ public class ReportTool implements BaseTool {
         Map<String, Object> taskParam = new HashMap<>();
         taskParam.put("type", "string");
         taskParam.put("description", "需要完成的任务以及完成任务需要的数据，需要尽可能详细");
+        // execute() 强制要求 fileName，且 fileType 决定产物格式（html/markdown/ppt）。
+        // 默认 schema 必须声明这些字段，否则 LLM 无法传参：fileName 缺失直接失败、
+        // fileType 缺失时用户在前端选择的 文档/PPT 输出格式会退化成 HTML。
+        Map<String, Object> fileNameParam = new HashMap<>();
+        fileNameParam.put("type", "string");
+        fileNameParam.put("description", "产物文件名（不含扩展名），例如：销售分析报告");
+        Map<String, Object> fileDescParam = new HashMap<>();
+        fileDescParam.put("type", "string");
+        fileDescParam.put("description", "产物文件的简要描述");
+        Map<String, Object> fileTypeParam = new HashMap<>();
+        fileTypeParam.put("type", "string");
+        fileTypeParam.put("enum", Arrays.asList("html", "markdown", "ppt"));
+        fileTypeParam.put("description", "报告产物格式：html=网页报告，markdown=文档报告，ppt=演示文稿。用户指定了输出格式时必须严格使用对应值");
         Map<String, Object> parameters = new HashMap<>();
         parameters.put("type", "object");
         Map<String, Object> properties = new HashMap<>();
         properties.put("task", taskParam);
+        properties.put("fileName", fileNameParam);
+        properties.put("fileDescription", fileDescParam);
+        properties.put("fileType", fileTypeParam);
         parameters.put("properties", properties);
-        parameters.put("required", Collections.singletonList("task"));
+        parameters.put("required", Arrays.asList("task", "fileName"));
 
         return parameters;
     }

@@ -204,6 +204,34 @@ public class SessionContextMemoryServiceTest {
         Assert.assertTrue(new TokenCounter().countText(historyDialogue) <= 260);
     }
 
+    @Test
+    public void shouldCompressOlderRunsAndKeepRecentVerbatimWhenExceedingWindow() {
+        ExecutionLedgerFixtureFactory.LedgerTestContext ctx = ExecutionLedgerFixtureFactory.newLedgerTestContext();
+        seedHistoryRun(ctx, "req-comp-001", "session-comp-001", LocalDateTime.of(2026, 5, 4, 9, 0),
+                List.of(), List.of(cycleSeed("react", 1, "第一轮很久以前的思考", List.of())));
+        seedHistoryRun(ctx, "req-comp-002", "session-comp-001", LocalDateTime.of(2026, 5, 4, 9, 10),
+                List.of(), List.of(cycleSeed("react", 1, "第二轮较早的思考", List.of())));
+        seedHistoryRun(ctx, "req-comp-003", "session-comp-001", LocalDateTime.of(2026, 5, 4, 9, 20),
+                List.of(), List.of(cycleSeed("react", 1, "最近一轮的详细思考", List.of())));
+
+        // recentRunWindow=1：仅最近 1 轮逐字保留，更早 2 轮压缩为摘要段
+        SessionContextMemoryServiceImpl service = new SessionContextMemoryServiceImpl(
+                ctx.queryService, ctx.llmDao, ctx.toolDao, ctx.artifactDao, 12000, 1);
+
+        String historyDialogue = service.buildHistoryDialogue("session-comp-001", "req-comp-current");
+
+        Assert.assertTrue(historyDialogue.startsWith("## 单会话历史记忆"));
+        // 更早的 2 轮进入压缩摘要段（用每轮 final_summary_text），不再逐字展开
+        Assert.assertTrue(historyDialogue.contains("### 更早对话摘要（压缩）"));
+        Assert.assertTrue(historyDialogue.contains("summary:req-comp-001"));
+        Assert.assertTrue(historyDialogue.contains("summary:req-comp-002"));
+        Assert.assertFalse(historyDialogue.contains("### Run req-comp-001"));
+        Assert.assertFalse(historyDialogue.contains("### Run req-comp-002"));
+        // 最近一轮仍逐字保留
+        Assert.assertTrue(historyDialogue.contains("### Run req-comp-003"));
+        Assert.assertTrue(historyDialogue.contains("最近一轮的详细思考"));
+    }
+
     private Long createRun(ExecutionLedgerFixtureFactory.LedgerTestContext ctx,
                            String requestId,
                            String sessionId,

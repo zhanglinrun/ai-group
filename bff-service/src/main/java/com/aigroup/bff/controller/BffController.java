@@ -43,8 +43,12 @@ public class BffController {
     public Result<Map<String, Object>> pricing() {
         Map<String, Object> data = new HashMap<>();
         DegradeContext degrade = new DegradeContext();
-        data.put("skus", listSkusSafe(degrade));
-        data.put("groupBuy", queryGroupMarketSafe(degrade));
+        List<Map<String, Object>> skus = listSkusSafe(degrade);
+        // 按 SKU 各自的拼团商品查询营销配置（月卡/年卡/加油包价格不同，不能共用一个默认活动）
+        Map<String, Map<String, Object>> marketByGoods = queryGroupMarketsForSkus(skus, degrade);
+        enrichSkusWithGroupBuy(skus, marketByGoods);
+        data.put("skus", skus);
+        data.put("groupBuy", buildAggregatedGroupBuy(skus, marketByGoods));
         data.put("meta", degrade.meta());
         return Result.success(data);
     }
@@ -53,9 +57,14 @@ public class BffController {
     public Result<Map<String, Object>> groupBuy(@PathVariable Long activityId) {
         Map<String, Object> data = new HashMap<>();
         DegradeContext degrade = new DegradeContext();
+        List<Map<String, Object>> skus = listSkusSafe(degrade);
         data.put("activityId", activityId);
-        data.put("groupBuy", queryGroupMarketSafe(degrade));
-        data.put("skus", listSkusSafe(degrade));
+        // 按活动ID反查该 SKU 对应的拼团商品，返回该活动自己的队伍与价格
+        String goodsId = resolveGoodsIdByActivity(skus, activityId);
+        data.put("groupBuy", queryGroupMarketSafe(goodsId, degrade));
+        Map<String, Map<String, Object>> marketByGoods = queryGroupMarketsForSkus(skus, degrade);
+        enrichSkusWithGroupBuy(skus, marketByGoods);
+        data.put("skus", skus);
         data.put("meta", degrade.meta());
         return Result.success(data);
     }
@@ -88,27 +97,123 @@ public class BffController {
         return Result.success(data);
     }
 
-    private Map<String, Object> queryGroupMarketSafe(DegradeContext degrade) {
+    private Map<String, Object> queryGroupMarketSafe(String goodsId, DegradeContext degrade) {
         try {
-            return normalizeGroupMarket(groupFeignClient.queryGroupBuyMarketConfig(buildGroupMarketRequest()));
+            return normalizeGroupMarket(groupFeignClient.queryGroupBuyMarketConfig(buildGroupMarketRequest(goodsId)));
         } catch (Exception ex) {
             degrade.add("group", "GROUP_MARKET_UNAVAILABLE", ex.getMessage());
             return Map.of("unavailable", true);
         }
     }
 
-    private Map<String, Object> queryGroupMarket() {
-        return normalizeGroupMarket(groupFeignClient.queryGroupBuyMarketConfig(buildGroupMarketRequest()));
-    }
-
-    private Map<String, Object> buildGroupMarketRequest() {
+    private Map<String, Object> buildGroupMarketRequest(String goodsId) {
         Long userId = requireUserId();
         Map<String, Object> request = new HashMap<>();
         request.put("userId", String.valueOf(userId));
         request.put("source", groupSource);
         request.put("channel", groupChannel);
-        request.put("goodsId", defaultGoodsId);
+        request.put("goodsId", goodsId == null || goodsId.isBlank() ? defaultGoodsId : goodsId);
         return request;
+    }
+
+    /**
+     * 汇总各 SKU 拼团商品的营销配置：goodsId -> 该商品的 groupBuy（activityId/goods/teamList）。
+     * 无任何 SKU 配置拼团映射时退回默认商品，保持旧行为。
+     */
+    private Map<String, Map<String, Object>> queryGroupMarketsForSkus(List<Map<String, Object>> skus, DegradeContext degrade) {
+        Map<String, Map<String, Object>> marketByGoods = new HashMap<>();
+        for (Map<String, Object> sku : skus) {
+            String goodsId = stringValue(sku.get("groupGoodsId"));
+            if (goodsId == null || goodsId.isBlank() || marketByGoods.containsKey(goodsId)) {
+                continue;
+            }
+            marketByGoods.put(goodsId, queryGroupMarketSafe(goodsId, degrade));
+        }
+        if (marketByGoods.isEmpty()) {
+            marketByGoods.put(defaultGoodsId, queryGroupMarketSafe(defaultGoodsId, degrade));
+        }
+        return marketByGoods;
+    }
+
+    /**
+     * 给每个 SKU 附加其拼团价格信息（groupPayPrice/groupDeductionPrice/groupOriginalPrice/groupActivityId）。
+     */
+    private void enrichSkusWithGroupBuy(List<Map<String, Object>> skus, Map<String, Map<String, Object>> marketByGoods) {
+        for (Map<String, Object> sku : skus) {
+            String goodsId = stringValue(sku.get("groupGoodsId"));
+            if (goodsId == null || goodsId.isBlank()) {
+                continue;
+            }
+            Map<String, Object> market = marketByGoods.get(goodsId);
+            if (market == null || Boolean.TRUE.equals(market.get("unavailable"))) {
+                continue;
+            }
+            Object goods = market.get("goods");
+            if (goods instanceof Map<?, ?> goodsMap) {
+                sku.put("groupPayPrice", goodsMap.get("payPrice"));
+                sku.put("groupDeductionPrice", goodsMap.get("deductionPrice"));
+                sku.put("groupOriginalPrice", goodsMap.get("originalPrice"));
+            }
+            Object activityId = market.get("activityId");
+            if (activityId != null) {
+                sku.put("groupActivityId", activityId);
+            }
+        }
+    }
+
+    /**
+     * 聚合大厅视图：合并所有拼团商品的进行中队伍（Team 自带 activityId 供前端归属 SKU），
+     * 顶层 activityId/goods 取第一个可用商品，保持前端旧字段兼容。
+     */
+    private Map<String, Object> buildAggregatedGroupBuy(List<Map<String, Object>> skus, Map<String, Map<String, Object>> marketByGoods) {
+        Map<String, Object> aggregated = null;
+        List<Object> mergedTeams = new ArrayList<>();
+        // 按 SKU 顺序聚合，保证顶层默认取第一个会员套餐的活动
+        List<String> orderedGoods = new ArrayList<>();
+        for (Map<String, Object> sku : skus) {
+            String goodsId = stringValue(sku.get("groupGoodsId"));
+            if (goodsId != null && !goodsId.isBlank() && !orderedGoods.contains(goodsId)) {
+                orderedGoods.add(goodsId);
+            }
+        }
+        if (orderedGoods.isEmpty()) {
+            orderedGoods.addAll(marketByGoods.keySet());
+        }
+        for (String goodsId : orderedGoods) {
+            Map<String, Object> market = marketByGoods.get(goodsId);
+            if (market == null || Boolean.TRUE.equals(market.get("unavailable"))) {
+                continue;
+            }
+            if (aggregated == null) {
+                aggregated = new HashMap<>(market);
+            }
+            Object teams = market.get("teamList");
+            if (teams instanceof List<?> teamList) {
+                mergedTeams.addAll(teamList);
+            }
+        }
+        if (aggregated == null) {
+            return Map.of("unavailable", true);
+        }
+        aggregated.put("teamList", mergedTeams);
+        return aggregated;
+    }
+
+    /**
+     * 按拼团活动ID反查商品ID（用于 /group-buy/{activityId} 详情页取该活动自己的队伍）。
+     */
+    private String resolveGoodsIdByActivity(List<Map<String, Object>> skus, Long activityId) {
+        if (activityId == null) {
+            return defaultGoodsId;
+        }
+        for (Map<String, Object> sku : skus) {
+            String goodsId = stringValue(sku.get("groupGoodsId"));
+            String skuActivity = stringValue(sku.get("groupActivityId"));
+            if (goodsId != null && !goodsId.isBlank() && String.valueOf(activityId).equals(skuActivity)) {
+                return goodsId;
+            }
+        }
+        return defaultGoodsId;
     }
 
     @SuppressWarnings("unchecked")
@@ -215,10 +320,16 @@ public class BffController {
                 mapped.put("status", rawStatus);
                 mapped.put("displayStatus", resolveDisplayStatus(rawStatus, orderMap.get("marketType"), orderId));
                 mapped.put("productName", orderMap.get("productName"));
-                mapped.put("amount", orderMap.get("payAmount"));
+                // 展示金额 = 商品价 - 营销扣减（真实应付价）。沙箱小额模式下 payAmount 是 0.01 实收，
+                // 不能作为展示价；无 totalAmount 的历史单退回 payAmount。
+                mapped.put("amount", resolveDisplayAmount(
+                        orderMap.get("totalAmount"), orderMap.get("marketDeductionAmount"), orderMap.get("payAmount")));
                 mapped.put("paidAt", orderMap.get("payTime"));
                 mapped.put("marketType", orderMap.get("marketType"));
                 mapped.put("groupStatus", mapGroupStatus(rawStatus));
+                // 透传收银台表单：pay 服务仅对 PAY_WAIT 订单回传 payUrl，
+                // 前端订单中心据此渲染「去支付」按钮恢复支付（此前被丢弃导致待支付订单无法继续付款）。
+                mapped.put("payUrl", orderMap.get("payUrl"));
                 result.add(mapped);
             }
         }
@@ -270,6 +381,36 @@ public class BffController {
             return "";
         }
         return payStatus.trim().toUpperCase();
+    }
+
+    /**
+     * 订单展示金额：totalAmount(商品价) - marketDeductionAmount(拼团扣减)；缺项时退回实收 payAmount。
+     */
+    private Object resolveDisplayAmount(Object totalAmount, Object deductionAmount, Object payAmount) {
+        java.math.BigDecimal total = toBigDecimal(totalAmount);
+        if (total == null) {
+            return payAmount;
+        }
+        java.math.BigDecimal deduction = toBigDecimal(deductionAmount);
+        java.math.BigDecimal display = deduction == null ? total : total.subtract(deduction);
+        if (display.compareTo(java.math.BigDecimal.ZERO) < 0) {
+            return payAmount;
+        }
+        return display;
+    }
+
+    private java.math.BigDecimal toBigDecimal(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof java.math.BigDecimal bd) {
+            return bd;
+        }
+        try {
+            return new java.math.BigDecimal(String.valueOf(value));
+        } catch (NumberFormatException ex) {
+            return null;
+        }
     }
 
     private Long requireUserId() {

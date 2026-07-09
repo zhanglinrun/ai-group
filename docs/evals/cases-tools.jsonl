@@ -1,0 +1,3 @@
+{"id":"tool-search-1","mode":"html","deepThink":0,"query":"请使用联网搜索工具查一下并告诉我：Spring AI 项目当前的稳定大版本号大概是多少？","expect":["1.","Spring"],"expectTools":["deep_search","web_fetch"],"minToolCalls":1}
+{"id":"tool-search-2","mode":"html","deepThink":0,"query":"请联网搜索并总结：什么是 Model Context Protocol (MCP)？","expect":["MCP","协议","上下文","context"],"expectTools":["deep_search","web_fetch"],"minToolCalls":1}
+{"id":"plan-1","mode":"html","deepThink":1,"query":"制定一个用 Java 实现一个简单待办清单命令行程序的分步计划，并按计划推进。","expect":["计划","步骤","第一","任务"],"minToolCalls":1}

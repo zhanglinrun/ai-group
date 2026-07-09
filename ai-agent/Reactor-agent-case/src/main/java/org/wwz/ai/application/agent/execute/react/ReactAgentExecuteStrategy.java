@@ -12,7 +12,9 @@ import org.wwz.ai.domain.agent.reactor.config.ReactorConfig;
 import org.wwz.ai.domain.agent.ledger.model.ExecutionLedgerConstants;
 import org.wwz.ai.domain.agent.reactor.model.req.AgentRequest;
 import org.wwz.ai.domain.agent.ledger.ExecutionLedgerRunSupport;
-import org.wwz.ai.domain.agent.memory.SessionContextMemoryService;
+import org.wwz.ai.domain.agent.memory.ConversationMemoryManager;
+import org.wwz.ai.domain.agent.memory.MemoryQuery;
+import org.wwz.ai.domain.agent.memory.MemoryTurn;
 import org.wwz.ai.domain.agent.service.execute.react.step.factory.DefaultReactAgentExecuteStrategyFactory;
 
 import java.util.Map;
@@ -32,13 +34,15 @@ public class ReactAgentExecuteStrategy implements IExecuteStrategy {
     private ReactorConfig reactorConfig;
 
     @Resource
-    private SessionContextMemoryService sessionContextMemoryService;
+    private ConversationMemoryManager conversationMemoryManager;
 
     @Override
     public void execute(AgentRequest request, AgentSessionStream stream) throws Exception {
+        String originalQuery = request == null ? null : request.getQuery();
         enrichHistoryDialogue(request);
         applyOutputStyle(request);
         doExecute(request, stream);
+        persistTurn(request, originalQuery);
     }
 
     private void doExecute(AgentRequest request, AgentSessionStream stream) throws Exception {
@@ -77,8 +81,24 @@ public class ReactAgentExecuteStrategy implements IExecuteStrategy {
         if (request == null) {
             return;
         }
-        request.setHistoryDialogue(sessionContextMemoryService == null
+        request.setHistoryDialogue(conversationMemoryManager == null
                 ? ""
-                : sessionContextMemoryService.buildHistoryDialogue(request.getSessionId(), request.getRequestId()));
+                : conversationMemoryManager.assembleHistoryBlock(new MemoryQuery(
+                        request.getOwnerId(),
+                        request.getSessionId(),
+                        request.getRequestId(),
+                        request.getQuery())));
+    }
+
+    private void persistTurn(AgentRequest request, String originalQuery) {
+        if (request == null || conversationMemoryManager == null) {
+            return;
+        }
+        conversationMemoryManager.persistTurnAsync(new MemoryTurn(
+                request.getOwnerId(),
+                request.getSessionId(),
+                request.getRequestId(),
+                originalQuery,
+                null));
     }
 }

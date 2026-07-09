@@ -160,9 +160,10 @@ public class McpClientRuntimeFactory {
     private McpClientRuntime createHttpRuntime(McpServerDescriptor descriptor,
                                                io.modelcontextprotocol.spec.McpClientTransport transport,
                                                String transportName) {
+        // 统一为秒（对齐 STDIO 分支）：此前用 ofMinutes 导致默认 180 变成 3 小时，无响应时长时间占用资源。
         int requestTimeout = descriptor.getRequestTimeout() == null ? 180 : descriptor.getRequestTimeout();
         McpSyncClient syncClient = McpClient.sync(transport)
-                .requestTimeout(Duration.ofMinutes(requestTimeout))
+                .requestTimeout(Duration.ofSeconds(requestTimeout))
                 .build();
 
         syncClient.initialize();

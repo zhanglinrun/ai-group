@@ -21,6 +21,11 @@ public interface MemberService {
 
     void release(String freezeId);
 
+    /**
+     * 查询超时仍 PENDING 的僵尸冻结ID（进程崩溃/重启导致 confirm/release 丢失），供兜底释放任务逐个释放。
+     */
+    List<String> listExpiredPendingFreezeIds(int timeoutMinutes, int batchLimit);
+
     void handleBenefitEvent(TradeCompletedEvent event);
 
     int grantMonthlyQuota();

@@ -105,6 +105,10 @@
     "Instrument Serif",
     Georgia,
     "Times New Roman",
+    "PingFang SC",
+    "Microsoft YaHei",
+    "Noto Sans SC",
+    "Source Han Sans SC",
     serif;
   --font-mono:
     "JetBrains Mono",
@@ -115,6 +119,10 @@
   --font-brand:
     "Instrument Serif",
     Georgia,
+    "PingFang SC",
+    "Microsoft YaHei",
+    "Noto Sans SC",
+    "Source Han Sans SC",
     serif;
 
   /* Page Background - subtle gradients */

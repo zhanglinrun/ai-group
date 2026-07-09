@@ -46,6 +46,13 @@ public class OrderService extends AbstractOrderService {
     @Value("${alipay.return_url}")
     private String returnUrl;
 
+    /**
+     * 沙箱小额真实支付：>0 时实际向支付宝收取 min(该值, 应付价)，页面展示价不变。
+     * 本地/演示环境用 0.01 即可完成真实支付闭环；<=0 关闭（按应付价全额收取）。
+     */
+    @Value("${ai-group.pay.sandbox-amount:0}")
+    private BigDecimal sandboxAmount;
+
     @Resource
     private AlipayClient alipayClient;
     @Resource
@@ -74,8 +81,11 @@ public class OrderService extends AbstractOrderService {
 
     @Override
     protected PayOrderEntity doPrepayOrder(String userId, String productId, String productName, String orderId, BigDecimal totalAmount, MarketPayDiscountEntity marketPayDiscountEntity) throws AlipayApiException {
-        // ????
-        BigDecimal payAmount = null == marketPayDiscountEntity ? totalAmount : marketPayDiscountEntity.getPayPrice();
+        // 应付价：直购=商品价，拼团=折后价（页面展示用，pay_order.total_amount/市场扣减保持真实价格）
+        BigDecimal displayAmount = null == marketPayDiscountEntity ? totalAmount : marketPayDiscountEntity.getPayPrice();
+        // 实收价：沙箱小额开启时向支付宝只收 min(sandbox, 应付价)。
+        // bizContent.total_amount 与持久化 pay_amount 必须同为该值——回调按 pay_amount 核对实付金额，退款也按 pay_amount 原路退。
+        BigDecimal payAmount = resolveChargeAmount(displayAmount);
 
         if (!alipayEnabled) {
             PayOrderEntity payOrderEntity = new PayOrderEntity();
@@ -136,6 +146,20 @@ public class OrderService extends AbstractOrderService {
     }
 
     /**
+     * 计算实际向支付宝收取的金额：沙箱小额未开启（<=0）时按应付价全额；
+     * 开启时取 min(sandbox, 应付价)，避免应付价本身低于沙箱额时反而多收。
+     */
+    private BigDecimal resolveChargeAmount(BigDecimal displayAmount) {
+        if (sandboxAmount == null || sandboxAmount.compareTo(BigDecimal.ZERO) <= 0) {
+            return displayAmount;
+        }
+        if (displayAmount == null || displayAmount.compareTo(sandboxAmount) <= 0) {
+            return displayAmount;
+        }
+        return sandboxAmount;
+    }
+
+    /**
      * 取消未支付订单前关闭支付宝侧交易，杜绝"取消后旧收银台仍可付款"。
      * 返回 true 表示可以安全本地关单：支付宝确认关闭、交易根本不存在（CREATE 单从未打开收银台），
      * 或支付宝未启用。返回 false 表示关单未确认（可能被并发支付/网络失败），调用方不得本地关单。
@@ -181,7 +205,7 @@ public class OrderService extends AbstractOrderService {
 
         if (MarketTypeVO.GROUP_BUY_MARKET.getCode().equals(orderEntity.getMarketType())) {
             repository.changeMarketOrderPaySuccess(orderId);
-            // 通知 group 结算（登记本成员已支付）。成功则置结算确认位：补偿任务只重试"通知丢失"(未置位)的单，
+            // 通知 group 结算（登记本成员已支付)。成功则置结算确认位：补偿任务只重试"通知丢失"(未置位)的单，
             // 正常等待成团的单不再被每分钟重扫，消除错误刷屏与扫描窗口饥饿。
             boolean settled = port.settlementMarketPayOrder(orderEntity.getUserId(), orderId, payTime);
             if (settled) {
@@ -189,6 +213,9 @@ public class OrderService extends AbstractOrderService {
             }
         } else {
             repository.changeOrderPaySuccess(orderId, payTime);
+            // 直购单支付成功即发放权益（开通会员/加油包额度）。
+            // 拼团单的权益在成团回调 changeOrderMarketSettlement 里发放；此处发放幂等（按 order+eventType 去重）。
+            benefitEventService.publishGroupBuyCompletedEvents(Collections.singletonList(orderId));
         }
 
     }

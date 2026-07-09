@@ -70,11 +70,20 @@ public class ExecutorAgent extends ReActAgent {
         setNextStepPromptSnapshot(getNextStepPrompt());
 
         setPrinter(context.printer);
-        setMaxSteps(reactorConfig.getPlannerMaxSteps());
+        // 修正：executor 应使用 executor.max_steps，此前误用 planner.max_steps 使 executor 步数上限配置失效（两者默认同为 40）。
+        // 空值兜底：executor 未配置时回退 planner，再回退默认 40，避免裸配置构造下拆箱 NPE。
+        Integer executorMaxSteps = reactorConfig.getExecutorMaxSteps();
+        if (executorMaxSteps == null) {
+            executorMaxSteps = reactorConfig.getPlannerMaxSteps();
+        }
+        setMaxSteps(executorMaxSteps != null ? executorMaxSteps : 40);
         setLlm(new LLM(reactorConfig.getExecutorModelName(), "", runtimeDependencies));
 
         setContext(context);
         setMaxObserve(Integer.parseInt(reactorConfig.getMaxObserve()));
+        if (reactorConfig.getToolMaxAttempts() != null && reactorConfig.getToolMaxAttempts() > 0) {
+            setToolMaxAttempts(reactorConfig.getToolMaxAttempts());
+        }
 
         // 初始化工具集合
         availableTools = context.getToolCollection();

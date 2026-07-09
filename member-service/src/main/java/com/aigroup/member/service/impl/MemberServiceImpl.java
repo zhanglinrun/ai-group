@@ -228,6 +228,12 @@ public class MemberServiceImpl implements MemberService {
     }
 
     @Override
+    public List<String> listExpiredPendingFreezeIds(int timeoutMinutes, int batchLimit) {
+        LocalDateTime cutoff = LocalDateTime.now().minusMinutes(Math.max(1, timeoutMinutes));
+        return quotaFreezeMapper.selectExpiredPendingFreezeIds(cutoff, Math.max(1, batchLimit));
+    }
+
+    @Override
     @Transactional(rollbackFor = Exception.class)
     public void handleBenefitEvent(TradeCompletedEvent event) {
         if (CommonConstant.EVENT_GROUP_BUY_REVOKED.equals(event.getEventType())) {

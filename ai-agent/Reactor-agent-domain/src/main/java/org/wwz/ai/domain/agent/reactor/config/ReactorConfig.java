@@ -185,6 +185,10 @@ public class ReactorConfig {
     @Value("${autobots.autoagent.tool.file_tool.truncate_len:5000}")
     private Integer fileToolContentTruncateLen;
 
+    /** 单个工具调用的最大尝试次数（含首次）：>1 时对抛异常的瞬时失败做有界重试。默认 1（不重试）。 */
+    @Value("${autobots.autoagent.tool.max_attempts:1}")
+    private Integer toolMaxAttempts;
+
     @Value("${autobots.autoagent.tool.deep_search.file_desc.truncate_len:500}")
     private Integer deepSearchToolFileDescTruncateLen;
 
@@ -229,6 +233,10 @@ public class ReactorConfig {
     @Value("${autobots.autoagent.planner.max_parallel_tasks:2}")
     private Integer plannerMaxParallelTasks;
 
+    /** planner 单次 askTool 超时（秒）。此前硬编码 3000 秒（≈50 分钟）疑似笔误，收敛为 300 秒并外置。 */
+    @Value("${autobots.autoagent.planner.ask_tool_timeout_seconds:300}")
+    private Integer plannerAskToolTimeoutSeconds;
+
     @Value("${autobots.autoagent.executor.max_steps:40}")
     private Integer executorMaxSteps;
 
@@ -270,6 +278,31 @@ public class ReactorConfig {
     public void setDispatchUrl(String dispatchUrl) {
         this.dispatchUrl = dispatchUrl;
     }
+
+    // ===== 三层对话记忆配置 =====
+    /** 记忆总开关（关闭时仅保留单会话中期记忆的既有行为） */
+    @Value("${autobots.autoagent.memory.enabled:true}")
+    private Boolean memoryEnabled;
+
+    /** 长期跨会话向量记忆开关（依赖 Qdrant，默认关闭） */
+    @Value("${autobots.autoagent.memory.longterm.enabled:false}")
+    private Boolean longTermMemoryEnabled;
+
+    /** 长期记忆 Qdrant 集合名 */
+    @Value("${autobots.autoagent.memory.longterm.collection:agent_conversation_memory}")
+    private String longTermMemoryCollection;
+
+    /** 长期记忆召回条数 */
+    @Value("${autobots.autoagent.memory.longterm.top-k:5}")
+    private Integer longTermMemoryTopK;
+
+    /** 长期记忆召回相似度阈值 */
+    @Value("${autobots.autoagent.memory.longterm.score-threshold:0.6}")
+    private Float longTermMemoryScoreThreshold;
+
+    /** 长期记忆时间衰减半衰期（天）：越久的记忆召回权重越低，实现"遗忘" */
+    @Value("${autobots.autoagent.memory.longterm.decay-half-life-days:30}")
+    private Integer longTermMemoryDecayHalfLifeDays;
 
     @Value("${autobots.autoagent.summary.system_prompt:}")
     private String summarySystemPrompt;

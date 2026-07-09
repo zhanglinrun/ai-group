@@ -16,6 +16,7 @@ import org.wwz.ai.api.dto.AutoAgentRequestDTO;
 import org.wwz.ai.api.response.Response;
 import org.wwz.ai.application.agent.armory.IArmoryService;
 import org.wwz.ai.application.agent.dispatch.IAgentDispatchService;
+import org.wwz.ai.application.agent.guard.PerUserConcurrencyLimiter;
 import org.wwz.ai.application.agent.query.GptQueryIngressService;
 import org.wwz.ai.application.agent.query.IGptQueryApplicationService;
 import org.wwz.ai.application.agent.visitor.ConversationSessionOwnershipApplicationService;
@@ -89,6 +90,9 @@ public class AiAgentController implements IAiAgentService {
     @Resource
     @Qualifier(AgentExecutorNames.HEARTBEAT_SCHEDULER)
     private TaskScheduler heartbeatScheduler;
+
+    @Resource
+    private PerUserConcurrencyLimiter perUserConcurrencyLimiter;
 
     /**
      * 执行智能体调度
@@ -186,16 +190,68 @@ public class AiAgentController implements IAiAgentService {
      */
     @RequestMapping(value = "/web/api/v1/gpt/queryAgentStreamIncr", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter queryAgentStreamIncr(@RequestBody GptQueryReq params) {
+        // 与 /AutoAgent 对齐：冻结配额在 Servlet 线程同步完成（配额不足立即返回），
+        // 真正的 agent 执行提交到 dispatch 线程池异步跑并开启心跳，避免长连接钉死 Tomcat 线程、且首字节前不再全程缓冲。
         SseEmitter emitter = SseLifecycleSupport.createEmitter(TimeUnit.HOURS.toMillis(1));
-        SseLifecycleSupport.registerLifecycle(emitter,
-                Objects.toString(params.getRequestId(), "legacy-gpt-query"),
-                null,
-                log);
+
+        String ownerId;
         try {
-            gptQueryIngressService.queryAgentStreamIncr(params, new SseEmitterAgentSessionStream(emitter));
+            ownerId = OwnerRequestContext.requireOwnerIdAsString();
         } catch (Exception e) {
-            log.warn("reject gpt stream request {}", params.getRequestId(), e);
+            log.warn("{} reject gpt stream request: owner unresolved", params.getRequestId(), e);
             emitter.completeWithError(e);
+            return emitter;
+        }
+        // per-user 并发对话限流：单用户在途对话超过上限即拒绝，避免刷满线程池影响他人并控制成本。
+        if (!perUserConcurrencyLimiter.tryAcquire(ownerId)) {
+            log.warn("{} gpt stream rejected: per-user concurrency limit reached, ownerId={}", params.getRequestId(), ownerId);
+            emitter.completeWithError(new AgentExecutorBusyException("当前并发对话数已达上限，请稍后再试"));
+            return emitter;
+        }
+
+        GptQueryIngressService.PreparedGptQuery prepared;
+        try {
+            prepared = gptQueryIngressService.prepare(params, new SseEmitterAgentSessionStream(emitter));
+        } catch (QuotaInsufficientException e) {
+            perUserConcurrencyLimiter.release(ownerId);
+            log.warn("{} quota rejected gpt stream request", params.getRequestId(), e);
+            emitter.completeWithError(e);
+            return emitter;
+        } catch (Exception e) {
+            perUserConcurrencyLimiter.release(ownerId);
+            log.warn("{} reject gpt stream request before dispatch", params.getRequestId(), e);
+            emitter.completeWithError(e);
+            return emitter;
+        }
+
+        String requestId = prepared.agentRequest().getRequestId();
+        ScheduledFuture<?> heartbeatFuture = SseLifecycleSupport.startHeartbeat(
+                heartbeatScheduler,
+                emitter,
+                requestId,
+                agentExecutorProperties.getHeartbeat().getIntervalMillis(),
+                log
+        );
+        SseLifecycleSupport.registerLifecycle(emitter, requestId, heartbeatFuture, log);
+
+        final GptQueryIngressService.PreparedGptQuery preparedQuery = prepared;
+        final String limiterOwnerId = ownerId;
+        try {
+            AgentExecutorSupport.execute(dispatchExecutor, "gptQuery", () -> {
+                try {
+                    // 异步路径：dispatch 异常不再向上抛，统一落到流的 completeWithError（前端可见、配额释放）。
+                    gptQueryIngressService.dispatchAndSettle(preparedQuery, false);
+                } catch (Exception e) {
+                    log.error("{} gpt stream dispatch error", requestId, e);
+                } finally {
+                    perUserConcurrencyLimiter.release(limiterOwnerId);
+                }
+            });
+        } catch (AgentExecutorBusyException e) {
+            // 线程池拒绝：任务未执行，需在此释放并发名额，并通过结算流收口（completeWithError 释放冻结配额）。
+            perUserConcurrencyLimiter.release(ownerId);
+            log.warn("{} gpt stream dispatch rejected", requestId, e);
+            preparedQuery.billingStream().completeWithError(e);
         }
         return emitter;
     }

@@ -12,6 +12,7 @@ import org.wwz.ai.domain.agent.runtime.dto.File;
 import org.wwz.ai.domain.agent.runtime.dto.Message;
 import org.wwz.ai.domain.agent.runtime.dto.TaskSummaryResult;
 import org.wwz.ai.domain.agent.runtime.llm.LLM;
+import org.wwz.ai.domain.agent.runtime.prompt.SummaryPrompt;
 import org.wwz.ai.domain.agent.reactor.config.ReactorConfig;
 import org.wwz.ai.domain.agent.runtime.ReactorRuntimeDependencies;
 
@@ -37,7 +38,12 @@ public class SummaryAgent extends BaseAgent {
     public SummaryAgent(AgentContext context) {
         ReactorRuntimeDependencies runtimeDependencies = requireRuntimeDependencies(context);
         ReactorConfig reactorConfig = runtimeDependencies.requireReactorConfig();
-        setSystemPrompt(reactorConfig.getSummarySystemPrompt());
+        // summary.system_prompt 未配置时回退到代码级默认（含占位符与抗幻觉约束），
+        // 避免总结阶段在空模板上 replace 导致 {{taskHistory}} 失效、执行过程整体丢失。
+        String configuredSummaryPrompt = reactorConfig.getSummarySystemPrompt();
+        setSystemPrompt(StringUtils.isNotBlank(configuredSummaryPrompt)
+                ? configuredSummaryPrompt
+                : SummaryPrompt.SYSTEM_PROMPT);
 
         setContext(context);
         setRequestId(context.getRequestId());

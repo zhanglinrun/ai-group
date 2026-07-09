@@ -94,7 +94,10 @@ function Sync-ReactorToolEnv() {
         "QDRANT_URL=$($env:QDRANT_URL)",
         "QDRANT_PORT=$($env:QDRANT_PORT)",
         "TAVILY_API_KEY=$($env:TAVILY_API_KEY)",
-        "MINERU_API_KEY=$($env:MINERU_API_KEY)"
+        "MINERU_API_KEY=$($env:MINERU_API_KEY)",
+        "IMAGE_GENERATION_BASE_URL=$($env:IMAGE_GENERATION_BASE_URL)",
+        "IMAGE_GENERATION_API_KEY=$($env:IMAGE_GENERATION_API_KEY)",
+        "IMAGE_GENERATION_MODEL=$($env:IMAGE_GENERATION_MODEL)"
     )
     Set-Content -Path $rtEnv -Value ($lines -join "`n") -Encoding UTF8
     Write-Host "Synced reactor-tool/.env"
@@ -122,6 +125,8 @@ Invoke-Mysql "$root/docs/dev-ops/mysql/sql/agent_db/01-agent_db.sql"
 Invoke-Mysql "$root/docs/dev-ops/mysql/sql/agent_db/02-dev-seed.sql"
 # group/pay 为全量转储（DROP+重灌）：仅首次初始化执行，已存在则跳过以保留订单/拼团数据
 Invoke-MysqlDumpOnce "$root/group/docs/dev-ops/mysql/sql/2-29-group_buy_market.sql" -Schema "group_buy_market" -MarkerTable "group_buy_order"
+# 每 SKU 独立拼团链（月卡/年卡/加油包各自 goods+discount+activity）：幂等迁移，老库也会补齐
+Invoke-Mysql "$root/group/docs/dev-ops/mysql/sql/3-01-per-sku-groupbuy-migrate.sql"
 Invoke-MysqlDumpOnce "$root/s-pay-mall-ddd-market/docs/dev-ops/mysql/sql/s-pay-mall-ddd-market.sql" -Schema "s_pay_mall_ddd_market" -MarkerTable "pay_order" -PayBase
 Invoke-Mysql "$root/s-pay-mall-ddd-market/docs/dev-ops/mysql/sql/V3_benefit_event.sql"
 Invoke-Mysql "$root/s-pay-mall-ddd-market/docs/dev-ops/mysql/sql/V4_settlement_notified.sql"
@@ -181,8 +186,9 @@ Start-ServiceWindow "ai-agent" "$root/ai-agent/Reactor-agent-app" 8090 @{
 
 Sync-ReactorToolEnv
 if (-not (Test-PortListening 1601)) {
-    Write-Host "Start reactor-tool on :1601"
-    Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$root/ai-agent/reactor-tool'; uv run python -m reactor_tool.main" -WindowStyle Minimized
+    Write-Host "Start reactor-tool on :1601 (uv sync + init sqlite db + server.py)"
+    # reactor-tool 需先 uv sync 装依赖、init_db 建 SQLite 表(fileinfo 等，否则附件上传 500)，再用 server.py 入口启动。
+    Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$root/ai-agent/reactor-tool'; uv sync; uv run python -m reactor_tool.db.db_engine; ./start.ps1" -WindowStyle Minimized
     Start-Sleep -Seconds 8
 }
 

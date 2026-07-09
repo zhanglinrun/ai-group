@@ -18,4 +18,10 @@
         where goods_id = #{goodsId} and source = #{source} and channel = #{channel}
     </select>
 
+    <!-- 运营端：全量渠道商品-活动映射 -->
+    <select id="querySCSkuActivityList" resultMap="dataMap">
+        select source, channel, activity_id, goods_id
+        from sc_sku_activity
+    </select>
+
 </mapper>

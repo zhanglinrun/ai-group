@@ -73,7 +73,10 @@ const ToolItem: FC<ToolItemProps> = memo(({
       );
     }
     case "tool_thought": {
-      const streamingThought = !tool.resultMap?.isFinal;
+      // 思考流是否仍在进行：必须同时满足「本轮未标记 isFinal」且「整条对话仍在 loading」。
+      // 仅看 isFinal 会在 ReAct 轮次以 Finish[...] 收尾、末条 tool_thought 未回填 isFinal 时，
+      // 让思考标签永久停在“思考中”。对齐 Dialogue/DataDialogue 的 chat.loading 门控。
+      const streamingThought = !!chat.loading && !tool.resultMap?.isFinal;
       return (
         <div className="mt-[8px] rounded-2xl border border-[var(--chat-border)]/18 bg-[var(--chat-surface-soft)]/38 px-3 py-2.5">
           <Reasoning isStreaming={streamingThought} defaultOpen>

@@ -10,6 +10,7 @@ export const ROUTES = {
   WORKSPACE: "/workspace",
   WORKSPACE_MRAG: "/workspace/mrag",
   WORKSPACE_IMAGE_GENERATION: "/workspace/image-generation",
+  ADMIN: "/admin",
   NOT_FOUND: "*",
 } as const;
 

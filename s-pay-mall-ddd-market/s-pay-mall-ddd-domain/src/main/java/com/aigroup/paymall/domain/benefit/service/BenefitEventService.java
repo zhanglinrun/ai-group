@@ -88,9 +88,10 @@ public class BenefitEventService implements IBenefitEventService {
             log.warn("skip benefit event, order not found orderId={}", orderId);
             return;
         }
+        // 拼团单与直购单均发放权益：原实现只放行拼团单，导致「直接购买」支付成功后永远不开通会员。
+        // 事件类型沿用既有常量（member 侧按 GROUP_BUY_COMPLETED/REVOKED 消费），语义为"交易完成/撤销"。
         if (!MarketTypeVO.GROUP_BUY_MARKET.getCode().equals(order.getMarketType())) {
-            log.info("skip benefit event, not group buy order orderId={}", orderId);
-            return;
+            log.info("publish benefit event for direct purchase orderId={} marketType={}", orderId, order.getMarketType());
         }
         if (requireCompletedPublished) {
             BenefitEventEntity completed = benefitEventRepository.findByOrderIdAndEventType(

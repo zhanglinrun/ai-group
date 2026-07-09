@@ -12,6 +12,9 @@ CREATE TABLE IF NOT EXISTS `product_sku` (
     `tier` VARCHAR(32) NOT NULL,
     `sku_type` VARCHAR(32) NOT NULL DEFAULT 'MEMBER',
     `status` TINYINT NOT NULL DEFAULT 1,
+    -- 拼团映射：该 SKU 在 group_buy_market 中对应的商品/活动（NULL 表示不支持拼团）
+    `group_goods_id` VARCHAR(16) DEFAULT NULL,
+    `group_activity_id` BIGINT DEFAULT NULL,
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_code` (`code`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -86,9 +89,14 @@ CREATE TABLE IF NOT EXISTS `quota_freeze` (
     UNIQUE KEY `uk_user_request` (`user_id`, `request_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-INSERT INTO `product_sku` (`code`, `name`, `price`, `period_quota`, `topup_quota`, `member_days`, `tier`, `sku_type`, `status`) VALUES
-('FREE', 'Free', 0.00, 20, 0, 0, 'FREE', 'FREE', 1),
-('PRO_MONTH', 'Pro Monthly', 49.00, 500, 0, 30, 'PRO', 'MEMBER', 1),
-('PRO_YEAR', 'Pro Yearly', 399.00, 500, 0, 365, 'PRO', 'MEMBER', 1),
-('TOPUP_200', 'Top-up 200', 29.00, 0, 200, 0, 'FREE', 'TOPUP', 1)
-ON DUPLICATE KEY UPDATE `name` = VALUES(`name`), `sku_type` = VALUES(`sku_type`);
+INSERT INTO `product_sku` (`code`, `name`, `price`, `period_quota`, `topup_quota`, `member_days`, `tier`, `sku_type`, `status`, `group_goods_id`, `group_activity_id`) VALUES
+('FREE', 'Free', 0.00, 20, 0, 0, 'FREE', 'FREE', 1, NULL, NULL),
+('PRO_MONTH', 'Pro Monthly', 49.00, 500, 0, 30, 'PRO', 'MEMBER', 1, '9890002', 100201),
+('PRO_YEAR', 'Pro Yearly', 399.00, 500, 0, 365, 'PRO', 'MEMBER', 1, '9890003', 100202),
+('TOPUP_200', 'Top-up 600', 29.00, 0, 600, 0, 'FREE', 'TOPUP', 1, '9890004', 100203)
+ON DUPLICATE KEY UPDATE
+    `name` = VALUES(`name`),
+    `sku_type` = VALUES(`sku_type`),
+    `topup_quota` = VALUES(`topup_quota`),
+    `group_goods_id` = VALUES(`group_goods_id`),
+    `group_activity_id` = VALUES(`group_activity_id`);

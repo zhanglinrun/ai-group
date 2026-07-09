@@ -87,14 +87,21 @@ export default <TMessage = unknown>(
       throw new FatalSseError(errorText);
     },
     onmessage(event: EventSourceMessage) {
-      if (event.data) {
-        try {
-          const parsedData = JSON.parse(event.data);
-          handleMessage(parser ? parser(parsedData) : (parsedData as TMessage));
-        } catch (error) {
-          console.error('Error parsing SSE message:', error);
-          throw new FatalSseError('Failed to parse SSE message');
-        }
+      if (!event.data) {
+        return;
+      }
+      const trimmed = event.data.trim();
+      // 忽略保活/注释类非结构化数据帧（如纯文本 "heartbeat"），只解析 JSON 结构帧，
+      // 避免心跳/保活内容触发 JSON.parse 失败而中断整条对话流。
+      if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) {
+        return;
+      }
+      try {
+        const parsedData = JSON.parse(trimmed);
+        handleMessage(parser ? parser(parsedData) : (parsedData as TMessage));
+      } catch (error) {
+        console.error('Error parsing SSE message:', error);
+        throw new FatalSseError('Failed to parse SSE message');
       }
     },
     onerror(error: Error) {

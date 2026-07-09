@@ -530,7 +530,7 @@ export function WorkspaceMRagView(props: WorkspaceMRagViewProps) {
             </div>
             <div>
               <h1 className="text-[15px] font-semibold tracking-tight text-[var(--chat-text)]">
-                MRAG 文件工作台
+                知识库
               </h1>
               <p className="text-[12px] text-[var(--chat-text-muted)]">
                 知识库管理、文件入库与检索调试

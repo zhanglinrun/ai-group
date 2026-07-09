@@ -161,8 +161,35 @@ ai-group:
   internal:
     token: ${AI_GROUP_INTERNAL_TOKEN:ai-group-dev-internal-token-change-in-prod}
   pay:
+    # 小额实收开关：>0 时实际向支付宝只收该金额（真实支付通道演示用）；<=0 按套餐价全额收取。
+    # 当前走支付宝沙箱（假钱），默认全额收取使收银台金额与页面价格一致；
+    # 若切换到真实支付通道又只想花几分钱演示，设 AI_GROUP_PAY_SANDBOX_AMOUNT=0.01 即可。
+    sandbox-amount: ${AI_GROUP_PAY_SANDBOX_AMOUNT:0}
+    # 商品目录（goodsId -> 名称/展示价），与 member_db.product_sku、group_buy_market.sku 对齐
+    catalog:
+      products:
+        "9890001":
+          name: "《手写MyBatis：渐进式源码实践》"
+          price: 100.00
+        "9890002":
+          name: "Pro 月卡"
+          price: 49.00
+        "9890003":
+          name: "Pro 年卡"
+          price: 399.00
+        "9890004":
+          name: "额度加油包"
+          price: 29.00
     goods-sku-bindings:
+      # legacy 演示商品（历史订单引用）
       "9890001":
         - "PRO_MONTH"
         - "PRO_YEAR"
+        - "TOPUP_200"
+      # 每 SKU 独立拼团商品（与 member_db.product_sku.group_goods_id 对齐）
+      "9890002":
+        - "PRO_MONTH"
+      "9890003":
+        - "PRO_YEAR"
+      "9890004":
         - "TOPUP_200"

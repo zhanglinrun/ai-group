@@ -7,6 +7,9 @@ import org.wwz.ai.application.agent.execute.IExecuteStrategy;
 import org.wwz.ai.application.agent.stream.AgentSessionPrinter;
 import org.wwz.ai.application.agent.stream.AgentSessionStream;
 import org.wwz.ai.domain.agent.adapter.repository.IAgentRepository;
+import org.wwz.ai.domain.agent.memory.ConversationMemoryManager;
+import org.wwz.ai.domain.agent.memory.MemoryQuery;
+import org.wwz.ai.domain.agent.memory.MemoryTurn;
 import org.wwz.ai.domain.agent.runtime.agent.AgentContext;
 import org.wwz.ai.domain.agent.runtime.printer.Printer;
 import org.wwz.ai.domain.agent.runtime.util.DateUtil;
@@ -42,6 +45,9 @@ public class FlowAgentExecuteStrategy implements IExecuteStrategy {
     @Resource
     private AiClientRuntimeRegistry aiClientRuntimeRegistry;
 
+    @Resource
+    private ConversationMemoryManager conversationMemoryManager;
+
     @Override
     public void execute(AgentRequest request, AgentSessionStream stream) throws Exception {
         log.info("{} fixed agent request: {}", request.getRequestId(), request);
@@ -76,6 +82,8 @@ public class FlowAgentExecuteStrategy implements IExecuteStrategy {
         String content = "";
         final String sessionId = request.getSessionId();
         Exception streamError = null;
+        // 三层记忆：chat 短期记忆走 Spring AI 内存窗口(advisor)，中期(会话摘要)+长期(跨会话向量)由记忆块前置注入 system。
+        final String memoryBlock = assembleMemoryBlock(request);
 
         for (AiAgentClientFlowConfigVO config : aiAgentClientList) {
             ChatClient chatClient = getChatClientByClientId(config.getClientId());
@@ -83,7 +91,7 @@ public class FlowAgentExecuteStrategy implements IExecuteStrategy {
             try {
                 Flux<org.springframework.ai.chat.model.ChatResponse> flux = chatClient
                         .prompt(request.getQuery() + "，" + content)
-                        .system(config.getStepPrompt() + " current_date_time:" + LocalDateTime.now())
+                        .system(buildSystemPrompt(memoryBlock, config.getStepPrompt()))
                         .advisors(a -> a
                                 .param(CHAT_MEMORY_CONVERSATION_ID_KEY, sessionId)
                                 .param(CHAT_MEMORY_RETRIEVE_SIZE_KEY, 100)
@@ -118,9 +126,42 @@ public class FlowAgentExecuteStrategy implements IExecuteStrategy {
         }
 
         agentContext.getPrinter().send("result", content);
+        // chat 无执行账本 run，answerSummary 直接用最终答复内容落长期记忆
+        persistTurn(request, content);
     }
 
     private ChatClient getChatClientByClientId(String clientId) {
         return aiClientRuntimeRegistry.getRequiredChatClient(clientId);
+    }
+
+    private String assembleMemoryBlock(AgentRequest request) {
+        if (conversationMemoryManager == null || request == null) {
+            return "";
+        }
+        return conversationMemoryManager.assembleHistoryBlock(new MemoryQuery(
+                request.getOwnerId(),
+                request.getSessionId(),
+                request.getRequestId(),
+                request.getQuery()));
+    }
+
+    private String buildSystemPrompt(String memoryBlock, String stepPrompt) {
+        String base = (stepPrompt == null ? "" : stepPrompt) + " current_date_time:" + LocalDateTime.now();
+        if (memoryBlock == null || memoryBlock.isBlank()) {
+            return base;
+        }
+        return memoryBlock + "\n\n" + base;
+    }
+
+    private void persistTurn(AgentRequest request, String content) {
+        if (conversationMemoryManager == null || request == null || content == null || content.isBlank()) {
+            return;
+        }
+        conversationMemoryManager.persistTurnAsync(new MemoryTurn(
+                request.getOwnerId(),
+                request.getSessionId(),
+                request.getRequestId(),
+                request.getQuery(),
+                content));
     }
 }

@@ -216,7 +216,7 @@ async function requestWrappedData<T>(
   const wrapped = toRecord(rawResponse) as WrappedResponse<T>;
   if (Number(wrapped.code) !== 200) {
     throw new MRagWorkspaceRequestError(
-      resolveResponseMessage(rawResponse, "MRAG 请求失败"),
+      resolveResponseMessage(rawResponse, "知识库请求失败"),
       {
         status: response.status,
         rawResponse
@@ -435,7 +435,7 @@ export function mapMragError(error: unknown): string {
   if (error instanceof Error) {
     return error.message;
   }
-  return resolveResponseMessage(error, "MRAG 请求失败，请稍后重试。");
+  return resolveResponseMessage(error, "知识库请求失败，请稍后重试。");
 }
 
 export async function listKnowledgeBases(toolBaseUrl: string): Promise<KnowledgeBase[]> {
@@ -660,7 +660,7 @@ export async function streamMragQuery(
       try {
         parsedPayload = JSON.parse(event.data);
       } catch {
-        throw new MRagWorkspaceRequestError("MRAG SSE 消息解析失败", {rawResponse: event.data,});
+        throw new MRagWorkspaceRequestError("知识库 SSE 消息解析失败", {rawResponse: event.data,});
       }
 
       payload.onChunk({
@@ -678,11 +678,11 @@ export async function streamMragQuery(
       }
       throw error instanceof Error
         ? error
-        : new MRagWorkspaceRequestError("MRAG 流式请求失败", { rawResponse: error });
+        : new MRagWorkspaceRequestError("知识库流式请求失败", { rawResponse: error });
     },
   });
 
   if (!receivedDone && streamClosed && !payload.signal?.aborted) {
-    throw new MRagWorkspaceRequestError("MRAG 连接在完成前意外关闭");
+    throw new MRagWorkspaceRequestError("知识库连接在完成前意外关闭");
   }
 }

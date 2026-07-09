@@ -60,18 +60,26 @@ public class BenefitEventServiceTest {
     }
 
     @Test
-    public void publishGroupBuyCompletedEvents_skipsNonGroupOrder() {
+    public void publishGroupBuyCompletedEvents_publishesForDirectPurchase() {
+        // 直购单（NO_MARKET）支付成功同样发放权益：
+        // 旧行为是直接跳过，导致「直接购买」永远不开通会员（详见 OrderService.changeOrderPaySuccess 直购分支）。
         OrderEntity order = OrderEntity.builder()
                 .userId("10001")
                 .orderId("order-002")
+                .productId("9890002")
+                .productCode("PRO_MONTH")
                 .marketType(MarketTypeVO.NO_MARKET.getCode())
                 .build();
         when(orderRepository.queryOrderByOrderId("order-002")).thenReturn(order);
+        when(benefitEventRepository.findByOrderIdAndEventType("order-002", BenefitEventType.GROUP_BUY_COMPLETED.name()))
+                .thenReturn(null);
 
         benefitEventService.publishGroupBuyCompletedEvents(Collections.singletonList("order-002"));
 
-        verifyNoInteractions(benefitEventPort);
-        verify(benefitEventRepository, never()).insert(any(BenefitEventEntity.class));
+        ArgumentCaptor<TradeCompletedEvent> eventCaptor = ArgumentCaptor.forClass(TradeCompletedEvent.class);
+        verify(benefitEventPort).publishTradeCompleted(eventCaptor.capture());
+        assertEquals("PRO_MONTH", eventCaptor.getValue().getProductCode());
+        verify(benefitEventRepository).insert(any(BenefitEventEntity.class));
     }
 
     @Test

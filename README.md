@@ -130,6 +130,9 @@ pwsh docs/dev-ops/smoke-security.ps1
 ## 6. 技术亮点
 
 - **执行账本 + 历史回放（event sourcing）**：`dialogue_run / llm_invocation / tool_invocation / artifact_record` + 按工具类型分表，支持会话历史精确回放。
+- **三层对话记忆**：短期（单 run 上下文）/ 中期（会话滚动摘要压缩，替代硬截断，落 MySQL 账本）/ 长期（跨会话 Qdrant 向量召回 + 时间衰减遗忘），由 `ConversationMemoryManager` 统一组装注入，ReAct/Plan/chat 共用，Qdrant 不可用时 fail-open。
+- **循环/工具/幻觉兜底三件套**：ReAct 死循环检测 + 步数上限可识别终止；工具失败有界重试 + 结构化错误回喂；抗幻觉约束 prompt。断开即停释放配额、per-user 并发限流、崩溃遗留冻结配额兜底释放 job。
+- **可度量的最小评测集**：经 Gateway 跑真实 SSE，输出任务成功率、p50/p95 时延、平均步数/token、工具轨迹命中与可选 LLM-as-judge 打分（见 `docs/evals`）。
 - **Claude-skills 风格技能系统**：`SKILL.md` 解析 + 路径沙箱 + `read/grep/glob/list/skill/script_runner` 工具族。
 - **两阶段配额扣减**：Agent 对话 `预扣(freeze)→确认(confirm)/释放(release)`，按执行账本 run 终态结算，`settled` CAS 保证至多一次。
 - **支付一致性**：支付宝回调「验签 + 金额比对 + 订单存在性 + SQL 状态守卫」四件套；超时关单前先对账支付宝；本地消息表（outbox）+ 补偿 Job 保证权益/结算最终一致。

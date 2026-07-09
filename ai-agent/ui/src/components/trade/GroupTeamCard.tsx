@@ -1,6 +1,7 @@
 import { memo } from "react";
 import { Clock3, Loader2, UserPlus } from "lucide-react";
 import type { GroupBuyTeam, SkuItem } from "@/services/bff";
+import { useCountdown, COUNTDOWN_ENDED } from "@/hooks/useCountdown";
 import {
   formatPrice,
   formatQuota,
@@ -25,6 +26,8 @@ const GroupTeamCard = memo(
     const theme = skuTheme(sku?.code || "PRO_MONTH");
     const price = groupPrice ?? sku?.price;
     const joining = buyingKey === `${sku?.code || ""}-group-${teamId}`;
+    const countdown = useCountdown(team.validEndTime, team.validTimeCountdown);
+    const ended = countdown === COUNTDOWN_ENDED;
 
     return (
       <article className="overflow-hidden rounded-3xl border border-[var(--chat-border)] bg-white/80 shadow-[var(--shadow-sm)] backdrop-blur-sm dark:bg-white/5">
@@ -44,10 +47,14 @@ const GroupTeamCard = memo(
                 拼团码 {shortTeamId(teamId)}
               </div>
             </div>
-            {team.validTimeCountdown ? (
-              <div className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-800">
+            {countdown ? (
+              <div
+                className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium ${
+                  ended ? "bg-gray-100 text-gray-500" : "bg-amber-50 text-amber-800"
+                }`}
+              >
                 <Clock3 className="h-3.5 w-3.5" />
-                剩余 {team.validTimeCountdown}
+                {ended ? COUNTDOWN_ENDED : `剩余 ${countdown}`}
               </div>
             ) : null}
           </div>
@@ -89,7 +96,7 @@ const GroupTeamCard = memo(
           <button
             type="button"
             onClick={() => onJoin(teamId)}
-            disabled={Boolean(buyingKey) || remaining <= 0 || !teamId}
+            disabled={Boolean(buyingKey) || remaining <= 0 || !teamId || ended}
             className={`mt-4 inline-flex w-full items-center justify-center gap-2 rounded-full px-4 py-2.5 text-sm font-medium text-white disabled:opacity-60 ${theme.accent}`}
           >
             {joining ? (
@@ -97,7 +104,7 @@ const GroupTeamCard = memo(
             ) : (
               <UserPlus className="h-4 w-4" />
             )}
-            <span>立即参团 {price != null ? formatPrice(price) : ""}</span>
+            <span>{ended ? "拼团已结束" : `立即参团 ${price != null ? formatPrice(price) : ""}`}</span>
           </button>
         </div>
       </article>

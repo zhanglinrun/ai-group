@@ -38,7 +38,7 @@ const navItems: NavItem[] = [
   },
   {
     key: "mrag",
-    label: "MRAG",
+    label: "知识库",
     icon: DatabaseZap,
   },
   {

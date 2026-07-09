@@ -19,4 +19,21 @@
         where goods_id = #{goodsId}
     </select>
 
+    <!-- 运营端：商品列表 -->
+    <select id="querySkuList" resultMap="dataMap">
+        select source, channel, goods_id, goods_name, original_price
+        from sku
+    </select>
+
+    <!-- 运营端：更新商品名称/原价（非空才更新） -->
+    <update id="updateSkuGoods" parameterType="com.aigroup.groupbuy.infrastructure.dao.po.Sku">
+        update sku
+        <set>
+            <if test="goodsName != null and goodsName != ''">goods_name = #{goodsName},</if>
+            <if test="originalPrice != null">original_price = #{originalPrice},</if>
+            update_time = now()
+        </set>
+        where goods_id = #{goodsId}
+    </update>
+
 </mapper>

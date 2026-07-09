@@ -33,7 +33,10 @@ from reactor_tool.util.llm_util import (
 
 DEFAULT_IMAGE_MODEL = "gpt-image-2"
 DEFAULT_IMAGE_SIZE = "1024x1024"
-RESPONSES_FALLBACK_STATUS = {404, 405, 501}
+# 部分 OpenAI 兼容代理（如 new-api 网关）对某些图像模型只开放 legacy /images/generations，
+# 访问 /responses 时会以 400/500/503 返回“model only supported on /v1/images/generations”。
+# 将这些状态码纳入降级集合，使 primary(/responses) 失败后自动改走 fallback(/images/generations)。
+RESPONSES_FALLBACK_STATUS = {400, 404, 405, 500, 501, 503}
 DATA_URL_RE = re.compile(r"^data:(?P<mime>[^;,]+);base64,(?P<data>.+)$", re.IGNORECASE | re.DOTALL)
 BASE64_IMAGE_RE = re.compile(r"[A-Za-z0-9+/=\s]{200,}")
 HTTP_IMAGE_RE = re.compile(r"https?://[^\s\"'<>)]+" , re.IGNORECASE)

@@ -43,6 +43,16 @@ public class InternalApiTokenFilter extends OncePerRequestFilter {
             response.setStatus(HttpStatus.FORBIDDEN.value());
             return;
         }
+        // 经网关转发的请求（运营端浏览器调用）额外要求 ADMIN 角色：
+        // 网关对所有已登录路由都会注入内部令牌，若不校验角色，普通用户 JWT 也能透传到管理接口。
+        // 未经网关的直连调用（运维脚本/内部服务）保持原“仅内部令牌”语义。
+        if ("true".equalsIgnoreCase(request.getHeader(CommonConstant.HEADER_GATEWAY_REQUEST))) {
+            String role = request.getHeader(CommonConstant.HEADER_ROLE);
+            if (!"ADMIN".equalsIgnoreCase(role)) {
+                response.setStatus(HttpStatus.FORBIDDEN.value());
+                return;
+            }
+        }
         filterChain.doFilter(request, response);
     }
 }

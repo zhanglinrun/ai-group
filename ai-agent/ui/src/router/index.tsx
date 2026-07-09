@@ -15,6 +15,7 @@ const Orders = React.lazy(() => import('@/pages/Orders'));
 const Account = React.lazy(() => import('@/pages/Account'));
 const WorkspaceMRag = React.lazy(() => import('@/pages/WorkspaceMRag'));
 const WorkspaceImageGeneration = React.lazy(() => import('@/pages/WorkspaceImageGeneration'));
+const Admin = React.lazy(() => import('@/pages/Admin'));
 const NotFound = React.lazy(() => import('@/components/NotFound'));
 
 const withSuspense = (element: React.ReactNode) => (
@@ -35,6 +36,11 @@ const router = createBrowserRouter([
   {
     path: ROUTES.REGISTER,
     element: withSuspense(<Register />),
+  },
+  {
+    // 运营端：独立外壳（自带管理员登录门），不进用户端 Layout
+    path: ROUTES.ADMIN,
+    element: withSuspense(<Admin />),
   },
   {
     path: ROUTES.HOME,

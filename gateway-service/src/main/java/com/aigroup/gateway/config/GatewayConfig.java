@@ -61,6 +61,10 @@ public class GatewayConfig {
                                 .setResponseHeader("X-Accel-Buffering", "no")
                                 .dedupeResponseHeader(CORS_RESPONSE_HEADERS, CORS_DEDUPE_STRATEGY))
                         .uri(agentUri))
+                // 运营端模型 Key 管理：agent 的 /api/v1/admin/**（agent 侧过滤器要求经网关请求必须 ADMIN 角色）
+                .route("agent-admin", r -> r.path("/api/v1/admin/**")
+                        .filters(f -> f.dedupeResponseHeader(CORS_RESPONSE_HEADERS, CORS_DEDUPE_STRATEGY))
+                        .uri(agentUri))
                 .route("agent-web", r -> r.path("/web/**")
                         .filters(f -> f
                                 .setResponseHeader("X-Accel-Buffering", "no")

@@ -28,7 +28,9 @@ public final class SseLifecycleSupport {
         return scheduler.scheduleAtFixedRate(() -> {
             try {
                 log.info("{} send heartbeat", requestId);
-                emitter.send("heartbeat");
+                // 以 SSE 注释行(":heartbeat")作为保活，浏览器/前端 SSE 解析器会忽略注释、不进入 onmessage，
+                // 避免心跳被当成数据帧做 JSON.parse 而中断对话流。
+                emitter.send(SseEmitter.event().comment("heartbeat"));
             } catch (Exception e) {
                 if (SseClientDisconnectDetector.isClientDisconnected(e)) {
                     log.info("{} heartbeat stopped because SSE client disconnected", requestId);

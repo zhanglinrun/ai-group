@@ -1,6 +1,7 @@
 import { memo } from "react";
 import { ArrowLeft, CreditCard, Loader2, UserPlus, X } from "lucide-react";
 import type { GroupBuyInfo, GroupBuyTeam, SkuItem } from "@/services/bff";
+import { useCountdown, COUNTDOWN_ENDED } from "@/hooks/useCountdown";
 import {
   formatPrice,
   formatQuota,
@@ -36,6 +37,8 @@ const TeamRow = memo(
     const teamId = team.teamId || "";
     const { target, complete, remaining, percent } = teamProgress(team);
     const joining = buyingKey === `${goodsKey}-group-${teamId}`;
+    const countdown = useCountdown(team.validEndTime, team.validTimeCountdown);
+    const ended = countdown === COUNTDOWN_ENDED;
 
     return (
       <article className="rounded-2xl border border-[var(--chat-border)] bg-[var(--chat-surface)]/70 p-4">
@@ -44,7 +47,7 @@ const TeamRow = memo(
             <div className="text-sm font-medium">队伍 {shortTeamId(teamId)}</div>
             <div className="mt-1 text-xs text-[var(--chat-text-soft)]">
               已支付 {complete}/{target} 人
-              {team.validTimeCountdown ? ` · 剩余 ${team.validTimeCountdown}` : ""}
+              {countdown ? (ended ? ` · ${COUNTDOWN_ENDED}` : ` · 剩余 ${countdown}`) : ""}
             </div>
           </div>
           <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
@@ -60,7 +63,7 @@ const TeamRow = memo(
         <button
           type="button"
           onClick={() => onBuy(teamId)}
-          disabled={Boolean(buyingKey) || remaining <= 0}
+          disabled={Boolean(buyingKey) || remaining <= 0 || ended}
           className="mt-3 inline-flex items-center gap-2 rounded-full border border-[var(--chat-border)] px-3 py-1.5 text-xs font-medium disabled:opacity-60"
         >
           {joining ? (
@@ -68,7 +71,7 @@ const TeamRow = memo(
           ) : (
             <UserPlus className="h-3.5 w-3.5" />
           )}
-          <span>加入这个团</span>
+          <span>{ended ? "拼团已结束" : "加入这个团"}</span>
         </button>
       </article>
     );
@@ -80,9 +83,17 @@ const GroupPreviewDialog = memo(
   ({ sku, groupBuy, loading, buyingKey, onClose, onBuy }: GroupPreviewDialogProps) => {
     const goods = groupBuy?.goods;
     const theme = skuTheme(sku.code);
-    const groupPrice = goods?.payPrice ?? sku.price;
-    const originPrice = goods?.originalPrice ?? sku.price;
-    const teamList = groupBuy?.teamList ?? [];
+    // 优先展示该 SKU 自己的拼团价（月卡/年卡/加油包各自独立活动），回退页面级 goods
+    const groupPrice = sku.groupPayPrice ?? goods?.payPrice ?? sku.price;
+    const originPrice = sku.groupOriginalPrice ?? goods?.originalPrice ?? sku.price;
+    const deductionPrice = sku.groupDeductionPrice ?? goods?.deductionPrice;
+    // 只展示属于该 SKU 活动的队伍，避免跨套餐加错团
+    const teamList = (groupBuy?.teamList ?? []).filter(
+      (team) =>
+        sku.groupActivityId == null ||
+        team.activityId == null ||
+        team.activityId === sku.groupActivityId
+    );
     const goodsKey = sku.code;
     const starting = buyingKey === `${goodsKey}-group`;
 
@@ -118,9 +129,9 @@ const GroupPreviewDialog = memo(
               <div className="mt-2 text-3xl font-semibold">{formatPrice(groupPrice)}</div>
               <div className="mt-2 text-sm text-[var(--chat-text-soft)]">
                 原价 {formatPrice(originPrice)}
-                {goods?.deductionPrice != null && goods.deductionPrice > 0 ? (
+                {deductionPrice != null && deductionPrice > 0 ? (
                   <span className="ml-2 font-medium text-emerald-600">
-                    省 {formatPrice(goods.deductionPrice)}
+                    省 {formatPrice(deductionPrice)}
                   </span>
                 ) : null}
               </div>

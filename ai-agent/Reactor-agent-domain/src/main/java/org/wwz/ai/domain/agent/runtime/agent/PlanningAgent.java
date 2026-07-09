@@ -107,6 +107,11 @@ public class PlanningAgent extends ReActAgent {
     private String currentPlannerRoundId;
 
     /**
+     * planner 单次 askTool 超时（秒），来自配置，避免此前硬编码 3000 秒占用线程近一小时。
+     */
+    private int askToolTimeoutSeconds = 300;
+
+    /**
      * 构造方法：初始化计划智能体的核心配置
      *
      * @param context 智能体上下文：包含用户查询、工具集合、日期信息、SOP提示词、请求ID等核心数据
@@ -139,6 +144,12 @@ public class PlanningAgent extends ReActAgent {
         // 5. 设置智能体运行依赖
         setPrinter(context.printer); // 设置输出器：用于向用户/前端推送执行过程（如plan、task、plan_thought）
         setMaxSteps(reactorConfig.getPlannerMaxSteps()); // 设置最大执行步骤：防止无限循环
+        if (reactorConfig.getPlannerAskToolTimeoutSeconds() != null && reactorConfig.getPlannerAskToolTimeoutSeconds() > 0) {
+            this.askToolTimeoutSeconds = reactorConfig.getPlannerAskToolTimeoutSeconds();
+        }
+        if (reactorConfig.getToolMaxAttempts() != null && reactorConfig.getToolMaxAttempts() > 0) {
+            setToolMaxAttempts(reactorConfig.getToolMaxAttempts());
+        }
         setLlm(new LLM(reactorConfig.getPlannerModelName(), "", runtimeDependencies)); // 初始化大模型实例（指定模型名称）
 
         // 6. 关联上下文&配置计划更新开关
@@ -196,7 +207,7 @@ public class PlanningAgent extends ReActAgent {
                     getMemory().getMessages(),
                     Message.systemMessage(getSystemPrompt(), null),
                     availableTools,
-                    ToolChoice.AUTO, null, context.getIsStream(), false, 3000
+                    ToolChoice.AUTO, null, context.getIsStream(), false, askToolTimeoutSeconds
             );
 
             // 6. 同步获取异步结果（阻塞等待大模型响应）
@@ -236,11 +247,18 @@ public class PlanningAgent extends ReActAgent {
             getMemory().addMessage(assistantMsg); // 助手消息加入记忆，用于后续多轮对话
 
         } catch (Exception e) {
-            // 异常处理：仅记录日志，不返回false（避免智能体直接终止）
-            log.error("{} think error ", context.getRequestId(), e);
+            // 异常处理：对齐 ReactImplAgent —— 标记 run 失败、置 FINISHED 并返回 false，
+            // 避免 toolCalls 保持为 null 时 act() 遍历触发 NPE，或非首轮重放上一轮 toolCalls。
+            log.error("{} planner think error", context.getRequestId(), e);
+            getMemory().addMessage(Message.assistantMessage(
+                    "Error encountered while planning: " + e.getMessage(), null));
+            setToolCalls(new ArrayList<>());
+            context.markRunFailed();
+            setState(AgentState.FINISHED);
+            return false;
         }
 
-        return true; // 思考阶段无论是否异常，均返回true（保证流程继续）
+        return true;
     }
 
     /**
@@ -261,11 +279,17 @@ public class PlanningAgent extends ReActAgent {
                 return getNextTask();
             }
         }
-//
-//        if (toolCalls.isEmpty()) {
-//            setState(AgentState.FINISHED);
-//            return getMemory().getLastMessage().toString();
-//        }
+
+        // 1.1 防御：toolCalls 为 null（think 异常兜底路径）时不进入下方遍历，避免 NPE。
+        //     注意空列表且已有计划的场景仍需走 getNextTask（既有语义），因此这里只拦截 null。
+        if (toolCalls == null) {
+            if (Objects.nonNull(planningTool.getPlan())) {
+                return getNextTask();
+            }
+            setState(AgentState.FINISHED);
+            Message last = getMemory().getLastMessage();
+            return last == null || last.getContent() == null ? "" : last.getContent();
+        }
 
         // 2. 初始化工具执行结果列表
         List<String> results = new ArrayList<>();

@@ -84,6 +84,23 @@ autobots:
       model_name: ${AGENT_GROUP_LLM_CHAT_MODEL:qwen-plus}
     react:
       model_name: ${AGENT_GROUP_LLM_CHAT_MODEL:qwen-plus}
+    max-concurrent-dialogues-per-user: ${AGENT_MAX_CONCURRENT_DIALOGUES_PER_USER:3}
+    tool:
+      max_attempts: ${AGENT_TOOL_MAX_ATTEMPTS:2}
+    # 三层对话记忆：短期(单run上下文) / 中期(会话滚动摘要压缩) / 长期(跨会话向量召回)
+    memory:
+      enabled: ${AGENT_MEMORY_ENABLED:true}
+      recent-run-window: ${AGENT_MEMORY_RECENT_RUN_WINDOW:3}
+      max-tokens: ${AGENT_MEMORY_MAX_TOKENS:12000}
+      compress:
+        enabled: ${AGENT_MEMORY_COMPRESS_ENABLED:true}
+      longterm:
+        # 长期记忆依赖 Qdrant，默认关闭；开启需 autobots.data-agent.qdrant-config.enable=true
+        enabled: ${AGENT_MEMORY_LONGTERM_ENABLED:false}
+        collection: ${AGENT_MEMORY_LONGTERM_COLLECTION:agent_conversation_memory}
+        top-k: ${AGENT_MEMORY_LONGTERM_TOP_K:5}
+        score-threshold: ${AGENT_MEMORY_LONGTERM_SCORE_THRESHOLD:0.6}
+        decay-half-life-days: ${AGENT_MEMORY_LONGTERM_DECAY_HALF_LIFE_DAYS:30}
     dispatch_url: ${AGENT_GROUP_AGENT_DISPATCH_URL:http://127.0.0.1:8090/AutoAgent}
     code_interpreter_url: ${AGENT_GROUP_REACTOR_TOOL_BASE_URL:http://127.0.0.1:1601}
     deep_search_url: ${AGENT_GROUP_REACTOR_TOOL_BASE_URL:http://127.0.0.1:1601}

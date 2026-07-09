@@ -85,6 +85,33 @@ autobots:
       model_name: ${AGENT_GROUP_LLM_CHAT_MODEL:qwen-plus}
     react:
       model_name: ${AGENT_GROUP_LLM_CHAT_MODEL:qwen-plus}
+    # 单用户并发对话上限（超过即拒绝，控制成本与公平性）
+    max-concurrent-dialogues-per-user: ${AGENT_MAX_CONCURRENT_DIALOGUES_PER_USER:3}
+    tool:
+      # 工具调用瞬时失败（抛异常）时的最大尝试次数（含首次）；2 即最多重试 1 次
+      max_attempts: ${AGENT_TOOL_MAX_ATTEMPTS:2}
+    # 输出格式指令：按前端 outputStyle(html/docs/ppt/table) 追加到用户 query，
+    # 引导 agent 用 report_tool(fileType=html/markdown/ppt) 或 code_interpreter(csv/excel) 交付对应格式。
+    # 不配置时 outputStyle 只影响前端展示，agent 始终按系统提示词默认输出 HTML —— 即“输出格式选了没用”。
+    output_style_prompts: '{"html":"\n\n[输出格式要求] 最终交付物请调用 report_tool 生成 HTML 网页报告（fileType=html）。","docs":"\n\n[输出格式要求] 最终交付物请调用 report_tool 生成 Markdown 文档报告（fileType=markdown），不要生成 HTML 网页。","ppt":"\n\n[输出格式要求] 最终交付物请调用 report_tool 生成 PPT 演示文稿（fileType=ppt），不要生成 HTML 网页。","table":"\n\n[输出格式要求] 用户指定输出表格：最终交付物请调用 code_interpreter 生成 CSV 或 Excel 数据表格文件，不要生成 HTML 网页。"}'
+    # 三层对话记忆：短期(单run上下文) / 中期(会话滚动摘要压缩) / 长期(跨会话向量召回)
+    memory:
+      enabled: ${AGENT_MEMORY_ENABLED:true}
+      # 中期：近 K 轮原文逐字保留，更早轮次用滚动摘要替代
+      recent-run-window: ${AGENT_MEMORY_RECENT_RUN_WINDOW:3}
+      # 注入到 prompt 的历史块 token 预算上限
+      max-tokens: ${AGENT_MEMORY_MAX_TOKENS:12000}
+      compress:
+        # 仅在历史超预算时触发 LLM 摘要压缩，控制成本
+        enabled: ${AGENT_MEMORY_COMPRESS_ENABLED:true}
+      longterm:
+        # 长期记忆依赖 Qdrant，默认关闭；开启需 autobots.data-agent.qdrant-config.enable=true
+        enabled: ${AGENT_MEMORY_LONGTERM_ENABLED:false}
+        collection: ${AGENT_MEMORY_LONGTERM_COLLECTION:agent_conversation_memory}
+        top-k: ${AGENT_MEMORY_LONGTERM_TOP_K:5}
+        score-threshold: ${AGENT_MEMORY_LONGTERM_SCORE_THRESHOLD:0.6}
+        # 召回时间衰减半衰期（天），越久的记忆得分权重越低（遗忘机制）
+        decay-half-life-days: ${AGENT_MEMORY_LONGTERM_DECAY_HALF_LIFE_DAYS:30}
     dispatch_url: ${AGENT_GROUP_AGENT_DISPATCH_URL:http://127.0.0.1:8090/AutoAgent}
     code_interpreter_url: ${AGENT_GROUP_REACTOR_TOOL_BASE_URL:http://127.0.0.1:1601}
     deep_search_url: ${AGENT_GROUP_REACTOR_TOOL_BASE_URL:http://127.0.0.1:1601}

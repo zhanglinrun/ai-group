@@ -334,6 +334,88 @@ public class AliPayController {
     }
 
     /**
+     * 支付回跳同步结算（用户侧）：支付宝同步回跳后由前端调用，
+     * 主动向支付宝查单（alipay.trade.query），TRADE_SUCCESS 即触发与异步 notify 相同的结算逻辑。
+     * 用途：本地/演示环境公网 notify_url 打不到本机时，靠该接口完成「支付→开通会员」闭环。
+     * 安全：经网关身份头解析用户并校验订单归属；结算幂等（重复调用/与异步 notify 双触发均安全）。
+     */
+    @RequestMapping(value = "sync_settle", method = RequestMethod.POST)
+    public Response<String> syncSettle(@RequestParam String outTradeNo, HttpServletRequest servletRequest) {
+        try {
+            String userId = gatewayUserResolver.resolveUserId(servletRequest, null);
+            OrderEntity order = orderService.queryOrderByOrderId(outTradeNo);
+            if (order == null || !userId.equals(order.getUserId())) {
+                log.warn("sync settle rejected: order not found or not owned, userId={} outTradeNo={}", userId, outTradeNo);
+                return Response.<String>builder()
+                        .code(Constants.ResponseCode.ILLEGAL_PARAMETER.getCode())
+                        .info("order not found or not owned")
+                        .build();
+            }
+
+            String status = order.getOrderStatusVO() != null ? order.getOrderStatusVO().getCode() : "";
+            boolean alreadySettled = OrderStatusVO.PAY_SUCCESS.getCode().equals(status)
+                    || OrderStatusVO.DEAL_DONE.getCode().equals(status)
+                    || OrderStatusVO.MARKET.getCode().equals(status);
+            if (alreadySettled) {
+                return Response.<String>builder()
+                        .code(Constants.ResponseCode.SUCCESS.getCode())
+                        .info(Constants.ResponseCode.SUCCESS.getInfo())
+                        .data("SETTLED")
+                        .build();
+            }
+
+            AlipayTradeQueryModel bizModel = new AlipayTradeQueryModel();
+            bizModel.setOutTradeNo(outTradeNo);
+            AlipayTradeQueryRequest queryRequest = new AlipayTradeQueryRequest();
+            queryRequest.setBizModel(bizModel);
+            String body = alipayClient.execute(queryRequest).getBody();
+            log.info("sync settle trade query outTradeNo={} response={}", outTradeNo, body);
+
+            JSONObject queryResponse = JSON.parseObject(body).getJSONObject("alipay_trade_query_response");
+            if (queryResponse == null || !"10000".equals(queryResponse.getString("code"))) {
+                String msg = queryResponse != null ? queryResponse.getString("sub_msg") : "trade query failed";
+                return Response.<String>builder()
+                        .code(Constants.ResponseCode.SUCCESS.getCode())
+                        .info(Constants.ResponseCode.SUCCESS.getInfo())
+                        .data("UNPAID:" + msg)
+                        .build();
+            }
+
+            String tradeStatus = queryResponse.getString("trade_status");
+            if (!"TRADE_SUCCESS".equals(tradeStatus)) {
+                return Response.<String>builder()
+                        .code(Constants.ResponseCode.SUCCESS.getCode())
+                        .info(Constants.ResponseCode.SUCCESS.getInfo())
+                        .data("UNPAID:" + tradeStatus)
+                        .build();
+            }
+
+            String gmtPayment = queryResponse.getString("send_pay_date");
+            SimpleDateFormat payDateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+            payDateFormat.setTimeZone(TimeZone.getTimeZone("Asia/Shanghai"));
+            orderService.changeOrderPaySuccess(outTradeNo,
+                    gmtPayment != null ? payDateFormat.parse(gmtPayment) : new Date());
+            log.info("sync settle success userId={} outTradeNo={}", userId, outTradeNo);
+            return Response.<String>builder()
+                    .code(Constants.ResponseCode.SUCCESS.getCode())
+                    .info(Constants.ResponseCode.SUCCESS.getInfo())
+                    .data("SETTLED")
+                    .build();
+        } catch (IllegalArgumentException e) {
+            return Response.<String>builder()
+                    .code(Constants.ResponseCode.ILLEGAL_PARAMETER.getCode())
+                    .info(e.getMessage())
+                    .build();
+        } catch (Exception e) {
+            log.error("sync settle failed outTradeNo={}", outTradeNo, e);
+            return Response.<String>builder()
+                    .code(Constants.ResponseCode.UN_ERROR.getCode())
+                    .info(Constants.ResponseCode.UN_ERROR.getInfo())
+                    .build();
+        }
+    }
+
+    /**
      * ?????? - ????????????
      * @param outTradeNo ??????
      * @return ????

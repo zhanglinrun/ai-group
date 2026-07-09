@@ -15,7 +15,7 @@ type WorkspaceToolItem = {
 const workspaceToolItems: WorkspaceToolItem[] = [
   {
     key: "mrag",
-    label: "MRAG 文件工作台",
+    label: "知识库",
     description: "知识库、文件与检索调试",
     icon: DatabaseZap,
     to: ROUTES.WORKSPACE_MRAG,

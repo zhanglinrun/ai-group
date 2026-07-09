@@ -60,8 +60,10 @@ public class MarketIndexController implements IMarketIndexService {
             GroupBuyActivityDiscountVO groupBuyActivityDiscountVO = trialBalanceEntity.getGroupBuyActivityDiscountVO();
             Long activityId = groupBuyActivityDiscountVO.getActivityId();
 
-            // 2. ??????
-            List<UserGroupBuyOrderDetailEntity> userGroupBuyOrderDetailEntities = indexGroupBuyMarketService.queryInProgressUserGroupBuyOrderDetailList(activityId, requestDTO.getUserId(), 1, 2);
+            // 2. 查询进行中的拼团队伍（本人置顶 3 + 其他人随机 10）。
+            // 原采样 1+2 会让新开的团大概率不出现在大厅（用户反馈"拼团后大厅没显示"），
+            // 调大采样数保证自己开的团必现、他人团有足够曝光。
+            List<UserGroupBuyOrderDetailEntity> userGroupBuyOrderDetailEntities = indexGroupBuyMarketService.queryInProgressUserGroupBuyOrderDetailList(activityId, requestDTO.getUserId(), 3, 10);
 
             // 3. ??????
             TeamStatisticVO teamStatisticVO = indexGroupBuyMarketService.queryTeamStatisticByActivityId(activityId);

@@ -20,6 +20,7 @@ import {
   type OrderItem,
   type SkuItem,
 } from "@/services/bff";
+import { payApi } from "@/services/pay";
 import { useTradePurchase } from "@/hooks/useTradePurchase";
 import {
   summarizeTradeWorkspace,
@@ -30,6 +31,7 @@ import {
   paymentOutcomeMessage,
   resolvePaymentOutcome,
 } from "@/utils/paymentStatus";
+import { submitAlipayForm } from "@/utils/payForm";
 import { ROUTES } from "@/router/routes";
 import { isMemberSku, isTopupSku } from "@/utils/tradeDisplay";
 
@@ -106,9 +108,22 @@ const PricingPage = memo(() => {
   useEffect(() => {
     if (!paymentReturn) return;
     setPaymentReturned(true);
+    // 支付宝同步回跳会在 return_url 上附带 out_trade_no：
+    // 先调 sync_settle 主动查单结算（本地环境异步 notify 打不到，靠它完成开通闭环），再刷新数据。
+    const outTradeNo = searchParams.get("out_trade_no");
     setSearchParams({ tab: "orders" }, { replace: true });
-    void loadTradeData();
-  }, [paymentReturn, loadTradeData, setSearchParams]);
+    const settleThenReload = async () => {
+      if (outTradeNo) {
+        try {
+          await payApi.syncSettle(outTradeNo);
+        } catch (err) {
+          console.error("支付回跳结算失败", err);
+        }
+      }
+      await loadTradeData();
+    };
+    void settleThenReload();
+  }, [paymentReturn, loadTradeData, searchParams, setSearchParams]);
 
   const switchTab = useCallback(
     (tab: TradeTab) => {
@@ -132,12 +147,13 @@ const PricingPage = memo(() => {
 
   const openGroupPreview = useCallback(
     async (sku: SkuItem) => {
-      if (!groupBuy?.activityId) {
+      const activityId = sku.groupActivityId ?? groupBuy?.activityId;
+      if (!activityId) {
         message.error("当前没有可用拼团活动");
         return;
       }
       setGroupPreviewSku(sku);
-      await refreshGroupTeams(groupBuy.activityId);
+      await refreshGroupTeams(activityId);
     },
     [groupBuy?.activityId, refreshGroupTeams]
   );
@@ -160,6 +176,20 @@ const PricingPage = memo(() => {
     },
     [handleBuy, switchTab]
   );
+
+  // 待支付订单恢复支付：复用 pay 服务持久化的收银台表单，重新打开支付宝页面
+  const handleResumePay = useCallback((order: OrderItem) => {
+    if (!order.payUrl) {
+      message.error("该订单暂无可用支付链接，请重新下单");
+      return;
+    }
+    try {
+      submitAlipayForm(order.payUrl);
+    } catch (err) {
+      console.error("恢复支付失败", err);
+      message.error("打开支付页面失败，请稍后重试");
+    }
+  }, []);
 
   const memberSkus = useMemo(
     () => skus.filter((sku) => isMemberSku(sku) && sku.code !== "FREE"),
@@ -294,12 +324,16 @@ const PricingPage = memo(() => {
                       key={sku.code}
                       sku={sku}
                       highlight={index === 0}
-                      groupPrice={groupBuy?.goods?.payPrice}
-                      deductionPrice={groupBuy?.goods?.deductionPrice}
+                      groupPrice={sku.groupPayPrice ?? groupBuy?.goods?.payPrice}
+                      deductionPrice={
+                        sku.groupDeductionPrice ?? groupBuy?.goods?.deductionPrice
+                      }
                       buyingKey={buyingKey}
                       onDirectBuy={() => void handleDirectBuy(sku)}
                       onGroupBuy={
-                        canGroupBuy ? () => void openGroupPreview(sku) : undefined
+                        sku.groupActivityId != null || canGroupBuy
+                          ? () => void openGroupPreview(sku)
+                          : undefined
                       }
                     />
                   ))}
@@ -313,7 +347,7 @@ const PricingPage = memo(() => {
                 <h2 className="text-lg font-medium">额度包</h2>
               </div>
               <p className="mb-4 text-sm text-[var(--chat-text-soft)]">
-                单独购买加油包额度，支付成功后立即到账，可与会员周期配额叠加使用。
+                单独购买加油包额度，支付成功后立即到账，可与会员周期配额叠加使用；也支持拼团购买享优惠价。
               </p>
               {loading ? (
                 <div className="flex justify-center py-10">
@@ -327,8 +361,15 @@ const PricingPage = memo(() => {
                     <PackageCard
                       key={sku.code}
                       sku={sku}
+                      groupPrice={sku.groupPayPrice}
+                      deductionPrice={sku.groupDeductionPrice}
                       buyingKey={buyingKey}
                       onDirectBuy={() => void handleDirectBuy(sku)}
+                      onGroupBuy={
+                        sku.groupActivityId != null
+                          ? () => void openGroupPreview(sku)
+                          : undefined
+                      }
                     />
                   ))}
                 </div>
@@ -393,10 +434,21 @@ const PricingPage = memo(() => {
                             </div>
                           </div>
                         </div>
-                        <div
-                          className={`mt-3 inline-flex rounded-full bg-[var(--chat-surface-soft)] px-3 py-1 text-xs ${hintToneClass(hint.tone)}`}
-                        >
-                          {hint.label}：{hint.detail}
+                        <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                          <div
+                            className={`inline-flex rounded-full bg-[var(--chat-surface-soft)] px-3 py-1 text-xs ${hintToneClass(hint.tone)}`}
+                          >
+                            {hint.label}：{hint.detail}
+                          </div>
+                          {order.displayStatus === "PAY_WAIT" && order.payUrl ? (
+                            <button
+                              type="button"
+                              onClick={() => handleResumePay(order)}
+                              className="inline-flex items-center rounded-full bg-[var(--primary)] px-4 py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-90"
+                            >
+                              去支付
+                            </button>
+                          ) : null}
                         </div>
                       </article>
                     );

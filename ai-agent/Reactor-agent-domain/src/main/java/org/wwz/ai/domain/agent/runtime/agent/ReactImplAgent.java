@@ -107,6 +107,18 @@ public class ReactImplAgent extends ReActAgent {
         // 步骤5：初始化输出器和核心配置
         setPrinter(context.printer); // 响应输出器（推送tool_thought/tool_result给客户端）
         setMaxSteps(reactorConfig.getReactMaxSteps()); // 最大执行步数（防止无限循环）
+        // ReAct 路径同样启用工具 observation 截断（此前 maxObserve 从不设置，导致超长工具输出全量写回撑爆上下文）
+        String maxObserveConfig = reactorConfig.getMaxObserve();
+        if (maxObserveConfig != null && !maxObserveConfig.isBlank()) {
+            try {
+                setMaxObserve(Integer.parseInt(maxObserveConfig.trim()));
+            } catch (NumberFormatException ignored) {
+                // 配置非法则退回不截断的既有行为
+            }
+        }
+        if (reactorConfig.getToolMaxAttempts() != null && reactorConfig.getToolMaxAttempts() > 0) {
+            setToolMaxAttempts(reactorConfig.getToolMaxAttempts());
+        }
         setLlm(new LLM(reactorConfig.getReactModelName(), "", runtimeDependencies)); // 初始化大模型实例（指定ReAct专用模型）
 
         // 步骤6：初始化可用工具集合（从上下文加载当前请求可调用的所有工具）

@@ -26,7 +26,20 @@ public class GptQueryIngressService {
     private final ReactorConfig reactorConfig;
     private final AgentRunSettlementService agentRunSettlementService;
 
+    /**
+     * 同步执行入口：冻结配额 → dispatch → 按账本终态结算。
+     * 保留给 legacy ReactorController 与单测使用；主链路（AiAgentController）走 prepare + 异步 dispatchAndSettle。
+     */
     public void queryAgentStreamIncr(GptQueryReq params, AgentSessionStream stream) {
+        PreparedGptQuery prepared = prepare(params, stream);
+        dispatchAndSettle(prepared, true);
+    }
+
+    /**
+     * 同步准备阶段：解析身份、构建请求、校验会话归属、冻结配额。
+     * 放在 Servlet 线程执行，使配额不足/归属校验失败能立刻返回，而不占用 dispatch 线程池。
+     */
+    public PreparedGptQuery prepare(GptQueryReq params, AgentSessionStream stream) {
         Long ownerId = OwnerRequestContext.requireOwnerId();
         params.setTraceId(ChateiUtils.getRequestId(params));
         AgentRequest agentRequest = buildAgentRequest(params, ownerId);
@@ -40,6 +53,17 @@ public class GptQueryIngressService {
         billingStream.onAbort(() -> {
             // Register quota release on downstream SSE abort even when the execute strategy has no upstream stream to cancel.
         });
+        return new PreparedGptQuery(agentRequest, billingStream, freezeId);
+    }
+
+    /**
+     * 执行阶段：dispatch + 结算。可在 dispatch 线程池异步执行。
+     *
+     * @param rethrow true 时（同步路径）dispatch 异常向上抛出；false 时（异步路径）仅落到流的 completeWithError。
+     */
+    public void dispatchAndSettle(PreparedGptQuery prepared, boolean rethrow) {
+        AgentRequest agentRequest = prepared.agentRequest();
+        QuotaBillingAgentSessionStream billingStream = prepared.billingStream();
         try {
             agentDispatchService.dispatch(agentRequest, billingStream);
             // dispatch 正常返回不代表执行成功（agent 失败分支会吞异常），以账本 run 终态决定 confirm/release。
@@ -50,11 +74,21 @@ public class GptQueryIngressService {
             }
         } catch (Exception ex) {
             billingStream.completeWithError(ex);
-            if (ex instanceof RuntimeException runtimeException) {
-                throw runtimeException;
+            if (rethrow) {
+                if (ex instanceof RuntimeException runtimeException) {
+                    throw runtimeException;
+                }
+                throw new RuntimeException(ex);
             }
-            throw new RuntimeException(ex);
         }
+    }
+
+    /**
+     * 准备阶段产物：携带已冻结配额的请求、结算流与冻结ID，供异步执行阶段消费。
+     */
+    public record PreparedGptQuery(AgentRequest agentRequest,
+                                   QuotaBillingAgentSessionStream billingStream,
+                                   String freezeId) {
     }
 
     private AgentRequest buildAgentRequest(GptQueryReq req, Long ownerId) {

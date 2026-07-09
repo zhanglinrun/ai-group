@@ -51,4 +51,18 @@
         where activity_id = #{activityId}
     </select>
 
+    <!-- 运营端：更新活动可运营字段（非空才更新） -->
+    <update id="updateGroupBuyActivityConfig" parameterType="com.aigroup.groupbuy.infrastructure.dao.po.GroupBuyActivity">
+        update group_buy_activity
+        <set>
+            <if test="activityName != null and activityName != ''">activity_name = #{activityName},</if>
+            <if test="takeLimitCount != null">take_limit_count = #{takeLimitCount},</if>
+            <if test="target != null">target = #{target},</if>
+            <if test="validTime != null">valid_time = #{validTime},</if>
+            <if test="status != null">status = #{status},</if>
+            update_time = now()
+        </set>
+        where activity_id = #{activityId}
+    </update>
+
 </mapper>

@@ -4,7 +4,12 @@ import { Loader2, RefreshCw, Users } from "lucide-react";
 import { message } from "antd";
 import ShellNav from "@/components/ShellNav";
 import GroupTeamCard from "@/components/trade/GroupTeamCard";
-import { bffApi, type GroupBuyInfo, type SkuItem } from "@/services/bff";
+import {
+  bffApi,
+  type GroupBuyInfo,
+  type GroupBuyTeam,
+  type SkuItem,
+} from "@/services/bff";
 import { useTradePurchase } from "@/hooks/useTradePurchase";
 import { ROUTES } from "@/router/routes";
 import { isMemberSku, skuDisplayName } from "@/utils/tradeDisplay";
@@ -42,18 +47,40 @@ const GroupBuyHallPage = memo(() => {
   const teamList = groupBuy?.teamList ?? [];
   const canGroupBuy = groupBuy?.activityId != null;
 
+  // 大厅聚合了各 SKU 活动的队伍：按 team.activityId 归属到对应套餐（月卡/年卡/加油包）
+  const skuByActivityId = useMemo(() => {
+    const map = new Map<number, SkuItem>();
+    for (const sku of skus) {
+      if (sku.groupActivityId != null) {
+        map.set(sku.groupActivityId, sku);
+      }
+    }
+    return map;
+  }, [skus]);
+
+  const resolveTeamSku = useCallback(
+    (team: GroupBuyTeam): SkuItem | null => {
+      if (team.activityId != null) {
+        return skuByActivityId.get(team.activityId) ?? defaultSku;
+      }
+      return defaultSku;
+    },
+    [skuByActivityId, defaultSku]
+  );
+
   const handleJoinTeam = useCallback(
-    async (teamId: string) => {
-      if (!defaultSku) {
+    async (team: GroupBuyTeam) => {
+      const teamSku = resolveTeamSku(team);
+      if (!teamSku) {
         message.error("暂无可用套餐");
         return;
       }
-      const ok = await handleBuy(defaultSku, "group", teamId);
+      const ok = await handleBuy(teamSku, "group", team.teamId);
       if (ok) {
         navigate(`${ROUTES.PRICING}?tab=orders`);
       }
     },
-    [defaultSku, handleBuy, navigate]
+    [resolveTeamSku, handleBuy, navigate]
   );
 
   return (
@@ -143,16 +170,19 @@ const GroupBuyHallPage = memo(() => {
           </div>
         ) : (
           <div className="mt-6 grid gap-4 md:grid-cols-2">
-            {teamList.map((team) => (
-              <GroupTeamCard
-                key={team.teamId}
-                team={team}
-                sku={defaultSku}
-                groupPrice={groupBuy?.goods?.payPrice}
-                buyingKey={buyingKey}
-                onJoin={handleJoinTeam}
-              />
-            ))}
+            {teamList.map((team) => {
+              const teamSku = resolveTeamSku(team);
+              return (
+                <GroupTeamCard
+                  key={team.teamId}
+                  team={team}
+                  sku={teamSku}
+                  groupPrice={teamSku?.groupPayPrice ?? groupBuy?.goods?.payPrice}
+                  buyingKey={buyingKey}
+                  onJoin={() => void handleJoinTeam(team)}
+                />
+              );
+            })}
           </div>
         )}
 

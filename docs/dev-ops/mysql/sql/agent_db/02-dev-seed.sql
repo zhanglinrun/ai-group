@@ -40,8 +40,8 @@ VALUES ('client', 'dev_client_001', 'advisor', 'dev_advisor_memory_001', 1);
 INSERT INTO ai_agent (agent_id, agent_name, description, channel, strategy, flow_step_count, status)
 VALUES (
   'dev_role_001',
-  'Dev Assistant',
-  'Default fix role for local streaming chat',
+  '通用助手',
+  '日常问答与写作助手，快速模式默认角色',
   'fix',
   'flow',
   1,
@@ -55,5 +55,5 @@ VALUES (
   'Dev Chat Client',
   'chat',
   1,
-  'You are a helpful AI assistant. Reply concisely in the same language as the user.'
+  '你是一位乐于助人的AI助手，回答准确、简洁，默认使用与用户相同的语言作答。'
 );

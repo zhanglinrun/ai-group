@@ -25,4 +25,17 @@
         where discount_id = #{discountId}
     </select>
 
+    <!-- 运营端：更新折扣表达式/名称（非空才更新） -->
+    <update id="updateGroupBuyDiscountExpr" parameterType="com.aigroup.groupbuy.infrastructure.dao.po.GroupBuyDiscount">
+        update group_buy_discount
+        <set>
+            <if test="discountName != null and discountName != ''">discount_name = #{discountName},</if>
+            <if test="discountDesc != null and discountDesc != ''">discount_desc = #{discountDesc},</if>
+            <if test="marketPlan != null and marketPlan != ''">market_plan = #{marketPlan},</if>
+            <if test="marketExpr != null and marketExpr != ''">market_expr = #{marketExpr},</if>
+            update_time = now()
+        </set>
+        where discount_id = #{discountId}
+    </update>
+
 </mapper>

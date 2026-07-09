@@ -24,7 +24,9 @@ export function useTradePurchase(groupBuy: GroupBuyInfo | null) {
       }
 
       const isGroup = mode === "group";
-      if (isGroup && !groupBuy?.activityId) {
+      // 优先用 SKU 自己的拼团活动（月卡/年卡/加油包各自独立），回退到页面级默认活动
+      const activityId = sku.groupActivityId ?? groupBuy?.activityId;
+      if (isGroup && !activityId) {
         message.error("拼团活动不可用");
         return false;
       }
@@ -34,9 +36,9 @@ export function useTradePurchase(groupBuy: GroupBuyInfo | null) {
       try {
         const payHtml = await payApi.createOrder({
           userId: String(userId),
-          productId: groupBuy?.goods?.goodsId || DEFAULT_GOODS_ID,
+          productId: sku.groupGoodsId || groupBuy?.goods?.goodsId || DEFAULT_GOODS_ID,
           productCode: sku.code,
-          activityId: isGroup ? groupBuy?.activityId : undefined,
+          activityId: isGroup ? activityId : undefined,
           marketType: isGroup ? GROUP_BUY_MARKET_TYPE : DIRECT_BUY_MARKET_TYPE,
           teamId: isGroup ? teamId : undefined,
         });

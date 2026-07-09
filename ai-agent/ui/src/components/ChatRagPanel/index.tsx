@@ -80,7 +80,7 @@ export default function ChatRagPanel() {
 
     const toolBaseUrl = TOOL_BASE_URL || stored.toolBaseUrl;
     if (!toolBaseUrl) {
-      setQueryError("未配置 MRAG Tool URL");
+      setQueryError("未配置知识库 Tool URL");
       return;
     }
 

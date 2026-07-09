@@ -184,4 +184,9 @@ public class AgentSessionPrinter implements Printer {
     public void updateAgentType(AgentType agentType) {
         this.agentType = agentType.getValue();
     }
+
+    @Override
+    public boolean isAborted() {
+        return stream != null && stream.isAborted();
+    }
 }

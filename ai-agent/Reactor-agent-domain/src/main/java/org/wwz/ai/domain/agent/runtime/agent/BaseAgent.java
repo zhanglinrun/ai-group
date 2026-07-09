@@ -66,8 +66,23 @@ public abstract class BaseAgent {
     private int maxSteps = 10;
     /** 当前步号 */
     private int currentStep = 0;
-    /** 重复阈值，暂未启用 */
+    /** 死循环检测阈值：连续产出相同非空步骤结果达到该次数即判定卡壳并提前收敛（<=0 关闭） */
     private int duplicateThreshold = 2;
+
+    /** 死循环检测：上一步结果签名 */
+    private String lastStepSignature;
+    /** 死循环检测：连续重复计数 */
+    private int repeatedStepCount = 0;
+
+    /** 单个工具调用最大尝试次数（含首次）：>1 时对抛异常的瞬时失败有界重试。默认 1（不重试）。 */
+    private int toolMaxAttempts = 1;
+
+    /** 达到最大步数的终止标识（可识别，供上层区分正常完成与兜底终止） */
+    public static final String TERMINATION_MAX_STEPS = "Terminated: Reached max steps";
+    /** 检测到死循环的终止标识 */
+    public static final String TERMINATION_STUCK = "Terminated: Detected repeated steps, stopping to avoid a dead loop";
+    /** think 返回 false 时 step 的占位结果，不作为死循环信号 */
+    private static final String THINKING_COMPLETE_MARKER = "Thinking complete - no action needed";
 
     /** 输出器 */
     Printer printer;
@@ -90,22 +105,48 @@ public abstract class BaseAgent {
             updateMemory(RoleType.USER, query, null);
         }
 
+        // 每次 run 独立计数，避免跨 run 误判死循环
+        lastStepSignature = null;
+        repeatedStepCount = 0;
+
         List<String> results = new ArrayList<>();
         try {
             while (currentStep < maxSteps && state != AgentState.FINISHED) {
+                // 客户端断开（SSE 关闭）时提前终止，避免继续空跑烧 token；标记 run 失败使配额按失败结算（释放）。
+                if (isDownstreamAborted()) {
+                    log.info("{} {} downstream aborted, stop agent loop at step {}",
+                            context == null ? null : context.getRequestId(), getName(), currentStep);
+                    if (context != null) {
+                        context.markRunFailed();
+                    }
+                    state = AgentState.IDLE;
+                    break;
+                }
                 currentStep++;
                 if (context != null) {
                     // 每步进入前都刷新一次当前位置，供 LLM / tool 账本读取。
                     context.markExecutionPosition(getName(), currentStep);
                 }
-                log.info("{} {} Executing step {}/{}", context.getRequestId(), getName(), currentStep, maxSteps);
-                results.add(step());
+                log.info("{} {} Executing step {}/{}", context == null ? null : context.getRequestId(), getName(), currentStep, maxSteps);
+                String stepResult = step();
+                results.add(stepResult);
+
+                // 死循环兜底：连续多步产出完全相同的非空结果（模型反复调用同工具拿到同观察）即判定卡壳，
+                // 提前以与 maxSteps 一致的终止语义（IDLE）收敛，避免白烧 token 到步数上限。
+                if (state != AgentState.FINISHED && isRepeatedStep(stepResult)) {
+                    log.warn("{} {} detected {} repeated steps, breaking to avoid dead loop",
+                            context == null ? null : context.getRequestId(), getName(), repeatedStepCount);
+                    results.add(TERMINATION_STUCK);
+                    currentStep = 0;
+                    state = AgentState.IDLE;
+                    break;
+                }
             }
 
             if (currentStep >= maxSteps) {
                 currentStep = 0;
                 state = AgentState.IDLE;
-                results.add("Terminated: Reached max steps (" + maxSteps + ")");
+                results.add(TERMINATION_MAX_STEPS + " (" + maxSteps + ")");
             }
         } catch (Exception e) {
             state = AgentState.ERROR;
@@ -113,6 +154,36 @@ public abstract class BaseAgent {
         }
 
         return results.isEmpty() ? "No steps executed" : results.get(results.size() - 1);
+    }
+
+    /**
+     * 下游是否已断开：经 Printer 抽象感知 SSE 断开，domain 无需依赖协议实现。
+     */
+    private boolean isDownstreamAborted() {
+        return printer != null && printer.isAborted();
+    }
+
+    /**
+     * 死循环检测：仅当连续出现相同且非空（且非"无需行动"占位）的步骤结果达到阈值时返回 true。
+     * think 返回 false 走的是 FINISHED 正常收尾路径，不会进入此判定。
+     */
+    private boolean isRepeatedStep(String stepResult) {
+        if (duplicateThreshold <= 0) {
+            return false;
+        }
+        String signature = stepResult == null ? "" : stepResult.trim();
+        if (signature.isEmpty() || THINKING_COMPLETE_MARKER.equals(signature)) {
+            lastStepSignature = null;
+            repeatedStepCount = 0;
+            return false;
+        }
+        if (signature.equals(lastStepSignature)) {
+            repeatedStepCount++;
+        } else {
+            lastStepSignature = signature;
+            repeatedStepCount = 0;
+        }
+        return repeatedStepCount >= duplicateThreshold;
     }
 
     /**
@@ -342,57 +413,79 @@ public abstract class BaseAgent {
         }
 
         String toolName = command.getFunction().getName();
+        ObjectMapper mapper = new ObjectMapper();
+        Object args;
         try {
-            ObjectMapper mapper = new ObjectMapper();
-            Object args = mapper.readValue(normalizeToolPayload(command.getFunction().getArguments()), Object.class);
-
-            ToolArtifactSource artifactSource = ToolArtifactSource.builder()
-                    .sessionId(context.getSessionId())
-                    .requestId(context.getRequestId())
-                    .toolCallId(command.getId())
-                    .toolName(toolName)
-                    .build();
-
-            Object resultObject;
-            context.bindCurrentToolArtifactSource(artifactSource);
-            try {
-                resultObject = availableTools.execute(toolName, args);
-            } finally {
-                context.clearCurrentToolArtifactSource();
-            }
-
-            log.info("{} execute tool: {} {} result {}", context.getRequestId(), toolName, args, resultObject);
-
-            if (resultObject == null) {
-                return ToolExecutionOutcome.failure(
-                        "Tool " + toolName + " Error.",
-                        "Tool " + toolName + " Error.",
-                        null,
-                        "Tool returned null"
-                );
-            }
-
-            ToolResultPayload payload = normalizeToolResultPayload(resultObject, mapper);
-            String toolResult = StringUtils.defaultString(payload.getToolResult());
-            String llmObservation = StringUtils.defaultIfBlank(payload.getLlmObservation(), toolResult);
-            if (Boolean.TRUE.equals(payload.getFailed())) {
-                return ToolExecutionOutcome.failure(
-                        toolResult,
-                        llmObservation,
-                        payload.getStructuredOutput(),
-                        StringUtils.defaultIfBlank(payload.getErrorMsg(), toolResult)
-                );
-            }
-            return ToolExecutionOutcome.success(toolResult, llmObservation, payload.getStructuredOutput());
-        } catch (Exception e) {
-            log.error("{} execute tool {} failed ", context.getRequestId(), toolName, e);
-            return ToolExecutionOutcome.failure(
-                    "Tool " + toolName + " Error.",
-                    "Tool " + toolName + " Error.",
-                    null,
-                    e.getMessage()
-            );
+            args = mapper.readValue(normalizeToolPayload(command.getFunction().getArguments()), Object.class);
+        } catch (Exception parseEx) {
+            // 参数校验：入参不是合法 JSON 时，给出结构化纠错反馈让模型修正参数，而不是笼统报错。
+            log.warn("{} tool {} arguments parse failed, args={}", context.getRequestId(), toolName,
+                    command.getFunction().getArguments());
+            String msg = "工具 " + toolName + " 参数解析失败：入参必须为合法 JSON，请检查后用正确参数重试。";
+            return ToolExecutionOutcome.failure(msg, msg, null, "invalid tool arguments: " + parseEx.getMessage());
         }
+
+        int attempts = Math.max(1, toolMaxAttempts);
+        Exception lastError = null;
+        for (int attempt = 1; attempt <= attempts; attempt++) {
+            try {
+                ToolArtifactSource artifactSource = ToolArtifactSource.builder()
+                        .sessionId(context.getSessionId())
+                        .requestId(context.getRequestId())
+                        .toolCallId(command.getId())
+                        .toolName(toolName)
+                        .build();
+
+                Object resultObject;
+                context.bindCurrentToolArtifactSource(artifactSource);
+                try {
+                    resultObject = availableTools.execute(toolName, args);
+                } finally {
+                    context.clearCurrentToolArtifactSource();
+                }
+
+                log.info("{} execute tool: {} {} result {}", context.getRequestId(), toolName, args, resultObject);
+
+                if (resultObject == null) {
+                    // 返回空视为确定性失败，不重试；保持既有可识别文案。
+                    return ToolExecutionOutcome.failure(
+                            "Tool " + toolName + " Error.",
+                            "Tool " + toolName + " Error.",
+                            null,
+                            "Tool returned null"
+                    );
+                }
+
+                ToolResultPayload payload = normalizeToolResultPayload(resultObject, mapper);
+                String toolResult = StringUtils.defaultString(payload.getToolResult());
+                String llmObservation = StringUtils.defaultIfBlank(payload.getLlmObservation(), toolResult);
+                if (Boolean.TRUE.equals(payload.getFailed())) {
+                    // 业务级失败是确定性的，不重试，保留工具自身的结果语义。
+                    return ToolExecutionOutcome.failure(
+                            toolResult,
+                            llmObservation,
+                            payload.getStructuredOutput(),
+                            StringUtils.defaultIfBlank(payload.getErrorMsg(), toolResult)
+                    );
+                }
+                return ToolExecutionOutcome.success(toolResult, llmObservation, payload.getStructuredOutput());
+            } catch (Exception e) {
+                // 仅对抛异常的瞬时失败做有界重试（网络/超时类）。
+                lastError = e;
+                if (attempt < attempts) {
+                    log.warn("{} execute tool {} failed on attempt {}/{}, retrying", context.getRequestId(),
+                            toolName, attempt, attempts, e);
+                    continue;
+                }
+                log.error("{} execute tool {} failed after {} attempt(s)", context.getRequestId(), toolName, attempts, e);
+            }
+        }
+        return ToolExecutionOutcome.failure(
+                "Tool " + toolName + " Error.",
+                "Tool " + toolName + " Error.",
+                null,
+                lastError == null ? "tool failed" : lastError.getMessage()
+        );
     }
 
     /**

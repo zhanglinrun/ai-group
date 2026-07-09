@@ -239,11 +239,33 @@ export function applyGuardError(
 }
 
 function resolveStreamErrorMessage(error: unknown): string {
-  if (error instanceof Error && error.message) {
-    return error.message;
+  const raw =
+    error instanceof Error && error.message
+      ? error.message
+      : typeof error === "string" && error.trim()
+        ? error.trim()
+        : "";
+  const lower = raw.toLowerCase();
+
+  // 并发限流（后端 per-user 并发上限或线程池繁忙）
+  if (raw.includes("并发") || raw.includes("上限") || lower.includes("busy") || lower.includes("too many")) {
+    return "当前对话请求较多，请稍后重试";
   }
-  if (typeof error === "string" && error.trim()) {
-    return error;
+  // 配额不足
+  if (raw.includes("配额") || raw.includes("额度") || lower.includes("quota")) {
+    return "对话配额不足，请前往会员中心查看或升级";
+  }
+  // 登录态失效
+  if (raw.includes("登录") || lower.includes("unauthorized") || lower.includes("401") || lower.includes("token")) {
+    return "登录状态已失效，请重新登录后重试";
+  }
+  // 响应解析失败
+  if (lower.includes("parse") || raw.includes("解析")) {
+    return "响应解析失败，请稍后重试";
+  }
+  // 其它：优先展示后端可读中文提示，否则回退通用文案（避免把英文技术栈信息直接抛给用户）
+  if (raw && /[\u4e00-\u9fa5]/.test(raw)) {
+    return raw;
   }
   return "当前请求处理失败，请稍后重试";
 }

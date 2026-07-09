@@ -42,15 +42,40 @@ SET @sql = IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SC
     'SELECT 1');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
-INSERT INTO `product_sku` (`code`, `name`, `price`, `period_quota`, `topup_quota`, `member_days`, `tier`, `sku_type`, `status`) VALUES
-('FREE', 'Free', 0.00, 20, 0, 0, 'FREE', 'FREE', 1),
-('PRO_MONTH', 'Pro Monthly', 49.00, 500, 0, 30, 'PRO', 'MEMBER', 1),
-('PRO_YEAR', 'Pro Yearly', 399.00, 500, 0, 365, 'PRO', 'MEMBER', 1),
-('TOPUP_200', 'Top-up 200', 29.00, 0, 200, 0, 'FREE', 'TOPUP', 1)
+-- 拼团映射列：product_sku.group_goods_id / group_activity_id（NULL 表示该 SKU 不支持拼团）
+SET @sql = IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = 'member_db' AND TABLE_NAME = 'product_sku' AND COLUMN_NAME = 'group_goods_id') = 0,
+    'ALTER TABLE `product_sku` ADD COLUMN `group_goods_id` VARCHAR(16) DEFAULT NULL AFTER `status`',
+    'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @sql = IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = 'member_db' AND TABLE_NAME = 'product_sku' AND COLUMN_NAME = 'group_activity_id') = 0,
+    'ALTER TABLE `product_sku` ADD COLUMN `group_activity_id` BIGINT DEFAULT NULL AFTER `group_goods_id`',
+    'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- 运营端管理员的会员/配额账户：admin 直接种子进 auth_db.user，没有走注册链路的 initFree，
+-- 补齐 member_account + quota_account，避免管理员体验功能时报「会员账户不存在」。
+INSERT INTO `member_account` (`user_id`, `tier`, `status`)
+SELECT u.id, 'FREE', 1 FROM `auth_db`.`user` u
+WHERE u.username = 'admin'
+  AND NOT EXISTS (SELECT 1 FROM `member_account` m WHERE m.user_id = u.id);
+
+INSERT INTO `quota_account` (`user_id`, `period_quota_balance`, `topup_quota_balance`, `frozen_balance`)
+SELECT u.id, 20, 0, 0 FROM `auth_db`.`user` u
+WHERE u.username = 'admin'
+  AND NOT EXISTS (SELECT 1 FROM `quota_account` q WHERE q.user_id = u.id);
+
+INSERT INTO `product_sku` (`code`, `name`, `price`, `period_quota`, `topup_quota`, `member_days`, `tier`, `sku_type`, `status`, `group_goods_id`, `group_activity_id`) VALUES
+('FREE', 'Free', 0.00, 20, 0, 0, 'FREE', 'FREE', 1, NULL, NULL),
+('PRO_MONTH', 'Pro Monthly', 49.00, 500, 0, 30, 'PRO', 'MEMBER', 1, '9890002', 100201),
+('PRO_YEAR', 'Pro Yearly', 399.00, 500, 0, 365, 'PRO', 'MEMBER', 1, '9890003', 100202),
+('TOPUP_200', 'Top-up 600', 29.00, 0, 600, 0, 'FREE', 'TOPUP', 1, '9890004', 100203)
 ON DUPLICATE KEY UPDATE
     `name` = VALUES(`name`),
     `sku_type` = VALUES(`sku_type`),
     `period_quota` = VALUES(`period_quota`),
     `topup_quota` = VALUES(`topup_quota`),
     `member_days` = VALUES(`member_days`),
-    `tier` = VALUES(`tier`);
+    `tier` = VALUES(`tier`),
+    `group_goods_id` = VALUES(`group_goods_id`),
+    `group_activity_id` = VALUES(`group_activity_id`);
