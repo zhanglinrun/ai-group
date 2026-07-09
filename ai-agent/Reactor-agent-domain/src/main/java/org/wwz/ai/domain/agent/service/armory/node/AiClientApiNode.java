@@ -37,11 +37,16 @@ public class AiClientApiNode extends AbstractArmorySupport {
 
         for (AiClientApiVO aiClientApiVO : aiClientApiList) {
             // 构建 OpenAiApi
-            OpenAiApi openAiApi = OpenAiApi.builder()
+            // 必须显式设置 completionsPath：base_url 形如 .../compatible-mode/v1 时，若不设置会回退到
+            // Spring AI 默认的 /v1/chat/completions，导致 URL 出现双 /v1 而请求失败（chat 返回空）。
+            OpenAiApi.Builder openAiApiBuilder = OpenAiApi.builder()
                     .baseUrl(aiClientApiVO.getBaseUrl())
                     .apiKey(aiClientApiVO.getApiKey())
-                    .embeddingsPath(aiClientApiVO.getEmbeddingsPath())
-                    .build();
+                    .embeddingsPath(aiClientApiVO.getEmbeddingsPath());
+            if (aiClientApiVO.getCompletionsPath() != null && !aiClientApiVO.getCompletionsPath().isBlank()) {
+                openAiApiBuilder.completionsPath(aiClientApiVO.getCompletionsPath());
+            }
+            OpenAiApi openAiApi = openAiApiBuilder.build();
 
             // 按业务 ID 写入运行时注册表，替代 Spring Bean 动态注册。
             aiClientRuntimeRegistry.registerApi(aiClientApiVO.getApiId(), openAiApi);
