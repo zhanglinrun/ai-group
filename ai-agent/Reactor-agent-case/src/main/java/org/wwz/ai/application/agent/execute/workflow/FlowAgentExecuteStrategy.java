@@ -75,6 +75,7 @@ public class FlowAgentExecuteStrategy implements IExecuteStrategy {
 
         String content = "";
         final String sessionId = request.getSessionId();
+        Exception streamError = null;
 
         for (AiAgentClientFlowConfigVO config : aiAgentClientList) {
             ChatClient chatClient = getChatClientByClientId(config.getClientId());
@@ -89,6 +90,7 @@ public class FlowAgentExecuteStrategy implements IExecuteStrategy {
                         )
                         .stream().chatResponse();
 
+                // 不再 doOnError 吞异常：错误从 blockLast() 抛出，由下方 catch 捕获并显式上抛
                 flux.doOnNext(cr -> {
                     if (cr != null && cr.getResult() != null && cr.getResult().getOutput() != null) {
                         String text = cr.getResult().getOutput().getText();
@@ -97,13 +99,22 @@ public class FlowAgentExecuteStrategy implements IExecuteStrategy {
                             agentContext.getPrinter().send("agent_stream", text);
                         }
                     }
-                }).doOnError(e -> log.warn("LLM stream error: {}", e.getMessage())).blockLast();
+                }).blockLast();
             } catch (Exception e) {
-                log.error("流式调用 LLM 异常: {}", e.getMessage(), e);
+                log.error("流式调用 LLM 异常 clientId:{} : {}", config.getClientId(), e.getMessage(), e);
+                streamError = e;
+                content = fullText.toString();
+                break;
             }
 
             content = fullText.toString();
             log.info("固定智能体对话进行，客户端ID {}", config.getClientId());
+        }
+
+        // 失败可见：LLM 调用异常且无任何产出时显式上抛，让 dispatch 层 completeWithError
+        // （前端看到错误、配额释放），不再静默 send("result", "") 让用户停留在空回复。
+        if (streamError != null && content.isEmpty()) {
+            throw new RuntimeException("chat 模式对话生成失败: " + streamError.getMessage(), streamError);
         }
 
         agentContext.getPrinter().send("result", content);
