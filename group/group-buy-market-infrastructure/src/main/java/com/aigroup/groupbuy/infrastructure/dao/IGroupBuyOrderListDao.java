@@ -42,4 +42,10 @@ public interface IGroupBuyOrderListDao {
      */
     List<GroupBuyOrderList> queryTimeoutUnpaidOrderList();
 
+    /**
+     * 查询已支付但组队窗口已过的明细单（status=1、out_trade_time 非空、now()>end_time）。
+     * 仓储层再按团 PROGRESS 过滤出"已付款未成团"的单。
+     */
+    List<GroupBuyOrderList> queryTimeoutPaidUnformedOrderList();
+
 }

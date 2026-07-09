@@ -25,8 +25,8 @@ public class ZKCalculateService extends AbstractDiscountCalculateService {
         // 折扣表达式 - 折扣百分比
         String marketExpr = groupBuyDiscount.getMarketExpr();
 
-        // 折扣价格 + 四舍五入
-        BigDecimal deductionPrice = originalPrice.multiply(new BigDecimal(marketExpr)).setScale(0, RoundingMode.DOWN);
+        // 折扣后应付价格 - 保留分（2 位），四舍五入；此前 setScale(0, DOWN) 会把金额截断到整数元造成资损
+        BigDecimal deductionPrice = originalPrice.multiply(new BigDecimal(marketExpr)).setScale(2, RoundingMode.HALF_UP);
 
         // 判断折扣后金额，最低支付1分钱
         if (deductionPrice.compareTo(BigDecimal.ZERO) <= 0) {

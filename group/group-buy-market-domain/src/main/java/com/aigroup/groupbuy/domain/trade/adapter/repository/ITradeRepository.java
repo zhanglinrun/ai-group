@@ -59,4 +59,9 @@ public interface ITradeRepository {
 
     List<UserGroupBuyOrderDetailEntity> queryTimeoutUnpaidOrderList();
 
+    /**
+     * 查询已支付但拼团超时未成团的明细单（团仍处 PROGRESS 且窗口已过），交 paid_unformed 退款链退款。
+     */
+    List<UserGroupBuyOrderDetailEntity> queryTimeoutPaidUnformedOrderList();
+
 }

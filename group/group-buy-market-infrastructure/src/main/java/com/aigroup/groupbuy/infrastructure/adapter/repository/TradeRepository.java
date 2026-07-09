@@ -699,4 +699,51 @@ public class TradeRepository implements ITradeRepository {
         return userGroupBuyOrderDetailEntities;
     }
 
+    @Override
+    public List<UserGroupBuyOrderDetailEntity> queryTimeoutPaidUnformedOrderList() {
+        List<GroupBuyOrderList> groupBuyOrderLists = groupBuyOrderListDao.queryTimeoutPaidUnformedOrderList();
+        if (null == groupBuyOrderLists || groupBuyOrderLists.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        Set<String> teamIds = groupBuyOrderLists.stream()
+                .map(GroupBuyOrderList::getTeamId)
+                .collect(Collectors.toSet());
+
+        List<GroupBuyOrder> groupBuyOrders = groupBuyOrderDao.queryGroupBuyTeamByTeamIds(teamIds);
+        if (null == groupBuyOrders || groupBuyOrders.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        Map<String, GroupBuyOrder> groupBuyOrderMap = groupBuyOrders.stream()
+                .collect(Collectors.toMap(GroupBuyOrder::getTeamId, order -> order));
+
+        List<UserGroupBuyOrderDetailEntity> userGroupBuyOrderDetailEntities = new ArrayList<>();
+        for (GroupBuyOrderList groupBuyOrderList : groupBuyOrderLists) {
+            String teamId = groupBuyOrderList.getTeamId();
+            GroupBuyOrder groupBuyOrder = groupBuyOrderMap.get(teamId);
+            if (null == groupBuyOrder) continue;
+            // 仅退"团仍在拼单中(PROGRESS)"的已付款单；已成团(COMPLETE/COMPLETE_FAIL)或已失败的单不在此退款
+            if (!GroupBuyOrderEnumVO.PROGRESS.getCode().equals(groupBuyOrder.getStatus())) continue;
+
+            UserGroupBuyOrderDetailEntity userGroupBuyOrderDetailEntity = UserGroupBuyOrderDetailEntity.builder()
+                    .userId(groupBuyOrderList.getUserId())
+                    .teamId(groupBuyOrder.getTeamId())
+                    .activityId(groupBuyOrder.getActivityId())
+                    .targetCount(groupBuyOrder.getTargetCount())
+                    .completeCount(groupBuyOrder.getCompleteCount())
+                    .lockCount(groupBuyOrder.getLockCount())
+                    .validStartTime(groupBuyOrder.getValidStartTime())
+                    .validEndTime(groupBuyOrder.getValidEndTime())
+                    .outTradeNo(groupBuyOrderList.getOutTradeNo())
+                    .source(groupBuyOrderList.getSource())
+                    .channel(groupBuyOrderList.getChannel())
+                    .build();
+
+            userGroupBuyOrderDetailEntities.add(userGroupBuyOrderDetailEntity);
+        }
+
+        return userGroupBuyOrderDetailEntities;
+    }
+
 }

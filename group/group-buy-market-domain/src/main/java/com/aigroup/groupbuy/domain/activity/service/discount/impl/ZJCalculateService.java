@@ -7,6 +7,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 
 /**
  * @author Fuzhengwei bugstack.cn @小傅哥
@@ -24,8 +25,8 @@ public class ZJCalculateService extends AbstractDiscountCalculateService {
         // 折扣表达式 - 直减为扣减金额
         String marketExpr = groupBuyDiscount.getMarketExpr();
 
-        // 折扣价格
-        BigDecimal deductionPrice = originalPrice.subtract(new BigDecimal(marketExpr));
+        // 折扣后应付价格 - 统一保留分（2 位）
+        BigDecimal deductionPrice = originalPrice.subtract(new BigDecimal(marketExpr)).setScale(2, RoundingMode.HALF_UP);
 
         // 判断折扣后金额，最低支付1分钱
         if (deductionPrice.compareTo(BigDecimal.ZERO) <= 0) {

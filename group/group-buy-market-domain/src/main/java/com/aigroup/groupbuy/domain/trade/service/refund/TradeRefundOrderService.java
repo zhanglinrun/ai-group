@@ -67,4 +67,10 @@ public class TradeRefundOrderService implements ITradeRefundOrderService {
         return repository.queryTimeoutUnpaidOrderList();
     }
 
+    @Override
+    public List<UserGroupBuyOrderDetailEntity> queryTimeoutPaidUnformedOrderList() {
+        log.info("scan timeout paid-but-unformed group-buy orders");
+        return repository.queryTimeoutPaidUnformedOrderList();
+    }
+
 }

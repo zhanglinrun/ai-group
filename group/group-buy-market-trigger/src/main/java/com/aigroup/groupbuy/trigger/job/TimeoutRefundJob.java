@@ -46,44 +46,14 @@ public class TimeoutRefundJob {
             }
 
             log.info("timeout refund job started");
-            
-            // ????????????
-            List<UserGroupBuyOrderDetailEntity> timeoutOrderList = tradeRefundOrderService.queryTimeoutUnpaidOrderList();
-            if (timeoutOrderList == null || timeoutOrderList.isEmpty()) {
-                log.info("???????????????????");
-                return;
-            }
 
-            log.info("?????????????????????{}", timeoutOrderList.size());
-            
-            int successCount = 0;
-            int failCount = 0;
-            
-            // ??????????
-            for (UserGroupBuyOrderDetailEntity orderDetail : timeoutOrderList) {
-                try {
-                    // ???????
-                    TradeRefundCommandEntity refundCommand = TradeRefundCommandEntity.builder()
-                            .userId(orderDetail.getUserId())
-                            .outTradeNo(orderDetail.getOutTradeNo())
-                            .source(orderDetail.getSource())
-                            .channel(orderDetail.getChannel())
-                            .build();
-                    
-                    // ?????
-                    tradeRefundOrderService.refundOrder(refundCommand);
-                    successCount++;
-                    
-                    log.info("???????????ID?{}??????{}", orderDetail.getUserId(), orderDetail.getOutTradeNo());
-                    
-                } catch (Exception e) {
-                    failCount++;
-                    log.error("???????????ID?{}??????{}??????{}", 
-                            orderDetail.getUserId(), orderDetail.getOutTradeNo(), e.getMessage(), e);
-                }
-            }
-            
-            log.info("timeout refund job finished success={} fail={}", successCount, failCount);
+            // 未支付超时（unpaid_unlock）：释放锁单库存
+            int[] unpaid = refundBatch(tradeRefundOrderService.queryTimeoutUnpaidOrderList(), "unpaid");
+            // 已支付但拼团超时未成团（paid_unformed）：自动退款闭环，避免付了钱却永不退款
+            int[] paidUnformed = refundBatch(tradeRefundOrderService.queryTimeoutPaidUnformedOrderList(), "paid_unformed");
+
+            log.info("timeout refund job finished unpaid[success={} fail={}] paidUnformed[success={} fail={}]",
+                    unpaid[0], unpaid[1], paidUnformed[0], paidUnformed[1]);
             
         } catch (Exception e) {
             log.error("timeout refund job failed", e);
@@ -92,6 +62,37 @@ public class TimeoutRefundJob {
                 lock.unlock();
             }
         }
+    }
+
+    /**
+     * 对一批超时订单执行退款（走统一的 refundOrder 责任链，按订单/团状态自动分派退款类型）。
+     * @return [successCount, failCount]
+     */
+    private int[] refundBatch(List<UserGroupBuyOrderDetailEntity> orderList, String scene) {
+        if (orderList == null || orderList.isEmpty()) {
+            return new int[]{0, 0};
+        }
+        log.info("timeout refund scan {} size={}", scene, orderList.size());
+        int successCount = 0;
+        int failCount = 0;
+        for (UserGroupBuyOrderDetailEntity orderDetail : orderList) {
+            try {
+                TradeRefundCommandEntity refundCommand = TradeRefundCommandEntity.builder()
+                        .userId(orderDetail.getUserId())
+                        .outTradeNo(orderDetail.getOutTradeNo())
+                        .source(orderDetail.getSource())
+                        .channel(orderDetail.getChannel())
+                        .build();
+                tradeRefundOrderService.refundOrder(refundCommand);
+                successCount++;
+                log.info("timeout refund ok scene:{} userId:{} outTradeNo:{}", scene, orderDetail.getUserId(), orderDetail.getOutTradeNo());
+            } catch (Exception e) {
+                failCount++;
+                log.error("timeout refund failed scene:{} userId:{} outTradeNo:{} err:{}",
+                        scene, orderDetail.getUserId(), orderDetail.getOutTradeNo(), e.getMessage(), e);
+            }
+        }
+        return new int[]{successCount, failCount};
     }
 
 }

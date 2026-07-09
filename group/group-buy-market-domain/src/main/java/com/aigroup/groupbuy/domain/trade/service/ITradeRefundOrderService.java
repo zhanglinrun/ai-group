@@ -31,4 +31,10 @@ public interface ITradeRefundOrderService {
      */
     List<UserGroupBuyOrderDetailEntity> queryTimeoutUnpaidOrderList();
 
+    /**
+     * 查询已支付但拼团超时未成团的订单列表（团仍 PROGRESS 且窗口已过），用于自动退款闭环。
+     * @return 已支付未成团超时订单列表，限制10条
+     */
+    List<UserGroupBuyOrderDetailEntity> queryTimeoutPaidUnformedOrderList();
+
 }
