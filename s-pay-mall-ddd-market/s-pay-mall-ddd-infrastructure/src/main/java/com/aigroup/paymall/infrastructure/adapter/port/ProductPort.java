@@ -90,7 +90,7 @@ public class ProductPort implements IProductPort {
     }
 
     @Override
-    public void settlementMarketPayOrder(String userId, String orderId, Date orderTime) {
+    public boolean settlementMarketPayOrder(String userId, String orderId, Date orderTime) {
         SettlementMarketPayOrderRequestDTO requestDTO = new SettlementMarketPayOrderRequestDTO();
         requestDTO.setSource(source);
         requestDTO.setChannel(chanel);
@@ -104,20 +104,18 @@ public class ProductPort implements IProductPort {
             // 获取结果
             Response<SettlementMarketPayOrderResponseDTO> response = call.execute().body();
             log.info("营销结算{} requestDTO:{} responseDTO:{}", userId, JSON.toJSONString(requestDTO), JSON.toJSONString(response));
-            if (null == response) return;
+            if (null == response) return false;
 
-            // 异常判断
-            if (!"0000".equals(response.getCode())) {
-                throw new AppException(response.getCode(), response.getInfo());
-            }
-
+            // group 已确认登记（0000）才算通知成功；否则返回 false，交补偿任务重试
+            return "0000".equals(response.getCode());
         } catch (Exception e) {
             log.error("营销结算失败{}", userId, e);
+            return false;
         }
     }
 
     @Override
-    public void refundMarketPayOrder(String userId, String orderId) {
+    public boolean refundMarketPayOrder(String userId, String orderId) {
         RefundMarketPayOrderRequestDTO requestDTO = new RefundMarketPayOrderRequestDTO();
         requestDTO.setSource(source);
         requestDTO.setChannel(chanel);
@@ -130,15 +128,17 @@ public class ProductPort implements IProductPort {
             // 获取结果
             Response<RefundMarketPayOrderResponseDTO> response = call.execute().body();
             log.info("营销退单{} requestDTO:{} responseDTO:{}", userId, JSON.toJSONString(requestDTO), JSON.toJSONString(response));
-            if (null == response) return;
+            if (null == response) return false;
 
-            // 异常判断
+            // 通知失败如实返回 false（不再吞异常），交调用方/补偿任务处理
             if (!"0000".equals(response.getCode())) {
-                throw new AppException(response.getCode(), response.getInfo());
+                log.error("营销退单失败 userId:{} orderId:{} code:{} info:{}", userId, orderId, response.getCode(), response.getInfo());
+                return false;
             }
-
+            return true;
         } catch (Exception e) {
             log.error("营销退单失败{}", userId, e);
+            return false;
         }
     }
 

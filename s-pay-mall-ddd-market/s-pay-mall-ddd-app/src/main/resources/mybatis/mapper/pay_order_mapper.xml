@@ -17,6 +17,7 @@
         <result column="market_type" property="marketType"/>
         <result column="market_deduction_amount" property="marketDeductionAmount"/>
         <result column="pay_amount" property="payAmount"/>
+        <result column="settlement_notified" property="settlementNotified"/>
         <result column="create_time" property="createTime"/>
         <result column="update_time" property="updateTime"/>
     </resultMap>
@@ -72,13 +73,32 @@
         LIMIT 10
     </select>
 
-    <!-- C2 settlement compensation: group-buy (market_type=1) orders stuck in PAY_SUCCESS
-         (group settlement call lost) older than 2 minutes; group settlement is idempotent
-         so re-sending for teams still forming is safe -->
+    <!-- C2 settlement compensation: only orders whose initial group-settlement notify was LOST
+         (settlement_notified = 0). Orders whose settlement succeeded (=1) are legitimately waiting
+         for the team to form and must NOT be re-scanned - that avoids the per-minute error spam and
+         the "oldest 20 forming orders starve newly-lost ones" window problem. -->
     <select id="queryPaySuccessMarketTimeoutOrderList" resultMap="dataMap">
+        SELECT user_id, order_id, status, market_type, pay_amount, pay_time, settlement_notified
+        FROM pay_order
+        WHERE status = 'PAY_SUCCESS' AND market_type = 1 AND settlement_notified = 0
+          AND NOW() >= update_time + INTERVAL 2 MINUTE
+        ORDER BY id ASC
+        LIMIT 20
+    </select>
+
+    <!-- mark the group settlement as acknowledged so the compensation scan skips this order -->
+    <update id="markSettlementNotified" parameterType="java.lang.String">
+        update pay_order set settlement_notified = 1, update_time = now()
+        where order_id = #{orderId} and settlement_notified = 0
+    </update>
+
+    <!-- WAIT_REFUND compensation: paid group-buy orders whose team_refund callback was lost
+         stay in WAIT_REFUND forever (money never returned). Scan orders stuck beyond 5 minutes
+         so the compensation job can re-notify group and alipay-refund (both idempotent). -->
+    <select id="queryWaitRefundTimeoutOrderList" resultMap="dataMap">
         SELECT user_id, order_id, status, market_type, pay_amount, pay_time
         FROM pay_order
-        WHERE status = 'PAY_SUCCESS' AND market_type = 1 AND NOW() >= update_time + INTERVAL 2 MINUTE
+        WHERE status = 'WAIT_REFUND' AND NOW() >= update_time + INTERVAL 5 MINUTE
         ORDER BY id ASC
         LIMIT 20
     </select>

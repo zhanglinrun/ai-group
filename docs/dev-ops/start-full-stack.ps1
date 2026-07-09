@@ -124,6 +124,7 @@ Invoke-Mysql "$root/docs/dev-ops/mysql/sql/agent_db/02-dev-seed.sql"
 Invoke-MysqlDumpOnce "$root/group/docs/dev-ops/mysql/sql/2-29-group_buy_market.sql" -Schema "group_buy_market" -MarkerTable "group_buy_order"
 Invoke-MysqlDumpOnce "$root/s-pay-mall-ddd-market/docs/dev-ops/mysql/sql/s-pay-mall-ddd-market.sql" -Schema "s_pay_mall_ddd_market" -MarkerTable "pay_order" -PayBase
 Invoke-Mysql "$root/s-pay-mall-ddd-market/docs/dev-ops/mysql/sql/V3_benefit_event.sql"
+Invoke-Mysql "$root/s-pay-mall-ddd-market/docs/dev-ops/mysql/sql/V4_settlement_notified.sql"
 Invoke-Mysql "$root/docs/dev-ops/mysql/sql/xxl_job/01-xxl_job.sql"
 Patch-AgentApiKey
 

@@ -48,14 +48,32 @@ public abstract class AbstractOrderService implements IOrderService {
             Integer marketType = unpaidOrderEntity.getMarketType();
             BigDecimal marketDeductionAmount = unpaidOrderEntity.getMarketDeductionAmount();
 
-            PayOrderEntity payOrderEntity = null;
+            PayOrderEntity payOrderEntity;
 
-            if (MarketTypeVO.GROUP_BUY_MARKET.getCode().equals(marketType) && null == marketDeductionAmount) {
-                MarketPayDiscountEntity marketPayDiscountEntity = this.lockMarketPayOrder(shopCartEntity.getUserId(),
-                        shopCartEntity.getTeamId(),
-                        shopCartEntity.getActivityId(),
-                        shopCartEntity.getProductId(),
-                        unpaidOrderEntity.getOrderId());
+            if (MarketTypeVO.GROUP_BUY_MARKET.getCode().equals(marketType)) {
+                // CREATE 态拼团单意味着预支付从未完成（doPrepayOrder 成功后会把状态推进到 PAY_WAIT）。
+                // 下单时 market_deduction_amount 恒写 0（见 OrderRepository.doSaveOrder），因此以
+                // "扣减额为 0 或 null" 判定尚未锁单并重新锁单；否则重试会退化为全价 NO_MARKET 单（资损）。
+                // group 侧按 outTradeNo 幂等，重复锁单返回既有优惠，重试安全。
+                boolean notLockedYet = null == marketDeductionAmount
+                        || BigDecimal.ZERO.compareTo(marketDeductionAmount) == 0;
+
+                MarketPayDiscountEntity marketPayDiscountEntity;
+                if (notLockedYet) {
+                    marketPayDiscountEntity = this.lockMarketPayOrder(shopCartEntity.getUserId(),
+                            shopCartEntity.getTeamId(),
+                            shopCartEntity.getActivityId(),
+                            shopCartEntity.getProductId(),
+                            unpaidOrderEntity.getOrderId());
+                } else {
+                    // 防御分支：已持久化真实折扣时用其重建折扣实体，仍走营销预支付，避免退化为 NO_MARKET
+                    marketPayDiscountEntity = MarketPayDiscountEntity.builder()
+                            .originalPrice(unpaidOrderEntity.getTotalAmount())
+                            .deductionPrice(marketDeductionAmount)
+                            .payPrice(unpaidOrderEntity.getPayAmount())
+                            .build();
+                }
+
                 if (null == marketPayDiscountEntity) {
                     log.error("group buy lock market pay order failed, abort createOrder. userId:{} productId:{} orderId:{}",
                             shopCartEntity.getUserId(), shopCartEntity.getProductId(), unpaidOrderEntity.getOrderId());
@@ -64,9 +82,6 @@ public abstract class AbstractOrderService implements IOrderService {
 
                 payOrderEntity = doPrepayOrder(shopCartEntity.getUserId(), shopCartEntity.getProductId(),
                         unpaidOrderEntity.getProductName(), unpaidOrderEntity.getOrderId(), unpaidOrderEntity.getTotalAmount(), marketPayDiscountEntity);
-            } else if (MarketTypeVO.GROUP_BUY_MARKET.getCode().equals(marketType)) {
-                payOrderEntity = doPrepayOrder(shopCartEntity.getUserId(), shopCartEntity.getProductId(),
-                        unpaidOrderEntity.getProductName(), unpaidOrderEntity.getOrderId(), unpaidOrderEntity.getPayAmount());
             } else {
                 payOrderEntity = doPrepayOrder(shopCartEntity.getUserId(), shopCartEntity.getProductId(),
                         unpaidOrderEntity.getProductName(), unpaidOrderEntity.getOrderId(), unpaidOrderEntity.getTotalAmount());

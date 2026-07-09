@@ -30,6 +30,14 @@ public interface IOrderService {
      */
     int compensateMarketSettlement();
 
+    /**
+     * WAIT_REFUND 补偿：team_refund 回调丢失时订单会永久卡在 WAIT_REFUND（钱不退）。
+     * 扫描滞留单，重发拼团退单通知并直接走支付宝退款兜底（均幂等）。
+     *
+     * @return 本轮完成退款的订单数
+     */
+    int compensateWaitRefund();
+
     void changeOrderMarketSettlement(List<String> outTradeNoList);
 
     List<OrderEntity> queryUserOrderList(String userId, Long lastId, Integer pageSize);

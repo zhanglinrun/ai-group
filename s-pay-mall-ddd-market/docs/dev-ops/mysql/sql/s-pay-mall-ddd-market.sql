@@ -42,6 +42,7 @@ CREATE TABLE `pay_order` (
   `market_type` tinyint(1) DEFAULT NULL COMMENT '营销类型；0无营销、1拼团营销',
   `market_deduction_amount` decimal(8,2) DEFAULT NULL COMMENT '营销金额；优惠金额',
   `pay_amount` decimal(8,2) NOT NULL COMMENT '支付金额',
+  `settlement_notified` tinyint(1) NOT NULL DEFAULT 0 COMMENT '拼团结算是否已通知成功；1=group已确认登记，补偿任务据此区分"未结算"与"未成团"',
   `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   PRIMARY KEY (`id`),

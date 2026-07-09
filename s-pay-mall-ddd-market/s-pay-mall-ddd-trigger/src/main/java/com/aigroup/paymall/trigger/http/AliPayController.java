@@ -11,6 +11,7 @@ import com.aigroup.paymall.domain.order.model.entity.OrderEntity;
 import com.aigroup.paymall.domain.order.model.entity.PayOrderEntity;
 import com.aigroup.paymall.domain.order.model.entity.ShopCartEntity;
 import com.aigroup.paymall.domain.order.model.valobj.MarketTypeVO;
+import com.aigroup.paymall.domain.order.model.valobj.OrderStatusVO;
 import com.aigroup.paymall.domain.order.service.IOrderService;
 import com.aigroup.paymall.trigger.http.support.GatewayUserResolver;
 import com.aigroup.paymall.trigger.http.support.GoodsSkuBindingProperties;
@@ -237,7 +238,11 @@ public class AliPayController {
                 orderInfo.setOrderTime(order.getOrderTime());
                 orderInfo.setTotalAmount(order.getTotalAmount());
                 orderInfo.setStatus(order.getOrderStatusVO() != null ? order.getOrderStatusVO().getCode() : null);
-                orderInfo.setPayUrl(order.getPayUrl());
+                // 只有待支付订单才回传收银台链接；CLOSE/已支付/退款中订单不返回 payUrl，
+                // 防止用户从旧收银台对已取消订单继续付款
+                boolean payable = order.getOrderStatusVO() != null
+                        && OrderStatusVO.PAY_WAIT.getCode().equals(order.getOrderStatusVO().getCode());
+                orderInfo.setPayUrl(payable ? order.getPayUrl() : null);
                 orderInfo.setMarketType(order.getMarketType());
                 orderInfo.setMarketDeductionAmount(order.getMarketDeductionAmount());
                 orderInfo.setPayAmount(order.getPayAmount());

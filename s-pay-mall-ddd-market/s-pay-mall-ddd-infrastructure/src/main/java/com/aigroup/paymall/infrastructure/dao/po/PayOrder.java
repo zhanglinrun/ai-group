@@ -42,6 +42,8 @@ public class PayOrder {
     private BigDecimal marketDeductionAmount;
     // 支付金额
     private BigDecimal payAmount;
+    // 拼团结算是否已通知成功；1=group已确认登记
+    private Integer settlementNotified;
     // 创建时间
     private Date createTime;
     // 更新时间

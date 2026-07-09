@@ -163,6 +163,27 @@ public class OrderRepository implements IOrderRepository {
     }
 
     @Override
+    public List<OrderEntity> queryWaitRefundTimeoutOrders() {
+        List<PayOrder> payOrders = orderDao.queryWaitRefundTimeoutOrderList();
+        if (null == payOrders || payOrders.isEmpty()) {
+            return new ArrayList<>();
+        }
+        return payOrders.stream().map(payOrder -> OrderEntity.builder()
+                .userId(payOrder.getUserId())
+                .orderId(payOrder.getOrderId())
+                .orderStatusVO(OrderStatusVO.valueOf(payOrder.getStatus()))
+                .marketType(payOrder.getMarketType())
+                .payAmount(payOrder.getPayAmount())
+                .payTime(payOrder.getPayTime())
+                .build()).collect(Collectors.toList());
+    }
+
+    @Override
+    public void markSettlementNotified(String orderId) {
+        orderDao.markSettlementNotified(orderId);
+    }
+
+    @Override
     public boolean changeOrderClose(String orderId) {
         return orderDao.changeOrderClose(orderId);
     }

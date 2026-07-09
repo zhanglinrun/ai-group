@@ -25,6 +25,10 @@ public interface IOrderRepository {
 
     List<OrderEntity> queryPaySuccessMarketTimeoutOrders();
 
+    List<OrderEntity> queryWaitRefundTimeoutOrders();
+
+    void markSettlementNotified(String orderId);
+
     boolean changeOrderClose(String orderId);
 
     void changeOrderMarketSettlement(List<String> outTradeNoList);

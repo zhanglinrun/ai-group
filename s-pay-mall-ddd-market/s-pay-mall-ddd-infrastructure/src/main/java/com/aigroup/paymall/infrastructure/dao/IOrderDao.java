@@ -23,6 +23,10 @@ public interface IOrderDao {
 
     List<PayOrder> queryPaySuccessMarketTimeoutOrderList();
 
+    List<PayOrder> queryWaitRefundTimeoutOrderList();
+
+    int markSettlementNotified(String orderId);
+
     boolean changeOrderClose(String orderId);
 
     void changeOrderMarketSettlement(@Param("outTradeNoList") List<String> outTradeNoList);
