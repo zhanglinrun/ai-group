@@ -13,6 +13,7 @@ node_modules/
 *.log
 logs/
 data/
+docs/evals/last-report.json
 
 # IDE / tooling
 .vscode/
