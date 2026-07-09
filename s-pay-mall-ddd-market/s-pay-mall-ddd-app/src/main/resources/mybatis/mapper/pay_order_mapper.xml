@@ -1,0 +1,139 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.aigroup.paymall.infrastructure.dao.IOrderDao">
+
+    <resultMap id="dataMap" type="com.aigroup.paymall.infrastructure.dao.po.PayOrder">
+        <id column="id" property="id"/>
+        <result column="user_id" property="userId"/>
+        <result column="product_id" property="productId"/>
+        <result column="product_code" property="productCode"/>
+        <result column="product_name" property="productName"/>
+        <result column="order_id" property="orderId"/>
+        <result column="order_time" property="orderTime"/>
+        <result column="total_amount" property="totalAmount"/>
+        <result column="status" property="status"/>
+        <result column="pay_url" property="payUrl"/>
+        <result column="pay_time" property="payTime"/>
+        <result column="market_type" property="marketType"/>
+        <result column="market_deduction_amount" property="marketDeductionAmount"/>
+        <result column="pay_amount" property="payAmount"/>
+        <result column="create_time" property="createTime"/>
+        <result column="update_time" property="updateTime"/>
+    </resultMap>
+
+    <insert id="insert" parameterType="com.aigroup.paymall.infrastructure.dao.po.PayOrder">
+        insert into pay_order(
+        user_id, product_id, product_code, product_name, order_id, order_time,
+        total_amount, status, market_type, market_deduction_amount, pay_amount, create_time, update_time)
+        values(
+        #{userId}, #{productId}, #{productCode}, #{productName}, #{orderId}, #{orderTime},
+        #{totalAmount}, #{status}, #{marketType}, #{marketDeductionAmount}, #{payAmount}, now(), now())
+    </insert>
+
+    <select id="queryUnPayOrder" parameterType="com.aigroup.paymall.infrastructure.dao.po.PayOrder" resultMap="dataMap">
+        select product_id, product_code, product_name, order_id, order_time, total_amount, status, pay_url, market_type, market_deduction_amount, pay_amount
+        from pay_order
+        where user_id = #{userId} and product_id = #{productId} and product_code = #{productCode}
+        order by id desc
+        limit 1
+    </select>
+
+    <!-- only unpaid orders (CREATE/PAY_WAIT) can refresh pay info, so paid/closed/settled status is never reverted -->
+    <update id="updateOrderPayInfo" parameterType="com.aigroup.paymall.infrastructure.dao.po.PayOrder">
+        update pay_order set pay_url = #{payUrl}, status = #{status},
+        market_type = #{marketType}, market_deduction_amount = #{marketDeductionAmount}, pay_amount = #{payAmount},
+        update_time = now()
+        where order_id = #{orderId} and status in ('CREATE', 'PAY_WAIT')
+    </update>
+
+    <!-- PAY_SUCCESS can only transit from CREATE/PAY_WAIT: idempotent for duplicated callbacks, no rollback from MARKET/DEAL_DONE/CLOSE/WAIT_REFUND -->
+    <update id="changeOrderPaySuccess" parameterType="com.aigroup.paymall.infrastructure.dao.po.PayOrder">
+        update pay_order set status = #{status}, pay_time = ifnull(#{payTime,jdbcType=TIMESTAMP}, now()), update_time = now()
+        where order_id = #{orderId} and status in ('CREATE', 'PAY_WAIT')
+    </update>
+
+    <!-- timeout close only applies to unpaid orders, never closes a paid/settled order -->
+    <update id="changeOrderClose" parameterType="java.lang.String">
+        update pay_order set status = 'CLOSE', pay_time = now(), update_time = now()
+        where order_id = #{orderId} and status in ('CREATE', 'PAY_WAIT')
+    </update>
+
+    <select id="queryTimeoutCloseOrderList" parameterType="java.lang.String" resultType="java.lang.String">
+        SELECT order_id as orderId FROM pay_order
+        WHERE status = 'PAY_WAIT' AND NOW() >= order_time + INTERVAL 30 MINUTE
+        ORDER BY id ASC
+        LIMIT 50
+    </select>
+
+    <select id="queryNoPayNotifyOrder" parameterType="java.lang.String" resultType="java.lang.String">
+        SELECT order_id as orderId FROM pay_order
+        WHERE status = 'PAY_WAIT' AND NOW() >= order_time + INTERVAL 1 MINUTE
+        ORDER BY id ASC
+        LIMIT 10
+    </select>
+
+    <!-- C2 settlement compensation: group-buy (market_type=1) orders stuck in PAY_SUCCESS
+         (group settlement call lost) older than 2 minutes; group settlement is idempotent
+         so re-sending for teams still forming is safe -->
+    <select id="queryPaySuccessMarketTimeoutOrderList" resultMap="dataMap">
+        SELECT user_id, order_id, status, market_type, pay_amount, pay_time
+        FROM pay_order
+        WHERE status = 'PAY_SUCCESS' AND market_type = 1 AND NOW() >= update_time + INTERVAL 2 MINUTE
+        ORDER BY id ASC
+        LIMIT 20
+    </select>
+
+    <!-- MARKET settlement can only transit from PAY_SUCCESS: duplicated/out-of-order callbacks will not settle twice or revert CLOSE/WAIT_REFUND/DEAL_DONE -->
+    <update id="changeOrderMarketSettlement" parameterType="java.util.List">
+        update pay_order set status = 'MARKET', update_time = now()
+        where order_id in
+        <foreach item="orderId" collection="outTradeNoList" open="(" separator="," close=")">
+            #{orderId}
+        </foreach>
+        and status = 'PAY_SUCCESS'
+    </update>
+
+    <select id="queryOrderByOrderId" parameterType="java.lang.String" resultMap="dataMap">
+        select user_id, product_id, product_code, product_name, order_id, order_time, total_amount, status, pay_url, market_type, market_deduction_amount, pay_amount
+        from pay_order
+        where order_id = #{orderId}
+    </select>
+
+    <!-- DEAL_DONE can only transit from PAY_SUCCESS/MARKET, so replayed MQ messages will not revert refunded/closed orders -->
+    <update id="changeOrderDealDone" parameterType="java.lang.String">
+        update pay_order set status = 'DEAL_DONE', update_time = now()
+        where order_id = #{orderId} and status in ('PAY_SUCCESS', 'MARKET')
+    </update>
+
+    <select id="queryUserOrderList" resultMap="dataMap">
+        select id, user_id, product_id, product_code, product_name, order_id, order_time, total_amount, status, pay_url, pay_time, market_type, market_deduction_amount, pay_amount
+        from pay_order
+        where user_id = #{userId}
+        <if test="lastId != null">
+            and id &gt; #{lastId}
+        </if>
+        order by id asc
+        limit #{pageSize}
+    </select>
+
+    <select id="queryOrderByUserIdAndOrderId" resultMap="dataMap">
+        select id, user_id, product_id, product_code, product_name, order_id, order_time, total_amount, status, pay_url, pay_time, market_type, market_deduction_amount, pay_amount
+        from pay_order
+        where user_id = #{userId} and order_id = #{orderId}
+    </select>
+
+    <!-- refund close is idempotent: an order already CLOSE stays untouched -->
+    <update id="refundOrder">
+        update pay_order
+        set status = 'CLOSE', update_time = now()
+        where user_id = #{userId} and order_id = #{orderId} and status != 'CLOSE'
+    </update>
+
+    <!-- WAIT_REFUND only applies to paid/settled/done orders; CLOSE and duplicated WAIT_REFUND are rejected -->
+    <update id="refundMarketOrder">
+        update pay_order
+        set status = 'WAIT_REFUND', update_time = now()
+        where user_id = #{userId} and order_id = #{orderId} and status in ('PAY_SUCCESS', 'MARKET', 'DEAL_DONE')
+    </update>
+
+</mapper>

@@ -1,0 +1,14 @@
+spring:
+  cloud:
+    nacos:
+      discovery:
+        enabled: false
+
+gateway:
+  route:
+    auth-uri: http://127.0.0.1:8081
+    member-uri: http://127.0.0.1:8082
+    bff-uri: http://127.0.0.1:8083
+    pay-uri: http://127.0.0.1:8070
+    group-uri: http://127.0.0.1:8091
+    agent-uri: http://127.0.0.1:8090

@@ -1,0 +1,5 @@
+spring:
+  ai:
+    openai:
+      api-key: test-api-key
+      base-url: https://example.com/v1

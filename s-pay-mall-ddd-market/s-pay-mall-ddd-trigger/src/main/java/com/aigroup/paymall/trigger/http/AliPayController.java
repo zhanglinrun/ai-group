@@ -1,0 +1,418 @@
+package com.aigroup.paymall.trigger.http;
+
+import com.aigroup.paymall.api.dto.CreatePayRequestDTO;
+import com.aigroup.paymall.api.dto.NotifyRequestDTO;
+import com.aigroup.paymall.api.dto.QueryOrderListRequestDTO;
+import com.aigroup.paymall.api.dto.QueryOrderListResponseDTO;
+import com.aigroup.paymall.api.dto.RefundOrderRequestDTO;
+import com.aigroup.paymall.api.dto.RefundOrderResponseDTO;
+import com.aigroup.paymall.api.response.Response;
+import com.aigroup.paymall.domain.order.model.entity.OrderEntity;
+import com.aigroup.paymall.domain.order.model.entity.PayOrderEntity;
+import com.aigroup.paymall.domain.order.model.entity.ShopCartEntity;
+import com.aigroup.paymall.domain.order.model.valobj.MarketTypeVO;
+import com.aigroup.paymall.domain.order.service.IOrderService;
+import com.aigroup.paymall.trigger.http.support.GatewayUserResolver;
+import com.aigroup.paymall.trigger.http.support.GoodsSkuBindingProperties;
+import com.aigroup.paymall.trigger.http.support.InternalCallbackAuthSupport;
+import com.aigroup.paymall.types.common.Constants;
+import com.alibaba.fastjson.JSON;
+import com.alibaba.fastjson.JSONObject;
+import com.alipay.api.AlipayApiException;
+import com.alipay.api.AlipayClient;
+import com.alipay.api.domain.AlipayTradeQueryModel;
+import com.alipay.api.internal.util.AlipaySignature;
+import com.alipay.api.request.AlipayTradeQueryRequest;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.web.bind.annotation.*;
+
+import jakarta.annotation.Resource;
+import jakarta.servlet.http.HttpServletRequest;
+import java.math.BigDecimal;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.TimeZone;
+import java.util.stream.Collectors;
+
+@Slf4j
+@RestController()
+@CrossOrigin("*")
+@RequestMapping("/api/v1/alipay/")
+public class AliPayController {
+
+    @Value("${alipay.alipay_public_key}")
+    private String alipayPublicKey;
+
+    @Resource
+    private IOrderService orderService;
+    
+    @Resource
+    private AlipayClient alipayClient;
+
+    @Resource
+    private InternalCallbackAuthSupport internalCallbackAuthSupport;
+
+    @Resource
+    private GatewayUserResolver gatewayUserResolver;
+
+    @Resource
+    private GoodsSkuBindingProperties goodsSkuBindingProperties;
+
+    /**
+     * http://localhost:8080/api/v1/alipay/create_pay_order
+     * <p>
+     * {
+     * "userId": "10001",
+     * "productId": "100001"
+     * }
+     */
+    @RequestMapping(value = "create_pay_order", method = RequestMethod.POST)
+    public Response<String> createPayOrder(@RequestBody CreatePayRequestDTO createPayRequestDTO,
+                                           HttpServletRequest servletRequest) {
+        try {
+            String userId = gatewayUserResolver.resolveUserId(servletRequest, createPayRequestDTO.getUserId());
+            log.info("?????????ID????????userId:{} productId:{}", userId, createPayRequestDTO.getProductId());
+            String productId = createPayRequestDTO.getProductId();
+            String teamId = createPayRequestDTO.getTeamId();
+            Integer marketType = createPayRequestDTO.getMarketType();
+            String productCode = createPayRequestDTO.getProductCode();
+
+            if (!goodsSkuBindingProperties.isSkuAllowed(productId, productCode)) {
+                throw new IllegalArgumentException("illegal product binding: goodsId=" + productId + ", skuCode=" + productCode);
+            }
+
+            // ??
+            PayOrderEntity payOrderEntity = orderService.createOrder(ShopCartEntity.builder()
+                    .userId(userId)
+                    .productId(productId)
+                    .productCode(productCode)
+                    .teamId(teamId)
+                    .marketTypeVO(MarketTypeVO.valueOf(marketType))
+                    .activityId(createPayRequestDTO.getActivityId())
+                    .build());
+
+            log.info("?????????ID????????userId:{} productId:{} orderId:{}", userId, productId, payOrderEntity.getOrderId());
+            return Response.<String>builder()
+                    .code(Constants.ResponseCode.SUCCESS.getCode())
+                    .info(Constants.ResponseCode.SUCCESS.getInfo())
+                    .data(payOrderEntity.getPayUrl())
+                    .build();
+        } catch (IllegalArgumentException e) {
+            log.warn("??????????: {}", e.getMessage());
+            return Response.<String>builder()
+                    .code(Constants.ResponseCode.ILLEGAL_PARAMETER.getCode())
+                    .info(e.getMessage())
+                    .build();
+        } catch (Exception e) {
+            log.error("?????????ID????????userId:{} productId:{}", createPayRequestDTO.getUserId(), createPayRequestDTO.getProductId(), e);
+            return Response.<String>builder()
+                    .code(Constants.ResponseCode.UN_ERROR.getCode())
+                    .info(Constants.ResponseCode.UN_ERROR.getInfo())
+                    .build();
+        }
+    }
+
+    @RequestMapping(value = "group_buy_notify", method = RequestMethod.POST)
+    public String groupBuyNotify(@RequestBody NotifyRequestDTO requestDTO, HttpServletRequest servletRequest) {
+        if (!internalCallbackAuthSupport.isAuthorized(servletRequest)) {
+            log.warn("group buy notify rejected: missing or invalid internal token");
+            return "error";
+        }
+        log.info("group buy notify settlement start {}", JSON.toJSONString(requestDTO));
+        try {
+            orderService.changeOrderMarketSettlement(requestDTO.getOutTradeNoList());
+            return "success";
+        } catch (Exception e) {
+            log.error("group buy notify settlement failed {}", JSON.toJSONString(requestDTO), e);
+            return "error";
+        }
+    }
+
+    /**
+     * http://xfg-studio.natapp1.cc/api/v1/alipay/alipay_notify_url
+     */
+    @RequestMapping(value = "alipay_notify_url", method = RequestMethod.POST)
+    public String payNotify(HttpServletRequest request) throws AlipayApiException, ParseException {
+        log.info("??????????{}", request.getParameter("trade_status"));
+
+        if (!"TRADE_SUCCESS".equals(request.getParameter("trade_status"))) {
+            return "false";
+        }
+
+        Map<String, String> params = new HashMap<>();
+        Map<String, String[]> requestParams = request.getParameterMap();
+        for (String name : requestParams.keySet()) {
+            params.put(name, request.getParameter(name));
+        }
+
+        String tradeNo = params.get("out_trade_no");
+        String gmtPayment = params.get("gmt_payment");
+        String alipayTradeNo = params.get("trade_no");
+
+        String sign = params.get("sign");
+        String content = AlipaySignature.getSignCheckContentV1(params);
+        boolean checkSignature = AlipaySignature.rsa256CheckContent(content, sign, alipayPublicKey, "UTF-8"); // ????
+        // ??????
+        if (!checkSignature) {
+            return "false";
+        }
+
+        // ????
+        log.info("?????????? {}", params.get("subject"));
+        log.info("?????????? {}", params.get("trade_status"));
+        log.info("?????????????? {}", params.get("trade_no"));
+        log.info("??????????: {}", params.get("out_trade_no"));
+        log.info("?????????? {}", params.get("total_amount"));
+        log.info("?????????????id: {}", params.get("buyer_id"));
+        log.info("???????????? {}", params.get("gmt_payment"));
+        log.info("???????????? {}", params.get("buyer_pay_amount"));
+        log.info("?????????????? {}", tradeNo);
+
+        OrderEntity order = orderService.queryOrderByOrderId(tradeNo);
+        if (order == null) {
+            log.warn("pay notify ignored: order not found orderId={}", tradeNo);
+            return "false";
+        }
+        BigDecimal expected = order.getPayAmount();
+        BigDecimal paid = null;
+        try {
+            paid = new BigDecimal(params.get("total_amount"));
+        } catch (Exception ex) {
+            log.warn("pay notify rejected: invalid total_amount orderId={} total_amount={}", tradeNo, params.get("total_amount"));
+            return "false";
+        }
+        if (expected != null && paid.compareTo(expected) != 0) {
+            log.warn("pay notify rejected: amount mismatch orderId={} expected={} paid={}", tradeNo, expected, paid);
+            return "false";
+        }
+
+        SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+        dateFormat.setTimeZone(TimeZone.getTimeZone("Asia/Shanghai"));
+        orderService.changeOrderPaySuccess(tradeNo, dateFormat.parse(params.get("gmt_payment")));
+
+        return "success";
+    }
+
+    /**
+     * http://localhost:8080/api/v1/alipay/query_user_order_list
+     * <p>
+     * {
+     * "userId": "10001",
+     * "lastId": null,
+     * "pageSize": 10
+     * }
+     */
+    @RequestMapping(value = "query_user_order_list", method = RequestMethod.POST)
+    public Response<QueryOrderListResponseDTO> queryUserOrderList(@RequestBody QueryOrderListRequestDTO requestDTO,
+                                                                 HttpServletRequest servletRequest) {
+        try {
+            String userId = gatewayUserResolver.resolveUserId(servletRequest, requestDTO.getUserId());
+            log.info("???????????userId:{} lastId:{} pageSize:{}", userId, requestDTO.getLastId(), requestDTO.getPageSize());
+
+            Long lastId = requestDTO.getLastId();
+            Integer pageSize = requestDTO.getPageSize();
+            
+            // ?????????????????????????
+            List<OrderEntity> orderList = orderService.queryUserOrderList(userId, lastId, pageSize + 1);
+            
+            // ??????????
+            boolean hasMore = orderList.size() > pageSize;
+            if (hasMore) {
+                orderList = orderList.subList(0, pageSize);
+            }
+            
+            // ????????
+            List<QueryOrderListResponseDTO.OrderInfo> orderInfoList = orderList.stream().map(order -> {
+                QueryOrderListResponseDTO.OrderInfo orderInfo = new QueryOrderListResponseDTO.OrderInfo();
+                orderInfo.setId(order.getId());
+                orderInfo.setUserId(order.getUserId());
+                orderInfo.setProductId(order.getProductId());
+                orderInfo.setProductName(order.getProductName());
+                orderInfo.setOrderId(order.getOrderId());
+                orderInfo.setOrderTime(order.getOrderTime());
+                orderInfo.setTotalAmount(order.getTotalAmount());
+                orderInfo.setStatus(order.getOrderStatusVO() != null ? order.getOrderStatusVO().getCode() : null);
+                orderInfo.setPayUrl(order.getPayUrl());
+                orderInfo.setMarketType(order.getMarketType());
+                orderInfo.setMarketDeductionAmount(order.getMarketDeductionAmount());
+                orderInfo.setPayAmount(order.getPayAmount());
+                orderInfo.setPayTime(order.getPayTime());
+                return orderInfo;
+            }).collect(Collectors.toList());
+            
+            QueryOrderListResponseDTO responseDTO = new QueryOrderListResponseDTO();
+            responseDTO.setOrderList(orderInfoList);
+            responseDTO.setHasMore(hasMore);
+            responseDTO.setLastId(!orderList.isEmpty() ? orderList.get(orderList.size() - 1).getId() : null);
+            
+            log.info("?????????? userId:{} ??????:{} hasMore:{}", userId, orderInfoList.size(), hasMore);
+            return Response.<QueryOrderListResponseDTO>builder()
+                    .code(Constants.ResponseCode.SUCCESS.getCode())
+                    .info(Constants.ResponseCode.SUCCESS.getInfo())
+                    .data(responseDTO)
+                    .build();
+        } catch (IllegalArgumentException e) {
+            log.warn("??????????????: {}", e.getMessage());
+            return Response.<QueryOrderListResponseDTO>builder()
+                    .code(Constants.ResponseCode.ILLEGAL_PARAMETER.getCode())
+                    .info(e.getMessage())
+                    .build();
+        } catch (Exception e) {
+            log.error("?????????? userId:{}", requestDTO.getUserId(), e);
+            return Response.<QueryOrderListResponseDTO>builder()
+                    .code(Constants.ResponseCode.UN_ERROR.getCode())
+                    .info(Constants.ResponseCode.UN_ERROR.getInfo())
+                    .build();
+        }
+    }
+
+    /**
+     * http://localhost:8080/api/v1/alipay/refund_order
+     * <p>
+     * {
+     * "userId": "xfg02",
+     * "orderId": "928263928388"
+     * }
+     */
+    @RequestMapping(value = "refund_order", method = RequestMethod.POST)
+    public Response<RefundOrderResponseDTO> refundOrder(@RequestBody RefundOrderRequestDTO requestDTO,
+                                                      HttpServletRequest servletRequest) {
+        try {
+            String userId = gatewayUserResolver.resolveUserId(servletRequest, requestDTO.getUserId());
+            String orderId = requestDTO.getOrderId();
+            log.info("???????userId:{} orderId:{}", userId, orderId);
+            
+            // ???????
+            boolean success = orderService.refundMarketOrder(userId, orderId);
+            
+            RefundOrderResponseDTO responseDTO = new RefundOrderResponseDTO();
+            responseDTO.setSuccess(success);
+            responseDTO.setOrderId(orderId);
+            responseDTO.setMessage(success ? "refund success" : "refund failed: order not found, closed, or not owned by user");
+            
+            log.info("???????userId:{} orderId:{} success:{}", userId, orderId, success);
+            return Response.<RefundOrderResponseDTO>builder()
+                    .code(Constants.ResponseCode.SUCCESS.getCode())
+                    .info(Constants.ResponseCode.SUCCESS.getInfo())
+                    .data(responseDTO)
+                    .build();
+        } catch (IllegalArgumentException e) {
+            log.warn("??????????? {}", e.getMessage());
+            RefundOrderResponseDTO responseDTO = new RefundOrderResponseDTO();
+            responseDTO.setSuccess(false);
+            responseDTO.setOrderId(requestDTO.getOrderId());
+            responseDTO.setMessage(e.getMessage());
+            return Response.<RefundOrderResponseDTO>builder()
+                    .code(Constants.ResponseCode.ILLEGAL_PARAMETER.getCode())
+                    .info(e.getMessage())
+                    .data(responseDTO)
+                    .build();
+        } catch (Exception e) {
+            log.error("???????userId:{} orderId:{}", requestDTO.getUserId(), requestDTO.getOrderId(), e);
+            
+            RefundOrderResponseDTO responseDTO = new RefundOrderResponseDTO();
+            responseDTO.setSuccess(false);
+            responseDTO.setOrderId(requestDTO.getOrderId());
+            responseDTO.setMessage("?????????");
+            
+            return Response.<RefundOrderResponseDTO>builder()
+                    .code(Constants.ResponseCode.UN_ERROR.getCode())
+                    .info(Constants.ResponseCode.UN_ERROR.getInfo())
+                    .data(responseDTO)
+                    .build();
+        }
+    }
+
+    /**
+     * ?????? - ????????????
+     * @param outTradeNo ??????
+     * @return ????
+     */
+    @RequestMapping(value = "active_pay_notify", method = RequestMethod.POST)
+    public Response<String> activePayNotify(@RequestParam String outTradeNo, HttpServletRequest servletRequest) {
+        if (!internalCallbackAuthSupport.isAuthorized(servletRequest)) {
+            log.warn("active pay notify rejected: missing or invalid internal token, outTradeNo:{}", outTradeNo);
+            return Response.<String>builder()
+                    .code(Constants.ResponseCode.UN_ERROR.getCode())
+                    .info(Constants.ResponseCode.UN_ERROR.getInfo())
+                    .data("unauthorized")
+                    .build();
+        }
+        try {
+            log.info("?????????????? {}", outTradeNo);
+            
+            // ????????????
+            AlipayTradeQueryModel bizModel = new AlipayTradeQueryModel();
+            bizModel.setOutTradeNo(outTradeNo);
+            
+            AlipayTradeQueryRequest queryRequest = new AlipayTradeQueryRequest();
+            queryRequest.setBizModel(bizModel);
+            
+            // ?????API???????
+            String body = alipayClient.execute(queryRequest).getBody();
+            log.info("???????? {}", body);
+            
+            // ??????
+            JSONObject responseJson = JSON.parseObject(body);
+            JSONObject queryResponse = responseJson.getJSONObject("alipay_trade_query_response");
+            
+            if (queryResponse != null && "10000".equals(queryResponse.getString("code"))) {
+                String tradeStatus = queryResponse.getString("trade_status");
+                String tradeNo = queryResponse.getString("trade_no");
+                String totalAmount = queryResponse.getString("total_amount");
+                String gmtPayment = queryResponse.getString("send_pay_date");
+                
+                log.info("???? - ????? {}, ??????: {}, ??: {}, ????: {}", 
+                        tradeStatus, tradeNo, totalAmount, gmtPayment);
+                
+                // ????????????????
+                if ("TRADE_SUCCESS".equals(tradeStatus)) {
+                    log.info("?????????????????? {}", outTradeNo);
+                    
+                    // ?????????????
+                    SimpleDateFormat payDateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+                    payDateFormat.setTimeZone(TimeZone.getTimeZone("Asia/Shanghai"));
+                    orderService.changeOrderPaySuccess(outTradeNo,
+                            gmtPayment != null ? payDateFormat.parse(gmtPayment) : new Date());
+                    
+                    log.info("????????????? {}", outTradeNo);
+                    
+                    return Response.<String>builder()
+                            .code(Constants.ResponseCode.SUCCESS.getCode())
+                            .info(Constants.ResponseCode.SUCCESS.getInfo())
+                            .data("????????????")
+                            .build();
+                } else {
+                    log.info("?????????? {}, ???? {}", tradeStatus, outTradeNo);
+                    return Response.<String>builder()
+                            .code(Constants.ResponseCode.SUCCESS.getCode())
+                            .info(Constants.ResponseCode.SUCCESS.getInfo())
+                            .data("????? " + tradeStatus)
+                            .build();
+                }
+            } else {
+                String errorMsg = queryResponse != null ? queryResponse.getString("msg") : "????";
+                log.error("???????? {}, ???? {}", errorMsg, outTradeNo);
+                return Response.<String>builder()
+                        .code(Constants.ResponseCode.UN_ERROR.getCode())
+                        .info(Constants.ResponseCode.UN_ERROR.getInfo())
+                        .data("????: " + errorMsg)
+                        .build();
+            }
+            
+        } catch (Exception e) {
+            log.error("????????????: {}", outTradeNo, e);
+            return Response.<String>builder()
+                    .code(Constants.ResponseCode.UN_ERROR.getCode())
+                    .info(Constants.ResponseCode.UN_ERROR.getInfo())
+                    .data("????: " + e.getMessage())
+                    .build();
+        }
+    }
+
+}

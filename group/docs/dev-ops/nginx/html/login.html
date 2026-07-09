@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>登录活动页 | 团购体验台</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='18' fill='%23d55d39'/%3E%3Cpath d='M20 22h24v8H20zm0 12h16v8H20z' fill='white'/%3E%3C/svg%3E">
+    <link rel="stylesheet" href="css/login.css">
+</head>
+<body>
+<div class="login-page">
+    <section class="login-hero">
+        <span class="hero-kicker">LOCAL DEMO</span>
+        <h1>进入拼团活动体验台</h1>
+        <p>
+            这是用于本地联调的静态登录页。提交时不会请求账号服务，只会把用户名写入浏览器 Cookie，
+            然后进入活动页继续调试查询、锁单和结算接口。
+        </p>
+
+        <div class="hero-points">
+            <div class="point-card">
+                <strong>1</strong>
+                <span>选择一个测试用户名进入活动页</span>
+            </div>
+            <div class="point-card">
+                <strong>2</strong>
+                <span>首页会自动请求 8091 后端查询拼团数据</span>
+            </div>
+            <div class="point-card">
+                <strong>3</strong>
+                <span>发起开团或参团后可继续模拟支付与结算</span>
+            </div>
+        </div>
+
+        <div class="sample-users">
+            <span>快捷填充</span>
+            <div class="chip-list">
+                <button class="user-chip" type="button" data-user="xfg01">xfg01</button>
+                <button class="user-chip" type="button" data-user="xfg03">xfg03</button>
+                <button class="user-chip" type="button" data-user="xfg05">xfg05</button>
+            </div>
+        </div>
+    </section>
+
+    <section class="login-card">
+        <form id="loginForm" class="login-form">
+            <span class="form-badge">GROUP BUY</span>
+            <h2>使用任意账号名进入</h2>
+            <p class="form-help">密码字段仅用于保留登录表单结构，本地演示不会校验真实账号。</p>
+
+            <label class="field" for="username">
+                <span>用户名</span>
+                <input type="text" id="username" placeholder="例如 xfg03" autocomplete="username" required>
+            </label>
+
+            <label class="field" for="password">
+                <span>密码</span>
+                <input type="password" id="password" placeholder="输入任意内容即可" autocomplete="current-password" required>
+            </label>
+
+            <button class="submit-btn" type="submit">进入活动页</button>
+            <p class="error-message" id="errorMessage"></p>
+        </form>
+    </section>
+</div>
+
+<script src="js/login.js"></script>
+</body>
+</html>

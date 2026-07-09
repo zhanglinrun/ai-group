@@ -1,0 +1,52 @@
+spring:
+  application:
+    name: gateway
+  main:
+    web-application-type: reactive
+  cloud:
+    compatibility-verifier:
+      enabled: false
+    nacos:
+      discovery:
+        server-addr: ${NACOS_HOST:127.0.0.1}:${NACOS_PORT:8848}
+        namespace: public
+    gateway:
+      server:
+        webflux:
+          httpclient:
+            connect-timeout: 10000
+            response-timeout: 300000
+  data:
+    redis:
+      host: ${REDIS_HOST:127.0.0.1}
+      port: ${REDIS_PORT:16379}
+      database: 0
+
+server:
+  port: 8080
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+
+jwt:
+  secret: ${JWT_SECRET:ai-group-dev-jwt-secret-2026-k8m3p9x2v7n4q1w6-change-in-prod}
+
+gateway:
+  route:
+    auth-uri: http://127.0.0.1:8081
+    member-uri: http://127.0.0.1:8082
+    bff-uri: http://127.0.0.1:8083
+    pay-uri: http://127.0.0.1:8070
+    group-uri: http://127.0.0.1:8091
+    agent-uri: http://127.0.0.1:8090
+
+ai-group:
+  internal:
+    token: ${AI_GROUP_INTERNAL_TOKEN:ai-group-dev-internal-token-change-in-prod}
+
+logging:
+  level:
+    com.aigroup.gateway: info

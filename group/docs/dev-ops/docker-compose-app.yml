@@ -1,0 +1,53 @@
+# 先启动中间件环境：
+# docker compose -f docs/dev-ops/docker-compose-environment.yml up -d
+#
+# 再在仓库根目录完成打包：
+# mvn clean install -DskipTests
+#
+# 最后启动应用容器：
+# docker compose -f docs/dev-ops/docker-compose-app.yml up -d --build
+
+services:
+  group-buy-market-app:
+    build:
+      context: ../../group-buy-market-app
+      dockerfile: Dockerfile
+    image: group-buy-market-app:local
+    container_name: group-buy-market-app
+    restart: on-failure
+    ports:
+      - "8091:8091"
+    environment:
+      TZ: Asia/Shanghai
+      PARAMS: --spring.profiles.active=dev
+      SERVER_PORT: 8091
+
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: 123456
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/group_buy_market?useUnicode=true&characterEncoding=utf8&autoReconnect=true&zeroDateTimeBehavior=convertToNull&serverTimezone=Asia/Shanghai&useSSL=false&sessionVariables=sql_mode='NO_ENGINE_SUBSTITUTION,STRICT_TRANS_TABLES'
+      SPRING_DATASOURCE_DRIVER_CLASS_NAME: com.mysql.cj.jdbc.Driver
+
+      SPRING_RABBITMQ_ADDRESSES: rabbitmq
+      SPRING_RABBITMQ_PORT: 5672
+      SPRING_RABBITMQ_USERNAME: admin
+      SPRING_RABBITMQ_PASSWORD: admin
+
+      REDIS_SDK_CONFIG_HOST: redis
+      REDIS_SDK_CONFIG_PORT: 6379
+
+      XFG_WRENCH_CONFIG_SYSTEM: group-buy-market
+      XFG_WRENCH_CONFIG_REGISTER_HOST: redis
+      XFG_WRENCH_CONFIG_REGISTER_PORT: 6379
+
+      LOGSTASH_HOST: host.docker.internal
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./log:/data/log
+    networks:
+      - my-network
+
+networks:
+  my-network:
+    external: true
+    name: dev-ops_my-network

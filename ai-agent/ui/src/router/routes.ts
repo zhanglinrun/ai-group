@@ -1,0 +1,15 @@
+export const ROUTES = {
+  HOME: "/",
+  LOGIN: "/login",
+  REGISTER: "/register",
+  CHAT: "/chat",
+  PRICING: "/pricing",
+  GROUP_BUY_HALL: "/group-buy",
+  ORDERS: "/orders",
+  ACCOUNT: "/account",
+  WORKSPACE: "/workspace",
+  WORKSPACE_MRAG: "/workspace/mrag",
+  WORKSPACE_IMAGE_GENERATION: "/workspace/image-generation",
+  NOT_FOUND: "*",
+} as const;
+

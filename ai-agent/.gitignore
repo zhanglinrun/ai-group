@@ -1,0 +1,90 @@
+target/
+!.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+node_modules/
+dist/
+coverage/
+*.log
+.env
+.env.*
+
+### IntelliJ IDEA ###
+.idea/modules.xml
+.idea/jarRepositories.xml
+.idea/compiler.xml
+.idea/libraries/
+*.iws
+*.iml
+*.ipr
+
+### Eclipse ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+build/
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+### VS Code ###
+.vscode/
+
+### Mac OS ###
+.DS_Store
+/.idea/
+/Reactor-agent-app/data/
+/data/
+/Reactor-agent-app/.local-config
+__pycache__/
+*.pyc
+.venv/
+venv/
+# Runtime skills — exclude generated files but keep source code
+runtime/skills/*/__pycache__/
+runtime/skills/*/*.pyc
+runtime/skills/*/.venv/
+runtime/skills/*/output/
+runtime/skills/*/tools/vector_index.json
+Thumbs.db
+*.tmp
+*.swp
+
+# 本地 Agent / Spec 工作流资产不纳入版本控制
+/.agents/
+/.claude/
+/.codex/
+/.specify/
+/CLAUDE.md
+/AGENTS.md
+/PROMPT_CONTEXT_MEMORY_REARCH.md
+/specs/
+/openspec/
+/docs/
+
+# 本地运行产物不纳入版本控制（配置文件本身使用 env 占位，可安全提交）
+/Reactor-agent-app/src/main/resources/application-*-local.yml
+/reactor-tool/cookies.json
+/reactor-tool/skilloutput/
+/ui/.env
+/ui/.claude/
+/ui/.serena/
+/ui/.playwright-mcp/
+
+# 自动执行旧目录仅保留本地，不再纳入版本控制
+/Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/service/execute/auto/step/
+/Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/service/execute/auto1/step/
+/.playwright-mcp/
+/.codegraph/
+/.codegraph/
+/.codegraph/

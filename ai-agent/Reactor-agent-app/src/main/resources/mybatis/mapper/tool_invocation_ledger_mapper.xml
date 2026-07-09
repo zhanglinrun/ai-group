@@ -1,0 +1,120 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="org.wwz.ai.infrastructure.dao.reactor.IToolInvocationLedgerDao">
+
+    <resultMap id="ToolInvocationMap" type="org.wwz.ai.domain.agent.ledger.entity.ToolInvocation">
+        <id column="id" property="id"/>
+        <result column="run_id" property="runId"/>
+        <result column="llm_invocation_id" property="llmInvocationId"/>
+        <result column="tool_call_id" property="toolCallId"/>
+        <result column="dispatch_index" property="dispatchIndex"/>
+        <result column="agent_name" property="agentName"/>
+        <result column="step_no" property="stepNo"/>
+        <result column="tool_name" property="toolName"/>
+        <result column="tool_provider" property="toolProvider"/>
+        <result column="input_json" property="inputJson"/>
+        <result column="llm_observation" property="llmObservation"/>
+        <result column="status" property="status"/>
+        <result column="error_msg" property="errorMsg"/>
+        <result column="started_at" property="startedAt"/>
+        <result column="finished_at" property="finishedAt"/>
+        <result column="duration_ms" property="durationMs"/>
+        <result column="create_time" property="createTime"/>
+        <result column="update_time" property="updateTime"/>
+        <result column="deleted" property="deleted"/>
+    </resultMap>
+
+    <resultMap id="ToolInvocationViewMap" type="org.wwz.ai.domain.agent.ledger.model.ToolInvocationView">
+        <id column="id" property="id"/>
+        <result column="run_id" property="runId"/>
+        <result column="llm_invocation_id" property="llmInvocationId"/>
+        <result column="request_id" property="requestId"/>
+        <result column="session_id" property="sessionId"/>
+        <result column="owner_id" property="ownerId"/>
+        <result column="tool_call_id" property="toolCallId"/>
+        <result column="dispatch_index" property="dispatchIndex"/>
+        <result column="agent_name" property="agentName"/>
+        <result column="step_no" property="stepNo"/>
+        <result column="tool_name" property="toolName"/>
+        <result column="tool_provider" property="toolProvider"/>
+        <result column="input_json" property="inputJson"/>
+        <result column="llm_observation" property="llmObservation"/>
+        <result column="status" property="status"/>
+        <result column="error_msg" property="errorMsg"/>
+        <result column="duration_ms" property="durationMs"/>
+        <result column="artifact_count" property="artifactCount"/>
+        <result column="started_at" property="startedAt"/>
+        <result column="finished_at" property="finishedAt"/>
+        <result column="create_time" property="createTime"/>
+    </resultMap>
+
+    <sql id="entityColumns">
+        id, run_id, llm_invocation_id, tool_call_id, dispatch_index, agent_name, step_no, tool_name, tool_provider,
+        input_json, llm_observation, status, error_msg, started_at, finished_at, duration_ms, create_time, update_time, deleted
+    </sql>
+
+    <insert id="insertToolInvocation" parameterType="org.wwz.ai.domain.agent.ledger.entity.ToolInvocation" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO tool_invocation (
+            run_id, llm_invocation_id, tool_call_id, dispatch_index, agent_name, step_no, tool_name, tool_provider,
+            input_json, llm_observation, status, error_msg, started_at, finished_at, duration_ms, create_time, update_time, deleted
+        ) VALUES (
+            #{runId}, #{llmInvocationId}, #{toolCallId}, #{dispatchIndex}, #{agentName}, #{stepNo}, #{toolName}, #{toolProvider},
+            #{inputJson}, #{llmObservation}, #{status}, #{errorMsg}, #{startedAt}, #{finishedAt}, #{durationMs}, NOW(), NOW(), 0
+        )
+    </insert>
+
+    <update id="updateToolInvocationFinish" parameterType="org.wwz.ai.domain.agent.ledger.entity.ToolInvocation">
+        UPDATE tool_invocation SET
+            llm_observation = #{llmObservation},
+            status = #{status},
+            error_msg = #{errorMsg},
+            finished_at = #{finishedAt},
+            duration_ms = #{durationMs},
+            update_time = NOW()
+        WHERE id = #{id}
+    </update>
+
+    <select id="queryByRunId" parameterType="java.lang.Long" resultMap="ToolInvocationMap">
+        SELECT <include refid="entityColumns"/>
+        FROM tool_invocation
+        WHERE run_id = #{runId} AND deleted = 0
+        ORDER BY dispatch_index ASC, id ASC
+    </select>
+
+    <select id="queryByRunIds" resultMap="ToolInvocationMap">
+        SELECT <include refid="entityColumns"/>
+        FROM tool_invocation
+        WHERE deleted = 0
+        AND run_id IN
+        <foreach collection="runIds" item="runId" open="(" separator="," close=")">
+            #{runId}
+        </foreach>
+        ORDER BY run_id ASC, dispatch_index ASC, id ASC
+    </select>
+
+    <select id="queryByLlmInvocationIds" resultMap="ToolInvocationMap">
+        SELECT <include refid="entityColumns"/>
+        FROM tool_invocation
+        WHERE deleted = 0
+        AND llm_invocation_id IN
+        <foreach collection="llmInvocationIds" item="llmInvocationId" open="(" separator="," close=")">
+            #{llmInvocationId}
+        </foreach>
+        ORDER BY llm_invocation_id ASC, dispatch_index ASC, id ASC
+    </select>
+
+    <select id="queryRecentByToolName" resultMap="ToolInvocationViewMap">
+        SELECT
+            ti.id, ti.run_id, ti.llm_invocation_id, ti.tool_call_id, ti.dispatch_index, ti.agent_name, ti.step_no,
+            ti.tool_name, ti.tool_provider, ti.input_json, ti.llm_observation, ti.status, ti.error_msg,
+            ti.started_at, ti.finished_at, ti.duration_ms, ti.create_time,
+            dr.request_id, dr.session_id, dr.owner_id,
+            (SELECT COUNT(1) FROM artifact_record ar WHERE ar.tool_invocation_id = ti.id AND ar.deleted = 0) AS artifact_count
+        FROM tool_invocation ti
+        LEFT JOIN dialogue_run dr ON dr.id = ti.run_id AND dr.deleted = 0
+        WHERE ti.tool_name = #{toolName} AND ti.deleted = 0
+        ORDER BY ti.started_at DESC, ti.id DESC
+        LIMIT #{limit}
+    </select>
+
+</mapper>

@@ -1,0 +1,133 @@
+server:
+  port: 8090
+  forward-headers-strategy: framework
+
+management:
+  health:
+    elasticsearch:
+      enabled: false
+
+spring:
+  autoconfigure:
+    exclude:
+      - org.springframework.ai.mcp.client.httpclient.autoconfigure.SseHttpClientTransportAutoConfiguration
+      - org.springframework.ai.mcp.client.httpclient.autoconfigure.StreamableHttpHttpClientTransportAutoConfiguration
+      - org.springframework.ai.mcp.client.webflux.autoconfigure.SseWebFluxTransportAutoConfiguration
+      - org.springframework.ai.mcp.client.webflux.autoconfigure.StreamableHttpWebFluxTransportAutoConfiguration
+  ai:
+    agent:
+      auto-config:
+        enabled: true
+      chat:
+        default-role-id: dev_role_001
+    openai:
+      base-url: ${AGENT_GROUP_LLM_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}
+      api-key: ${AGENT_GROUP_LLM_API_KEY:${DASHSCOPE_API_KEY:not-configured}}
+      chat:
+        completions-path: /chat/completions
+        options:
+          model: ${AGENT_GROUP_LLM_CHAT_MODEL:qwen-plus}
+          temperature: 0.2
+          stream-usage: true
+      embedding:
+        embeddings-path: /embeddings
+        metadata-mode: EMBED
+        options:
+          model: ${AGENT_GROUP_LLM_EMBEDDING_MODEL:text-embedding-v3}
+          dimensions: ${AGENT_GROUP_VECTOR_DIMENSION:1024}
+          encoding-format: float
+  datasource:
+    mysql:
+      driver-class-name: com.mysql.cj.jdbc.Driver
+      url: jdbc:mysql://${MYSQL_HOST:127.0.0.1}:${MYSQL_PORT:13306}/agent_db?useUnicode=true&characterEncoding=utf8&autoReconnect=true&zeroDateTimeBehavior=convertToNull&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+      username: ${MYSQL_USER:root}
+      password: ${MYSQL_ROOT_PASSWORD:123456}
+      hikari:
+        maximum-pool-size: 20
+        minimum-idle: 5
+  data:
+    redis:
+      host: ${REDIS_HOST:127.0.0.1}
+      port: ${REDIS_PORT:16379}
+  rabbitmq:
+    host: ${RABBITMQ_HOST:127.0.0.1}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USER:admin}
+    password: ${RABBITMQ_PASSWORD:admin}
+
+ai-group:
+  member-service:
+    base-url: ${MEMBER_SERVICE_BASE_URL:http://127.0.0.1:8082}
+
+llm:
+  default:
+    model: ${AGENT_GROUP_LLM_CHAT_MODEL:qwen-plus}
+    max_tokens: ${AGENT_GROUP_LLM_MAX_TOKENS:16384}
+    temperature: ${AGENT_GROUP_LLM_TEMPERATURE:0.2}
+    base_url: ${AGENT_GROUP_LLM_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}
+    interface_url: /chat/completions
+    function_call_type: function_call
+    apikey: ${AGENT_GROUP_LLM_API_KEY:${DASHSCOPE_API_KEY:not-configured}}
+    max_input_tokens: ${AGENT_GROUP_LLM_MAX_INPUT_TOKENS:100000}
+
+autobots:
+  execution:
+    heartbeat:
+      interval-millis: 10000
+    cors:
+      allowed-origins:
+        - http://localhost:5173
+        - http://127.0.0.1:5173
+  autoagent:
+    planner:
+      model_name: ${AGENT_GROUP_LLM_CHAT_MODEL:qwen-plus}
+    executor:
+      model_name: ${AGENT_GROUP_LLM_CHAT_MODEL:qwen-plus}
+    react:
+      model_name: ${AGENT_GROUP_LLM_CHAT_MODEL:qwen-plus}
+    dispatch_url: ${AGENT_GROUP_AGENT_DISPATCH_URL:http://127.0.0.1:8090/AutoAgent}
+    code_interpreter_url: ${AGENT_GROUP_REACTOR_TOOL_BASE_URL:http://127.0.0.1:1601}
+    deep_search_url: ${AGENT_GROUP_REACTOR_TOOL_BASE_URL:http://127.0.0.1:1601}
+    web_fetch_url: ${AGENT_GROUP_REACTOR_TOOL_BASE_URL:http://127.0.0.1:1601}
+    image_generation_url: ${AGENT_GROUP_REACTOR_TOOL_BASE_URL:http://127.0.0.1:1601}
+    data_analysis_url: ${AGENT_GROUP_REACTOR_TOOL_BASE_URL:http://127.0.0.1:1601}
+  data-agent:
+    agent-url: ${AGENT_GROUP_REACTOR_TOOL_BASE_URL:http://127.0.0.1:1601}
+    qdrant-config:
+      enable: ${AGENT_GROUP_QDRANT_ENABLED:false}
+      url: ${QDRANT_URL:http://127.0.0.1:6333}
+      port: ${QDRANT_PORT:6334}
+      api-key: ${QDRANT_API_KEY:}
+      embedding-url: ${AGENT_GROUP_EMBEDDING_URL:}
+      prefer-grpc: ${QDRANT_PREFER_GRPC:false}
+
+agent:
+  group:
+    rabbit:
+      enabled: ${AGENT_GROUP_RABBIT_ENABLED:false}
+    minio:
+      endpoint: ${S3_ENDPOINT:http://127.0.0.1:9000}
+      access-key: ${S3_ACCESS_KEY:minioadmin}
+      secret-key: ${S3_SECRET_KEY:minioadmin}
+      bucket-name: ${S3_BUCKET_NAME:mrag}
+    reactor-tool:
+      enabled: ${AGENT_GROUP_REACTOR_TOOL_ENABLED:true}
+      base-url: ${AGENT_GROUP_REACTOR_TOOL_BASE_URL:http://127.0.0.1:1601}
+
+tavily:
+  api-key: ${TAVILY_API_KEY:}
+
+mineru:
+  api-key: ${MINERU_API_KEY:}
+
+grsai:
+  nanobanana:
+    api-key: ${GRSAI_NANOBANANA_API_KEY:}
+
+skills:
+  directory: runtime/skills
+  output-directory: outputs
+
+mybatis-plus:
+  mapper-locations: classpath*:/mybatis/mapper/*.xml
+  config-location: classpath:/mybatis/config/mybatis-config.xml
