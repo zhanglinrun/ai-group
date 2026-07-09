@@ -29,7 +29,6 @@ jwt:
   secret: ${JWT_SECRET:ai-group-dev-jwt-secret-2026-k8m3p9x2v7n4q1w6-change-in-prod}
 
 ai-group:
-  member:
-    url: http://127.0.0.1:8082
+  # member.url 留空：默认走 Nacos 服务发现调用 member；local profile 覆盖为直连
   internal:
     token: ${AI_GROUP_INTERNAL_TOKEN:ai-group-dev-internal-token-change-in-prod}

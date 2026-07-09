@@ -1,0 +1,10 @@
+# local profile：不依赖 Nacos，member Feign 调用走固定端口直连
+spring:
+  cloud:
+    nacos:
+      discovery:
+        enabled: false
+
+ai-group:
+  member:
+    url: http://127.0.0.1:8082

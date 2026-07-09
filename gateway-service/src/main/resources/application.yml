@@ -36,12 +36,14 @@ jwt:
 
 gateway:
   route:
-    auth-uri: http://127.0.0.1:8081
-    member-uri: http://127.0.0.1:8082
-    bff-uri: http://127.0.0.1:8083
+    # 平台服务与 agent 经 Nacos 服务发现 + 负载均衡（lb://服务名）；local profile 覆盖为直连
+    auth-uri: lb://auth
+    member-uri: lb://member
+    bff-uri: lb://bff
+    agent-uri: lb://agent
+    # group/pay 为独立集成业务系统（未注册 Nacos），经配置端点转发
     pay-uri: http://127.0.0.1:8070
     group-uri: http://127.0.0.1:8091
-    agent-uri: http://127.0.0.1:8090
 
 ai-group:
   internal:
