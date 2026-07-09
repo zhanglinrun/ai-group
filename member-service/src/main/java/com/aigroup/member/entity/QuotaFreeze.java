@@ -15,6 +15,8 @@ public class QuotaFreeze {
     private Integer amount;
     private String abilityCode;
     private String status;
+    /** 客户端幂等键（agent 请求ID）；同一 requestId 重复预扣返回同一 freezeId，避免重试重复冻结 */
+    private String requestId;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

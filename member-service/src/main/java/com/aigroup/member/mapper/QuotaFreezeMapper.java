@@ -11,4 +11,7 @@ public interface QuotaFreezeMapper extends BaseMapper<QuotaFreeze> {
 
     @Select("SELECT * FROM quota_freeze WHERE freeze_id = #{freezeId} FOR UPDATE")
     QuotaFreeze selectForUpdateByFreezeId(@Param("freezeId") String freezeId);
+
+    @Select("SELECT * FROM quota_freeze WHERE user_id = #{userId} AND request_id = #{requestId} LIMIT 1")
+    QuotaFreeze selectByUserIdAndRequestId(@Param("userId") Long userId, @Param("requestId") String requestId);
 }

@@ -15,7 +15,7 @@ public interface MemberService {
 
     MemberSummaryVO summary(Long userId);
 
-    Map<String, String> freeze(Long userId, String abilityCode, int multiplier);
+    Map<String, String> freeze(Long userId, String abilityCode, int multiplier, String requestId);
 
     void confirm(String freezeId);
 

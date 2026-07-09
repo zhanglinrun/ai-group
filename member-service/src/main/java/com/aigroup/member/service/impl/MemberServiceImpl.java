@@ -27,6 +27,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.util.StringUtils;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -136,7 +137,15 @@ public class MemberServiceImpl implements MemberService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public Map<String, String> freeze(Long userId, String abilityCode, int multiplier) {
+    public Map<String, String> freeze(Long userId, String abilityCode, int multiplier, String requestId) {
+        // 幂等：同一 requestId（agent 请求ID）重复预扣直接返回既有 freezeId，避免网络重试重复冻结导致配额泄漏。
+        // 顺序重试由此 SELECT 命中；极少数并发同 requestId 由 uk_user_request 唯一键 + 事务回滚兜底（不产生泄漏）。
+        if (StringUtils.hasText(requestId)) {
+            QuotaFreeze existing = quotaFreezeMapper.selectByUserIdAndRequestId(userId, requestId);
+            if (existing != null) {
+                return Map.of("freezeId", existing.getFreezeId());
+            }
+        }
         int cost = quotaAbilityProperties.resolveCost(abilityCode, multiplier);
         QuotaAccount locked = quotaAccountMapper.selectForUpdateByUserId(userId);
         if (locked == null) {
@@ -157,6 +166,7 @@ public class MemberServiceImpl implements MemberService {
         freeze.setAmount(cost);
         freeze.setAbilityCode(abilityCode);
         freeze.setStatus(FREEZE_STATUS_PENDING);
+        freeze.setRequestId(StringUtils.hasText(requestId) ? requestId : null);
         freeze.setCreatedAt(LocalDateTime.now());
         freeze.setUpdatedAt(LocalDateTime.now());
         quotaFreezeMapper.insert(freeze);

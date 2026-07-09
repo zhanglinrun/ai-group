@@ -31,6 +31,17 @@ SET @sql = IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEM
     'SELECT 1');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
+-- 预扣幂等键：quota_freeze.request_id 列 + (user_id, request_id) 唯一键
+SET @sql = IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = 'member_db' AND TABLE_NAME = 'quota_freeze' AND COLUMN_NAME = 'request_id') = 0,
+    'ALTER TABLE `quota_freeze` ADD COLUMN `request_id` VARCHAR(64) DEFAULT NULL AFTER `status`',
+    'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @sql = IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA = 'member_db' AND TABLE_NAME = 'quota_freeze' AND INDEX_NAME = 'uk_user_request') = 0,
+    'ALTER TABLE `quota_freeze` ADD UNIQUE KEY `uk_user_request` (`user_id`, `request_id`)',
+    'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
 INSERT INTO `product_sku` (`code`, `name`, `price`, `period_quota`, `topup_quota`, `member_days`, `tier`, `sku_type`, `status`) VALUES
 ('FREE', 'Free', 0.00, 20, 0, 0, 'FREE', 'FREE', 1),
 ('PRO_MONTH', 'Pro Monthly', 49.00, 500, 0, 30, 'PRO', 'MEMBER', 1),

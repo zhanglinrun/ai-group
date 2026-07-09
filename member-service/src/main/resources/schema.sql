@@ -78,9 +78,12 @@ CREATE TABLE IF NOT EXISTS `quota_freeze` (
     `amount` INT NOT NULL,
     `ability_code` VARCHAR(64) NOT NULL,
     `status` VARCHAR(32) NOT NULL,
+    `request_id` VARCHAR(64) DEFAULT NULL,
     `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    PRIMARY KEY (`freeze_id`)
+    PRIMARY KEY (`freeze_id`),
+    -- 预扣幂等键：同一用户同一 requestId 至多一条冻结记录（request_id 为 NULL 时允许多条，兼容历史无键调用）
+    UNIQUE KEY `uk_user_request` (`user_id`, `request_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 INSERT INTO `product_sku` (`code`, `name`, `price`, `period_quota`, `topup_quota`, `member_days`, `tier`, `sku_type`, `status`) VALUES

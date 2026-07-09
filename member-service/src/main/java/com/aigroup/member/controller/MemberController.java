@@ -42,7 +42,9 @@ public class MemberController {
         Long userId = Long.valueOf(body.get("userId").toString());
         String abilityCode = body.get("abilityCode").toString();
         int multiplier = Integer.parseInt(body.get("multiplier").toString());
-        return Result.success(memberService.freeze(userId, abilityCode, multiplier));
+        Object requestIdObj = body.get("requestId");
+        String requestId = requestIdObj != null ? requestIdObj.toString() : null;
+        return Result.success(memberService.freeze(userId, abilityCode, multiplier, requestId));
     }
 
     @PostMapping("/internal/quota/confirm")
