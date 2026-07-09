@@ -250,7 +250,8 @@ describe("ChatView layout", () => {
       deepThink: false,
       displayOutput: product,
       showRoleSelector: false,
-      showBtn: false,
+      // 会话内单面板输入框有意展示模式切换托盘（配合 onSelectionChange/showRoleSelector 等新 props）
+      showBtn: true,
     });
   });
 
@@ -308,7 +309,8 @@ describe("ChatView layout", () => {
       deepThink: true,
       displayOutput: product,
       showRoleSelector: false,
-      showBtn: false,
+      // 会话内单面板输入框有意展示模式切换托盘
+      showBtn: true,
     });
   });
 

@@ -80,6 +80,8 @@ const ChatView: ReactorType.FC<Props> = (props) => {
   const conversationRef = useRef(conversation);
   const [isConversationSwitching, setIsConversationSwitching] = useState(false);
   const [dataLoading, setDataLoading] = useState(false);
+  // dataAgent SSE 流的取消句柄：切换会话/卸载/发起新请求时中断旧流，避免迟到事件污染 + 输入框卡死
+  const dataStreamAbortRef = useRef<AbortController | null>(null);
   const {
     taskList,
     workspaceStreamTask,
@@ -113,8 +115,19 @@ const ChatView: ReactorType.FC<Props> = (props) => {
   }, [conversation]);
 
   useEffect(() => {
+    // 切换会话：中断上一会话仍在进行的 dataAgent 流，丢弃其迟到事件
+    dataStreamAbortRef.current?.abort();
+    dataStreamAbortRef.current = null;
     setDataLoading(false);
   }, [conversation.id]);
+
+  // 组件卸载时中断在途 dataAgent 流，避免泄漏与对已卸载组件的状态更新
+  useEffect(() => {
+    return () => {
+      dataStreamAbortRef.current?.abort();
+      dataStreamAbortRef.current = null;
+    };
+  }, []);
 
   useEffect(() => {
     setActiveTask((prevActiveTask) => {
@@ -248,15 +261,38 @@ const ChatView: ReactorType.FC<Props> = (props) => {
       currentChat,
     };
 
+    // 发起新请求前中断上一条仍在进行的 dataAgent 流
+    dataStreamAbortRef.current?.abort();
+    const abortController = new AbortController();
+    dataStreamAbortRef.current = abortController;
+
     const handleMessage = (data: CHAT.DataChatEvent) => {
+      // 丢弃已被中断（切会话/新请求）的迟到流事件，避免污染当前会话
+      if (abortController.signal.aborted) return;
       updateDataChatFromEvent(runtime, data);
     };
     const handleError = (error: unknown) => {
+      // 传输层断连时如实反馈并解除输入框锁定，而不是永远停留在“任务进行中...”
+      if (abortController.signal.aborted) return;
       console.error("DataAgent SSE stream error", error);
+      runtime.currentChat.loading = false;
+      runtime.currentChat.error = "数据分析连接异常，请重试";
+      const nextConversation = runtime.draftController.replaceLastItem({ ...runtime.currentChat });
+      runtime.draftController.commit(nextConversation);
+      setDataLoading(false);
     };
 
     const handleClose = () => {
-      console.log("close");
+      // 兜底：流关闭时若仍处 loading（未收到 READY/ERROR），解除锁定
+      if (abortController === dataStreamAbortRef.current) {
+        dataStreamAbortRef.current = null;
+      }
+      if (runtime.currentChat.loading) {
+        runtime.currentChat.loading = false;
+        const nextConversation = runtime.draftController.replaceLastItem({ ...runtime.currentChat });
+        runtime.draftController.commit(nextConversation);
+      }
+      setDataLoading(false);
     };
     querySSE(
       {
@@ -265,6 +301,7 @@ const ChatView: ReactorType.FC<Props> = (props) => {
         handleMessage,
         handleError,
         handleClose,
+        signal: abortController.signal,
       },
       `${SERVICE_BASE_URL}/data/chatQuery`
     );
