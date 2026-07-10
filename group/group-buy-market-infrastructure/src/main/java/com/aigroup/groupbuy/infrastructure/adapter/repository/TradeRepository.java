@@ -249,6 +249,16 @@ public class TradeRepository implements ITradeRepository {
 
         int updateOrderListStatusCount = groupBuyOrderListDao.updateOrderStatus2COMPLETE(groupBuyOrderListReq);
         if (1 != updateOrderListStatusCount) {
+            // 幂等：重复/重投的成团结算回调会发现本成员明细已是 COMPLETE(status=1)，
+            // 按"已结算"直接返回，不再重复累加 complete_count、不再抛 UPDATE_ZERO
+            // （否则监听器 ack 失败→MQ 无限重投、pay 侧订单永久卡在 PAY_SUCCESS）。
+            GroupBuyOrderList existingOrderList = groupBuyOrderListDao.queryGroupBuyOrderRecordByOutTradeNo(groupBuyOrderListReq);
+            if (null != existingOrderList
+                    && TradeOrderStatusEnumVO.COMPLETE.getCode().equals(existingOrderList.getStatus())) {
+                log.info("settlement idempotent, member order already completed. teamId:{} userId:{} outTradeNo:{}",
+                        groupBuyTeamEntity.getTeamId(), userEntity.getUserId(), tradePaySuccessEntity.getOutTradeNo());
+                return null;
+            }
             throw new AppException(ResponseCode.UPDATE_ZERO);
         }
 

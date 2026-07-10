@@ -31,7 +31,12 @@ public interface IOrderRepository {
 
     boolean changeOrderClose(String orderId);
 
-    void changeOrderMarketSettlement(List<String> outTradeNoList);
+    /**
+     * 将成团回调中实际处于 PAY_SUCCESS 的订单迁移为 MARKET，并只对迁移成功的订单发送履约消息。
+     *
+     * @return 真正结算成功（现为 MARKET）的订单号；未支付/已关闭订单不在其中，调用方据此发放权益
+     */
+    List<String> changeOrderMarketSettlement(List<String> outTradeNoList);
 
     OrderEntity queryOrderByOrderId(String orderId);
 

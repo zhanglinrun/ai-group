@@ -113,6 +113,16 @@
         and status = 'PAY_SUCCESS'
     </update>
 
+    <!-- 回查成团回调中真正结算成功(现为 MARKET)的订单：未支付(PAY_WAIT)/已关闭(CLOSE)订单不会命中，
+         调用方据此只对已结算订单发权益/发履约消息，杜绝"未支付也发会员" -->
+    <select id="queryMarketSettledOrderIds" resultType="java.lang.String">
+        select order_id from pay_order
+        where status = 'MARKET' and order_id in
+        <foreach item="orderId" collection="outTradeNoList" open="(" separator="," close=")">
+            #{orderId}
+        </foreach>
+    </select>
+
     <select id="queryOrderByOrderId" parameterType="java.lang.String" resultMap="dataMap">
         select user_id, product_id, product_code, product_name, order_id, order_time, total_amount, status, pay_url, market_type, market_deduction_amount, pay_amount
         from pay_order

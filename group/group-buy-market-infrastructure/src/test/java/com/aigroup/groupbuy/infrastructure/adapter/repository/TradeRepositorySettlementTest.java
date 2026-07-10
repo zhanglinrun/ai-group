@@ -5,8 +5,10 @@ import com.aigroup.groupbuy.domain.trade.model.entity.GroupBuyTeamEntity;
 import com.aigroup.groupbuy.domain.trade.model.entity.TradePaySuccessEntity;
 import com.aigroup.groupbuy.domain.trade.model.entity.UserEntity;
 import com.aigroup.groupbuy.infrastructure.dao.IGroupBuyOrderDao;
+import com.aigroup.groupbuy.domain.trade.model.valobj.TradeOrderStatusEnumVO;
 import com.aigroup.groupbuy.infrastructure.dao.IGroupBuyOrderListDao;
 import com.aigroup.groupbuy.infrastructure.dao.po.GroupBuyOrder;
+import com.aigroup.groupbuy.infrastructure.dao.po.GroupBuyOrderList;
 import com.aigroup.groupbuy.types.enums.ResponseCode;
 import com.aigroup.groupbuy.types.exception.AppException;
 import org.junit.Before;
@@ -86,6 +88,40 @@ public class TradeRepositorySettlementTest {
         when(groupBuyOrderDao.queryGroupBuyProgress(TEAM_ID)).thenReturn(progress);
 
         assertNull(tradeRepository.settlementMarketPayOrder(aggregate()));
+    }
+
+    /**
+     * Idempotency: a duplicated / redelivered settlement callback finds the member
+     * detail already COMPLETE (updateOrderStatus2COMPLETE touches 0 rows). It must
+     * return null (already settled) instead of throwing UPDATE_ZERO, and must NOT
+     * re-increment the team complete_count.
+     */
+    @Test
+    public void shouldReturnNullWhenMemberOrderAlreadyCompleted() throws Exception {
+        when(groupBuyOrderListDao.updateOrderStatus2COMPLETE(any())).thenReturn(0);
+        GroupBuyOrderList completedDetail = new GroupBuyOrderList();
+        completedDetail.setStatus(TradeOrderStatusEnumVO.COMPLETE.getCode());
+        when(groupBuyOrderListDao.queryGroupBuyOrderRecordByOutTradeNo(any())).thenReturn(completedDetail);
+
+        assertNull(tradeRepository.settlementMarketPayOrder(aggregate()));
+        Mockito.verify(groupBuyOrderDao, Mockito.never()).updateAddCompleteCount(any());
+    }
+
+    /**
+     * When the detail update touches 0 rows but the detail is NOT already complete
+     * (a genuine anomaly, e.g. wrong user / missing row), keep throwing UPDATE_ZERO.
+     */
+    @Test
+    public void shouldThrowUpdateZeroWhenMemberOrderMissingOrNotComplete() {
+        when(groupBuyOrderListDao.updateOrderStatus2COMPLETE(any())).thenReturn(0);
+        when(groupBuyOrderListDao.queryGroupBuyOrderRecordByOutTradeNo(any())).thenReturn(null);
+
+        try {
+            tradeRepository.settlementMarketPayOrder(aggregate());
+            fail("expected AppException UPDATE_ZERO when member detail is missing/not complete");
+        } catch (AppException e) {
+            assertEquals(ResponseCode.UPDATE_ZERO.getCode(), e.getCode());
+        }
     }
 
     private GroupBuyOrder teamWithStatus(int status) {

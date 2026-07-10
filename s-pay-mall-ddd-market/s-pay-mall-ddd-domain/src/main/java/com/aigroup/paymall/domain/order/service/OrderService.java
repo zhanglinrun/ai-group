@@ -290,8 +290,12 @@ public class OrderService extends AbstractOrderService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void changeOrderMarketSettlement(List<String> outTradeNoList) {
-        repository.changeOrderMarketSettlement(outTradeNoList);
-        benefitEventService.publishGroupBuyCompletedEvents(outTradeNoList);
+        // 只对真正从 PAY_SUCCESS 迁移为 MARKET 的订单发放权益；
+        // 未支付/已关闭订单即使出现在回调列表里也不发权益，杜绝"未支付白拿会员"。
+        List<String> settledOrderIds = repository.changeOrderMarketSettlement(outTradeNoList);
+        if (null != settledOrderIds && !settledOrderIds.isEmpty()) {
+            benefitEventService.publishGroupBuyCompletedEvents(settledOrderIds);
+        }
     }
 
     @Override

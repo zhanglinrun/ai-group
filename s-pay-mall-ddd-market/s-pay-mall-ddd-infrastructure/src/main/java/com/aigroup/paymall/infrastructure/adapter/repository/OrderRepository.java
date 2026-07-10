@@ -189,23 +189,30 @@ public class OrderRepository implements IOrderRepository {
     }
 
     @Override
-    public void changeOrderMarketSettlement(List<String> outTradeNoList) {
-        // 更新拼团结算状�?
-        orderDao.changeOrderMarketSettlement(outTradeNoList);
+    public List<String> changeOrderMarketSettlement(List<String> outTradeNoList) {
+        if (null == outTradeNoList || outTradeNoList.isEmpty()) {
+            return new ArrayList<>();
+        }
 
-        // 循环成功发送消�?- 一般在公司的场景里，还会有job任务扫描超时没有结算的订单，查询订单状态。查询对方服务端的接口，会被限制一次查询多少，频次多少�?
-        outTradeNoList.forEach(outTradeNo -> {
+        // 只把 PAY_SUCCESS 迁移为 MARKET；回查真正迁移成功(现为 MARKET)的订单。
+        // 未支付(PAY_WAIT)/已关闭(CLOSE)订单不在其中，避免给未支付订单发货/发权益。
+        orderDao.changeOrderMarketSettlement(outTradeNoList);
+        List<String> settledOrderIds = orderDao.queryMarketSettledOrderIds(outTradeNoList);
+        if (null == settledOrderIds || settledOrderIds.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        // 只对真正结算的订单发送支付成功消息（触发 DEAL_DONE 履约模拟）
+        settledOrderIds.forEach(outTradeNo -> {
             BaseEvent.EventMessage<PaySuccessMessageEvent.PaySuccessMessage> paySuccessMessageEventMessage = paySuccessMessageEvent.buildEventMessage(
                     PaySuccessMessageEvent.PaySuccessMessage.builder()
                             .tradeNo(outTradeNo)
                             .build());
             PaySuccessMessageEvent.PaySuccessMessage paySuccessMessage = paySuccessMessageEventMessage.getData();
-
-            // 旧版发送消息方�?
-            // eventBus.post(JSON.toJSONString(paySuccessMessage));
-
             eventPublisher.publish(paySuccessMessageEvent.topic(), JSON.toJSONString(paySuccessMessage));
         });
+
+        return settledOrderIds;
     }
 
     @Override
