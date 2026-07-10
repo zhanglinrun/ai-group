@@ -1,5 +1,6 @@
 package com.aigroup.paymall.trigger.http;
 
+import com.aigroup.paymall.api.dto.CreatePayQrResponseDTO;
 import com.aigroup.paymall.api.dto.CreatePayRequestDTO;
 import com.aigroup.paymall.api.dto.NotifyRequestDTO;
 import com.aigroup.paymall.api.dto.QueryOrderListRequestDTO;
@@ -118,6 +119,58 @@ public class AliPayController {
         }
     }
 
+    /**
+     * 当面付/扫码支付下单：创建订单（拼团模式会锁单）后返回 qr_code 供前端渲染二维码。
+     * 支付结果仍由 alipay_notify_url（异步）/ sync_settle（前端轮询）驱动，金额按 pay_amount 校验。
+     */
+    @RequestMapping(value = "create_pay_qrcode", method = RequestMethod.POST)
+    public Response<CreatePayQrResponseDTO> createPayQrCode(@RequestBody CreatePayRequestDTO createPayRequestDTO,
+                                                            HttpServletRequest servletRequest) {
+        try {
+            String userId = gatewayUserResolver.resolveUserId(servletRequest, createPayRequestDTO.getUserId());
+            String productId = createPayRequestDTO.getProductId();
+            String teamId = createPayRequestDTO.getTeamId();
+            Integer marketType = createPayRequestDTO.getMarketType();
+            String productCode = createPayRequestDTO.getProductCode();
+
+            if (!goodsSkuBindingProperties.isSkuAllowed(productId, productCode)) {
+                throw new IllegalArgumentException("illegal product binding: goodsId=" + productId + ", skuCode=" + productCode);
+            }
+
+            PayOrderEntity payOrderEntity = orderService.createOrder(ShopCartEntity.builder()
+                    .userId(userId)
+                    .productId(productId)
+                    .productCode(productCode)
+                    .teamId(teamId)
+                    .marketTypeVO(MarketTypeVO.valueOf(marketType))
+                    .activityId(createPayRequestDTO.getActivityId())
+                    .build());
+
+            String qrCode = orderService.prepareTradeQrCode(payOrderEntity.getOrderId());
+
+            return Response.<CreatePayQrResponseDTO>builder()
+                    .code(Constants.ResponseCode.SUCCESS.getCode())
+                    .info(Constants.ResponseCode.SUCCESS.getInfo())
+                    .data(CreatePayQrResponseDTO.builder()
+                            .orderId(payOrderEntity.getOrderId())
+                            .qrCode(qrCode)
+                            .build())
+                    .build();
+        } catch (IllegalArgumentException e) {
+            log.warn("create pay qrcode illegal param: {}", e.getMessage());
+            return Response.<CreatePayQrResponseDTO>builder()
+                    .code(Constants.ResponseCode.ILLEGAL_PARAMETER.getCode())
+                    .info(e.getMessage())
+                    .build();
+        } catch (Exception e) {
+            log.error("create pay qrcode failed userId:{} productId:{}", createPayRequestDTO.getUserId(), createPayRequestDTO.getProductId(), e);
+            return Response.<CreatePayQrResponseDTO>builder()
+                    .code(Constants.ResponseCode.UN_ERROR.getCode())
+                    .info(Constants.ResponseCode.UN_ERROR.getInfo())
+                    .build();
+        }
+    }
+
     @RequestMapping(value = "group_buy_notify", method = RequestMethod.POST)
     public String groupBuyNotify(@RequestBody NotifyRequestDTO requestDTO, HttpServletRequest servletRequest) {
         if (!internalCallbackAuthSupport.isAuthorized(servletRequest)) {
@@ -126,7 +179,7 @@ public class AliPayController {
         }
         log.info("group buy notify settlement start {}", JSON.toJSONString(requestDTO));
         try {
-            orderService.changeOrderMarketSettlement(requestDTO.getOutTradeNoList());
+            orderService.changeOrderMarketSettlement(requestDTO.getOutTradeNoList(), requestDTO.getBonusQuota());
             return "success";
         } catch (Exception e) {
             log.error("group buy notify settlement failed {}", JSON.toJSONString(requestDTO), e);

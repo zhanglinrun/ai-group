@@ -23,12 +23,34 @@ public class GoodsMarketResponseDTO {
 
     // 活动ID
     private Long activityId;
+    // 活动类型（0经典折扣拼团、1阶梯额度拼团）
+    private Integer activityType;
     // 商品信息
     private Goods goods;
+    // 阶梯档位（人数 → 累计加赠额度），仅阶梯额度拼团有值，按人数升序
+    private List<Tier> tiers;
     // 组队信息（1个个人的置顶、2个随机的「获取10个，随机取2个」）
     private List<Team> teamList;
     // 组队统计
     private TeamStatistic teamStatistic;
+
+    /**
+     * 阶梯档位：达到 targetCount 人时，在基础额度之上累计加赠 bonusQuota 额度
+     */
+    @Data
+    @Builder
+    @AllArgsConstructor
+    @NoArgsConstructor
+    public static class Tier {
+        // 档位序号（1..N，按人数升序）
+        private Integer tierNo;
+        // 档位名称，如 3人团/5人团/10人团
+        private String tierName;
+        // 达成该档位所需的成团人数
+        private Integer targetCount;
+        // 相对基础额度的累计加赠额度
+        private Integer bonusQuota;
+    }
 
     /**
      * 商品信息
@@ -76,6 +98,12 @@ public class GoodsMarketResponseDTO {
         private String validTimeCountdown;
         /** 外部交易单号-确保外部调用唯一幂等 */
         private String outTradeNo;
+        // 阶梯额度拼团：当前团已达档位序号（0 表示尚未达到任何档位）
+        private Integer reachedTierNo;
+        // 阶梯额度拼团：下一档位所需人数（null 表示已达最高档）
+        private Integer nextTierTargetCount;
+        // 阶梯额度拼团：最高档位人数（用于展示 X/最高档 进度）
+        private Integer maxTierTargetCount;
 
         public static String differenceDateTime2Str(Date validStartTime, Date validEndTime) {
             if (validStartTime == null || validEndTime == null) {

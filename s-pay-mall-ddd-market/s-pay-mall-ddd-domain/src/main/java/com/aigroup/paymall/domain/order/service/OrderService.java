@@ -16,8 +16,10 @@ import com.alipay.api.domain.AlipayTradeCloseModel;
 import com.alipay.api.domain.AlipayTradeRefundModel;
 import com.alipay.api.request.AlipayTradeCloseRequest;
 import com.alipay.api.request.AlipayTradePagePayRequest;
+import com.alipay.api.request.AlipayTradePrecreateRequest;
 import com.alipay.api.request.AlipayTradeRefundRequest;
 import com.alipay.api.response.AlipayTradeCloseResponse;
+import com.alipay.api.response.AlipayTradePrecreateResponse;
 import com.alipay.api.response.AlipayTradeRefundResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -159,6 +161,54 @@ public class OrderService extends AbstractOrderService {
         return sandboxAmount;
     }
 
+    @Override
+    public String prepareTradeQrCode(String orderId) throws AlipayApiException {
+        OrderEntity orderEntity = repository.queryOrderByOrderId(orderId);
+        if (null == orderEntity) {
+            log.warn("prepare qr code skipped, order not found orderId:{}", orderId);
+            return null;
+        }
+        if (!alipayEnabled) {
+            log.warn("prepare qr code skipped, alipay disabled orderId:{}", orderId);
+            return null;
+        }
+        // 复用下单时已持久化的实收金额（沙箱小额已在 doPrepayOrder 计算并写入 pay_amount），
+        // 保证扫码支付与回调/退款金额一致；缺失时回退到订单总额。
+        BigDecimal payAmount = null != orderEntity.getPayAmount() ? orderEntity.getPayAmount() : orderEntity.getTotalAmount();
+
+        AlipayTradePrecreateRequest request = new AlipayTradePrecreateRequest();
+        request.setNotifyUrl(notifyUrl);
+        JSONObject bizContent = new JSONObject();
+        bizContent.put("out_trade_no", orderId);
+        bizContent.put("total_amount", payAmount);
+        bizContent.put("subject", orderEntity.getProductName());
+        // 当面付/扫码支付必须显式声明产品码，否则沙箱可能把交易建到错误产品下，扫码时提示"订单不存在"
+        bizContent.put("product_code", "FACE_TO_FACE_PAYMENT");
+        // 二维码/交易有效期，避免扫码时交易已过期解析失败
+        bizContent.put("timeout_express", "30m");
+        request.setBizContent(bizContent.toString());
+
+        AlipayTradePrecreateResponse response;
+        try {
+            response = alipayClient.execute(request);
+        } catch (Exception ex) {
+            if (!alipayStrict) {
+                log.warn("alipay precreate failed, return null (strict=false) orderId:{}", orderId, ex);
+                return null;
+            }
+            if (ex instanceof AlipayApiException apiEx) throw apiEx;
+            if (ex instanceof RuntimeException rt) throw rt;
+            throw new RuntimeException(ex);
+        }
+        if (!response.isSuccess()) {
+            log.warn("alipay precreate not success orderId:{} code:{} subCode:{} msg:{}",
+                    orderId, response.getCode(), response.getSubCode(), response.getSubMsg());
+            return null;
+        }
+        log.info("alipay precreate ok orderId:{} amount:{} qrCode:{}", orderId, payAmount, response.getQrCode());
+        return response.getQrCode();
+    }
+
     /**
      * 取消未支付订单前关闭支付宝侧交易，杜绝"取消后旧收银台仍可付款"。
      * 返回 true 表示可以安全本地关单：支付宝确认关闭、交易根本不存在（CREATE 单从未打开收银台），
@@ -215,7 +265,8 @@ public class OrderService extends AbstractOrderService {
             repository.changeOrderPaySuccess(orderId, payTime);
             // 直购单支付成功即发放权益（开通会员/加油包额度）。
             // 拼团单的权益在成团回调 changeOrderMarketSettlement 里发放；此处发放幂等（按 order+eventType 去重）。
-            benefitEventService.publishGroupBuyCompletedEvents(Collections.singletonList(orderId));
+            // 直购单无阶梯加赠，bonusQuota 传 null。
+            benefitEventService.publishGroupBuyCompletedEvents(Collections.singletonList(orderId), null);
         }
 
     }
@@ -289,12 +340,13 @@ public class OrderService extends AbstractOrderService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void changeOrderMarketSettlement(List<String> outTradeNoList) {
+    public void changeOrderMarketSettlement(List<String> outTradeNoList, Integer bonusQuota) {
         // 只对真正从 PAY_SUCCESS 迁移为 MARKET 的订单发放权益；
         // 未支付/已关闭订单即使出现在回调列表里也不发权益，杜绝"未支付白拿会员"。
         List<String> settledOrderIds = repository.changeOrderMarketSettlement(outTradeNoList);
         if (null != settledOrderIds && !settledOrderIds.isEmpty()) {
-            benefitEventService.publishGroupBuyCompletedEvents(settledOrderIds);
+            // 阶梯拼团：把成团所达档位的加赠额度随权益事件透传给 member（在基础额度上叠加发放）
+            benefitEventService.publishGroupBuyCompletedEvents(settledOrderIds, bonusQuota);
         }
     }
 

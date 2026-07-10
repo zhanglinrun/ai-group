@@ -46,7 +46,7 @@ public class TeamSuccessTopicListener {
         try {
             NotifyRequestDTO requestDTO = JSON.parseObject(message, NotifyRequestDTO.class);
             log.info("team success callback, start settlement {}", JSON.toJSONString(requestDTO));
-            orderService.changeOrderMarketSettlement(requestDTO.getOutTradeNoList());
+            orderService.changeOrderMarketSettlement(requestDTO.getOutTradeNoList(), requestDTO.getBonusQuota());
         } catch (Exception e) {
             log.error("team success callback, settlement failed {}", message, e);
             throw e;

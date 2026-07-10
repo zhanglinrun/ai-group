@@ -158,6 +158,15 @@ public class BffController {
             if (activityId != null) {
                 sku.put("groupActivityId", activityId);
             }
+            // 阶梯额度拼团：把该 SKU 活动的档位阶梯与活动类型附加到 SKU，供前端渲染"额度阶梯"
+            Object tiers = market.get("tiers");
+            if (tiers != null) {
+                sku.put("groupTiers", tiers);
+            }
+            Object activityType = market.get("activityType");
+            if (activityType != null) {
+                sku.put("groupActivityType", activityType);
+            }
         }
     }
 

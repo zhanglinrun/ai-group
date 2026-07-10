@@ -12,6 +12,15 @@ public interface IOrderService {
 
     PayOrderEntity createOrder(ShopCartEntity shopCartEntity) throws Exception;
 
+    /**
+     * 为已创建的（PAY_WAIT）订单生成支付宝当面付二维码（alipay.trade.precreate）。
+     * 复用订单已持久化的 pay_amount 与商品名，返回可渲染成二维码的 qr_code 串；
+     * 支付结果仍走既有 alipay_notify_url / sync_settle，金额按 pay_amount 校验。
+     *
+     * @return qr_code 串；支付宝未启用或下单失败时返回 null
+     */
+    String prepareTradeQrCode(String orderId) throws AlipayApiException;
+
     OrderEntity queryOrderByOrderId(String orderId);
 
     void changeOrderPaySuccess(String orderId, Date orderTime);
@@ -38,7 +47,7 @@ public interface IOrderService {
      */
     int compensateWaitRefund();
 
-    void changeOrderMarketSettlement(List<String> outTradeNoList);
+    void changeOrderMarketSettlement(List<String> outTradeNoList, Integer bonusQuota);
 
     List<OrderEntity> queryUserOrderList(String userId, Long lastId, Integer pageSize);
 

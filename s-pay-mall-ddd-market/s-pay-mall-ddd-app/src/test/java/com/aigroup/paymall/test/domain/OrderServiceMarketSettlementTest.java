@@ -12,6 +12,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -49,10 +50,10 @@ public class OrderServiceMarketSettlementTest {
         when(repository.changeOrderMarketSettlement(callbackList))
                 .thenReturn(Collections.singletonList("order-paid"));
 
-        orderService.changeOrderMarketSettlement(callbackList);
+        orderService.changeOrderMarketSettlement(callbackList, 100);
 
         // benefit granted for the settled order only, not the unpaid one
-        verify(benefitEventService).publishGroupBuyCompletedEvents(Collections.singletonList("order-paid"));
+        verify(benefitEventService).publishGroupBuyCompletedEvents(Collections.singletonList("order-paid"), 100);
     }
 
     @Test
@@ -61,9 +62,9 @@ public class OrderServiceMarketSettlementTest {
         when(repository.changeOrderMarketSettlement(callbackList))
                 .thenReturn(Collections.emptyList());
 
-        orderService.changeOrderMarketSettlement(callbackList);
+        orderService.changeOrderMarketSettlement(callbackList, null);
 
         // nothing settled -> no benefit event at all (no free membership for unpaid orders)
-        verify(benefitEventService, never()).publishGroupBuyCompletedEvents(anyList());
+        verify(benefitEventService, never()).publishGroupBuyCompletedEvents(anyList(), any());
     }
 }

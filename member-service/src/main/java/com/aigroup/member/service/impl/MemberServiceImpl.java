@@ -359,6 +359,8 @@ public class MemberServiceImpl implements MemberService {
         int periodQuotaGranted = 0;
         int topupQuotaGranted = 0;
         String tierEffect = "NONE";
+        // 阶梯拼团加赠额度：在 SKU 基础额度之上叠加发放（直购/经典为 0）
+        int tierBonus = (event.getBonusQuota() != null && event.getBonusQuota() > 0) ? event.getBonusQuota() : 0;
 
         if (SKU_TYPE_MEMBER.equals(skuType)) {
             tierEffect = "PRO";
@@ -374,13 +376,13 @@ public class MemberServiceImpl implements MemberService {
             }
             member.setLastPeriodGrantMonth(currentMonth());
             if (sku.getPeriodQuota() != null && sku.getPeriodQuota() > 0) {
-                periodQuotaGranted = sku.getPeriodQuota();
+                periodQuotaGranted = sku.getPeriodQuota() + tierBonus;
                 quota.setPeriodQuotaBalance(periodQuotaGranted);
                 appendLedger(event.getUserId(), LEDGER_GRANT, periodQuotaGranted, null, sku.getCode(), "group buy grant");
             }
         } else if (SKU_TYPE_TOPUP.equals(skuType)) {
             if (sku.getTopupQuota() != null && sku.getTopupQuota() > 0) {
-                topupQuotaGranted = sku.getTopupQuota();
+                topupQuotaGranted = sku.getTopupQuota() + tierBonus;
                 quota.setTopupQuotaBalance(quota.getTopupQuotaBalance() + topupQuotaGranted);
                 appendLedger(event.getUserId(), LEDGER_GRANT, topupQuotaGranted, null, sku.getCode(), "topup grant");
             }

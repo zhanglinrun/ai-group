@@ -6,6 +6,7 @@ import ShellNav from '@/components/ShellNav';
 import StatCard from '@/components/trade/StatCard';
 import PackageCard from '@/components/trade/PackageCard';
 import GroupPreviewDialog from '@/components/trade/GroupPreviewDialog';
+import PaymentQrDialog from '@/components/trade/PaymentQrDialog';
 import {
   bffApi,
   type AccountSummary,
@@ -52,7 +53,7 @@ const PricingPage = memo(() => {
   const [groupPreviewSku, setGroupPreviewSku] = useState<SkuItem | null>(null);
   const [groupTeamsLoading, setGroupTeamsLoading] = useState(false);
   const [paymentReturned, setPaymentReturned] = useState(false);
-  const { buyingKey, handleBuy } = useTradePurchase(groupBuy);
+  const { buyingKey, handleBuy, qrPayment, closeQrPayment } = useTradePurchase(groupBuy);
 
   const activeTab: TradeTab = searchParams.get('tab') === 'orders' ? 'orders' : 'packages';
   const paymentReturn =
@@ -145,10 +146,10 @@ const PricingPage = memo(() => {
 
   const handleDirectBuy = useCallback(
     async (sku: SkuItem) => {
-      const ok = await handleBuy(sku, 'direct');
-      if (ok) switchTab('orders');
+      // 打开支付二维码；支付到账后由弹窗 onPaid 切到订单页并刷新
+      await handleBuy(sku, 'direct');
     },
-    [handleBuy, switchTab],
+    [handleBuy],
   );
 
   const handleGroupBuy = useCallback(
@@ -156,10 +157,9 @@ const PricingPage = memo(() => {
       const ok = await handleBuy(sku, 'group', teamId);
       if (ok) {
         setGroupPreviewSku(null);
-        switchTab('orders');
       }
     },
-    [handleBuy, switchTab],
+    [handleBuy],
   );
 
   // 待支付订单恢复支付：复用 pay 服务持久化的收银台表单，重新打开支付宝页面
@@ -494,6 +494,16 @@ const PricingPage = memo(() => {
           onBuy={(teamId) => void handleGroupBuy(groupPreviewSku, teamId)}
         />
       ) : null}
+
+      <PaymentQrDialog
+        payment={qrPayment}
+        onClose={closeQrPayment}
+        onPaid={() => {
+          closeQrPayment();
+          switchTab('orders');
+          void loadTradeData();
+        }}
+      />
     </div>
   );
 });

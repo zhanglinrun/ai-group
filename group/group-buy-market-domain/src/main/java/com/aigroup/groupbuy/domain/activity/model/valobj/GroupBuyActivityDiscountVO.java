@@ -50,6 +50,14 @@ public class GroupBuyActivityDiscountVO {
      */
     private Integer groupType;
     /**
+     * 活动类型（0经典折扣拼团、1阶梯额度拼团）
+     */
+    private Integer activityType;
+    /**
+     * 阶梯档位（人数 → 累计加赠额度），仅阶梯额度拼团有值，按人数升序
+     */
+    private java.util.List<Tier> tiers;
+    /**
      * 拼团次数限制
      */
     private Integer takeLimitCount;
@@ -145,6 +153,24 @@ public class GroupBuyActivityDiscountVO {
          * 人群标签，特定优惠限定
          */
         private String tagId;
+    }
+
+    /**
+     * 阶梯档位：达到 targetCount 人时，在基础额度之上累计加赠 bonusQuota 额度
+     */
+    @Getter
+    @Builder
+    @AllArgsConstructor
+    @NoArgsConstructor
+    public static class Tier {
+        /** 档位序号（1..N，按人数升序） */
+        private Integer tierNo;
+        /** 档位名称，如 3人团/5人团/10人团 */
+        private String tierName;
+        /** 达成该档位所需的成团人数 */
+        private Integer targetCount;
+        /** 相对基础额度的累计加赠额度 */
+        private Integer bonusQuota;
     }
 
 }

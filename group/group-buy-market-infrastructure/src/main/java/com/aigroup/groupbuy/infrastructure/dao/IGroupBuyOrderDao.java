@@ -36,6 +36,9 @@ public interface IGroupBuyOrderDao {
 
     List<GroupBuyOrder> queryGroupBuyProgressByTeamIds(@Param("teamIds") Set<String> teamIds);
 
+    /** 到期仍在拼单中(PROGRESS)且已有支付成员的团，用于阶梯到期结算 */
+    List<GroupBuyOrder> queryExpiredProgressTeams();
+
     Integer queryAllTeamCount(@Param("teamIds") Set<String> teamIds);
 
     Integer queryAllTeamCompleteCount(@Param("teamIds") Set<String> teamIds);

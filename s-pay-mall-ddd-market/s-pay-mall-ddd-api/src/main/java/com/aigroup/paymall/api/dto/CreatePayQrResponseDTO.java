@@ -1,0 +1,20 @@
+package com.aigroup.paymall.api.dto;
+
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+/**
+ * 当面付/扫码支付下单应答：返回订单号与 qr_code（前端渲染成二维码，轮询 sync_settle 查结果）。
+ */
+@Data
+@Builder
+@AllArgsConstructor
+@NoArgsConstructor
+public class CreatePayQrResponseDTO {
+    /** 订单号（= 支付宝 out_trade_no，前端用于轮询支付状态） */
+    private String orderId;
+    /** 支付宝 qr_code 串（前端渲染成二维码；为空表示暂不可用） */
+    private String qrCode;
+}

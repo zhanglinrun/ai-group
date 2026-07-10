@@ -33,6 +33,14 @@ public interface ITradeRepository {
 
     NotifyTaskEntity settlementMarketPayOrder(GroupBuyTeamSettlementAggregate groupBuyTeamSettlementAggregate);
 
+    /**
+     * 阶梯拼团到期结算：对到期仍在拼单中、且已达最低档人数的团，按已达档位定档并写入成团回调任务。
+     * 未达最低档的团不在此处理（交由退款流程）。
+     *
+     * @return 本轮成功结算的团数量
+     */
+    int settleExpiredFormedTeams();
+
     boolean isSCBlackIntercept(String source, String channel);
 
     List<NotifyTaskEntity> queryUnExecutedNotifyTaskList();

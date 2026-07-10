@@ -213,5 +213,7 @@ __marimo__/
 ./vscode/
 file_db_dir/
 autobots.db
+kb_file.db
+*.db
 skilloutput/
 

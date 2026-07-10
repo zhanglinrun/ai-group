@@ -47,7 +47,7 @@ public class BenefitEventServiceTest {
         when(benefitEventRepository.findByOrderIdAndEventType("order-001", BenefitEventType.GROUP_BUY_COMPLETED.name()))
                 .thenReturn(null);
 
-        benefitEventService.publishGroupBuyCompletedEvents(Collections.singletonList("order-001"));
+        benefitEventService.publishGroupBuyCompletedEvents(Collections.singletonList("order-001"), 100);
 
         ArgumentCaptor<TradeCompletedEvent> eventCaptor = ArgumentCaptor.forClass(TradeCompletedEvent.class);
         verify(benefitEventPort).publishTradeCompleted(eventCaptor.capture());
@@ -74,7 +74,7 @@ public class BenefitEventServiceTest {
         when(benefitEventRepository.findByOrderIdAndEventType("order-002", BenefitEventType.GROUP_BUY_COMPLETED.name()))
                 .thenReturn(null);
 
-        benefitEventService.publishGroupBuyCompletedEvents(Collections.singletonList("order-002"));
+        benefitEventService.publishGroupBuyCompletedEvents(Collections.singletonList("order-002"), null);
 
         ArgumentCaptor<TradeCompletedEvent> eventCaptor = ArgumentCaptor.forClass(TradeCompletedEvent.class);
         verify(benefitEventPort).publishTradeCompleted(eventCaptor.capture());

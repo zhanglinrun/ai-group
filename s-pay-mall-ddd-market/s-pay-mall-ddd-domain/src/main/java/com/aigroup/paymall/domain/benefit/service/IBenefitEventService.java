@@ -7,7 +7,7 @@ import java.util.List;
 
 public interface IBenefitEventService {
 
-    void publishGroupBuyCompletedEvents(List<String> orderIds);
+    void publishGroupBuyCompletedEvents(List<String> orderIds, Integer bonusQuota);
 
     void publishGroupBuyRevokedEvents(List<String> orderIds);
 

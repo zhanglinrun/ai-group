@@ -3,6 +3,7 @@ package com.aigroup.groupbuy.trigger.job;
 import com.aigroup.groupbuy.domain.activity.model.entity.UserGroupBuyOrderDetailEntity;
 import com.aigroup.groupbuy.domain.trade.model.entity.TradeRefundCommandEntity;
 import com.aigroup.groupbuy.domain.trade.service.ITradeRefundOrderService;
+import com.aigroup.groupbuy.domain.trade.service.ITradeSettlementOrderService;
 import com.alibaba.fastjson.JSON;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RLock;
@@ -27,6 +28,9 @@ public class TimeoutRefundJob {
     private ITradeRefundOrderService tradeRefundOrderService;
 
     @Resource
+    private ITradeSettlementOrderService tradeSettlementOrderService;
+
+    @Resource
     private RedissonClient redissonClient;
 
     /**
@@ -46,6 +50,11 @@ public class TimeoutRefundJob {
             }
 
             log.info("timeout refund job started");
+
+            // 阶梯拼团：先结算"到期已达最低档"的团（按最终人数定档发放），使其转为成团；
+            // 之后退款扫描只会命中仍不足最低档(团不成立)的团，实现"≥门槛按档发、<门槛退款"。
+            int settledTeams = tradeSettlementOrderService.settleExpiredFormedTeams();
+            log.info("timeout tiered settle expired formed teams: {}", settledTeams);
 
             // 未支付超时（unpaid_unlock）：释放锁单库存
             int[] unpaid = refundBatch(tradeRefundOrderService.queryTimeoutUnpaidOrderList(), "unpaid");

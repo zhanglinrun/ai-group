@@ -33,13 +33,14 @@ public class BenefitEventService implements IBenefitEventService {
     }
 
     @Override
-    public void publishGroupBuyCompletedEvents(List<String> orderIds) {
-        publishEvents(orderIds, BenefitEventType.GROUP_BUY_COMPLETED.name(), false);
+    public void publishGroupBuyCompletedEvents(List<String> orderIds, Integer bonusQuota) {
+        publishEvents(orderIds, BenefitEventType.GROUP_BUY_COMPLETED.name(), false, bonusQuota);
     }
 
     @Override
     public void publishGroupBuyRevokedEvents(List<String> orderIds) {
-        publishEvents(orderIds, BenefitEventType.GROUP_BUY_REVOKED.name(), true);
+        // 撤销不需要加赠额度：member 侧按发放时记录的额度原路扣回
+        publishEvents(orderIds, BenefitEventType.GROUP_BUY_REVOKED.name(), true, null);
     }
 
     @Override
@@ -55,13 +56,13 @@ public class BenefitEventService implements IBenefitEventService {
         return benefitEventRepository.queryPendingGrants(BenefitEventType.GROUP_BUY_COMPLETED.name(), since, lastId, size);
     }
 
-    private void publishEvents(List<String> orderIds, String eventType, boolean requireCompletedPublished) {
+    private void publishEvents(List<String> orderIds, String eventType, boolean requireCompletedPublished, Integer bonusQuota) {
         if (orderIds == null || orderIds.isEmpty()) {
             return;
         }
         for (String orderId : orderIds) {
             try {
-                publishEvent(orderId, eventType, requireCompletedPublished);
+                publishEvent(orderId, eventType, requireCompletedPublished, bonusQuota);
             } catch (Exception e) {
                 log.error("publish benefit event failed orderId={} eventType={}", orderId, eventType, e);
             }
@@ -82,7 +83,7 @@ public class BenefitEventService implements IBenefitEventService {
         return count;
     }
 
-    private void publishEvent(String orderId, String eventType, boolean requireCompletedPublished) {
+    private void publishEvent(String orderId, String eventType, boolean requireCompletedPublished, Integer bonusQuota) {
         OrderEntity order = orderRepository.queryOrderByOrderId(orderId);
         if (order == null) {
             log.warn("skip benefit event, order not found orderId={}", orderId);
@@ -102,7 +103,7 @@ public class BenefitEventService implements IBenefitEventService {
                 BenefitEventEntity pendingRevoke = benefitEventRepository.findByOrderIdAndEventType(orderId, eventType);
                 if (pendingRevoke == null) {
                     try {
-                        createBenefitEvent(order, eventType);
+                        createBenefitEvent(order, eventType, null);
                     } catch (Exception e) {
                         // tolerate duplicate insert on uk_order_event_type (concurrent revoke)
                         log.warn("create pending revoke event failed (may already exist) orderId={}", orderId, e);
@@ -119,11 +120,11 @@ public class BenefitEventService implements IBenefitEventService {
             return;
         }
 
-        BenefitEventEntity entity = existing != null ? existing : createBenefitEvent(order, eventType);
+        BenefitEventEntity entity = existing != null ? existing : createBenefitEvent(order, eventType, bonusQuota);
         tryPublish(entity);
     }
 
-    private BenefitEventEntity createBenefitEvent(OrderEntity order, String eventType) {
+    private BenefitEventEntity createBenefitEvent(OrderEntity order, String eventType, Integer bonusQuota) {
         String productCode = StringUtils.isNotBlank(order.getProductCode())
                 ? order.getProductCode()
                 : order.getProductId();
@@ -134,6 +135,7 @@ public class BenefitEventService implements IBenefitEventService {
                 .orderId(order.getOrderId())
                 .productCode(productCode)
                 .eventPublished(false)
+                .bonusQuota(bonusQuota)
                 .build();
         benefitEventRepository.insert(entity);
         return entity;
@@ -149,6 +151,7 @@ public class BenefitEventService implements IBenefitEventService {
                 .userId(entity.getUserId())
                 .orderId(entity.getOrderId())
                 .productCode(entity.getProductCode())
+                .bonusQuota(entity.getBonusQuota())
                 .build();
         try {
             benefitEventPort.publishTradeCompleted(event);

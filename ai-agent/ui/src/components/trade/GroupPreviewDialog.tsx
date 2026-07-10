@@ -5,10 +5,12 @@ import { useCountdown, COUNTDOWN_ENDED } from '@/hooks/useCountdown';
 import {
   formatPrice,
   formatQuota,
+  quotaLadder,
   shortTeamId,
   skuDisplayName,
   skuTheme,
   teamProgress,
+  teamTierView,
 } from '@/utils/tradeDisplay';
 
 type GroupPreviewDialogProps = {
@@ -23,12 +25,14 @@ type GroupPreviewDialogProps = {
 const TeamRow = memo(
   ({
     team,
+    sku,
     goodsKey,
     buyingKey,
     themeAccent,
     onBuy,
   }: {
     team: GroupBuyTeam;
+    sku: SkuItem;
     goodsKey: string;
     buyingKey: string;
     themeAccent: string;
@@ -36,6 +40,8 @@ const TeamRow = memo(
   }) => {
     const teamId = team.teamId || '';
     const { target, complete, remaining, percent } = teamProgress(team);
+    const tierView = teamTierView(team, sku);
+    const tiered = tierView.isTiered;
     const joining = buyingKey === `${goodsKey}-group-${teamId}`;
     const countdown = useCountdown(team.validEndTime, team.validTimeCountdown);
     const ended = countdown === COUNTDOWN_ENDED;
@@ -46,17 +52,39 @@ const TeamRow = memo(
           <div>
             <div className="text-sm font-medium">队伍 {shortTeamId(teamId)}</div>
             <div className="mt-1 text-xs text-[var(--chat-text-soft)]">
-              已支付 {complete}/{target} 人
+              已支付 {tiered ? tierView.complete : complete}/{tiered ? tierView.maxTarget : target} 人
               {countdown ? (ended ? ` · ${COUNTDOWN_ENDED}` : ` · 剩余 ${countdown}`) : ''}
             </div>
           </div>
           <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
-            还差 {remaining} 人
+            {tiered
+              ? tierView.reachedMax
+                ? '已达最高档'
+                : `还差 ${tierView.remainingToNext} 人升档`
+              : `还差 ${remaining} 人`}
           </span>
         </div>
         <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-[var(--chat-surface-soft)]">
-          <div className={`h-full rounded-full ${themeAccent}`} style={{ width: `${percent}%` }} />
+          <div
+            className={`h-full rounded-full ${themeAccent}`}
+            style={{ width: `${tiered ? tierView.percent : percent}%` }}
+          />
         </div>
+        {tiered ? (
+          <div className="mt-3 flex items-center justify-between rounded-xl bg-[var(--chat-surface-soft)] px-3 py-2 text-xs">
+            <span className="text-[var(--chat-text-soft)]">
+              当前 <span className="font-medium text-[var(--chat-text)]">{formatQuota(tierView.currentQuota)}</span>
+            </span>
+            {tierView.reachedMax ? (
+              <span className="font-medium text-emerald-600">已封顶</span>
+            ) : (
+              <span className="text-[var(--chat-text-soft)]">
+                下一档 <span className="font-medium text-[var(--chat-text)]">{formatQuota(tierView.nextQuota)}</span>
+                <span className="ml-1 text-orange-600">+{tierView.boost}</span>
+              </span>
+            )}
+          </div>
+        ) : null}
         <button
           type="button"
           onClick={() => onBuy(teamId)}
@@ -93,6 +121,7 @@ const GroupPreviewDialog = memo(
     );
     const goodsKey = sku.code;
     const starting = buyingKey === `${goodsKey}-group`;
+    const ladder = quotaLadder(sku);
 
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 px-4 py-6 backdrop-blur-sm">
@@ -148,6 +177,30 @@ const GroupPreviewDialog = memo(
                   </div>
                 ) : null}
               </div>
+              {ladder.length > 0 ? (
+                <div className="mt-4 overflow-hidden rounded-xl border border-white/60 bg-white/60 dark:bg-white/5">
+                  <div className="flex items-center justify-between border-b border-white/60 px-3 py-1.5 text-xs font-medium">
+                    <span>额度阶梯</span>
+                    <span className={theme.accentText}>人数越多额度越高</span>
+                  </div>
+                  <div className="divide-y divide-white/50">
+                    {ladder.map((row) => (
+                      <div
+                        key={row.label}
+                        className="grid grid-cols-[1fr_auto] items-center gap-2 px-3 py-1 text-xs"
+                      >
+                        <span>
+                          {row.label}
+                          {row.isSolo ? '' : ` · +${row.bonus}`}
+                        </span>
+                        <span className={`font-semibold ${row.isMax ? theme.accentText : ''}`}>
+                          {formatQuota(row.total)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
               <button
                 type="button"
                 onClick={() => onBuy()}
@@ -179,6 +232,7 @@ const GroupPreviewDialog = memo(
                     <TeamRow
                       key={team.teamId}
                       team={team}
+                      sku={sku}
                       goodsKey={goodsKey}
                       buyingKey={buyingKey}
                       themeAccent={theme.accent}

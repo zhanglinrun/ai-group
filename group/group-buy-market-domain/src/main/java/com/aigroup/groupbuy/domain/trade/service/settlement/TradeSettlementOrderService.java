@@ -103,4 +103,9 @@ public class TradeSettlementOrderService implements ITradeSettlementOrderService
                 .build();
     }
 
+    @Override
+    public int settleExpiredFormedTeams() {
+        return repository.settleExpiredFormedTeams();
+    }
+
 }

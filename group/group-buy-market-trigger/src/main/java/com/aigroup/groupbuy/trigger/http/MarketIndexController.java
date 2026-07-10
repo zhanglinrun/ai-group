@@ -75,9 +75,41 @@ public class MarketIndexController implements IMarketIndexService {
                     .payPrice(trialBalanceEntity.getPayPrice())
                     .build();
 
+            // 阶梯档位（人数 → 累计加赠额度），仅阶梯额度拼团有值
+            List<GroupBuyActivityDiscountVO.Tier> voTiers = groupBuyActivityDiscountVO.getTiers();
+            List<GoodsMarketResponseDTO.Tier> tiers = new ArrayList<>();
+            Integer maxTierTargetCount = null;
+            if (null != voTiers && !voTiers.isEmpty()) {
+                for (GroupBuyActivityDiscountVO.Tier voTier : voTiers) {
+                    tiers.add(GoodsMarketResponseDTO.Tier.builder()
+                            .tierNo(voTier.getTierNo())
+                            .tierName(voTier.getTierName())
+                            .targetCount(voTier.getTargetCount())
+                            .bonusQuota(voTier.getBonusQuota())
+                            .build());
+                    if (null != voTier.getTargetCount() && (null == maxTierTargetCount || voTier.getTargetCount() > maxTierTargetCount)) {
+                        maxTierTargetCount = voTier.getTargetCount();
+                    }
+                }
+            }
+
             List<GoodsMarketResponseDTO.Team> teams = new ArrayList<>();
             if (null != userGroupBuyOrderDetailEntities && !userGroupBuyOrderDetailEntities.isEmpty()) {
                 for (UserGroupBuyOrderDetailEntity userGroupBuyOrderDetailEntity : userGroupBuyOrderDetailEntities) {
+                    // 阶梯额度拼团：按当前完成人数计算已达档位与下一档位
+                    int completeCount = null != userGroupBuyOrderDetailEntity.getCompleteCount() ? userGroupBuyOrderDetailEntity.getCompleteCount() : 0;
+                    Integer reachedTierNo = 0;
+                    Integer nextTierTargetCount = null;
+                    if (null != voTiers && !voTiers.isEmpty()) {
+                        for (GroupBuyActivityDiscountVO.Tier voTier : voTiers) {
+                            if (null == voTier.getTargetCount()) continue;
+                            if (completeCount >= voTier.getTargetCount()) {
+                                reachedTierNo = voTier.getTierNo();
+                            } else if (null == nextTierTargetCount) {
+                                nextTierTargetCount = voTier.getTargetCount();
+                            }
+                        }
+                    }
                     GoodsMarketResponseDTO.Team team = GoodsMarketResponseDTO.Team.builder()
                             .userId(userGroupBuyOrderDetailEntity.getUserId())
                             .teamId(userGroupBuyOrderDetailEntity.getTeamId())
@@ -89,6 +121,9 @@ public class MarketIndexController implements IMarketIndexService {
                             .validEndTime(userGroupBuyOrderDetailEntity.getValidEndTime())
                             .validTimeCountdown(GoodsMarketResponseDTO.Team.differenceDateTime2Str(new Date(), userGroupBuyOrderDetailEntity.getValidEndTime()))
                             .outTradeNo(userGroupBuyOrderDetailEntity.getOutTradeNo())
+                            .reachedTierNo(reachedTierNo)
+                            .nextTierTargetCount(nextTierTargetCount)
+                            .maxTierTargetCount(maxTierTargetCount)
                             .build();
                     teams.add(team);
                 }
@@ -105,7 +140,9 @@ public class MarketIndexController implements IMarketIndexService {
                     .info(ResponseCode.SUCCESS.getInfo())
                     .data(GoodsMarketResponseDTO.builder()
                             .activityId(activityId)
+                            .activityType(groupBuyActivityDiscountVO.getActivityType())
                             .goods(goods)
+                            .tiers(tiers)
                             .teamList(teams)
                             .teamStatistic(teamStatistic)
                             .build())

@@ -2,14 +2,17 @@ import { useCallback, useState } from 'react';
 import { message } from 'antd';
 import { payApi } from '@/services/pay';
 import { getAuthUserId } from '@/auth/token';
-import { submitAlipayForm } from '@/utils/payForm';
 import { DEFAULT_GOODS_ID, DIRECT_BUY_MARKET_TYPE, GROUP_BUY_MARKET_TYPE } from '@/constants/trade';
+import { skuDisplayName } from '@/utils/tradeDisplay';
 import type { GroupBuyInfo, SkuItem } from '@/services/bff';
+import type { QrPayment } from '@/components/trade/PaymentQrDialog';
 
 type PurchaseMode = 'direct' | 'group';
 
 export function useTradePurchase(groupBuy: GroupBuyInfo | null) {
   const [buyingKey, setBuyingKey] = useState('');
+  // 扫码支付：下单成功后展示支付宝当面付二维码，轮询到账后由调用页处理跳转/刷新
+  const [qrPayment, setQrPayment] = useState<QrPayment | null>(null);
 
   const handleBuy = useCallback(
     async (sku: SkuItem, mode: PurchaseMode, teamId?: string) => {
@@ -30,7 +33,7 @@ export function useTradePurchase(groupBuy: GroupBuyInfo | null) {
       const key = `${sku.code}-${mode}${teamId ? `-${teamId}` : ''}`;
       setBuyingKey(key);
       try {
-        const payHtml = await payApi.createOrder({
+        const order = await payApi.createQrOrder({
           userId: String(userId),
           productId: sku.groupGoodsId || groupBuy?.goods?.goodsId || DEFAULT_GOODS_ID,
           productCode: sku.code,
@@ -38,7 +41,19 @@ export function useTradePurchase(groupBuy: GroupBuyInfo | null) {
           marketType: isGroup ? GROUP_BUY_MARKET_TYPE : DIRECT_BUY_MARKET_TYPE,
           teamId: isGroup ? teamId : undefined,
         });
-        submitAlipayForm(payHtml);
+        if (!order?.orderId) {
+          message.error('下单失败，请稍后重试');
+          return false;
+        }
+        const amount = isGroup
+          ? (sku.groupPayPrice ?? groupBuy?.goods?.payPrice ?? sku.price)
+          : sku.price;
+        setQrPayment({
+          orderId: order.orderId,
+          qrCode: order.qrCode,
+          title: skuDisplayName(sku),
+          amount,
+        });
         return true;
       } catch (error) {
         console.error('创建支付订单失败', error);
@@ -51,8 +66,12 @@ export function useTradePurchase(groupBuy: GroupBuyInfo | null) {
     [groupBuy],
   );
 
+  const closeQrPayment = useCallback(() => setQrPayment(null), []);
+
   return {
     buyingKey,
     handleBuy,
+    qrPayment,
+    closeQrPayment,
   };
 }

@@ -9,6 +9,7 @@ import {
   skuDisplayName,
   skuTheme,
   teamProgress,
+  teamTierView,
 } from '@/utils/tradeDisplay';
 
 type GroupTeamCardProps = {
@@ -22,6 +23,8 @@ type GroupTeamCardProps = {
 const GroupTeamCard = memo(({ team, sku, groupPrice, buyingKey, onJoin }: GroupTeamCardProps) => {
   const teamId = team.teamId || '';
   const { target, complete, remaining, percent } = teamProgress(team);
+  const tierView = teamTierView(team, sku);
+  const tiered = tierView.isTiered;
   const theme = skuTheme(sku?.code || 'PRO_MONTH');
   const price = groupPrice ?? sku?.price;
   const joining = buyingKey === `${sku?.code || ''}-group-${teamId}`;
@@ -61,19 +64,44 @@ const GroupTeamCard = memo(({ team, sku, groupPrice, buyingKey, onJoin }: GroupT
         <div className="mt-4">
           <div className="mb-2 flex items-center justify-between text-sm">
             <span className="font-medium">
-              {complete}/{target} 人
+              {tiered ? tierView.complete : complete}/{tiered ? tierView.maxTarget : target} 人
             </span>
-            <span className="text-[var(--chat-text-soft)]">还差 {remaining} 人成团</span>
+            <span className="text-[var(--chat-text-soft)]">
+              {tiered
+                ? tierView.reachedMax
+                  ? '已达最高档'
+                  : `还差 ${tierView.remainingToNext} 人达成目标档`
+                : `还差 ${remaining} 人成团`}
+            </span>
           </div>
           <div className="h-2 overflow-hidden rounded-full bg-[var(--chat-surface-soft)]">
             <div
               className={`h-full rounded-full transition-all ${theme.accent}`}
-              style={{ width: `${percent}%` }}
+              style={{ width: `${tiered ? tierView.percent : percent}%` }}
             />
           </div>
         </div>
 
-        {sku?.periodQuota != null ? (
+        {tiered ? (
+          <div className="mt-4 grid grid-cols-3 gap-2 text-center text-xs">
+            <div className="rounded-xl bg-[var(--chat-surface-soft)] px-2 py-2">
+              <div className="text-[var(--chat-text-soft)]">当前额度</div>
+              <div className="mt-1 font-medium">{formatQuota(tierView.currentQuota)}</div>
+            </div>
+            <div className="rounded-xl bg-[var(--chat-surface-soft)] px-2 py-2">
+              <div className="text-[var(--chat-text-soft)]">奖励提升</div>
+              <div className={`mt-1 font-medium ${tierView.reachedMax ? '' : 'text-orange-600'}`}>
+                {tierView.reachedMax ? '已封顶' : `+${tierView.boost}`}
+              </div>
+            </div>
+            <div className="rounded-xl bg-[var(--chat-surface-soft)] px-2 py-2">
+              <div className="text-[var(--chat-text-soft)]">下一档额度</div>
+              <div className="mt-1 font-medium">
+                {tierView.nextQuota != null ? formatQuota(tierView.nextQuota) : '—'}
+              </div>
+            </div>
+          </div>
+        ) : sku?.periodQuota != null ? (
           <div className="mt-4 grid grid-cols-3 gap-2 text-center text-xs">
             <div className="rounded-xl bg-[var(--chat-surface-soft)] px-2 py-2">
               <div className="text-[var(--chat-text-soft)]">基础配额</div>

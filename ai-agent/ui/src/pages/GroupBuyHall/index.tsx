@@ -4,6 +4,7 @@ import { Loader2, RefreshCw, Users } from 'lucide-react';
 import { message } from 'antd';
 import ShellNav from '@/components/ShellNav';
 import GroupTeamCard from '@/components/trade/GroupTeamCard';
+import PaymentQrDialog from '@/components/trade/PaymentQrDialog';
 import { bffApi, type GroupBuyInfo, type GroupBuyTeam, type SkuItem } from '@/services/bff';
 import { useTradePurchase } from '@/hooks/useTradePurchase';
 import { ROUTES } from '@/router/routes';
@@ -14,7 +15,7 @@ const GroupBuyHallPage = memo(() => {
   const [loading, setLoading] = useState(true);
   const [groupBuy, setGroupBuy] = useState<GroupBuyInfo | null>(null);
   const [skus, setSkus] = useState<SkuItem[]>([]);
-  const { buyingKey, handleBuy } = useTradePurchase(groupBuy);
+  const { buyingKey, handleBuy, qrPayment, closeQrPayment } = useTradePurchase(groupBuy);
 
   const loadHall = useCallback(async () => {
     setLoading(true);
@@ -70,12 +71,10 @@ const GroupBuyHallPage = memo(() => {
         message.error('暂无可用套餐');
         return;
       }
-      const ok = await handleBuy(teamSku, 'group', team.teamId);
-      if (ok) {
-        navigate(`${ROUTES.PRICING}?tab=orders`);
-      }
+      // 打开支付二维码；支付到账后由弹窗 onPaid 跳转订单页
+      await handleBuy(teamSku, 'group', team.teamId);
     },
-    [resolveTeamSku, handleBuy, navigate],
+    [resolveTeamSku, handleBuy],
   );
 
   return (
@@ -202,6 +201,15 @@ const GroupBuyHallPage = memo(() => {
           </div>
         ) : null}
       </main>
+
+      <PaymentQrDialog
+        payment={qrPayment}
+        onClose={closeQrPayment}
+        onPaid={() => {
+          closeQrPayment();
+          navigate(`${ROUTES.PRICING}?tab=orders`);
+        }}
+      />
     </div>
   );
 });

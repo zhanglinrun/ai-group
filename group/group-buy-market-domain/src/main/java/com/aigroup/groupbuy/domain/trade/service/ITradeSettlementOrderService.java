@@ -21,4 +21,11 @@ public interface ITradeSettlementOrderService {
      */
     TradePaySettlementEntity settlementMarketPayOrder(TradePaySuccessEntity tradePaySuccessEntity) throws Exception;
 
+    /**
+     * 阶梯拼团到期结算：对到期已达最低档的团按已达档位定档发放（写入成团回调任务，由通知任务派发）。
+     *
+     * @return 本轮成功结算的团数量
+     */
+    int settleExpiredFormedTeams();
+
 }

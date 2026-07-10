@@ -1,8 +1,19 @@
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
-import { Check, Clock3, Crown, Loader2, ShieldCheck, Sparkles, UserPlus, Zap } from 'lucide-react';
+import {
+  Check,
+  Clock3,
+  Crown,
+  Loader2,
+  ShieldCheck,
+  Sparkles,
+  TrendingUp,
+  UserPlus,
+  Zap,
+} from 'lucide-react';
 import ShellNav from '@/components/ShellNav';
 import GroupTeamCard from '@/components/trade/GroupTeamCard';
+import PaymentQrDialog from '@/components/trade/PaymentQrDialog';
 import { bffApi, type GroupBuyInfo, type SkuItem } from '@/services/bff';
 import { useTradePurchase } from '@/hooks/useTradePurchase';
 import { ROUTES } from '@/router/routes';
@@ -10,6 +21,8 @@ import {
   formatPrice,
   formatQuota,
   isMemberSku,
+  isTieredSku,
+  quotaLadder,
   skuDescription,
   skuDisplayName,
   skuTheme,
@@ -25,7 +38,7 @@ const GroupBuyPage = memo(() => {
   const [groupBuy, setGroupBuy] = useState<GroupBuyInfo | null>(null);
   const [skus, setSkus] = useState<SkuItem[]>([]);
   const [selectedCode, setSelectedCode] = useState<string>('');
-  const { buyingKey, handleBuy } = useTradePurchase(groupBuy);
+  const { buyingKey, handleBuy, qrPayment, closeQrPayment } = useTradePurchase(groupBuy);
 
   useEffect(() => {
     if (!Number.isFinite(activityId)) {
@@ -65,26 +78,25 @@ const GroupBuyPage = memo(() => {
   const theme = skuTheme(selectedSku?.code || 'PRO_MONTH');
   const groupPrice = groupBuy?.goods?.payPrice ?? selectedSku?.price;
   const originPrice = groupBuy?.goods?.originalPrice ?? selectedSku?.price;
+  const ladder = selectedSku ? quotaLadder(selectedSku) : [];
+  const tiered = isTieredSku(selectedSku);
 
   const handleDirectBuy = useCallback(async () => {
     if (!selectedSku) return;
-    const ok = await handleBuy(selectedSku, 'direct');
-    if (ok) navigate(`${ROUTES.PRICING}?tab=orders`);
-  }, [selectedSku, handleBuy, navigate]);
+    await handleBuy(selectedSku, 'direct');
+  }, [selectedSku, handleBuy]);
 
   const handleGroupStart = useCallback(async () => {
     if (!selectedSku) return;
-    const ok = await handleBuy(selectedSku, 'group');
-    if (ok) navigate(`${ROUTES.PRICING}?tab=orders`);
-  }, [selectedSku, handleBuy, navigate]);
+    await handleBuy(selectedSku, 'group');
+  }, [selectedSku, handleBuy]);
 
   const handleJoinTeam = useCallback(
     async (teamId: string) => {
       if (!selectedSku) return;
-      const ok = await handleBuy(selectedSku, 'group', teamId);
-      if (ok) navigate(`${ROUTES.PRICING}?tab=orders`);
+      await handleBuy(selectedSku, 'group', teamId);
     },
-    [selectedSku, handleBuy, navigate],
+    [selectedSku, handleBuy],
   );
 
   if (!Number.isFinite(activityId)) {
@@ -212,6 +224,39 @@ const GroupBuyPage = memo(() => {
                     );
                   })}
                 </div>
+
+                {ladder.length > 0 ? (
+                  <div className="mt-6 overflow-hidden rounded-2xl border border-white/60 bg-white/70 backdrop-blur-sm dark:bg-white/10">
+                    <div className="flex items-center justify-between border-b border-white/60 px-4 py-2.5 text-sm font-medium">
+                      <span>额度阶梯</span>
+                      <span className={`inline-flex items-center gap-1 text-xs ${theme.accentText}`}>
+                        人数越多额度越高
+                        <TrendingUp className="h-3.5 w-3.5" />
+                      </span>
+                    </div>
+                    <div className="divide-y divide-white/50">
+                      {ladder.map((row) => (
+                        <div
+                          key={row.label}
+                          className="grid grid-cols-[1fr_auto_auto] items-center gap-2 px-4 py-2 text-sm"
+                        >
+                          <span className="font-medium">{row.label}</span>
+                          <span className="justify-self-center whitespace-nowrap text-xs text-[var(--chat-text-soft)]">
+                            {row.isSolo ? '单买' : `${row.targetCount} 人 · +${row.bonus}`}
+                          </span>
+                          <span
+                            className={`justify-self-end font-semibold ${row.isMax ? theme.accentText : ''}`}
+                          >
+                            {formatQuota(row.total)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="px-4 py-2 text-[11px] text-[var(--chat-text-soft)]">
+                      未满目标人数时，按已达档位结算额度
+                    </div>
+                  </div>
+                ) : null}
               </div>
             </section>
 
@@ -248,11 +293,19 @@ const GroupBuyPage = memo(() => {
 
               <div className="mt-6 rounded-2xl bg-[var(--chat-surface-soft)] px-4 py-4 text-sm">
                 <div className="font-medium">拼团须知</div>
-                <ul className="mt-2 space-y-1.5 text-[var(--chat-text-soft)]">
-                  <li>· 拼团支付成功后需等待成团，未成团将按规则处理。</li>
-                  <li>· 成团后自动开通 Pro 会员并发放周期配额。</li>
-                  <li>· 也可选择直接购买，支付后立即生效。</li>
-                </ul>
+                {tiered ? (
+                  <ul className="mt-2 space-y-1.5 text-[var(--chat-text-soft)]">
+                    <li>· 每位成员支付同一价格，拼团人数越多，每人可得额度越高。</li>
+                    <li>· 达到更高人数档位时额度按档位升级；未满目标按已达档位结算。</li>
+                    <li>· 也可选择直接购买，按单独购买档位额度立即生效。</li>
+                  </ul>
+                ) : (
+                  <ul className="mt-2 space-y-1.5 text-[var(--chat-text-soft)]">
+                    <li>· 拼团支付成功后需等待成团，未成团将按规则处理。</li>
+                    <li>· 成团后自动开通 Pro 会员并发放周期配额。</li>
+                    <li>· 也可选择直接购买，支付后立即生效。</li>
+                  </ul>
+                )}
               </div>
 
               <div className="mt-6 space-y-3">
@@ -310,6 +363,15 @@ const GroupBuyPage = memo(() => {
           </section>
         ) : null}
       </main>
+
+      <PaymentQrDialog
+        payment={qrPayment}
+        onClose={closeQrPayment}
+        onPaid={() => {
+          closeQrPayment();
+          navigate(`${ROUTES.PRICING}?tab=orders`);
+        }}
+      />
     </div>
   );
 });

@@ -23,6 +23,16 @@
         <result column="update_time" property="updateTime"/>
     </resultMap>
 
+    <select id="queryExpiredProgressTeams" resultMap="dataMap">
+        <![CDATA[
+            select team_id, activity_id, target_count, complete_count, lock_count, status,
+            valid_start_time, valid_end_time, notify_type, notify_url
+            from group_buy_order
+            where status = 0 and complete_count > 0 and valid_end_time < now()
+            limit 20
+        ]]>
+    </select>
+
     <insert id="insert" parameterType="com.aigroup.groupbuy.infrastructure.dao.po.GroupBuyOrder">
         insert into group_buy_order(
         team_id, activity_id, source, channel, original_price,
@@ -97,7 +107,8 @@
         select team_id, activity_id, target_count, complete_count, lock_count, status, valid_start_time, valid_end_time,
         notify_type, notify_url
         from group_buy_order
-        where status = 0 and target_count > lock_count and valid_end_time > now() and team_id in
+        <!-- complete_count > 0：仅展示已有成员真实支付参团的队伍；仅锁单未支付(0人)的空壳团不进大厅 -->
+        where status = 0 and complete_count > 0 and target_count > lock_count and valid_end_time > now() and team_id in
         <foreach item="teamId" collection="teamIds" open="(" separator="," close=")">
             #{teamId}
         </foreach>

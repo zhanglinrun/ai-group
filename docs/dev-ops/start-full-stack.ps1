@@ -127,9 +127,14 @@ Invoke-Mysql "$root/docs/dev-ops/mysql/sql/agent_db/02-dev-seed.sql"
 Invoke-MysqlDumpOnce "$root/group/docs/dev-ops/mysql/sql/2-29-group_buy_market.sql" -Schema "group_buy_market" -MarkerTable "group_buy_order"
 # 每 SKU 独立拼团链（月卡/年卡/加油包各自 goods+discount+activity）：幂等迁移，老库也会补齐
 Invoke-Mysql "$root/group/docs/dev-ops/mysql/sql/3-01-per-sku-groupbuy-migrate.sql"
+# 阶梯拼团：档位表 + activity_type + 档位种子（3-02）；容量=最高档人数(10)（3-03，须在 3-01 之后覆盖 target）
+Invoke-Mysql "$root/group/docs/dev-ops/mysql/sql/3-02-groupbuy-tier-migrate.sql"
+Invoke-Mysql "$root/group/docs/dev-ops/mysql/sql/3-03-groupbuy-tier-settlement-migrate.sql"
 Invoke-MysqlDumpOnce "$root/s-pay-mall-ddd-market/docs/dev-ops/mysql/sql/s-pay-mall-ddd-market.sql" -Schema "s_pay_mall_ddd_market" -MarkerTable "pay_order" -PayBase
 Invoke-Mysql "$root/s-pay-mall-ddd-market/docs/dev-ops/mysql/sql/V3_benefit_event.sql"
 Invoke-Mysql "$root/s-pay-mall-ddd-market/docs/dev-ops/mysql/sql/V4_settlement_notified.sql"
+# 阶梯拼团：benefit_event.bonus_quota（加赠额度随权益事件透传给 member）
+Invoke-Mysql "$root/docs/dev-ops/mysql/sql/pay_db/01-benefit-event-bonus-migrate.sql"
 Invoke-Mysql "$root/docs/dev-ops/mysql/sql/xxl_job/01-xxl_job.sql"
 Patch-AgentApiKey
 
@@ -157,6 +162,8 @@ $payEnv = @{
     ALIPAY_NOTIFY_URL           = $env:ALIPAY_NOTIFY_URL
     ALIPAY_RETURN_URL           = $env:ALIPAY_RETURN_URL
     ALIPAY_GATEWAY_URL          = $env:ALIPAY_GATEWAY_URL
+    # 沙箱小额真实支付：所有订单实收 0.01，便于演示完成扫码支付闭环（可被 .env 覆盖）
+    AI_GROUP_PAY_SANDBOX_AMOUNT = if ($env:AI_GROUP_PAY_SANDBOX_AMOUNT) { $env:AI_GROUP_PAY_SANDBOX_AMOUNT } else { "0.01" }
 }
 
 Start-ServiceWindow "gateway-service" "$root/gateway-service" 8080

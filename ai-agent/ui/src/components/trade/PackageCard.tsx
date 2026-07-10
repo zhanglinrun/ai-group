@@ -1,10 +1,11 @@
 import { memo } from 'react';
-import { Crown, Loader2, Sparkles, Users, Zap } from 'lucide-react';
+import { Crown, Loader2, Sparkles, TrendingUp, Users, Zap } from 'lucide-react';
 import type { SkuItem } from '@/services/bff';
 import {
   formatPrice,
   formatQuota,
   isMemberSku,
+  quotaLadder,
   skuDescription,
   skuDisplayName,
   skuTheme,
@@ -34,6 +35,7 @@ const PackageCard = memo(
     const member = isMemberSku(sku);
     const directLoading = buyingKey === `${sku.code}-direct`;
     const groupLoading = buyingKey.startsWith(`${sku.code}-group`);
+    const ladder = quotaLadder(sku);
 
     return (
       <article
@@ -105,6 +107,39 @@ const PackageCard = memo(
               </div>
             ) : null}
           </div>
+
+          {ladder.length > 0 ? (
+            <div className="mt-4 overflow-hidden rounded-2xl border border-[var(--chat-border)]">
+              <div className="flex items-center justify-between border-b border-[var(--chat-border)] bg-[var(--chat-surface-soft)] px-3 py-2 text-sm font-medium">
+                <span>额度阶梯</span>
+                <span className={`inline-flex items-center gap-1 text-xs ${theme.accentText}`}>
+                  人数越多额度越高
+                  <TrendingUp className="h-3.5 w-3.5" />
+                </span>
+              </div>
+              <div className="divide-y divide-[var(--chat-border)]">
+                {ladder.map((row) => (
+                  <div
+                    key={row.label}
+                    className="grid grid-cols-[1fr_auto_auto] items-center gap-2 px-3 py-1.5 text-sm"
+                  >
+                    <span className="font-medium">{row.label}</span>
+                    <span className="justify-self-center whitespace-nowrap text-xs text-[var(--chat-text-soft)]">
+                      {row.isSolo ? '单买' : `${row.targetCount} 人 · +${row.bonus}`}
+                    </span>
+                    <span
+                      className={`justify-self-end font-semibold ${row.isMax ? theme.accentText : ''}`}
+                    >
+                      {formatQuota(row.total)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <div className="bg-[var(--chat-surface-soft)] px-3 py-1.5 text-[11px] text-[var(--chat-text-soft)]">
+                未满目标时，按已达档位结算
+              </div>
+            </div>
+          ) : null}
 
           <div className="mt-5 flex flex-wrap gap-2">
             {onDirectBuy ? (

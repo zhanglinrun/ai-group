@@ -1,5 +1,13 @@
 import api from './index';
 
+/** 阶梯拼团档位：达到 targetCount 人时，在基础额度之上累计加赠 bonusQuota 额度 */
+export interface GroupBuyTier {
+  tierNo?: number;
+  tierName?: string;
+  targetCount?: number;
+  bonusQuota?: number;
+}
+
 export interface SkuItem {
   code: string;
   name: string;
@@ -19,6 +27,10 @@ export interface SkuItem {
   groupDeductionPrice?: number;
   /** 该 SKU 拼团原价（group 商品价） */
   groupOriginalPrice?: number;
+  /** 该 SKU 活动类型（0经典折扣、1阶梯额度）。BFF 从 group 透传 */
+  groupActivityType?: number;
+  /** 该 SKU 的阶梯档位（人数→累计加赠额度），仅阶梯额度拼团有值 */
+  groupTiers?: GroupBuyTier[];
 }
 
 export interface GroupBuyGoods {
@@ -40,11 +52,21 @@ export interface GroupBuyTeam {
   validEndTime?: string;
   /** 后端查询瞬间生成的静态倒计时串（仅作无 validEndTime 时的回退展示） */
   validTimeCountdown?: string;
+  /** 阶梯额度拼团：当前团已达档位序号（0 表示尚未达到任何档位） */
+  reachedTierNo?: number;
+  /** 阶梯额度拼团：下一档位所需人数（null 表示已达最高档） */
+  nextTierTargetCount?: number;
+  /** 阶梯额度拼团：最高档位人数（用于展示 X/最高档 进度） */
+  maxTierTargetCount?: number;
 }
 
 export interface GroupBuyInfo {
   activityId?: number;
+  /** 活动类型（0经典折扣、1阶梯额度） */
+  activityType?: number;
   goods?: GroupBuyGoods;
+  /** 阶梯档位（人数→累计加赠额度），仅阶梯额度拼团有值 */
+  tiers?: GroupBuyTier[];
   teamList?: GroupBuyTeam[];
   teamStatistic?: {
     allTeamCount?: number;

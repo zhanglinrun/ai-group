@@ -25,6 +25,8 @@ public class ActivityRepository extends AbstractRepository implements IActivityR
     @Resource
     private IGroupBuyActivityDao groupBuyActivityDao;
     @Resource
+    private IGroupBuyActivityTierDao groupBuyActivityTierDao;
+    @Resource
     private IGroupBuyDiscountDao groupBuyDiscountDao;
     @Resource
     private ISkuDao skuDao;
@@ -62,11 +64,27 @@ public class ActivityRepository extends AbstractRepository implements IActivityR
                 .tagId(groupBuyDiscountRes.getTagId())
                 .build();
 
+        // 阶梯额度拼团：加载该活动的档位阶梯（人数 → 累计加赠额度）。档位数据小、按活动主键查询，直连 DB。
+        List<GroupBuyActivityDiscountVO.Tier> tiers = new ArrayList<>();
+        List<GroupBuyActivityTier> groupBuyActivityTiers = groupBuyActivityTierDao.queryTiersByActivityId(activityId);
+        if (null != groupBuyActivityTiers) {
+            for (GroupBuyActivityTier tier : groupBuyActivityTiers) {
+                tiers.add(GroupBuyActivityDiscountVO.Tier.builder()
+                        .tierNo(tier.getTierNo())
+                        .tierName(tier.getTierName())
+                        .targetCount(tier.getTargetCount())
+                        .bonusQuota(tier.getBonusQuota())
+                        .build());
+            }
+        }
+
         return GroupBuyActivityDiscountVO.builder()
                 .activityId(groupBuyActivityRes.getActivityId())
                 .activityName(groupBuyActivityRes.getActivityName())
                 .groupBuyDiscount(groupBuyDiscount)
                 .groupType(groupBuyActivityRes.getGroupType())
+                .activityType(groupBuyActivityRes.getActivityType())
+                .tiers(tiers)
                 .takeLimitCount(groupBuyActivityRes.getTakeLimitCount())
                 .target(groupBuyActivityRes.getTarget())
                 .validTime(groupBuyActivityRes.getValidTime())

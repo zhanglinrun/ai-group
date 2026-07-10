@@ -10,20 +10,21 @@
         <result column="order_id" property="orderId"/>
         <result column="product_code" property="productCode"/>
         <result column="event_published" property="eventPublished"/>
+        <result column="bonus_quota" property="bonusQuota"/>
         <result column="create_time" property="createTime"/>
         <result column="update_time" property="updateTime"/>
     </resultMap>
 
     <select id="findByOrderIdAndEventType" resultMap="dataMap">
-        select id, event_id, event_type, user_id, order_id, product_code, event_published, create_time, update_time
+        select id, event_id, event_type, user_id, order_id, product_code, event_published, bonus_quota, create_time, update_time
         from benefit_event
         where order_id = #{orderId} and event_type = #{eventType}
         limit 1
     </select>
 
     <insert id="insert" parameterType="com.aigroup.paymall.infrastructure.dao.po.BenefitEvent">
-        insert into benefit_event(event_id, event_type, user_id, order_id, product_code, event_published, create_time, update_time)
-        values(#{eventId}, #{eventType}, #{userId}, #{orderId}, #{productCode}, #{eventPublished}, now(), now())
+        insert into benefit_event(event_id, event_type, user_id, order_id, product_code, event_published, bonus_quota, create_time, update_time)
+        values(#{eventId}, #{eventType}, #{userId}, #{orderId}, #{productCode}, #{eventPublished}, #{bonusQuota}, now(), now())
     </insert>
 
     <update id="markPublished">
@@ -33,7 +34,7 @@
     </update>
 
     <select id="queryPendingGrants" resultMap="dataMap">
-        select id, event_id, event_type, user_id, order_id, product_code, event_published, create_time, update_time
+        select id, event_id, event_type, user_id, order_id, product_code, event_published, bonus_quota, create_time, update_time
         from benefit_event
         where event_type = #{eventType}
           and event_published = 0
@@ -48,7 +49,7 @@
     </select>
 
     <select id="queryUnpublished" resultMap="dataMap">
-        select id, event_id, event_type, user_id, order_id, product_code, event_published, create_time, update_time
+        select id, event_id, event_type, user_id, order_id, product_code, event_published, bonus_quota, create_time, update_time
         from benefit_event
         where event_type = #{eventType}
           and event_published = 0
