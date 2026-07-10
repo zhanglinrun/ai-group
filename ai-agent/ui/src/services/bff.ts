@@ -1,4 +1,4 @@
-import api from "./index";
+import api from './index';
 
 export interface SkuItem {
   code: string;
@@ -118,14 +118,15 @@ export interface OrdersResponse {
 
 export const bffApi = {
   getPricing: () =>
-    api.get<PricingResponse>("/api/bff/pricing") as unknown as Promise<PricingResponse>,
+    api.get<PricingResponse>('/api/bff/pricing') as unknown as Promise<PricingResponse>,
 
   getGroupBuy: (activityId: number) =>
-    api.get<GroupBuyResponse>(`/api/bff/group-buy/${activityId}`) as unknown as Promise<GroupBuyResponse>,
+    api.get<GroupBuyResponse>(
+      `/api/bff/group-buy/${activityId}`,
+    ) as unknown as Promise<GroupBuyResponse>,
 
   getAccountSummary: () =>
-    api.get<AccountSummary>("/api/bff/account/summary") as unknown as Promise<AccountSummary>,
+    api.get<AccountSummary>('/api/bff/account/summary') as unknown as Promise<AccountSummary>,
 
-  getOrders: () =>
-    api.get<OrdersResponse>("/api/bff/orders") as unknown as Promise<OrdersResponse>,
+  getOrders: () => api.get<OrdersResponse>('/api/bff/orders') as unknown as Promise<OrdersResponse>,
 };

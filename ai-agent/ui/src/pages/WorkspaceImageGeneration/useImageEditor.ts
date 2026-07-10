@@ -1,24 +1,19 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from 'react';
 
-import type {
-  EditorImageItem,
-  RequestMode,
-} from "./types";
+import type { EditorImageItem, RequestMode } from './types';
 import {
   buildMaskedComposite,
   createLocalId,
   hasCanvasDrawing,
   loadImageElement,
   resolveImageNaturalSize,
-} from "./utils";
+} from './utils';
 
 type UseImageEditorOptions = {
   mode: RequestMode;
 };
 
-export function revokeEditorImageObjectUrls(
-  images: Array<Pick<EditorImageItem, "objectUrl">>
-) {
+export function revokeEditorImageObjectUrls(images: Array<Pick<EditorImageItem, 'objectUrl'>>) {
   images.forEach((item) => URL.revokeObjectURL(item.objectUrl));
 }
 
@@ -27,7 +22,7 @@ async function createEditorImageItem(file: File): Promise<EditorImageItem> {
   try {
     const size = await resolveImageNaturalSize(objectUrl);
     return {
-      id: createLocalId("img"),
+      id: createLocalId('img'),
       file,
       objectUrl,
       naturalWidth: size.width,
@@ -36,7 +31,7 @@ async function createEditorImageItem(file: File): Promise<EditorImageItem> {
     };
   } catch {
     return {
-      id: createLocalId("img"),
+      id: createLocalId('img'),
       file,
       objectUrl,
       naturalWidth: 0,
@@ -54,7 +49,7 @@ export function useImageEditor(options: UseImageEditorOptions) {
   const [images, setImages] = useState<EditorImageItem[]>([]);
   const [editingImageId, setEditingImageId] = useState<string | null>(null);
   const [brushSize, setBrushSize] = useState(32);
-  const [toolMode, setToolMode] = useState<"brush" | "eraser">("brush");
+  const [toolMode, setToolMode] = useState<'brush' | 'eraser'>('brush');
 
   const editorImageRef = useRef<HTMLImageElement>(null);
   const maskCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -76,19 +71,17 @@ export function useImageEditor(options: UseImageEditorOptions) {
   }, []);
 
   const addFiles = useCallback(async (fileList: FileList | File[]) => {
-    const selectedFiles = Array.from(fileList).filter((file) => file.type.startsWith("image/"));
+    const selectedFiles = Array.from(fileList).filter((file) => file.type.startsWith('image/'));
     if (!selectedFiles.length) {
       return;
     }
 
-    const nextItems = await Promise.all(
-      selectedFiles.map((file) => createEditorImageItem(file))
-    );
+    const nextItems = await Promise.all(selectedFiles.map((file) => createEditorImageItem(file)));
     setImages((previous) => [...previous, ...nextItems]);
   }, []);
 
   useEffect(() => {
-    if (mode !== "edits") {
+    if (mode !== 'edits') {
       return;
     }
 
@@ -100,7 +93,7 @@ export function useImageEditor(options: UseImageEditorOptions) {
 
       const pastedImages: File[] = [];
       Array.from(clipboardItems).forEach((item) => {
-        if (item.type.startsWith("image/")) {
+        if (item.type.startsWith('image/')) {
           const file = item.getAsFile();
           if (file) {
             pastedImages.push(file);
@@ -116,8 +109,8 @@ export function useImageEditor(options: UseImageEditorOptions) {
       void addFiles(pastedImages);
     };
 
-    document.addEventListener("paste", handlePaste);
-    return () => document.removeEventListener("paste", handlePaste);
+    document.addEventListener('paste', handlePaste);
+    return () => document.removeEventListener('paste', handlePaste);
   }, [addFiles, mode]);
 
   useEffect(() => {
@@ -143,14 +136,14 @@ export function useImageEditor(options: UseImageEditorOptions) {
 
       canvas.width = width;
       canvas.height = height;
-      const context = canvas.getContext("2d");
+      const context = canvas.getContext('2d');
       if (!context) {
         return;
       }
 
       context.clearRect(0, 0, width, height);
-      context.lineCap = "round";
-      context.lineJoin = "round";
+      context.lineCap = 'round';
+      context.lineJoin = 'round';
       maskContextRef.current = context;
 
       if (editingImage.maskDataUrl) {
@@ -169,11 +162,11 @@ export function useImageEditor(options: UseImageEditorOptions) {
       void syncCanvas();
     };
 
-    window.addEventListener("resize", handleResize);
+    window.addEventListener('resize', handleResize);
     void syncCanvas();
     return () => {
       cancelled = true;
-      window.removeEventListener("resize", handleResize);
+      window.removeEventListener('resize', handleResize);
     };
   }, [editingImage]);
 
@@ -185,7 +178,7 @@ export function useImageEditor(options: UseImageEditorOptions) {
 
     const getPoint = (event: MouseEvent | TouchEvent) => {
       const rect = canvas.getBoundingClientRect();
-      const source = "touches" in event ? event.touches[0] : event;
+      const source = 'touches' in event ? event.touches[0] : event;
       return {
         x: source.clientX - rect.left,
         y: source.clientY - rect.top,
@@ -197,8 +190,8 @@ export function useImageEditor(options: UseImageEditorOptions) {
       if (!context) {
         return;
       }
-      context.globalCompositeOperation = toolMode === "eraser" ? "destination-out" : "source-over";
-      context.fillStyle = "rgba(239, 68, 68, 0.55)";
+      context.globalCompositeOperation = toolMode === 'eraser' ? 'destination-out' : 'source-over';
+      context.fillStyle = 'rgba(239, 68, 68, 0.55)';
       context.beginPath();
       context.arc(x, y, brushSize / 2, 0, Math.PI * 2);
       context.fill();
@@ -209,8 +202,8 @@ export function useImageEditor(options: UseImageEditorOptions) {
       if (!context) {
         return;
       }
-      context.globalCompositeOperation = toolMode === "eraser" ? "destination-out" : "source-over";
-      context.strokeStyle = "rgba(239, 68, 68, 0.55)";
+      context.globalCompositeOperation = toolMode === 'eraser' ? 'destination-out' : 'source-over';
+      context.strokeStyle = 'rgba(239, 68, 68, 0.55)';
       context.lineWidth = brushSize;
       context.beginPath();
       context.moveTo(startX, startY);
@@ -242,20 +235,20 @@ export function useImageEditor(options: UseImageEditorOptions) {
       lastPointRef.current = null;
     };
 
-    canvas.addEventListener("mousedown", handleStart as EventListener);
-    window.addEventListener("mousemove", handleMove as EventListener);
-    window.addEventListener("mouseup", handleEnd);
-    canvas.addEventListener("touchstart", handleStart as EventListener, { passive: false });
-    window.addEventListener("touchmove", handleMove as EventListener, { passive: false });
-    window.addEventListener("touchend", handleEnd);
+    canvas.addEventListener('mousedown', handleStart as EventListener);
+    window.addEventListener('mousemove', handleMove as EventListener);
+    window.addEventListener('mouseup', handleEnd);
+    canvas.addEventListener('touchstart', handleStart as EventListener, { passive: false });
+    window.addEventListener('touchmove', handleMove as EventListener, { passive: false });
+    window.addEventListener('touchend', handleEnd);
 
     return () => {
-      canvas.removeEventListener("mousedown", handleStart as EventListener);
-      window.removeEventListener("mousemove", handleMove as EventListener);
-      window.removeEventListener("mouseup", handleEnd);
-      canvas.removeEventListener("touchstart", handleStart as EventListener);
-      window.removeEventListener("touchmove", handleMove as EventListener);
-      window.removeEventListener("touchend", handleEnd);
+      canvas.removeEventListener('mousedown', handleStart as EventListener);
+      window.removeEventListener('mousemove', handleMove as EventListener);
+      window.removeEventListener('mouseup', handleEnd);
+      canvas.removeEventListener('touchstart', handleStart as EventListener);
+      window.removeEventListener('touchmove', handleMove as EventListener);
+      window.removeEventListener('touchend', handleEnd);
     };
   }, [brushSize, editingImage, toolMode]);
 
@@ -275,29 +268,29 @@ export function useImageEditor(options: UseImageEditorOptions) {
     const naturalHeight =
       currentImage.naturalHeight || editorImageRef.current?.naturalHeight || sourceCanvas.height;
 
-    const outputCanvas = document.createElement("canvas");
+    const outputCanvas = document.createElement('canvas');
     outputCanvas.width = naturalWidth;
     outputCanvas.height = naturalHeight;
 
-    const outputContext = outputCanvas.getContext("2d");
+    const outputContext = outputCanvas.getContext('2d');
     if (!outputContext) {
       return images;
     }
 
     outputContext.drawImage(sourceCanvas, 0, 0, naturalWidth, naturalHeight);
     const nextMaskDataUrl = hasCanvasDrawing(outputCanvas)
-      ? outputCanvas.toDataURL("image/png")
+      ? outputCanvas.toDataURL('image/png')
       : null;
 
     const nextImages = images.map((item) =>
       item.id === editingImageId
         ? {
-          ...item,
-          naturalWidth,
-          naturalHeight,
-          maskDataUrl: nextMaskDataUrl,
-        }
-        : item
+            ...item,
+            naturalWidth,
+            naturalHeight,
+            maskDataUrl: nextMaskDataUrl,
+          }
+        : item,
     );
     setImages(nextImages);
     return nextImages;
@@ -308,30 +301,36 @@ export function useImageEditor(options: UseImageEditorOptions) {
     setEditingImageId(null);
   }, [collectEffectiveImages]);
 
-  const openEditor = useCallback((imageId: string) => {
-    collectEffectiveImages();
-    setEditingImageId(imageId);
-  }, [collectEffectiveImages]);
+  const openEditor = useCallback(
+    (imageId: string) => {
+      collectEffectiveImages();
+      setEditingImageId(imageId);
+    },
+    [collectEffectiveImages],
+  );
 
-  const removeImage = useCallback((imageId: string) => {
-    setImages((previous) => {
-      const target = previous.find((item) => item.id === imageId);
-      if (target) {
-        URL.revokeObjectURL(target.objectUrl);
+  const removeImage = useCallback(
+    (imageId: string) => {
+      setImages((previous) => {
+        const target = previous.find((item) => item.id === imageId);
+        if (target) {
+          URL.revokeObjectURL(target.objectUrl);
+        }
+        return previous.filter((item) => item.id !== imageId);
+      });
+      if (editingImageId === imageId) {
+        setEditingImageId(null);
       }
-      return previous.filter((item) => item.id !== imageId);
-    });
-    if (editingImageId === imageId) {
-      setEditingImageId(null);
-    }
-  }, [editingImageId]);
+    },
+    [editingImageId],
+  );
 
   const clearCurrentMask = useCallback(() => {
     if (!maskCanvasRef.current) {
       return;
     }
 
-    const context = maskCanvasRef.current.getContext("2d");
+    const context = maskCanvasRef.current.getContext('2d');
     if (context) {
       context.clearRect(0, 0, maskCanvasRef.current.width, maskCanvasRef.current.height);
     }
@@ -341,11 +340,11 @@ export function useImageEditor(options: UseImageEditorOptions) {
         previous.map((item) =>
           item.id === editingImageId
             ? {
-              ...item,
-              maskDataUrl: null,
-            }
-            : item
-        )
+                ...item,
+                maskDataUrl: null,
+              }
+            : item,
+        ),
       );
     }
   }, [editingImageId]);
@@ -354,27 +353,27 @@ export function useImageEditor(options: UseImageEditorOptions) {
     setImages((previous) => [...previous]);
   }, []);
 
-  const buildMaskCompositeDataUrls = useCallback(async (
-    effectiveImages: EditorImageItem[],
-    sourceImageDataUrls: string[]
-  ) => {
-    const maskFileNames: string[] = [];
-    for (let index = 0; index < effectiveImages.length; index += 1) {
-      const currentImage = effectiveImages[index];
-      if (currentImage.maskDataUrl) {
-        const composite = await buildMaskedComposite({
-          imageSrc: sourceImageDataUrls[index],
-          maskDataUrl: currentImage.maskDataUrl,
-          width: currentImage.naturalWidth,
-          height: currentImage.naturalHeight,
-        });
-        maskFileNames.push(composite);
-      } else {
-        maskFileNames.push("");
+  const buildMaskCompositeDataUrls = useCallback(
+    async (effectiveImages: EditorImageItem[], sourceImageDataUrls: string[]) => {
+      const maskFileNames: string[] = [];
+      for (let index = 0; index < effectiveImages.length; index += 1) {
+        const currentImage = effectiveImages[index];
+        if (currentImage.maskDataUrl) {
+          const composite = await buildMaskedComposite({
+            imageSrc: sourceImageDataUrls[index],
+            maskDataUrl: currentImage.maskDataUrl,
+            width: currentImage.naturalWidth,
+            height: currentImage.naturalHeight,
+          });
+          maskFileNames.push(composite);
+        } else {
+          maskFileNames.push('');
+        }
       }
-    }
-    return maskFileNames;
-  }, []);
+      return maskFileNames;
+    },
+    [],
+  );
 
   return {
     images,

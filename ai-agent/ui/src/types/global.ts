@@ -1,4 +1,3 @@
-
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
   namespace ReactorType {
@@ -6,7 +5,7 @@ declare global {
       children?: React.ReactNode;
       /** 类名 */
       className?: string;
-    }
+    };
 
     type FC<P extends object = object> = React.FC<P & FCProps>;
 

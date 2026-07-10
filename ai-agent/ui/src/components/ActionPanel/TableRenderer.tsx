@@ -6,7 +6,8 @@ import * as XLSX from 'xlsx';
 import Loading from './Loading';
 import { parseCSVData } from '@/utils';
 
-const ERROR_CLASS = "m-12 md:m-24 min-w-[260px] max-w-[calc(100%-24px)] md:max-w-[calc(100%-48px)] [&_.ant-alert-description]:break-words [&_.ant-alert-description]:whitespace-normal";
+const ERROR_CLASS =
+  'm-12 md:m-24 min-w-[260px] max-w-[calc(100%-24px)] md:max-w-[calc(100%-48px)] [&_.ant-alert-description]:break-words [&_.ant-alert-description]:whitespace-normal';
 
 const resolveUnavailableReason = (error: Error) => {
   const message = error?.message || '';
@@ -45,35 +46,38 @@ const TableRenderer: ReactorType.FC<{
 
   const ext = (fileName || fileUrl).split('.').pop()?.toLowerCase();
 
-  const fileType = mode || (ext === 'xlsx' || ext === 'xlsm' || ext === 'xlsb' || ext === 'xls' ? 'excel' : 'csv');
+  const fileType =
+    mode || (ext === 'xlsx' || ext === 'xlsm' || ext === 'xlsb' || ext === 'xls' ? 'excel' : 'csv');
 
   // 拉取 CSV 文本
-  const { data, loading, error } = useRequest(async () => {
-    if (missingReason) {
-      throw new Error(missingReason);
-    }
-    if (!fileUrl) {
-      throw new Error('引用资源不存在或已失效');
-    }
-    const res = await fetch(fileUrl);
-    if (!res.ok) throw new Error('网络错误');
+  const { data, loading, error } = useRequest(
+    async () => {
+      if (missingReason) {
+        throw new Error(missingReason);
+      }
+      if (!fileUrl) {
+        throw new Error('引用资源不存在或已失效');
+      }
+      const res = await fetch(fileUrl);
+      if (!res.ok) throw new Error('网络错误');
 
-    if (fileType === 'excel') {
-      return res.arrayBuffer();
-    }
+      if (fileType === 'excel') {
+        return res.arrayBuffer();
+      }
 
-    return res.text();
-  },
-  { refreshDeps: [fileUrl, missingReason] }
+      return res.text();
+    },
+    { refreshDeps: [fileUrl, missingReason] },
   );
 
   // 解析 CSV
   const { columns, dataSource, parseError } = useMemo(() => {
-    if (!data) return {
-      columns: [],
-      dataSource: [],
-      parseError: false
-    };
+    if (!data)
+      return {
+        columns: [],
+        dataSource: [],
+        parseError: false,
+      };
 
     if (typeof data === 'string') {
       const parsed = parseCSVData(data);
@@ -81,16 +85,16 @@ const TableRenderer: ReactorType.FC<{
       const keys = Object.keys(parsed[0]);
 
       return {
-        columns: keys.map(field => ({
+        columns: keys.map((field) => ({
           title: field,
           dataIndex: field,
           key: field,
         })),
         dataSource: parsed.map((row, idx) => ({
           ...row,
-          key: idx
+          key: idx,
         })),
-        parseError: false
+        parseError: false,
       };
     } else {
       // 解析 Excel
@@ -99,21 +103,23 @@ const TableRenderer: ReactorType.FC<{
       const worksheet = workbook.Sheets[firstSheetName];
       const json = XLSX.utils.sheet_to_json(worksheet, {
         header: 1,
-        defval: ''
+        defval: '',
       });
-      if (!json.length) return {
-        columns: [],
-        dataSource: [],
-        parseError: false
-      };
+      if (!json.length)
+        return {
+          columns: [],
+          dataSource: [],
+          parseError: false,
+        };
       const [headerData, ...rows] = json;
       const header = headerData as string[];
-      if (!header || !(header).length) return {
-        columns: [],
-        dataSource: [],
-        parseError: false
-      };
-      const cols = header.map(field => ({
+      if (!header || !header.length)
+        return {
+          columns: [],
+          dataSource: [],
+          parseError: false,
+        };
+      const cols = header.map((field) => ({
         title: String(field),
         dataIndex: String(field),
         key: String(field),
@@ -129,7 +135,7 @@ const TableRenderer: ReactorType.FC<{
       return {
         columns: cols,
         dataSource: ds,
-        parseError: false
+        parseError: false,
       };
     }
   }, [data]);
@@ -137,9 +143,7 @@ const TableRenderer: ReactorType.FC<{
   // 加载中
   // 加载中
   if (loading) {
-    return (
-      <Loading className="mr-32" />
-    );
+    return <Loading className="mr-32" />;
   }
 
   // 加载错误
@@ -171,7 +175,7 @@ const TableRenderer: ReactorType.FC<{
   // 无数据
   if (!columns.length || !dataSource.length) {
     return (
-      <div className='p-32'>
+      <div className="p-32">
         <Empty description="暂无数据" />
       </div>
     );
@@ -179,12 +183,7 @@ const TableRenderer: ReactorType.FC<{
 
   // 正常显示表格
   return (
-    <Table
-      columns={columns}
-      dataSource={dataSource}
-      scroll={{ x: true }}
-      pagination={false}
-    />
+    <Table columns={columns} dataSource={dataSource} scroll={{ x: true }} pagination={false} />
   );
 };
 

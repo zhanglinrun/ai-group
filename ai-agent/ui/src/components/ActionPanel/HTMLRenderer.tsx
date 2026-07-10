@@ -1,13 +1,13 @@
-import { jumpUrl } from "@/utils";
-import { ViewerPanelShell } from "@/components/ui/viewer-panel-shell";
-import { Button } from "@/components/ui/button";
-import { useBoolean } from "ahooks";
-import classNames from "classnames";
-import { Download, ExternalLink } from "lucide-react";
-import { memo, useLayoutEffect, useMemo, useState } from "react";
-import Loading from "./Loading";
-import { Empty } from "antd";
-import MarkdownRenderer from "./MarkdownRenderer";
+import { jumpUrl } from '@/utils';
+import { ViewerPanelShell } from '@/components/ui/viewer-panel-shell';
+import { Button } from '@/components/ui/button';
+import { useBoolean } from 'ahooks';
+import classNames from 'classnames';
+import { Download, ExternalLink } from 'lucide-react';
+import { memo, useLayoutEffect, useMemo, useState } from 'react';
+import Loading from './Loading';
+import { Empty } from 'antd';
+import MarkdownRenderer from './MarkdownRenderer';
 
 interface HTMLRendererProps {
   htmlUrl?: string;
@@ -86,7 +86,7 @@ const HTMLRenderer: ReactorType.FC<HTMLRendererProps> = memo((props) => {
           title="HTML preview"
           onLoad={stopLoading}
           onError={() => {
-            setError("引用资源不存在或已失效");
+            setError('引用资源不存在或已失效');
             stopLoading();
           }}
         />
@@ -109,7 +109,7 @@ const HTMLRenderer: ReactorType.FC<HTMLRendererProps> = memo((props) => {
     return (
       <ViewerPanelShell
         bodyClassName="p-2 sm:p-3"
-        className={classNames(className, "relative flex min-h-0 flex-1 flex-col")}
+        className={classNames(className, 'relative flex min-h-0 flex-1 flex-col')}
         headerRight={headerActions}
         label="HTML"
         subtitle="Preview"
@@ -122,13 +122,9 @@ const HTMLRenderer: ReactorType.FC<HTMLRendererProps> = memo((props) => {
     );
   }
 
-  return (
-    <div className={classNames(className, "relative")}>
-      {content}
-    </div>
-  );
+  return <div className={classNames(className, 'relative')}>{content}</div>;
 });
 
-HTMLRenderer.displayName = "HTMLRenderer";
+HTMLRenderer.displayName = 'HTMLRenderer';
 
 export default HTMLRenderer;

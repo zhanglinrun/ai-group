@@ -1,20 +1,11 @@
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
-import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
-import {
-  Check,
-  Clock3,
-  Crown,
-  Loader2,
-  ShieldCheck,
-  Sparkles,
-  UserPlus,
-  Zap,
-} from "lucide-react";
-import ShellNav from "@/components/ShellNav";
-import GroupTeamCard from "@/components/trade/GroupTeamCard";
-import { bffApi, type GroupBuyInfo, type SkuItem } from "@/services/bff";
-import { useTradePurchase } from "@/hooks/useTradePurchase";
-import { ROUTES } from "@/router/routes";
+import { memo, useCallback, useEffect, useMemo, useState } from 'react';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
+import { Check, Clock3, Crown, Loader2, ShieldCheck, Sparkles, UserPlus, Zap } from 'lucide-react';
+import ShellNav from '@/components/ShellNav';
+import GroupTeamCard from '@/components/trade/GroupTeamCard';
+import { bffApi, type GroupBuyInfo, type SkuItem } from '@/services/bff';
+import { useTradePurchase } from '@/hooks/useTradePurchase';
+import { ROUTES } from '@/router/routes';
 import {
   formatPrice,
   formatQuota,
@@ -22,7 +13,7 @@ import {
   skuDescription,
   skuDisplayName,
   skuTheme,
-} from "@/utils/tradeDisplay";
+} from '@/utils/tradeDisplay';
 
 const GroupBuyPage = memo(() => {
   const { activityId: activityIdParam } = useParams<{ activityId: string }>();
@@ -33,7 +24,7 @@ const GroupBuyPage = memo(() => {
   const [loading, setLoading] = useState(true);
   const [groupBuy, setGroupBuy] = useState<GroupBuyInfo | null>(null);
   const [skus, setSkus] = useState<SkuItem[]>([]);
-  const [selectedCode, setSelectedCode] = useState<string>("");
+  const [selectedCode, setSelectedCode] = useState<string>('');
   const { buyingKey, handleBuy } = useTradePurchase(groupBuy);
 
   useEffect(() => {
@@ -45,16 +36,13 @@ const GroupBuyPage = memo(() => {
       .getGroupBuy(activityId)
       .then((data) => {
         setGroupBuy(data?.groupBuy || null);
-        setSkus((data?.skus || []).filter((sku) => sku.code !== "FREE"));
+        setSkus((data?.skus || []).filter((sku) => sku.code !== 'FREE'));
       })
-      .catch((error) => console.error("加载拼团活动失败", error))
+      .catch((error) => console.error('加载拼团活动失败', error))
       .finally(() => setLoading(false));
   }, [activityId]);
 
-  const memberSkus = useMemo(
-    () => skus.filter((sku) => isMemberSku(sku)),
-    [skus]
-  );
+  const memberSkus = useMemo(() => skus.filter((sku) => isMemberSku(sku)), [skus]);
 
   const selectedSku = useMemo(() => {
     if (selectedCode) {
@@ -74,29 +62,29 @@ const GroupBuyPage = memo(() => {
     }
   }, [selectedSku, selectedCode]);
 
-  const theme = skuTheme(selectedSku?.code || "PRO_MONTH");
+  const theme = skuTheme(selectedSku?.code || 'PRO_MONTH');
   const groupPrice = groupBuy?.goods?.payPrice ?? selectedSku?.price;
   const originPrice = groupBuy?.goods?.originalPrice ?? selectedSku?.price;
 
   const handleDirectBuy = useCallback(async () => {
     if (!selectedSku) return;
-    const ok = await handleBuy(selectedSku, "direct");
+    const ok = await handleBuy(selectedSku, 'direct');
     if (ok) navigate(`${ROUTES.PRICING}?tab=orders`);
   }, [selectedSku, handleBuy, navigate]);
 
   const handleGroupStart = useCallback(async () => {
     if (!selectedSku) return;
-    const ok = await handleBuy(selectedSku, "group");
+    const ok = await handleBuy(selectedSku, 'group');
     if (ok) navigate(`${ROUTES.PRICING}?tab=orders`);
   }, [selectedSku, handleBuy, navigate]);
 
   const handleJoinTeam = useCallback(
     async (teamId: string) => {
       if (!selectedSku) return;
-      const ok = await handleBuy(selectedSku, "group", teamId);
+      const ok = await handleBuy(selectedSku, 'group', teamId);
       if (ok) navigate(`${ROUTES.PRICING}?tab=orders`);
     },
-    [selectedSku, handleBuy, navigate]
+    [selectedSku, handleBuy, navigate],
   );
 
   if (!Number.isFinite(activityId)) {
@@ -105,7 +93,10 @@ const GroupBuyPage = memo(() => {
         <ShellNav />
         <main className="mx-auto max-w-6xl px-4 py-8 text-center">
           <div className="text-base font-medium">活动 ID 无效</div>
-          <Link to={ROUTES.GROUP_BUY_HALL} className="mt-4 inline-block text-sm text-violet-700 underline">
+          <Link
+            to={ROUTES.GROUP_BUY_HALL}
+            className="mt-4 inline-block text-sm text-violet-700 underline"
+          >
             返回拼团大厅
           </Link>
         </main>
@@ -158,9 +149,7 @@ const GroupBuyPage = memo(() => {
                     <Crown className="h-6 w-6" />
                   </div>
                   <div>
-                    <h2 className="text-2xl font-semibold">
-                      {skuDisplayName(selectedSku)}
-                    </h2>
+                    <h2 className="text-2xl font-semibold">{skuDisplayName(selectedSku)}</h2>
                     <p className="mt-1 text-sm text-[var(--chat-text-soft)]">
                       {skuDescription(selectedSku)}
                     </p>
@@ -196,18 +185,18 @@ const GroupBuyPage = memo(() => {
                   {[
                     {
                       icon: Zap,
-                      title: "立即开通",
-                      desc: "成团后自动生效"
+                      title: '立即开通',
+                      desc: '成团后自动生效',
                     },
                     {
                       icon: ShieldCheck,
-                      title: "权益保障",
-                      desc: "支付安全可追溯"
+                      title: '权益保障',
+                      desc: '支付安全可追溯',
                     },
                     {
                       icon: Sparkles,
-                      title: "拼团优惠",
-                      desc: "人数达标享优惠价"
+                      title: '拼团优惠',
+                      desc: '人数达标享优惠价',
                     },
                   ].map((item) => {
                     const Icon = item.icon;
@@ -218,9 +207,7 @@ const GroupBuyPage = memo(() => {
                       >
                         <Icon className={`h-4 w-4 ${theme.accentText}`} />
                         <div className="mt-2 text-sm font-medium">{item.title}</div>
-                        <div className="mt-1 text-xs text-[var(--chat-text-soft)]">
-                          {item.desc}
-                        </div>
+                        <div className="mt-1 text-xs text-[var(--chat-text-soft)]">{item.desc}</div>
                       </div>
                     );
                   })}
@@ -241,7 +228,7 @@ const GroupBuyPage = memo(() => {
                       className={`flex w-full items-center justify-between rounded-2xl border px-4 py-3 text-left transition ${
                         active
                           ? `border-transparent ring-2 ${skuTheme(sku.code).ring}`
-                          : "border-[var(--chat-border)] hover:bg-[var(--chat-surface-soft)]"
+                          : 'border-[var(--chat-border)] hover:bg-[var(--chat-surface-soft)]'
                       }`}
                     >
                       <div>
@@ -280,9 +267,7 @@ const GroupBuyPage = memo(() => {
                   ) : (
                     <UserPlus className="h-4 w-4" />
                   )}
-                  <span>
-                    发起拼团 {formatPrice(groupPrice)}
-                  </span>
+                  <span>发起拼团 {formatPrice(groupPrice)}</span>
                 </button>
                 <button
                   type="button"
@@ -329,6 +314,6 @@ const GroupBuyPage = memo(() => {
   );
 });
 
-GroupBuyPage.displayName = "GroupBuyPage";
+GroupBuyPage.displayName = 'GroupBuyPage';
 
 export default GroupBuyPage;

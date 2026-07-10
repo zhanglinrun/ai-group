@@ -1,36 +1,36 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import type { Dispatch, SetStateAction } from "react";
-import { useMemoizedFn } from "ahooks";
-import { getUniqId } from "@/utils";
-import { buildAgentStreamRequest } from "@/utils/agentRequest";
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { Dispatch, SetStateAction } from 'react';
+import { useMemoizedFn } from 'ahooks';
+import { getUniqId } from '@/utils';
+import { buildAgentStreamRequest } from '@/utils/agentRequest';
 import {
   buildConversationTaskData,
   buildTaskFromEventData,
   combineData,
   handleTaskData,
   normalizeEventData,
-} from "@/utils/chat";
-import querySSE from "@/utils/querySSE";
-import { parseAgentAnswer } from "@/utils/sseParsers";
+} from '@/utils/chat';
+import querySSE from '@/utils/querySSE';
+import { parseAgentAnswer } from '@/utils/sseParsers';
 import type {
   ActiveRunState,
   ConversationDraftController,
   ConversationListKey,
   ThrottledStreamController,
-} from "./chatView.types";
+} from './chatView.types';
 import {
   cloneWorkspaceTask,
   getLatestRenderableTask,
   resolveActionPanelVisibility,
   resolveLatestRunState,
   shouldRefreshWorkspaceTask,
-} from "./streamState";
+} from './streamState';
 
 type UseConversationStreamOptions = {
   conversation: CHAT.ConversationHistory;
   onConversationChange: (
     conversationId: string,
-    nextConversation: CHAT.ConversationHistory
+    nextConversation: CHAT.ConversationHistory,
   ) => void;
   onPrepareStreamingWorkspace?: () => void;
   onTokenUseUp?: () => void;
@@ -53,7 +53,7 @@ type UseConversationStreamResult = {
 function useRafThrottle<TValue>(
   initialValue: TValue,
   interval: number,
-  onFlush: (value: TValue) => void
+  onFlush: (value: TValue) => void,
 ): ThrottledStreamController<TValue> {
   const frameRef = useRef<number | null>(null);
   const pendingRef = useRef(initialValue);
@@ -77,39 +77,38 @@ function useRafThrottle<TValue>(
     onFlush(nextValue);
   });
 
-  const schedule = useMemoizedFn((
-    updater: TValue | ((current: TValue) => TValue),
-    force = false
-  ) => {
-    pendingRef.current =
-      typeof updater === "function"
-        ? (updater as (current: TValue) => TValue)(pendingRef.current)
-        : updater;
+  const schedule = useMemoizedFn(
+    (updater: TValue | ((current: TValue) => TValue), force = false) => {
+      pendingRef.current =
+        typeof updater === 'function'
+          ? (updater as (current: TValue) => TValue)(pendingRef.current)
+          : updater;
 
-    if (force) {
-      cancel();
-      flush(true);
-      return;
-    }
-
-    if (frameRef.current !== null) {
-      return;
-    }
-
-    const requestNextFrame = () => {
-      frameRef.current = requestAnimationFrame(() => {
-        frameRef.current = null;
-        const now = performance.now();
-        if (now - lastFlushAtRef.current < interval) {
-          requestNextFrame();
-          return;
-        }
+      if (force) {
+        cancel();
         flush(true);
-      });
-    };
+        return;
+      }
 
-    requestNextFrame();
-  });
+      if (frameRef.current !== null) {
+        return;
+      }
+
+      const requestNextFrame = () => {
+        frameRef.current = requestAnimationFrame(() => {
+          frameRef.current = null;
+          const now = performance.now();
+          if (now - lastFlushAtRef.current < interval) {
+            requestNextFrame();
+            return;
+          }
+          flush(true);
+        });
+      };
+
+      requestNextFrame();
+    },
+  );
 
   const reset = useMemoizedFn((value: TValue) => {
     cancel();
@@ -117,19 +116,22 @@ function useRafThrottle<TValue>(
     lastFlushAtRef.current = 0;
   });
 
-  return useMemo(() => ({
-    pendingRef,
-    cancel,
-    flush,
-    schedule,
-    reset,
-  }), [cancel, flush, reset, schedule]);
+  return useMemo(
+    () => ({
+      pendingRef,
+      cancel,
+      flush,
+      schedule,
+      reset,
+    }),
+    [cancel, flush, reset, schedule],
+  );
 }
 
 function replaceConversationListLastItem<TItem>(
   conversation: CHAT.ConversationHistory,
   key: ConversationListKey,
-  item: TItem
+  item: TItem,
 ) {
   const nextList = [...(conversation[key] as TItem[])];
   nextList.splice(nextList.length - 1, 1, item);
@@ -143,7 +145,7 @@ export function createConversationDraftController<TItem>(
   conversationId: string,
   initialConversation: CHAT.ConversationHistory,
   listKey: ConversationListKey,
-  commit: (conversationId: string, nextConversation: CHAT.ConversationHistory) => void
+  commit: (conversationId: string, nextConversation: CHAT.ConversationHistory) => void,
 ): ConversationDraftController<TItem> {
   let snapshot = initialConversation;
 
@@ -163,13 +165,13 @@ export function createConversationDraftController<TItem>(
 
 export function createDraftConversation(
   baseConversation: CHAT.ConversationHistory,
-  overrides: Partial<CHAT.ConversationHistory>
+  overrides: Partial<CHAT.ConversationHistory>,
 ) {
   return {
     ...baseConversation,
-    chatTitle: baseConversation.chatTitle || overrides.chatTitle || "",
+    chatTitle: baseConversation.chatTitle || overrides.chatTitle || '',
     title:
-      baseConversation.title === "新对话" && overrides.chatTitle
+      baseConversation.title === '新对话' && overrides.chatTitle
         ? overrides.chatTitle.slice(0, 30)
         : baseConversation.title,
     ...overrides,
@@ -181,24 +183,24 @@ function createRunningChat(
   sessionId: string,
   requestId: string,
   outputStyle?: string,
-  deepThink?: boolean
+  deepThink?: boolean,
 ): CHAT.ChatItem {
   return {
     query: inputInfo.message!,
     files: inputInfo.files!,
-    responseType: "txt",
+    responseType: 'txt',
     sessionId,
     requestId,
-    agentType: outputStyle === "chat" ? 0 : deepThink ? 1 : 2,
+    agentType: outputStyle === 'chat' ? 0 : deepThink ? 1 : 2,
     loading: true,
     forceStop: false,
     tasks: [],
-    thought: "",
-    response: "",
+    thought: '',
+    response: '',
     taskStatus: 0,
-    tip: "",
+    tip: '',
     multiAgent: { tasks: [] },
-    metrics: { status: "RUNNING" },
+    metrics: { status: 'RUNNING' },
   };
 }
 
@@ -206,11 +208,8 @@ function createRunningChat(
  * guard error 没有结构化 eventData 时，前端需要补一条失败总结，
  * 否则多智能体对话会停留在 loading 态，看不到明确的失败结论。
  */
-export function applyGuardError(
-  currentChat: CHAT.ChatItem,
-  errorText: string
-): CHAT.ChatItem {
-  const nextErrorText = errorText || "当前请求处理失败，请稍后重试";
+export function applyGuardError(currentChat: CHAT.ChatItem, errorText: string): CHAT.ChatItem {
+  const nextErrorText = errorText || '当前请求处理失败，请稍后重试';
 
   return {
     ...currentChat,
@@ -218,14 +217,14 @@ export function applyGuardError(
     tip: nextErrorText,
     metrics: {
       ...(currentChat.metrics || {}),
-      status: "FAILED",
+      status: 'FAILED',
     },
     conclusion: {
       id: `${currentChat.requestId}-guard-error`,
       messageId: `${currentChat.requestId}-guard-error`,
       requestId: currentChat.requestId,
       messageTime: String(Date.now()),
-      messageType: "task_summary",
+      messageType: 'task_summary',
       finish: true,
       isFinal: true,
       result: nextErrorText,
@@ -242,43 +241,48 @@ function resolveStreamErrorMessage(error: unknown): string {
   const raw =
     error instanceof Error && error.message
       ? error.message
-      : typeof error === "string" && error.trim()
+      : typeof error === 'string' && error.trim()
         ? error.trim()
-        : "";
+        : '';
   const lower = raw.toLowerCase();
 
   // 并发限流（后端 per-user 并发上限或线程池繁忙）
-  if (raw.includes("并发") || raw.includes("上限") || lower.includes("busy") || lower.includes("too many")) {
-    return "当前对话请求较多，请稍后重试";
+  if (
+    raw.includes('并发') ||
+    raw.includes('上限') ||
+    lower.includes('busy') ||
+    lower.includes('too many')
+  ) {
+    return '当前对话请求较多，请稍后重试';
   }
   // 配额不足
-  if (raw.includes("配额") || raw.includes("额度") || lower.includes("quota")) {
-    return "对话配额不足，请前往会员中心查看或升级";
+  if (raw.includes('配额') || raw.includes('额度') || lower.includes('quota')) {
+    return '对话配额不足，请前往会员中心查看或升级';
   }
   // 登录态失效
-  if (raw.includes("登录") || lower.includes("unauthorized") || lower.includes("401") || lower.includes("token")) {
-    return "登录状态已失效，请重新登录后重试";
+  if (
+    raw.includes('登录') ||
+    lower.includes('unauthorized') ||
+    lower.includes('401') ||
+    lower.includes('token')
+  ) {
+    return '登录状态已失效，请重新登录后重试';
   }
   // 响应解析失败
-  if (lower.includes("parse") || raw.includes("解析")) {
-    return "响应解析失败，请稍后重试";
+  if (lower.includes('parse') || raw.includes('解析')) {
+    return '响应解析失败，请稍后重试';
   }
   // 其它：优先展示后端可读中文提示，否则回退通用文案（避免把英文技术栈信息直接抛给用户）
   if (raw && /[\u4e00-\u9fa5]/.test(raw)) {
     return raw;
   }
-  return "当前请求处理失败，请稍后重试";
+  return '当前请求处理失败，请稍后重试';
 }
 
 export function useConversationStream(
-  options: UseConversationStreamOptions
+  options: UseConversationStreamOptions,
 ): UseConversationStreamResult {
-  const {
-    conversation,
-    onConversationChange,
-    onPrepareStreamingWorkspace,
-    onTokenUseUp,
-  } = options;
+  const { conversation, onConversationChange, onPrepareStreamingWorkspace, onTokenUseUp } = options;
 
   const [taskList, setTaskList] = useState<CHAT.Task[]>([]);
   const [workspaceStreamTask, setWorkspaceStreamTask] = useState<CHAT.Task>();
@@ -291,35 +295,29 @@ export function useConversationStream(
   // 持有当前 SSE 流的中断句柄，用于切换会话/卸载时取消旧流。
   const streamAbortRef = useRef<AbortController | null>(null);
 
-  const workspaceTaskThrottle = useRafThrottle<CHAT.Task | undefined>(
-    undefined,
-    32,
-    (task) => setWorkspaceStreamTask(task)
+  const workspaceTaskThrottle = useRafThrottle<CHAT.Task | undefined>(undefined, 32, (task) =>
+    setWorkspaceStreamTask(task),
   );
-  const thoughtThrottle = useRafThrottle<Record<string, string>>(
-    {},
-    48,
-    (pendingThoughtMap) => {
-      const pendingEntries = Object.entries(pendingThoughtMap);
-      if (!pendingEntries.length) {
-        return;
-      }
-
-      setStreamingThoughtMap((previous) => {
-        let changed = false;
-        const next = { ...previous };
-
-        pendingEntries.forEach(([requestId, thought]) => {
-          if (next[requestId] !== thought) {
-            next[requestId] = thought;
-            changed = true;
-          }
-        });
-
-        return changed ? next : previous;
-      });
+  const thoughtThrottle = useRafThrottle<Record<string, string>>({}, 48, (pendingThoughtMap) => {
+    const pendingEntries = Object.entries(pendingThoughtMap);
+    if (!pendingEntries.length) {
+      return;
     }
-  );
+
+    setStreamingThoughtMap((previous) => {
+      let changed = false;
+      const next = { ...previous };
+
+      pendingEntries.forEach(([requestId, thought]) => {
+        if (next[requestId] !== thought) {
+          next[requestId] = thought;
+          changed = true;
+        }
+      });
+
+      return changed ? next : previous;
+    });
+  });
 
   const commitConversation = useMemoizedFn(
     (conversationId: string, nextConversation: CHAT.ConversationHistory) => {
@@ -327,15 +325,20 @@ export function useConversationStream(
         ...nextConversation,
         updatedAt: Date.now(),
       });
-    }
+    },
   );
 
-  const scheduleStreamingThought = useMemoizedFn((requestId: string, thought: string, force = false) => {
-    thoughtThrottle.schedule((current) => ({
-      ...current,
-      [requestId]: thought,
-    }), force);
-  });
+  const scheduleStreamingThought = useMemoizedFn(
+    (requestId: string, thought: string, force = false) => {
+      thoughtThrottle.schedule(
+        (current) => ({
+          ...current,
+          [requestId]: thought,
+        }),
+        force,
+      );
+    },
+  );
 
   const scheduleWorkspaceStreamTask = useMemoizedFn((chat: CHAT.ChatItem, force = false) => {
     const latestTask = getLatestRenderableTask(chat);
@@ -380,7 +383,7 @@ export function useConversationStream(
         (chat) =>
           (chat.multiAgent?.tasks?.length || 0) > 0 ||
           !!chat.multiAgent?.plan ||
-          !!chat.timeline?.length
+          !!chat.timeline?.length,
       );
 
     if (!latestChatSnapshot) {
@@ -389,7 +392,7 @@ export function useConversationStream(
 
     const conversationTaskData = buildConversationTaskData(
       latestChatSnapshot,
-      conversation.deepThink
+      conversation.deepThink,
     );
     const latestTask = getLatestRenderableTask(conversationTaskData.currentChat);
 
@@ -397,10 +400,12 @@ export function useConversationStream(
     setPlan(conversationTaskData.plan);
     setWorkspaceStreamTask(latestTask ? cloneWorkspaceTask(latestTask) : undefined);
     setActiveRunState(resolveLatestRunState(latestChatSnapshot));
-    setShowAction(resolveActionPanelVisibility({
-      plan: conversationTaskData.plan,
-      taskList: conversationTaskData.taskList,
-    }));
+    setShowAction(
+      resolveActionPanelVisibility({
+        plan: conversationTaskData.plan,
+        taskList: conversationTaskData.taskList,
+      }),
+    );
   }, [conversation.chatList, conversation.deepThink, conversation.id, loading]);
 
   useEffect(() => {
@@ -428,7 +433,7 @@ export function useConversationStream(
     const conversationId = baseConversation.id;
     const { message, deepThink, outputStyle } = inputInfo;
     const currentOutputStyle = outputStyle || baseConversation.productType;
-    const isChatMode = currentOutputStyle === "chat";
+    const isChatMode = currentOutputStyle === 'chat';
     const normalizedDeepThink = isChatMode ? false : Boolean(deepThink);
     const requestId = getUniqId();
     let currentChat = createRunningChat(
@@ -436,18 +441,18 @@ export function useConversationStream(
       baseConversation.sessionId,
       requestId,
       currentOutputStyle,
-      normalizedDeepThink
+      normalizedDeepThink,
     );
 
     if (!isChatMode && normalizedDeepThink) {
       setStreamingThoughtMap((previous) => ({
         ...previous,
-        [requestId]: "",
+        [requestId]: '',
       }));
     }
 
     const initialConversation = createDraftConversation(baseConversation, {
-      chatTitle: message || "",
+      chatTitle: message || '',
       productType: currentOutputStyle,
       deepThink: normalizedDeepThink,
       chatList: [...baseConversation.chatList, { ...currentChat }],
@@ -455,8 +460,8 @@ export function useConversationStream(
     const draftController = createConversationDraftController<CHAT.ChatItem>(
       conversationId,
       initialConversation,
-      "chatList",
-      commitConversation
+      'chatList',
+      commitConversation,
     );
 
     draftController.commit(initialConversation);
@@ -464,9 +469,7 @@ export function useConversationStream(
     onPrepareStreamingWorkspace?.();
 
     const syncRunningConversation = () => {
-      draftController.commit(
-        draftController.replaceLastItem({ ...currentChat })
-      );
+      draftController.commit(draftController.replaceLastItem({ ...currentChat }));
     };
 
     /**
@@ -503,11 +506,7 @@ export function useConversationStream(
 
       const now = performance.now();
       if (taskDataDirty && (force || now - lastTaskFlushAt >= TASK_FLUSH_INTERVAL)) {
-        pendingTaskData = handleTaskData(
-          currentChat,
-          normalizedDeepThink,
-          currentChat.multiAgent
-        );
+        pendingTaskData = handleTaskData(currentChat, normalizedDeepThink, currentChat.multiAgent);
         syncDerivedConversationSnapshot(pendingTaskData.currentChat);
         taskDataDirty = false;
       }
@@ -521,10 +520,12 @@ export function useConversationStream(
       if (shouldFlushTask && pendingTaskData) {
         setTaskList(pendingTaskData.taskList);
         setPlan(pendingTaskData.plan);
-        setShowAction(resolveActionPanelVisibility({
-          plan: pendingTaskData.plan,
-          taskList: pendingTaskData.taskList,
-        }));
+        setShowAction(
+          resolveActionPanelVisibility({
+            plan: pendingTaskData.plan,
+            taskList: pendingTaskData.taskList,
+          }),
+        );
         pendingTaskData = null;
         lastTaskFlushAt = now;
       }
@@ -563,12 +564,12 @@ export function useConversationStream(
       const { finished, resultMap, packageType, status } = data;
       const isTerminalGuardError =
         Boolean(finished) &&
-        packageType === "result" &&
+        packageType === 'result' &&
         Boolean(data.errorMsg) &&
         !resultMap?.eventData;
 
       if (isTerminalGuardError) {
-        const errorText = data.errorMsg || "当前请求处理失败，请稍后重试";
+        const errorText = data.errorMsg || '当前请求处理失败，请稍后重试';
         setLoading(false);
 
         if (isChatMode) {
@@ -578,7 +579,7 @@ export function useConversationStream(
             response: errorText,
             metrics: {
               ...(currentChat.metrics || {}),
-              status: "FAILED",
+              status: 'FAILED',
             },
           };
           syncRunningConversation();
@@ -586,26 +587,20 @@ export function useConversationStream(
         }
 
         currentChat = applyGuardError(currentChat, errorText);
-        const taskData = handleTaskData(
-          currentChat,
-          normalizedDeepThink,
-          currentChat.multiAgent
-        );
+        const taskData = handleTaskData(currentChat, normalizedDeepThink, currentChat.multiAgent);
         setTaskList(taskData.taskList);
-        draftController.commit(
-          draftController.replaceLastItem({ ...currentChat })
-        );
+        draftController.commit(draftController.replaceLastItem({ ...currentChat }));
         return;
       }
 
-      if (["roleUnavailable", "roleSwitchRejected", "noAvailableChatRole"].includes(status)) {
+      if (['roleUnavailable', 'roleSwitchRejected', 'noAvailableChatRole'].includes(status)) {
         currentChat = {
           ...currentChat,
-          response: data.errorMsg || "当前角色暂不可用",
+          response: data.errorMsg || '当前角色暂不可用',
           loading: false,
           metrics: {
             ...(currentChat.metrics || {}),
-            status: "FAILED",
+            status: 'FAILED',
           },
         };
         setLoading(false);
@@ -613,30 +608,24 @@ export function useConversationStream(
         return;
       }
 
-      if (status === "tokenUseUp") {
+      if (status === 'tokenUseUp') {
         onTokenUseUp?.();
-        const taskData = handleTaskData(
-          currentChat,
-          normalizedDeepThink,
-          currentChat.multiAgent
-        );
+        const taskData = handleTaskData(currentChat, normalizedDeepThink, currentChat.multiAgent);
         currentChat = {
           ...currentChat,
           loading: false,
           metrics: {
             ...(currentChat.metrics || {}),
-            status: "FAILED",
+            status: 'FAILED',
           },
         };
         setLoading(false);
         setTaskList(taskData.taskList);
-        draftController.commit(
-          draftController.replaceLastItem({ ...currentChat })
-        );
+        draftController.commit(draftController.replaceLastItem({ ...currentChat }));
         return;
       }
 
-      if (packageType === "heartbeat") {
+      if (packageType === 'heartbeat') {
         return;
       }
 
@@ -644,13 +633,13 @@ export function useConversationStream(
         const eventData = normalizeEventData(resultMap?.eventData);
         const inner = eventData?.resultMap;
         const innerType = inner?.messageType;
-        if (innerType === "agent_stream") {
-          const text = inner?.result || "";
+        if (innerType === 'agent_stream') {
+          const text = inner?.result || '';
           if (text) {
-            currentChat.response = `${currentChat.response || ""}${text}`;
+            currentChat.response = `${currentChat.response || ''}${text}`;
           }
-        } else if (innerType === "result" && !currentChat.response) {
-          currentChat.response = inner?.result || "";
+        } else if (innerType === 'result' && !currentChat.response) {
+          currentChat.response = inner?.result || '';
         }
 
         if (innerType) {
@@ -661,7 +650,7 @@ export function useConversationStream(
           currentChat.loading = false;
           currentChat.metrics = {
             ...(currentChat.metrics || {}),
-            status: "SUCCESS",
+            status: 'SUCCESS',
           };
           setLoading(false);
           syncRunningConversation();
@@ -674,19 +663,19 @@ export function useConversationStream(
         return;
       }
 
-      const isPlanThoughtEvent = eventData.messageType === "plan_thought";
+      const isPlanThoughtEvent = eventData.messageType === 'plan_thought';
       const isPlanThoughtFinal = Boolean(eventData.resultMap?.isFinal || finished);
       currentChat = combineData(eventData, currentChat);
       // 实时收到最终 result 时，优先用结构化结果覆盖掉临时 agent_stream 结论，
       // 避免界面在当前会话里一直停留在“答案$$$文件名”的原始协议文本。
-      if (eventData.resultMap?.messageType === "result") {
+      if (eventData.resultMap?.messageType === 'result') {
         currentChat.conclusion = buildTaskFromEventData(eventData) as CHAT.Task;
       }
       if (shouldRefreshWorkspaceTask(eventData)) {
         scheduleWorkspaceStreamTask(currentChat, finished);
       }
       if (normalizedDeepThink && isPlanThoughtEvent) {
-        const latestThought = currentChat.thought || currentChat.multiAgent.plan_thought || "";
+        const latestThought = currentChat.thought || currentChat.multiAgent.plan_thought || '';
         scheduleStreamingThought(currentChat.requestId, latestThought, isPlanThoughtFinal);
       }
       if (!isPlanThoughtEvent) {
@@ -696,11 +685,11 @@ export function useConversationStream(
         currentChat.loading = false;
         currentChat.metrics = {
           ...(currentChat.metrics || {}),
-          status: "SUCCESS",
+          status: 'SUCCESS',
         };
         setLoading(false);
         if (normalizedDeepThink) {
-          const finalThought = currentChat.thought || currentChat.multiAgent.plan_thought || "";
+          const finalThought = currentChat.thought || currentChat.multiAgent.plan_thought || '';
           scheduleStreamingThought(currentChat.requestId, finalThought, true);
         }
       }
@@ -713,7 +702,7 @@ export function useConversationStream(
     };
 
     const handleError = (error: unknown) => {
-      console.error("SSE stream error", error);
+      console.error('SSE stream error', error);
       const errorText = resolveStreamErrorMessage(error);
       setLoading(false);
 
@@ -724,7 +713,7 @@ export function useConversationStream(
           response: errorText,
           metrics: {
             ...(currentChat.metrics || {}),
-            status: "FAILED",
+            status: 'FAILED',
           },
         };
         syncRunningConversation();
@@ -732,15 +721,9 @@ export function useConversationStream(
       }
 
       currentChat = applyGuardError(currentChat, errorText);
-      const taskData = handleTaskData(
-        currentChat,
-        normalizedDeepThink,
-        currentChat.multiAgent
-      );
+      const taskData = handleTaskData(currentChat, normalizedDeepThink, currentChat.multiAgent);
       setTaskList(taskData.taskList);
-      draftController.commit(
-        draftController.replaceLastItem({ ...currentChat })
-      );
+      draftController.commit(draftController.replaceLastItem({ ...currentChat }));
     };
 
     const handleClose = () => {

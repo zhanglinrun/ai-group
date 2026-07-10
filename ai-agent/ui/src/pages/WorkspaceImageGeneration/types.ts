@@ -1,6 +1,6 @@
-export type WorkspaceTab = "decode" | "generate";
+export type WorkspaceTab = 'decode' | 'generate';
 
-export type RequestMode = "images" | "edits" | "chat";
+export type RequestMode = 'images' | 'edits' | 'chat';
 
 export type ToolFileInfo = {
   fileName?: string;
@@ -16,7 +16,7 @@ export type ImageGenerationToolResponse = {
   data: string;
   fileInfo: ToolFileInfo[];
   requestId: string;
-  mode?: RequestMode | "images" | "edits";
+  mode?: RequestMode | 'images' | 'edits';
   usedFallback?: boolean;
   rawResponse?: unknown;
 };
@@ -79,7 +79,7 @@ export type ImageGenerationHistoryPage = {
 
 export type UserMessage = {
   id: string;
-  role: "user";
+  role: 'user';
   prompt: string;
   mode: RequestMode;
   images: string[];
@@ -88,8 +88,8 @@ export type UserMessage = {
 
 export type AssistantMessage = {
   id: string;
-  role: "assistant";
-  status: "loading" | "done" | "error";
+  role: 'assistant';
+  status: 'loading' | 'done' | 'error';
   summary: string;
   text?: string;
   images: ResultImageItem[];

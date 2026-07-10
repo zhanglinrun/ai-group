@@ -1,50 +1,58 @@
-import { z } from "zod";
+import { z } from 'zod';
 
 type RecordValue = Record<string, unknown>;
 
-const answerEnvelopeSchema = z.object({
-  status: z.string(),
-  packageType: z.string(),
-  finished: z.boolean(),
-  errorMsg: z.string().nullable().optional().transform((value) => value ?? ""),
-  resultMap: z.object({ eventData: z.unknown().optional() }).passthrough().optional().default({}),
-}).passthrough();
+const answerEnvelopeSchema = z
+  .object({
+    status: z.string(),
+    packageType: z.string(),
+    finished: z.boolean(),
+    errorMsg: z
+      .string()
+      .nullable()
+      .optional()
+      .transform((value) => value ?? ''),
+    resultMap: z.object({ eventData: z.unknown().optional() }).passthrough().optional().default({}),
+  })
+  .passthrough();
 
-const eventDataSchema = z.object({
-  messageOrder: z.number(),
-  messageType: z.string(),
-  messageId: z.string(),
-  taskId: z.string(),
-  taskOrder: z.number(),
-  resultMap: z.object({ messageType: z.string().optional() }).passthrough(),
-  artifactRefs: z.array(z.object({}).passthrough()).optional(),
-}).passthrough();
+const eventDataSchema = z
+  .object({
+    messageOrder: z.number(),
+    messageType: z.string(),
+    messageId: z.string(),
+    taskId: z.string(),
+    taskOrder: z.number(),
+    resultMap: z.object({ messageType: z.string().optional() }).passthrough(),
+    artifactRefs: z.array(z.object({}).passthrough()).optional(),
+  })
+  .passthrough();
 
-const dataChatEventSchema = z.discriminatedUnion("eventType", [
+const dataChatEventSchema = z.discriminatedUnion('eventType', [
   z.object({
-    eventType: z.literal("THINK"),
+    eventType: z.literal('THINK'),
     data: z.string(),
   }),
   z.object({
-    eventType: z.literal("CHART_DATA"),
+    eventType: z.literal('CHART_DATA'),
     data: z.array(z.record(z.string(), z.unknown())),
   }),
   z.object({
-    eventType: z.literal("ERROR"),
+    eventType: z.literal('ERROR'),
     data: z.string(),
   }),
   z.object({
-    eventType: z.literal("READY"),
+    eventType: z.literal('READY'),
     data: z.unknown().optional(),
   }),
 ]);
 
 function isRecord(value: unknown): value is RecordValue {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function buildAgentResponsePayload(raw: RecordValue): RecordValue {
-  const messageType = String(raw.messageType || "");
+  const messageType = String(raw.messageType || '');
   const resultMap = isRecord(raw.resultMap) ? raw.resultMap : {};
   const payload: RecordValue = {
     requestId: raw.requestId,
@@ -60,40 +68,40 @@ function buildAgentResponsePayload(raw: RecordValue): RecordValue {
   }
 
   switch (messageType) {
-    case "tool_thought":
+    case 'tool_thought':
       payload.toolThought = raw.toolThought;
       break;
-    case "task":
+    case 'task':
       payload.task = raw.task;
       break;
-    case "task_summary":
+    case 'task_summary':
       payload.taskSummary = raw.taskSummary;
       if (Object.keys(resultMap).length) {
         payload.resultMap = resultMap;
       }
       break;
-    case "plan_thought":
+    case 'plan_thought':
       payload.planThought = raw.planThought;
       break;
-    case "plan":
+    case 'plan':
       payload.title = isRecord(raw.plan) ? raw.plan.title : undefined;
       payload.stages = isRecord(raw.plan) ? raw.plan.stages : undefined;
       payload.steps = isRecord(raw.plan) ? raw.plan.steps : undefined;
       payload.stepStatus = isRecord(raw.plan) ? raw.plan.stepStatus : undefined;
       payload.notes = isRecord(raw.plan) ? raw.plan.notes : undefined;
       break;
-    case "tool_result":
+    case 'tool_result':
       payload.toolResult = raw.toolResult;
       break;
-    case "agent_stream":
+    case 'agent_stream':
       payload.result = raw.result;
       break;
-    case "result":
+    case 'result':
       payload.result = raw.result;
-      if ("taskSummary" in resultMap) {
+      if ('taskSummary' in resultMap) {
         payload.taskSummary = resultMap.taskSummary;
       }
-      if ("fileList" in resultMap) {
+      if ('fileList' in resultMap) {
         payload.fileList = resultMap.fileList;
       }
       break;
@@ -104,7 +112,7 @@ function buildAgentResponsePayload(raw: RecordValue): RecordValue {
       break;
   }
 
-  if (isRecord(raw.resultMap) && typeof raw.resultMap.plannerRoundId === "string") {
+  if (isRecord(raw.resultMap) && typeof raw.resultMap.plannerRoundId === 'string') {
     payload.plannerRoundId = raw.resultMap.plannerRoundId;
   }
 
@@ -112,26 +120,26 @@ function buildAgentResponsePayload(raw: RecordValue): RecordValue {
 }
 
 function normalizeAgentResponseFrame(raw: unknown): unknown {
-  if (!isRecord(raw) || !("messageType" in raw) || "packageType" in raw) {
+  if (!isRecord(raw) || !('messageType' in raw) || 'packageType' in raw) {
     return raw;
   }
 
-  const messageType = String(raw.messageType || "");
+  const messageType = String(raw.messageType || '');
   const finished = Boolean(raw.finish);
   const eventData = {
     messageOrder: 1,
-    messageType: messageType === "plan" || messageType === "plan_thought" ? messageType : "task",
-    messageId: String(raw.messageId || `${raw.requestId || "message"}-${messageType}`),
-    taskId: String(raw.requestId || raw.messageId || "agent-task"),
+    messageType: messageType === 'plan' || messageType === 'plan_thought' ? messageType : 'task',
+    messageId: String(raw.messageId || `${raw.requestId || 'message'}-${messageType}`),
+    taskId: String(raw.requestId || raw.messageId || 'agent-task'),
     taskOrder: 1,
     resultMap: buildAgentResponsePayload(raw),
   };
 
   return {
-    status: finished ? "success" : "running",
-    packageType: "result",
+    status: finished ? 'success' : 'running',
+    packageType: 'result',
     finished,
-    errorMsg: "",
+    errorMsg: '',
     resultMap: {
       agentType: isRecord(raw.resultMap) ? raw.resultMap.agentType : undefined,
       eventData,

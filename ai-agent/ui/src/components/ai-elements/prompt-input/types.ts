@@ -1,4 +1,4 @@
-import type { FileUIPart } from "ai";
+import type { FileUIPart } from 'ai';
 
 export type PromptInputAttachmentItem = FileUIPart & {
   id: string;
@@ -6,6 +6,6 @@ export type PromptInputAttachmentItem = FileUIPart & {
 };
 
 export type PromptInputAttachmentError = {
-  code: "max_files" | "max_file_size" | "accept";
+  code: 'max_files' | 'max_file_size' | 'accept';
   message: string;
 };

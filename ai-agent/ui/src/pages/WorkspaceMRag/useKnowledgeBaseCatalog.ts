@@ -1,13 +1,13 @@
-import { useCallback, useState } from "react";
+import { useCallback, useState } from 'react';
 
 import {
   createKnowledgeBase,
   deleteKnowledgeBase,
   listKnowledgeBases,
   mapMragError,
-} from "@/services/mragWorkspace";
-import { showMessage } from "@/utils";
-import type { KnowledgeBase } from "./types";
+} from '@/services/mragWorkspace';
+import { showMessage } from '@/utils';
+import type { KnowledgeBase } from './types';
 
 type RefreshKnowledgeBaseOptions = {
   silent?: boolean;
@@ -16,11 +16,11 @@ type RefreshKnowledgeBaseOptions = {
 export function useKnowledgeBaseCatalog(toolBaseUrl: string) {
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([]);
   const [knowledgeBasesLoading, setKnowledgeBasesLoading] = useState(false);
-  const [knowledgeBasesError, setKnowledgeBasesError] = useState("");
-  const [createKnowledgeBaseName, setCreateKnowledgeBaseName] = useState("");
-  const [createKnowledgeBaseDesc, setCreateKnowledgeBaseDesc] = useState("");
+  const [knowledgeBasesError, setKnowledgeBasesError] = useState('');
+  const [createKnowledgeBaseName, setCreateKnowledgeBaseName] = useState('');
+  const [createKnowledgeBaseDesc, setCreateKnowledgeBaseDesc] = useState('');
   const [creatingKnowledgeBase, setCreatingKnowledgeBase] = useState(false);
-  const [deletingKnowledgeBaseId, setDeletingKnowledgeBaseId] = useState("");
+  const [deletingKnowledgeBaseId, setDeletingKnowledgeBaseId] = useState('');
 
   const refreshKnowledgeBases = useCallback(
     async (options?: RefreshKnowledgeBaseOptions) => {
@@ -31,7 +31,7 @@ export function useKnowledgeBaseCatalog(toolBaseUrl: string) {
       try {
         const nextKnowledgeBases = await listKnowledgeBases(toolBaseUrl);
         setKnowledgeBases(nextKnowledgeBases);
-        setKnowledgeBasesError("");
+        setKnowledgeBasesError('');
         return nextKnowledgeBases;
       } catch (error) {
         setKnowledgeBasesError(mapMragError(error));
@@ -41,13 +41,13 @@ export function useKnowledgeBaseCatalog(toolBaseUrl: string) {
         setKnowledgeBasesLoading(false);
       }
     },
-    [toolBaseUrl]
+    [toolBaseUrl],
   );
 
   const handleCreateKnowledgeBase = useCallback(async () => {
     const kbName = createKnowledgeBaseName.trim();
     if (!kbName) {
-      showMessage()?.error("请输入知识库名称");
+      showMessage()?.error('请输入知识库名称');
       return null;
     }
 
@@ -57,9 +57,9 @@ export function useKnowledgeBaseCatalog(toolBaseUrl: string) {
         kbName,
         kbDesc: createKnowledgeBaseDesc.trim(),
       });
-      setCreateKnowledgeBaseName("");
-      setCreateKnowledgeBaseDesc("");
-      showMessage()?.success("知识库已创建");
+      setCreateKnowledgeBaseName('');
+      setCreateKnowledgeBaseDesc('');
+      showMessage()?.success('知识库已创建');
       return createdKnowledgeBase;
     } catch (error) {
       showMessage()?.error(mapMragError(error));
@@ -83,10 +83,10 @@ export function useKnowledgeBaseCatalog(toolBaseUrl: string) {
         showMessage()?.error(mapMragError(error));
         return null;
       } finally {
-        setDeletingKnowledgeBaseId("");
+        setDeletingKnowledgeBaseId('');
       }
     },
-    [toolBaseUrl]
+    [toolBaseUrl],
   );
 
   return {

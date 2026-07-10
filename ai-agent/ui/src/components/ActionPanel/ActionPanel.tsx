@@ -1,20 +1,20 @@
-import React, { memo, useEffect, useMemo, useRef } from "react";
-import classNames from "classnames";
-import { motion } from "motion/react";
-import { useMsgTypes } from "./useMsgTypes";
-import HTMLRenderer from "./HTMLRenderer";
-import useContent from "./useContent";
-import MarkdownRenderer from "./MarkdownRenderer";
-import TableRenderer from "./TableRenderer";
-import FileRenderer from "./FileRenderer";
-import ImageRenderer from "./ImageRenderer";
-import SearchListRenderer from "./SearchListRenderer";
-import { JsonViewer } from "./JsonViewer";
-import { PanelItemType } from "./type";
-import { PanelProvider } from ".";
-import { useMemoizedFn } from "ahooks";
-import { getPrimaryTaskFile } from "@/utils/taskArtifacts";
-import { resolvePanelView } from "./panelResolver";
+import React, { memo, useEffect, useMemo, useRef } from 'react';
+import classNames from 'classnames';
+import { motion } from 'motion/react';
+import { useMsgTypes } from './useMsgTypes';
+import HTMLRenderer from './HTMLRenderer';
+import useContent from './useContent';
+import MarkdownRenderer from './MarkdownRenderer';
+import TableRenderer from './TableRenderer';
+import FileRenderer from './FileRenderer';
+import ImageRenderer from './ImageRenderer';
+import SearchListRenderer from './SearchListRenderer';
+import { JsonViewer } from './JsonViewer';
+import { PanelItemType } from './type';
+import { PanelProvider } from '.';
+import { useMemoizedFn } from 'ahooks';
+import { getPrimaryTaskFile } from '@/utils/taskArtifacts';
+import { resolvePanelView } from './panelResolver';
 
 interface ActionPanelProps {
   taskItem?: PanelItemType;
@@ -40,39 +40,33 @@ const ContentWrapper = ({ children }: { children: React.ReactNode }) => (
 );
 
 // Markdown 流式内容动画包装
-const StreamingMarkdownWrapper = memo(({
-  content,
-  isStreaming,
-}: {
-  content: string;
-  isStreaming: boolean;
-}) => {
-  return (
-    <div
-      className="flex min-h-full flex-col"
-    >
-      <MarkdownRenderer
-        markDownContent={content}
-        isStreaming={isStreaming}
-        normalizationScope="default"
-      />
-      <div
-        aria-hidden
-        className="shrink-0 transition-[height] duration-300 ease-out"
-        style={{
-          height: isStreaming ? "clamp(180px, 34vh, 320px)" : "24px",
-        }}
-      />
-    </div>
-  );
-}, (prevProps, nextProps) => {
-  return (
-    prevProps.content === nextProps.content &&
-    prevProps.isStreaming === nextProps.isStreaming
-  );
-});
+const StreamingMarkdownWrapper = memo(
+  ({ content, isStreaming }: { content: string; isStreaming: boolean }) => {
+    return (
+      <div className="flex min-h-full flex-col">
+        <MarkdownRenderer
+          markDownContent={content}
+          isStreaming={isStreaming}
+          normalizationScope="default"
+        />
+        <div
+          aria-hidden
+          className="shrink-0 transition-[height] duration-300 ease-out"
+          style={{
+            height: isStreaming ? 'clamp(180px, 34vh, 320px)' : '24px',
+          }}
+        />
+      </div>
+    );
+  },
+  (prevProps, nextProps) => {
+    return (
+      prevProps.content === nextProps.content && prevProps.isStreaming === nextProps.isStreaming
+    );
+  },
+);
 
-StreamingMarkdownWrapper.displayName = "StreamingMarkdownWrapper";
+StreamingMarkdownWrapper.displayName = 'StreamingMarkdownWrapper';
 
 const ActionPanel: ReactorType.FC<ActionPanelProps> = React.memo((props) => {
   const { taskItem, className, allowShowToolBar } = props;
@@ -118,15 +112,15 @@ const ActionPanel: ReactorType.FC<ActionPanelProps> = React.memo((props) => {
 
   const panelNode = useMemo(() => {
     switch (panelView.type) {
-      case "empty":
+      case 'empty':
         return null;
-      case "search":
+      case 'search':
         return (
           <ContentWrapper key="search">
             <SearchListRenderer list={panelView.searchList} />
           </ContentWrapper>
         );
-      case "html":
+      case 'html':
         return (
           <ContentWrapper key="html">
             <HTMLRenderer
@@ -140,13 +134,13 @@ const ActionPanel: ReactorType.FC<ActionPanelProps> = React.memo((props) => {
             />
           </ContentWrapper>
         );
-      case "inline-html":
+      case 'inline-html':
         return (
           <ContentWrapper key="code">
             <HTMLRenderer htmlUrl={panelView.htmlUrl} />
           </ContentWrapper>
         );
-      case "excel":
+      case 'excel':
         return (
           <ContentWrapper key="excel">
             <TableRenderer
@@ -156,7 +150,7 @@ const ActionPanel: ReactorType.FC<ActionPanelProps> = React.memo((props) => {
             />
           </ContentWrapper>
         );
-      case "image":
+      case 'image':
         return (
           <ContentWrapper key="image">
             <ImageRenderer
@@ -166,7 +160,7 @@ const ActionPanel: ReactorType.FC<ActionPanelProps> = React.memo((props) => {
             />
           </ContentWrapper>
         );
-      case "file":
+      case 'file':
         return (
           <ContentWrapper key="file">
             <FileRenderer
@@ -176,13 +170,13 @@ const ActionPanel: ReactorType.FC<ActionPanelProps> = React.memo((props) => {
             />
           </ContentWrapper>
         );
-      case "json":
+      case 'json':
         return (
           <ContentWrapper key="json">
             <JsonViewer data={panelView.jsonData} />
           </ContentWrapper>
         );
-      case "markdown":
+      case 'markdown':
         return (
           <StreamingMarkdownWrapper
             content={panelView.content}
@@ -221,8 +215,7 @@ const ActionPanel: ReactorType.FC<ActionPanelProps> = React.memo((props) => {
       }
 
       const currentScrollTop = element.scrollTop;
-      const distanceToBottom =
-        element.scrollHeight - currentScrollTop - element.clientHeight;
+      const distanceToBottom = element.scrollHeight - currentScrollTop - element.clientHeight;
       const isBackToBottom = distanceToBottom <= resumeFollowThreshold;
       const isUserScrollingUp = currentScrollTop < lastScrollTopRef.current - 1;
 
@@ -253,12 +246,12 @@ const ActionPanel: ReactorType.FC<ActionPanelProps> = React.memo((props) => {
 
     lastScrollTopRef.current = element.scrollTop;
     updateAutoFollowState();
-    element.addEventListener("wheel", handleWheel, { passive: true });
-    element.addEventListener("scroll", updateAutoFollowState, { passive: true });
+    element.addEventListener('wheel', handleWheel, { passive: true });
+    element.addEventListener('scroll', updateAutoFollowState, { passive: true });
 
     return () => {
-      element.removeEventListener("wheel", handleWheel);
-      element.removeEventListener("scroll", updateAutoFollowState);
+      element.removeEventListener('wheel', handleWheel);
+      element.removeEventListener('scroll', updateAutoFollowState);
     };
   }, [cancelAutoScrollFrame]);
 
@@ -332,14 +325,13 @@ const ActionPanel: ReactorType.FC<ActionPanelProps> = React.memo((props) => {
   }, [cancelAutoScrollFrame]);
 
   return (
-    <PanelProvider value={{
-      wrapRef: ref,
-      scrollToBottom,
-    }}>
-      <div
-        className={classNames('w-full px-16 overflow-auto', className)}
-        ref={ref}
-      >
+    <PanelProvider
+      value={{
+        wrapRef: ref,
+        scrollToBottom,
+      }}
+    >
+      <div className={classNames('w-full px-16 overflow-auto', className)} ref={ref}>
         {panelNode}
       </div>
     </PanelProvider>

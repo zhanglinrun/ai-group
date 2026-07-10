@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AnimatePresence, motion } from "motion/react";
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
 import {
   DatabaseZap,
   LoaderCircle,
@@ -9,30 +9,27 @@ import {
   ChevronDown,
   Sparkles,
   FileText,
-} from "lucide-react";
-import classNames from "classnames";
+} from 'lucide-react';
+import classNames from 'classnames';
 
-import MarkdownRenderer from "@/components/ActionPanel/MarkdownRenderer";
-import {
-  listKnowledgeBases,
-  streamMragQuery,
-} from "@/services/mragWorkspace";
-import type { KnowledgeBase, MRagChunkEnvelope } from "@/pages/WorkspaceMRag/types";
-import { loadMRagWorkspaceStoredState } from "@/pages/WorkspaceMRag/utils";
+import MarkdownRenderer from '@/components/ActionPanel/MarkdownRenderer';
+import { listKnowledgeBases, streamMragQuery } from '@/services/mragWorkspace';
+import type { KnowledgeBase, MRagChunkEnvelope } from '@/pages/WorkspaceMRag/types';
+import { loadMRagWorkspaceStoredState } from '@/pages/WorkspaceMRag/utils';
 
-const TOOL_BASE_URL = import.meta.env.VITE_Mrag_TOOL_URL || "";
+const TOOL_BASE_URL = import.meta.env.VITE_Mrag_TOOL_URL || '';
 
 export default function ChatRagPanel() {
   const stored = useMemo(() => loadMRagWorkspaceStoredState(), []);
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([]);
   const [knowledgeBasesLoading, setKnowledgeBasesLoading] = useState(false);
   const [selectedKnowledgeBaseId, setSelectedKnowledgeBaseId] = useState(
-    stored.selectedKnowledgeBaseId
+    stored.selectedKnowledgeBaseId,
   );
-  const [question, setQuestion] = useState("");
+  const [question, setQuestion] = useState('');
   const [querying, setQuerying] = useState(false);
-  const [queryAnswer, setQueryAnswer] = useState("");
-  const [queryError, setQueryError] = useState("");
+  const [queryAnswer, setQueryAnswer] = useState('');
+  const [queryError, setQueryError] = useState('');
   const [queryRawChunks, setQueryRawChunks] = useState<unknown[]>([]);
   const [isKbDropdownOpen, setIsKbDropdownOpen] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
@@ -40,7 +37,7 @@ export default function ChatRagPanel() {
 
   const selectedKnowledgeBase = useMemo(
     () => knowledgeBases.find((k) => k.id === selectedKnowledgeBaseId) || null,
-    [knowledgeBases, selectedKnowledgeBaseId]
+    [knowledgeBases, selectedKnowledgeBaseId],
   );
 
   // Load knowledge bases on mount
@@ -64,15 +61,12 @@ export default function ChatRagPanel() {
   // Close dropdown on outside click
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (
-        dropdownRef.current &&
-        !dropdownRef.current.contains(event.target as Node)
-      ) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
         setIsKbDropdownOpen(false);
       }
     };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
   const handleSubmitQuery = useCallback(() => {
@@ -80,20 +74,20 @@ export default function ChatRagPanel() {
 
     const toolBaseUrl = TOOL_BASE_URL || stored.toolBaseUrl;
     if (!toolBaseUrl) {
-      setQueryError("未配置知识库 Tool URL");
+      setQueryError('未配置知识库 Tool URL');
       return;
     }
 
     setQuerying(true);
-    setQueryAnswer("");
-    setQueryError("");
+    setQueryAnswer('');
+    setQueryError('');
     setQueryRawChunks([]);
 
     const abort = new AbortController();
     abortRef.current = abort;
 
     const chunks: unknown[] = [];
-    let accumulated = "";
+    let accumulated = '';
 
     streamMragQuery({
       toolBaseUrl,
@@ -111,7 +105,7 @@ export default function ChatRagPanel() {
     })
       .catch((err: unknown) => {
         const msg = err instanceof Error ? err.message : String(err);
-        if (msg.includes("aborted")) {
+        if (msg.includes('aborted')) {
           // user stopped, not an error
           return;
         }
@@ -130,10 +124,10 @@ export default function ChatRagPanel() {
   }, []);
 
   const handleClear = useCallback(() => {
-    setQueryAnswer("");
-    setQueryError("");
+    setQueryAnswer('');
+    setQueryError('');
     setQueryRawChunks([]);
-    setQuestion("");
+    setQuestion('');
   }, []);
 
   return (
@@ -161,10 +155,10 @@ export default function ChatRagPanel() {
             onClick={() => setIsKbDropdownOpen((v) => !v)}
             disabled={knowledgeBasesLoading}
             className={classNames(
-              "flex items-center gap-2 rounded-xl border px-3.5 py-2 text-[13px] font-medium transition-colors",
+              'flex items-center gap-2 rounded-xl border px-3.5 py-2 text-[13px] font-medium transition-colors',
               isKbDropdownOpen
-                ? "border-[var(--primary)]/30 bg-[var(--primary)]/5 text-[var(--primary)]"
-                : "border-[var(--chat-border)] bg-[var(--chat-surface)] text-[var(--chat-text-soft)] hover:border-[var(--chat-border-strong)] hover:text-[var(--chat-text)]"
+                ? 'border-[var(--primary)]/30 bg-[var(--primary)]/5 text-[var(--primary)]'
+                : 'border-[var(--chat-border)] bg-[var(--chat-surface)] text-[var(--chat-text-soft)] hover:border-[var(--chat-border-strong)] hover:text-[var(--chat-text)]',
             )}
           >
             {knowledgeBasesLoading ? (
@@ -173,12 +167,12 @@ export default function ChatRagPanel() {
               <FileText className="h-3.5 w-3.5" />
             )}
             <span className="max-w-[160px] truncate">
-              {selectedKnowledgeBase?.name || "选择知识库"}
+              {selectedKnowledgeBase?.name || '选择知识库'}
             </span>
             <ChevronDown
               className={classNames(
-                "h-3.5 w-3.5 transition-transform",
-                isKbDropdownOpen && "rotate-180"
+                'h-3.5 w-3.5 transition-transform',
+                isKbDropdownOpen && 'rotate-180',
               )}
             />
           </button>
@@ -207,10 +201,10 @@ export default function ChatRagPanel() {
                           setIsKbDropdownOpen(false);
                         }}
                         className={classNames(
-                          "flex w-full items-center gap-2 px-3.5 py-2.5 text-left text-[13px] transition-colors",
+                          'flex w-full items-center gap-2 px-3.5 py-2.5 text-left text-[13px] transition-colors',
                           kb.id === selectedKnowledgeBaseId
-                            ? "bg-[var(--primary)]/5 text-[var(--primary)]"
-                            : "text-[var(--chat-text)] hover:bg-[var(--chat-surface-soft)]"
+                            ? 'bg-[var(--primary)]/5 text-[var(--primary)]'
+                            : 'text-[var(--chat-text)] hover:bg-[var(--chat-surface-soft)]',
                         )}
                       >
                         <DatabaseZap className="h-3.5 w-3.5 shrink-0" />
@@ -251,7 +245,7 @@ export default function ChatRagPanel() {
               value={question}
               onChange={(e) => setQuestion(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
+                if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault();
                   handleSubmitQuery();
                 }
@@ -266,7 +260,7 @@ export default function ChatRagPanel() {
                 <span>
                   {queryRawChunks.length > 0
                     ? `已接收 ${queryRawChunks.length} 个 chunk`
-                    : "按 Enter 直接发送"}
+                    : '按 Enter 直接发送'}
                 </span>
               </div>
               <div className="flex gap-2">
@@ -370,10 +364,8 @@ export default function ChatRagPanel() {
                   </summary>
                   <pre className="max-h-[240px] overflow-auto border-t border-[var(--chat-border)] px-4 py-3 whitespace-pre-wrap font-mono text-[11px] leading-5 text-[var(--chat-text-muted)]">
                     {queryRawChunks
-                      .map((c) =>
-                        typeof c === "string" ? c : JSON.stringify(c, null, 2)
-                      )
-                      .join("\n---\n")}
+                      .map((c) => (typeof c === 'string' ? c : JSON.stringify(c, null, 2)))
+                      .join('\n---\n')}
                   </pre>
                 </details>
               )}

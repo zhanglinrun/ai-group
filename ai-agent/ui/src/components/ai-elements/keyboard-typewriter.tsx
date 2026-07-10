@@ -1,7 +1,7 @@
-"use client";
+'use client';
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { cn } from "@/lib/utils";
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { cn } from '@/lib/utils';
 
 export type KeyboardTypewriterProps = {
   /** Single sentence (fallback when `texts` not provided). */
@@ -56,13 +56,13 @@ export function KeyboardTypewriter({
   text,
   texts,
   className,
-  caretClassName = "bg-[var(--chat-text)]/60",
-  caretWidthClassName = "w-[3px]",
-  caretHeightClassName = "h-[0.9em]",
-  typingCaretAnimationClassName = "animate-pulse",
-  doneCaretAnimationClassName = "animate-blink",
+  caretClassName = 'bg-[var(--chat-text)]/60',
+  caretWidthClassName = 'w-[3px]',
+  caretHeightClassName = 'h-[0.9em]',
+  typingCaretAnimationClassName = 'animate-pulse',
+  doneCaretAnimationClassName = 'animate-blink',
 }: KeyboardTypewriterProps) {
-  const [displayed, setDisplayed] = useState("");
+  const [displayed, setDisplayed] = useState('');
   const [isTypingDone, setIsTypingDone] = useState(false);
 
   const items = useMemo(() => {
@@ -70,13 +70,13 @@ export function KeyboardTypewriter({
   }, [texts, text]);
 
   const reserveText = useMemo(() => {
-    if (!items.length) return "";
-    return items.reduce((max, s) => (s.length > max.length ? s : max), items[0] || "");
+    if (!items.length) return '';
+    return items.reduce((max, s) => (s.length > max.length ? s : max), items[0] || '');
   }, [items]);
 
   const itemIndexRef = useRef(0);
   const charIndexRef = useRef(0);
-  const phaseRef = useRef<"typing" | "holding" | "erasing" | "pause">("typing");
+  const phaseRef = useRef<'typing' | 'holding' | 'erasing' | 'pause'>('typing');
   const timeoutRef = useRef<number | undefined>(undefined);
 
   useEffect(() => {
@@ -84,8 +84,8 @@ export function KeyboardTypewriter({
 
     itemIndexRef.current = 0;
     charIndexRef.current = 0;
-    phaseRef.current = "typing";
-    setDisplayed("");
+    phaseRef.current = 'typing';
+    setDisplayed('');
     setIsTypingDone(false);
 
     const clearTimer = () => {
@@ -96,9 +96,9 @@ export function KeyboardTypewriter({
     };
 
     const step = () => {
-      const curText = items[itemIndexRef.current] || "";
+      const curText = items[itemIndexRef.current] || '';
 
-      if (phaseRef.current === "typing") {
+      if (phaseRef.current === 'typing') {
         setIsTypingDone(false);
         if (charIndexRef.current < curText.length) {
           charIndexRef.current += 1;
@@ -107,20 +107,20 @@ export function KeyboardTypewriter({
           return;
         }
 
-        phaseRef.current = "holding";
+        phaseRef.current = 'holding';
         setIsTypingDone(true);
         timeoutRef.current = window.setTimeout(step, holdMs);
         return;
       }
 
-      if (phaseRef.current === "holding") {
-        phaseRef.current = "erasing";
+      if (phaseRef.current === 'holding') {
+        phaseRef.current = 'erasing';
         setIsTypingDone(false);
         timeoutRef.current = window.setTimeout(step, eraseSpeed);
         return;
       }
 
-      if (phaseRef.current === "erasing") {
+      if (phaseRef.current === 'erasing') {
         if (charIndexRef.current > 0) {
           charIndexRef.current -= 1;
           setDisplayed(curText.slice(0, charIndexRef.current));
@@ -128,7 +128,7 @@ export function KeyboardTypewriter({
           return;
         }
 
-        phaseRef.current = "pause";
+        phaseRef.current = 'pause';
         setIsTypingDone(false);
 
         const isLast = itemIndexRef.current >= items.length - 1;
@@ -139,8 +139,8 @@ export function KeyboardTypewriter({
 
         itemIndexRef.current = (itemIndexRef.current + 1) % items.length;
         charIndexRef.current = 0;
-        setDisplayed("");
-        phaseRef.current = "typing";
+        setDisplayed('');
+        phaseRef.current = 'typing';
         timeoutRef.current = window.setTimeout(step, pauseMs);
         return;
       }
@@ -154,15 +154,12 @@ export function KeyboardTypewriter({
   }, [items, speed, eraseSpeed, holdMs, pauseMs, loop]);
 
   return (
-    <span className={cn("relative inline-block whitespace-nowrap", className)}>
+    <span className={cn('relative inline-block whitespace-nowrap', className)}>
       {/* Screen readers get the full text immediately. */}
-      <span className="sr-only">{items[0] || ""}</span>
+      <span className="sr-only">{items[0] || ''}</span>
 
       {/* Reserve layout to prevent width jumps while typing. */}
-      <span
-        className="invisible whitespace-nowrap"
-        aria-hidden="true"
-      >
+      <span className="invisible whitespace-nowrap" aria-hidden="true">
         {reserveText}
       </span>
 
@@ -173,11 +170,11 @@ export function KeyboardTypewriter({
           <span
             aria-hidden="true"
             className={cn(
-              "inline-block ml-1 rounded-[1px]",
+              'inline-block ml-1 rounded-[1px]',
               caretWidthClassName,
               caretHeightClassName,
               caretClassName,
-              isTypingDone ? doneCaretAnimationClassName : typingCaretAnimationClassName
+              isTypingDone ? doneCaretAnimationClassName : typingCaretAnimationClassName,
             )}
           />
         </span>
@@ -185,4 +182,3 @@ export function KeyboardTypewriter({
     </span>
   );
 }
-

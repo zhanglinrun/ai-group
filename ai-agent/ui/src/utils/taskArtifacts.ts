@@ -1,8 +1,8 @@
-import { normalizeFileUrlForBrowser } from "@/utils/fileUrl";
+import { normalizeFileUrlForBrowser } from '@/utils/fileUrl';
 
 const toText = (value: unknown) => {
   if (value == null) {
-    return "";
+    return '';
   }
   return String(value).trim();
 };
@@ -14,11 +14,11 @@ const firstText = (...values: unknown[]) => {
       return text;
     }
   }
-  return "";
+  return '';
 };
 
 const toSize = (value: unknown) => {
-  if (typeof value === "number" && Number.isFinite(value)) {
+  if (typeof value === 'number' && Number.isFinite(value)) {
     return value;
   }
   const parsed = Number(value);
@@ -26,31 +26,31 @@ const toSize = (value: unknown) => {
 };
 
 const toExtension = (name: string, fallbackType?: string) => {
-  const ext = name.split(".").pop()?.toLowerCase();
+  const ext = name.split('.').pop()?.toLowerCase();
   if (ext) {
     return ext;
   }
-  return (fallbackType || "").toLowerCase();
+  return (fallbackType || '').toLowerCase();
 };
 
 const IMAGE_FILE_EXTENSIONS = new Set([
-  "png",
-  "jpg",
-  "jpeg",
-  "gif",
-  "webp",
-  "bmp",
-  "svg",
-  "svg+xml",
-  "avif",
-  "ico",
+  'png',
+  'jpg',
+  'jpeg',
+  'gif',
+  'webp',
+  'bmp',
+  'svg',
+  'svg+xml',
+  'avif',
+  'ico',
 ]);
 
 const normalizeExtension = (value?: string | null) => {
-  return String(value || "")
+  return String(value || '')
     .trim()
     .toLowerCase()
-    .replace(/^\./, "");
+    .replace(/^\./, '');
 };
 
 /**
@@ -58,24 +58,16 @@ const normalizeExtension = (value?: string | null) => {
  * 这里统一归一化成前端稳定的文件结构，避免各组件各写一套兜底逻辑。
  */
 export const normalizeTaskFile = (raw: any): CHAT.TFile | null => {
-  if (!raw || typeof raw !== "object") {
+  if (!raw || typeof raw !== 'object') {
     return null;
   }
 
-  const previewUrl = normalizeFileUrlForBrowser(firstText(
-    raw.previewUrl,
-    raw.domainUrl,
-    raw.url,
-    raw.ossUrl,
-    raw.downloadUrl
-  ));
-  const downloadUrl = normalizeFileUrlForBrowser(firstText(
-    raw.downloadUrl,
-    raw.ossUrl,
-    raw.domainUrl,
-    raw.url,
-    raw.previewUrl
-  ));
+  const previewUrl = normalizeFileUrlForBrowser(
+    firstText(raw.previewUrl, raw.domainUrl, raw.url, raw.ossUrl, raw.downloadUrl),
+  );
+  const downloadUrl = normalizeFileUrlForBrowser(
+    firstText(raw.downloadUrl, raw.ossUrl, raw.domainUrl, raw.url, raw.previewUrl),
+  );
   const resourceKey = firstText(
     raw.resourceKey,
     raw.ossUrl,
@@ -83,28 +75,20 @@ export const normalizeTaskFile = (raw: any): CHAT.TFile | null => {
     raw.domainUrl,
     raw.fileName,
     raw.displayName,
-    raw.name
-  );
-  const name = firstText(
-    raw.displayName,
-    raw.fileName,
     raw.name,
-    resourceKey,
-    "未命名文件"
   );
+  const name = firstText(raw.displayName, raw.fileName, raw.name, resourceKey, '未命名文件');
   const missing = Boolean(raw.missing) || (!previewUrl && !downloadUrl);
 
   return {
     name,
-    url: previewUrl || downloadUrl || "",
+    url: previewUrl || downloadUrl || '',
     type: toExtension(name, raw.artifactType || raw.type),
     size: toSize(raw.fileSize ?? raw.size),
     downloadUrl: downloadUrl || undefined,
     missing,
-    missingReason: firstText(
-      raw.missingReason,
-      missing ? "引用资源不存在或已失效" : undefined
-    ) || undefined,
+    missingReason:
+      firstText(raw.missingReason, missing ? '引用资源不存在或已失效' : undefined) || undefined,
     resourceKey: resourceKey || undefined,
     mimeType: raw.mimeType ?? null,
   };
@@ -135,13 +119,13 @@ export const artifactRefsToFileInfo = (artifactRefs?: unknown[]) => {
  * 统一收口后，附件列表和工作区预览就不会各自维护一套判断规则。
  */
 export const isImageFileLike = (
-  fileLike?: Pick<CHAT.TFile, "type" | "name" | "mimeType"> | null
+  fileLike?: Pick<CHAT.TFile, 'type' | 'name' | 'mimeType'> | null,
 ) => {
   if (!fileLike) {
     return false;
   }
 
-  if (fileLike.mimeType?.toLowerCase().startsWith("image/")) {
+  if (fileLike.mimeType?.toLowerCase().startsWith('image/')) {
     return true;
   }
 
@@ -150,36 +134,38 @@ export const isImageFileLike = (
     return true;
   }
 
-  const normalizedNameExtension = normalizeExtension(fileLike.name.split(".").pop());
+  const normalizedNameExtension = normalizeExtension(fileLike.name.split('.').pop());
   return IMAGE_FILE_EXTENSIONS.has(normalizedNameExtension);
 };
 
 const readNestedResultMap = (taskLike: any) => {
   const nested = taskLike?.resultMap?.resultMap;
-  return nested && typeof nested === "object" ? nested : undefined;
+  return nested && typeof nested === 'object' ? nested : undefined;
 };
 
 const readResultMapFile = (resultMap?: Record<string, unknown>) => {
-  if (!resultMap || typeof resultMap !== "object") {
+  if (!resultMap || typeof resultMap !== 'object') {
     return null;
   }
 
   const previewUrl = normalizeFileUrlForBrowser(
-    firstText(resultMap.previewUrl, resultMap.domainUrl, resultMap.url)
+    firstText(resultMap.previewUrl, resultMap.domainUrl, resultMap.url),
   );
-  const downloadUrl = normalizeFileUrlForBrowser(firstText(
-    resultMap.downloadUrl,
-    resultMap.ossUrl,
-    resultMap.previewUrl,
-    resultMap.domainUrl,
-    resultMap.url
-  ));
+  const downloadUrl = normalizeFileUrlForBrowser(
+    firstText(
+      resultMap.downloadUrl,
+      resultMap.ossUrl,
+      resultMap.previewUrl,
+      resultMap.domainUrl,
+      resultMap.url,
+    ),
+  );
   const primaryFileName = firstText(
     resultMap.primaryFileName,
     resultMap.fileName,
     resultMap.filename,
     resultMap.displayName,
-    resultMap.name
+    resultMap.name,
   );
 
   if (!previewUrl && !downloadUrl && !primaryFileName) {
@@ -212,7 +198,7 @@ const readPrimaryResultMapFile = (taskLike: any) => {
 };
 
 const readRawFiles = (taskLike: any) => {
-  if (!taskLike || typeof taskLike !== "object") {
+  if (!taskLike || typeof taskLike !== 'object') {
     return [];
   }
 
@@ -267,10 +253,7 @@ export const getTaskFiles = (taskLike: any): CHAT.TFile[] => {
   // 历史回放里 fileInfo 常带预览地址，而顶层 resultMap 更适合补充主文件名和下载地址。
   files[0] = {
     ...files[0],
-    name:
-      files[0].name && files[0].name !== "未命名文件"
-        ? files[0].name
-        : primaryFilePatch.name,
+    name: files[0].name && files[0].name !== '未命名文件' ? files[0].name : primaryFilePatch.name,
     url: files[0].url || primaryFilePatch.url,
     downloadUrl: primaryFilePatch.downloadUrl || files[0].downloadUrl,
     missing: files[0].missing && primaryFilePatch.missing,
@@ -303,6 +286,6 @@ export const getPrimaryTaskFileName = (taskLike: any): string => {
     taskLike?.resultMap?.fileName,
     nestedResultMap?.fileName,
     taskLike?.resultMap?.filename,
-    nestedResultMap?.filename
+    nestedResultMap?.filename,
   );
 };

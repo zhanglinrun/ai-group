@@ -4,17 +4,17 @@
  */
 export function resolveTaskSummaryText(task?: CHAT.Task) {
   if (!task) {
-    return "";
+    return '';
   }
 
   const taskRecord = task as unknown as Record<string, unknown>;
   const resultMapRecord = (task.resultMap || {}) as Record<string, unknown>;
 
   return (
-    (typeof resultMapRecord.taskSummary === "string" ? resultMapRecord.taskSummary : "") ||
-    (typeof taskRecord.taskSummary === "string" ? taskRecord.taskSummary : "") ||
+    (typeof resultMapRecord.taskSummary === 'string' ? resultMapRecord.taskSummary : '') ||
+    (typeof taskRecord.taskSummary === 'string' ? taskRecord.taskSummary : '') ||
     task.result ||
-    (typeof resultMapRecord.result === "string" ? resultMapRecord.result : "") ||
-    ""
+    (typeof resultMapRecord.result === 'string' ? resultMapRecord.result : '') ||
+    ''
   );
 }

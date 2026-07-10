@@ -1,21 +1,18 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Modal } from "antd";
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Modal } from 'antd';
 
-import WorkspaceMRagView from "./view";
-import {
-  loadMRagWorkspaceStoredState,
-  persistMRagWorkspaceStoredState,
-} from "./utils";
-import { showMessage } from "@/utils";
-import { trimTrailingSlash } from "@/pages/WorkspaceImageGeneration/utils";
+import WorkspaceMRagView from './view';
+import { loadMRagWorkspaceStoredState, persistMRagWorkspaceStoredState } from './utils';
+import { showMessage } from '@/utils';
+import { trimTrailingSlash } from '@/pages/WorkspaceImageGeneration/utils';
 import {
   resolveKnowledgeBaseAfterDeletion,
   resolveSelectedKnowledgeBaseId,
   shouldBootstrapKnowledgeBases,
-} from "./knowledgeBaseState";
-import { useKnowledgeBaseCatalog } from "./useKnowledgeBaseCatalog";
-import { useKnowledgeBaseFiles } from "./useKnowledgeBaseFiles";
-import { useMragQuery } from "./useMragQuery";
+} from './knowledgeBaseState';
+import { useKnowledgeBaseCatalog } from './useKnowledgeBaseCatalog';
+import { useKnowledgeBaseFiles } from './useKnowledgeBaseFiles';
+import { useMragQuery } from './useMragQuery';
 
 interface WorkspaceMRagProps {
   embedded?: boolean;
@@ -24,28 +21,18 @@ interface WorkspaceMRagProps {
 const WorkspaceMRag: ReactorType.FC<WorkspaceMRagProps> = ({ embedded }) => {
   const initialWorkspaceState = useMemo(() => loadMRagWorkspaceStoredState(), []);
   const [workspaceState, setWorkspaceState] = useState(initialWorkspaceState);
-  const [toolBaseUrlDraft, setToolBaseUrlDraft] = useState(
-    initialWorkspaceState.toolBaseUrl
-  );
+  const [toolBaseUrlDraft, setToolBaseUrlDraft] = useState(initialWorkspaceState.toolBaseUrl);
   const [selectedKnowledgeBaseId, setSelectedKnowledgeBaseId] = useState(
-    initialWorkspaceState.selectedKnowledgeBaseId
+    initialWorkspaceState.selectedKnowledgeBaseId,
   );
   const bootstrappedToolBaseUrlRef = useRef<string | null>(null);
   const catalog = useKnowledgeBaseCatalog(workspaceState.toolBaseUrl);
-  const filesState = useKnowledgeBaseFiles(
-    workspaceState.toolBaseUrl,
-    selectedKnowledgeBaseId
-  );
-  const queryState = useMragQuery(
-    workspaceState.toolBaseUrl,
-    selectedKnowledgeBaseId
-  );
+  const filesState = useKnowledgeBaseFiles(workspaceState.toolBaseUrl, selectedKnowledgeBaseId);
+  const queryState = useMragQuery(workspaceState.toolBaseUrl, selectedKnowledgeBaseId);
 
   const selectedKnowledgeBase = useMemo(
-    () =>
-      catalog.knowledgeBases.find((item) => item.id === selectedKnowledgeBaseId) ||
-      null,
-    [catalog.knowledgeBases, selectedKnowledgeBaseId]
+    () => catalog.knowledgeBases.find((item) => item.id === selectedKnowledgeBaseId) || null,
+    [catalog.knowledgeBases, selectedKnowledgeBaseId],
   );
 
   useEffect(() => {
@@ -58,7 +45,7 @@ const WorkspaceMRag: ReactorType.FC<WorkspaceMRagProps> = ({ embedded }) => {
   const applyToolBaseUrl = useCallback(() => {
     const normalized = trimTrailingSlash(toolBaseUrlDraft);
     if (!normalized) {
-      showMessage()?.error("请先填写可访问的 Tool Base URL");
+      showMessage()?.error('请先填写可访问的 Tool Base URL');
       return;
     }
 
@@ -76,10 +63,7 @@ const WorkspaceMRag: ReactorType.FC<WorkspaceMRagProps> = ({ embedded }) => {
 
   useEffect(() => {
     if (
-      !shouldBootstrapKnowledgeBases(
-        bootstrappedToolBaseUrlRef.current,
-        workspaceState.toolBaseUrl
-      )
+      !shouldBootstrapKnowledgeBases(bootstrappedToolBaseUrlRef.current, workspaceState.toolBaseUrl)
     ) {
       return;
     }
@@ -90,8 +74,8 @@ const WorkspaceMRag: ReactorType.FC<WorkspaceMRagProps> = ({ embedded }) => {
         resolveSelectedKnowledgeBaseId(
           nextKnowledgeBases,
           previous,
-          initialWorkspaceState.selectedKnowledgeBaseId
-        )
+          initialWorkspaceState.selectedKnowledgeBaseId,
+        ),
       );
     });
   }, [
@@ -126,17 +110,17 @@ const WorkspaceMRag: ReactorType.FC<WorkspaceMRagProps> = ({ embedded }) => {
         onRefreshKnowledgeBases={() => {
           void catalog.refreshKnowledgeBases().then((nextKnowledgeBases) => {
             setSelectedKnowledgeBaseId((previous) =>
-              resolveSelectedKnowledgeBaseId(nextKnowledgeBases, previous)
+              resolveSelectedKnowledgeBaseId(nextKnowledgeBases, previous),
             );
           });
         }}
         deletingKnowledgeBaseId={catalog.deletingKnowledgeBaseId}
         onDeleteKnowledgeBase={(kbId) => {
           Modal.confirm({
-            title: "确认删除这个知识库吗？",
-            content: "删除后会同时清理向量数据、文件记录和正文回显记录。",
-            okText: "确认删除",
-            cancelText: "取消",
+            title: '确认删除这个知识库吗？',
+            content: '删除后会同时清理向量数据、文件记录和正文回显记录。',
+            okText: '确认删除',
+            cancelText: '取消',
             okButtonProps: { danger: true },
             async onOk() {
               const deletedResult = await catalog.deleteKnowledgeBaseById(kbId);
@@ -146,14 +130,14 @@ const WorkspaceMRag: ReactorType.FC<WorkspaceMRagProps> = ({ embedded }) => {
 
               const nextKnowledgeBases = await catalog.refreshKnowledgeBases({ silent: true });
               setSelectedKnowledgeBaseId((previous) =>
-                resolveKnowledgeBaseAfterDeletion(nextKnowledgeBases, previous, kbId)
+                resolveKnowledgeBaseAfterDeletion(nextKnowledgeBases, previous, kbId),
               );
               filesState.resetFullContentState();
               queryState.handleClearQueryResult();
               showMessage()?.success(
                 deletedResult.deletedFileCount > 0
                   ? `知识库已删除，并清理 ${deletedResult.deletedFileCount} 条资料记录`
-                  : "知识库已删除"
+                  : '知识库已删除',
               );
             },
           });
@@ -168,17 +152,15 @@ const WorkspaceMRag: ReactorType.FC<WorkspaceMRagProps> = ({ embedded }) => {
             if (!createdKnowledgeBase) {
               return;
             }
-            void catalog
-              .refreshKnowledgeBases()
-              .then((nextKnowledgeBases) => {
-                setSelectedKnowledgeBaseId(
-                  resolveSelectedKnowledgeBaseId(
-                    nextKnowledgeBases,
-                    selectedKnowledgeBaseId,
-                    createdKnowledgeBase.id
-                  )
-                );
-              });
+            void catalog.refreshKnowledgeBases().then((nextKnowledgeBases) => {
+              setSelectedKnowledgeBaseId(
+                resolveSelectedKnowledgeBaseId(
+                  nextKnowledgeBases,
+                  selectedKnowledgeBaseId,
+                  createdKnowledgeBase.id,
+                ),
+              );
+            });
           });
         }}
         selectedKnowledgeBase={selectedKnowledgeBase}

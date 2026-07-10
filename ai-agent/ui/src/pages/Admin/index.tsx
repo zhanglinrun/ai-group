@@ -1,63 +1,55 @@
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
-import { message } from "antd";
-import {
-  KeyRound,
-  Loader2,
-  LogOut,
-  Package,
-  RefreshCw,
-  ShieldCheck,
-  Users,
-} from "lucide-react";
-import { authApi } from "@/services/auth";
+import { memo, useCallback, useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { message } from 'antd';
+import { KeyRound, Loader2, LogOut, Package, RefreshCw, ShieldCheck, Users } from 'lucide-react';
+import { authApi } from '@/services/auth';
 import {
   adminApi,
   type AdminClientApi,
   type AdminClientModel,
   type AdminGroupActivity,
   type AdminSku,
-} from "@/services/admin";
-import { clearAuthTokens, isAuthenticated } from "@/auth/token";
-import { ROUTES } from "@/router/routes";
+} from '@/services/admin';
+import { clearAuthTokens, isAuthenticated } from '@/auth/token';
+import { ROUTES } from '@/router/routes';
 
-type AdminTab = "skus" | "groupbuy" | "models";
+type AdminTab = 'skus' | 'groupbuy' | 'models';
 
-const ADMIN_ROLE_KEY = "ai_group_role";
+const ADMIN_ROLE_KEY = 'ai_group_role';
 
 function getStoredRole(): string | null {
-  return typeof window === "undefined" ? null : localStorage.getItem(ADMIN_ROLE_KEY);
+  return typeof window === 'undefined' ? null : localStorage.getItem(ADMIN_ROLE_KEY);
 }
 
 const inputClass =
-  "w-full rounded-lg border border-[var(--chat-border)] bg-white/80 px-2 py-1.5 text-sm outline-none focus:border-[var(--primary)] dark:bg-white/10";
-const thClass = "px-3 py-2 text-left text-xs font-medium text-[var(--chat-text-soft)]";
-const tdClass = "px-3 py-2 align-middle";
+  'w-full rounded-lg border border-[var(--chat-border)] bg-white/80 px-2 py-1.5 text-sm outline-none focus:border-[var(--primary)] dark:bg-white/10';
+const thClass = 'px-3 py-2 text-left text-xs font-medium text-[var(--chat-text-soft)]';
+const tdClass = 'px-3 py-2 align-middle';
 
 /** 管理员登录卡片：普通登录接口 + 校验角色必须为 ADMIN */
 const AdminLogin = memo(({ onLogin }: { onLogin: () => void }) => {
-  const [username, setUsername] = useState("admin");
-  const [password, setPassword] = useState("");
+  const [username, setUsername] = useState('admin');
+  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
 
   const submit = useCallback(async () => {
     if (!username.trim() || !password) {
-      message.warning("请输入管理员账号与密码");
+      message.warning('请输入管理员账号与密码');
       return;
     }
     setLoading(true);
     try {
       const resp = await authApi.login({ username: username.trim(), password });
-      const role = resp.user?.role || "";
-      if (role.toUpperCase() !== "ADMIN") {
-        message.error("该账号不是管理员");
+      const role = resp.user?.role || '';
+      if (role.toUpperCase() !== 'ADMIN') {
+        message.error('该账号不是管理员');
         return;
       }
       authApi.persistLogin(resp);
       localStorage.setItem(ADMIN_ROLE_KEY, role.toUpperCase());
       onLogin();
     } catch (err) {
-      console.error("管理员登录失败", err);
+      console.error('管理员登录失败', err);
     } finally {
       setLoading(false);
     }
@@ -72,9 +64,7 @@ const AdminLogin = memo(({ onLogin }: { onLogin: () => void }) => {
           </div>
           <div>
             <div className="text-lg font-semibold">运营端登录</div>
-            <div className="text-xs text-[var(--chat-text-soft)]">
-              仅限 ADMIN 角色账号
-            </div>
+            <div className="text-xs text-[var(--chat-text-soft)]">仅限 ADMIN 角色账号</div>
           </div>
         </div>
         <label className="mb-1 block text-xs text-[var(--chat-text-soft)]">用户名</label>
@@ -90,7 +80,7 @@ const AdminLogin = memo(({ onLogin }: { onLogin: () => void }) => {
           type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && void submit()}
+          onKeyDown={(e) => e.key === 'Enter' && void submit()}
           placeholder="管理员密码"
         />
         <button
@@ -99,7 +89,11 @@ const AdminLogin = memo(({ onLogin }: { onLogin: () => void }) => {
           onClick={() => void submit()}
           className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-[var(--chat-text)] px-4 py-2.5 text-sm font-medium text-white disabled:opacity-60"
         >
-          {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
+          {loading ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <ShieldCheck className="h-4 w-4" />
+          )}
           登录运营端
         </button>
         <Link
@@ -112,20 +106,20 @@ const AdminLogin = memo(({ onLogin }: { onLogin: () => void }) => {
     </div>
   );
 });
-AdminLogin.displayName = "AdminLogin";
+AdminLogin.displayName = 'AdminLogin';
 
 /** 会员套餐管理 */
 const SkuPanel = memo(() => {
   const [rows, setRows] = useState<AdminSku[]>([]);
   const [loading, setLoading] = useState(true);
-  const [savingCode, setSavingCode] = useState("");
+  const [savingCode, setSavingCode] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       setRows(await adminApi.listSkus());
     } catch (err) {
-      console.error("加载 SKU 失败", err);
+      console.error('加载 SKU 失败', err);
     } finally {
       setLoading(false);
     }
@@ -152,9 +146,9 @@ const SkuPanel = memo(() => {
       });
       message.success(`已保存 ${row.code}`);
     } catch (err) {
-      console.error("保存 SKU 失败", err);
+      console.error('保存 SKU 失败', err);
     } finally {
-      setSavingCode("");
+      setSavingCode('');
     }
   };
 
@@ -238,7 +232,7 @@ const SkuPanel = memo(() => {
                   disabled={Boolean(savingCode)}
                   className="rounded-full bg-[var(--chat-text)] px-4 py-1.5 text-xs text-white disabled:opacity-60"
                 >
-                  {savingCode === row.code ? "保存中..." : "保存"}
+                  {savingCode === row.code ? '保存中...' : '保存'}
                 </button>
               </td>
             </tr>
@@ -248,7 +242,7 @@ const SkuPanel = memo(() => {
     </div>
   );
 });
-SkuPanel.displayName = "SkuPanel";
+SkuPanel.displayName = 'SkuPanel';
 
 /** 拼团活动管理 */
 const GroupBuyPanel = memo(() => {
@@ -261,7 +255,7 @@ const GroupBuyPanel = memo(() => {
     try {
       setRows(await adminApi.listGroupActivities());
     } catch (err) {
-      console.error("加载拼团活动失败", err);
+      console.error('加载拼团活动失败', err);
     } finally {
       setLoading(false);
     }
@@ -273,7 +267,7 @@ const GroupBuyPanel = memo(() => {
 
   const patchRow = (activityId: number, patch: Partial<AdminGroupActivity>) => {
     setRows((prev) =>
-      prev.map((row) => (row.activityId === activityId ? { ...row, ...patch } : row))
+      prev.map((row) => (row.activityId === activityId ? { ...row, ...patch } : row)),
     );
   };
 
@@ -293,7 +287,7 @@ const GroupBuyPanel = memo(() => {
       message.success(`活动 ${row.activityId} 已保存`);
       await load();
     } catch (err) {
-      console.error("保存拼团活动失败", err);
+      console.error('保存拼团活动失败', err);
     } finally {
       setSavingId(null);
     }
@@ -332,12 +326,12 @@ const GroupBuyPanel = memo(() => {
               <td className={tdClass}>
                 <input
                   className={inputClass}
-                  value={row.activityName ?? ""}
+                  value={row.activityName ?? ''}
                   onChange={(e) => patchRow(row.activityId, { activityName: e.target.value })}
                 />
               </td>
               <td className={`${tdClass} text-xs text-[var(--chat-text-soft)]`}>
-                {row.goodsName || row.goodsId || "-"}
+                {row.goodsName || row.goodsId || '-'}
               </td>
               <td className={tdClass}>
                 <input
@@ -352,12 +346,12 @@ const GroupBuyPanel = memo(() => {
               <td className={tdClass}>
                 <input
                   className={inputClass}
-                  value={row.marketExpr ?? ""}
+                  value={row.marketExpr ?? ''}
                   onChange={(e) => patchRow(row.activityId, { marketExpr: e.target.value })}
                 />
               </td>
               <td className={`${tdClass} font-medium text-emerald-700`}>
-                {row.groupPayPrice != null ? `¥${row.groupPayPrice}` : "-"}
+                {row.groupPayPrice != null ? `¥${row.groupPayPrice}` : '-'}
               </td>
               <td className={tdClass}>
                 <input
@@ -399,7 +393,7 @@ const GroupBuyPanel = memo(() => {
                   disabled={savingId != null}
                   className="rounded-full bg-[var(--chat-text)] px-4 py-1.5 text-xs text-white disabled:opacity-60"
                 >
-                  {savingId === row.activityId ? "保存中..." : "保存"}
+                  {savingId === row.activityId ? '保存中...' : '保存'}
                 </button>
               </td>
             </tr>
@@ -409,14 +403,14 @@ const GroupBuyPanel = memo(() => {
     </div>
   );
 });
-GroupBuyPanel.displayName = "GroupBuyPanel";
+GroupBuyPanel.displayName = 'GroupBuyPanel';
 
 /** 模型 Key 管理 */
 const ModelPanel = memo(() => {
   const [apis, setApis] = useState<AdminClientApi[]>([]);
   const [models, setModels] = useState<AdminClientModel[]>([]);
   const [loading, setLoading] = useState(true);
-  const [savingApiId, setSavingApiId] = useState("");
+  const [savingApiId, setSavingApiId] = useState('');
   /** apiId -> 用户输入的新 Key（不回显旧 Key，读接口已脱敏） */
   const [newKeys, setNewKeys] = useState<Record<string, string>>({});
 
@@ -430,7 +424,7 @@ const ModelPanel = memo(() => {
       setApis(apiList);
       setModels(modelList);
     } catch (err) {
-      console.error("加载模型配置失败", err);
+      console.error('加载模型配置失败', err);
     } finally {
       setLoading(false);
     }
@@ -460,20 +454,20 @@ const ModelPanel = memo(() => {
         body.apiKey = nextKey;
       }
       await adminApi.updateClientApi(body);
-      message.success(`模型 API ${row.apiId} 已保存${nextKey ? "（Key 已更新）" : ""}`);
-      setNewKeys((prev) => ({ ...prev, [row.apiId]: "" }));
+      message.success(`模型 API ${row.apiId} 已保存${nextKey ? '（Key 已更新）' : ''}`);
+      setNewKeys((prev) => ({ ...prev, [row.apiId]: '' }));
       await load();
     } catch (err) {
-      console.error("保存模型 API 失败", err);
+      console.error('保存模型 API 失败', err);
     } finally {
-      setSavingApiId("");
+      setSavingApiId('');
     }
   };
 
   const modelsByApi = useMemo(() => {
     const map = new Map<string, AdminClientModel[]>();
     for (const model of models) {
-      const key = model.apiId || "-";
+      const key = model.apiId || '-';
       map.set(key, [...(map.get(key) || []), model]);
     }
     return map;
@@ -499,7 +493,7 @@ const ModelPanel = memo(() => {
               <KeyRound className="h-4 w-4 text-[var(--chat-text-soft)]" />
               <span className="font-medium">{row.apiId}</span>
               <span className="rounded-full bg-[var(--chat-surface-soft)] px-2 py-0.5 text-xs text-[var(--chat-text-soft)]">
-                当前 Key：{row.apiKey || "-"}
+                当前 Key：{row.apiKey || '-'}
               </span>
             </div>
             <label className="flex items-center gap-1 text-xs text-[var(--chat-text-soft)]">
@@ -528,10 +522,8 @@ const ModelPanel = memo(() => {
                 className={inputClass}
                 type="password"
                 placeholder="sk-..."
-                value={newKeys[row.apiId] ?? ""}
-                onChange={(e) =>
-                  setNewKeys((prev) => ({ ...prev, [row.apiId]: e.target.value }))
-                }
+                value={newKeys[row.apiId] ?? ''}
+                onChange={(e) => setNewKeys((prev) => ({ ...prev, [row.apiId]: e.target.value }))}
               />
             </div>
           </div>
@@ -555,7 +547,7 @@ const ModelPanel = memo(() => {
               disabled={Boolean(savingApiId)}
               className="rounded-full bg-[var(--chat-text)] px-4 py-1.5 text-xs text-white disabled:opacity-60"
             >
-              {savingApiId === row.apiId ? "保存中..." : "保存"}
+              {savingApiId === row.apiId ? '保存中...' : '保存'}
             </button>
           </div>
         </div>
@@ -568,19 +560,17 @@ const ModelPanel = memo(() => {
     </div>
   );
 });
-ModelPanel.displayName = "ModelPanel";
+ModelPanel.displayName = 'ModelPanel';
 
 const TABS: Array<{ key: AdminTab; label: string; icon: typeof Package }> = [
-  { key: "skus", label: "会员套餐", icon: Package },
-  { key: "groupbuy", label: "拼团活动", icon: Users },
-  { key: "models", label: "模型 Key", icon: KeyRound },
+  { key: 'skus', label: '会员套餐', icon: Package },
+  { key: 'groupbuy', label: '拼团活动', icon: Users },
+  { key: 'models', label: '模型 Key', icon: KeyRound },
 ];
 
 const AdminPage = memo(() => {
-  const [authed, setAuthed] = useState(
-    () => isAuthenticated() && getStoredRole() === "ADMIN"
-  );
-  const [tab, setTab] = useState<AdminTab>("skus");
+  const [authed, setAuthed] = useState(() => isAuthenticated() && getStoredRole() === 'ADMIN');
+  const [tab, setTab] = useState<AdminTab>('skus');
   const [reloadKey, setReloadKey] = useState(0);
 
   const logout = useCallback(() => {
@@ -638,8 +628,8 @@ const AdminPage = memo(() => {
               onClick={() => setTab(key)}
               className={
                 tab === key
-                  ? "inline-flex items-center gap-1.5 rounded-full bg-[var(--chat-text)] px-4 py-2 text-sm text-white"
-                  : "inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm text-[var(--chat-text-soft)]"
+                  ? 'inline-flex items-center gap-1.5 rounded-full bg-[var(--chat-text)] px-4 py-2 text-sm text-white'
+                  : 'inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm text-[var(--chat-text-soft)]'
               }
             >
               <Icon className="h-4 w-4" />
@@ -649,9 +639,9 @@ const AdminPage = memo(() => {
         </div>
 
         <div key={`${tab}-${reloadKey}`}>
-          {tab === "skus" ? <SkuPanel /> : null}
-          {tab === "groupbuy" ? <GroupBuyPanel /> : null}
-          {tab === "models" ? <ModelPanel /> : null}
+          {tab === 'skus' ? <SkuPanel /> : null}
+          {tab === 'groupbuy' ? <GroupBuyPanel /> : null}
+          {tab === 'models' ? <ModelPanel /> : null}
         </div>
 
         <p className="mt-6 text-xs text-[var(--chat-text-soft)]">
@@ -662,6 +652,6 @@ const AdminPage = memo(() => {
     </div>
   );
 });
-AdminPage.displayName = "AdminPage";
+AdminPage.displayName = 'AdminPage';
 
 export default AdminPage;

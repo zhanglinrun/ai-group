@@ -1,4 +1,4 @@
-import { AlertCircle, Ban, CheckCircle2, Clock3 } from "lucide-react";
+import { AlertCircle, Ban, CheckCircle2, Clock3 } from 'lucide-react';
 
 type RunStatusProps = {
   status?: string | null;
@@ -17,37 +17,35 @@ const STATUS_META: Record<
   }
 > = {
   SUCCESS: {
-    label: "已完成",
-    description: "当前轮次已正常结束。",
+    label: '已完成',
+    description: '当前轮次已正常结束。',
     icon: CheckCircle2,
-    toneClass:
-      "border-emerald-200 bg-emerald-50/80 text-emerald-700",
+    toneClass: 'border-emerald-200 bg-emerald-50/80 text-emerald-700',
   },
   FAILED: {
-    label: "执行失败",
-    description: "本轮在结束前已保留最后可见内容。",
+    label: '执行失败',
+    description: '本轮在结束前已保留最后可见内容。',
     icon: AlertCircle,
-    toneClass:
-      "border-rose-200 bg-rose-50/85 text-rose-700",
+    toneClass: 'border-rose-200 bg-rose-50/85 text-rose-700',
   },
   STOPPED: {
-    label: "已停止",
-    description: "本轮已按停止条件中断，并保留当前结果。",
+    label: '已停止',
+    description: '本轮已按停止条件中断，并保留当前结果。',
     icon: Ban,
-    toneClass:
-      "border-amber-200 bg-amber-50/85 text-amber-700",
+    toneClass: 'border-amber-200 bg-amber-50/85 text-amber-700',
   },
   TIMEOUT: {
-    label: "已超时",
-    description: "本轮执行超时，界面保留了结束前最后可见内容。",
+    label: '已超时',
+    description: '本轮执行超时，界面保留了结束前最后可见内容。',
     icon: Clock3,
-    toneClass:
-      "border-orange-200 bg-orange-50/85 text-orange-700",
+    toneClass: 'border-orange-200 bg-orange-50/85 text-orange-700',
   },
 };
 
 const normalizeStatus = (status?: string | null) => {
-  return String(status || "").trim().toUpperCase();
+  return String(status || '')
+    .trim()
+    .toUpperCase();
 };
 
 const RunStatus = (props: RunStatusProps) => {
@@ -55,7 +53,7 @@ const RunStatus = (props: RunStatusProps) => {
   const normalizedStatus = normalizeStatus(status);
   const meta = STATUS_META[normalizedStatus];
 
-  if (!meta || normalizedStatus === "SUCCESS") {
+  if (!meta || normalizedStatus === 'SUCCESS') {
     return null;
   }
 
@@ -64,12 +62,12 @@ const RunStatus = (props: RunStatusProps) => {
   return (
     <div
       className={[
-        "rounded-2xl border px-4 py-3 shadow-[var(--shadow-xs)]",
+        'rounded-2xl border px-4 py-3 shadow-[var(--shadow-xs)]',
         meta.toneClass,
-        className || "",
+        className || '',
       ]
         .filter(Boolean)
-        .join(" ")}
+        .join(' ')}
     >
       <div className="flex items-start gap-3">
         <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white/70">
@@ -79,9 +77,7 @@ const RunStatus = (props: RunStatusProps) => {
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
             <span className="text-[14px] font-semibold">{meta.label}</span>
             {finishedAt ? (
-              <span className="text-[11px] opacity-80">
-                结束于 {finishedAt}
-              </span>
+              <span className="text-[11px] opacity-80">结束于 {finishedAt}</span>
             ) : null}
           </div>
           <p className="mt-1 text-[12px] leading-relaxed opacity-90">

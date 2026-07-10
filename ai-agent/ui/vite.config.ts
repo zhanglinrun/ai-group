@@ -4,41 +4,33 @@ import path from 'path';
 import tailwindcss from '@tailwindcss/vite';
 import { createToolProxyConfig } from './toolProxy';
 
-export default defineConfig(({ command, mode }) => {
+export default defineConfig(({ mode }) => {
   const repoRoot = path.resolve(__dirname, '../../..');
   const env = loadEnv(mode, repoRoot, '');
   const apiTarget = env.VITE_API_TARGET || 'http://127.0.0.1:8080';
   const agentBase = env.SERVICE_BASE_URL || apiTarget;
-  const toolBase = env.REACTOR_TOOL_BASE_URL || env.AGENT_GROUP_REACTOR_TOOL_BASE_URL || 'http://127.0.0.1:1601';
+  const toolBase =
+    env.REACTOR_TOOL_BASE_URL || env.AGENT_GROUP_REACTOR_TOOL_BASE_URL || 'http://127.0.0.1:1601';
 
   return {
-    plugins: [
-      react(),
-      tailwindcss()
-    ],
+    plugins: [react(), tailwindcss()],
     resolve: {
       alias: {
         '@': path.resolve(__dirname, 'src'),
         crypto: 'crypto-browserify',
         'use-sync-external-store/shim': path.resolve(
           __dirname,
-          'src/shims/use-sync-external-store/shim.ts'
+          'src/shims/use-sync-external-store/shim.ts',
         ),
         'use-sync-external-store/shim/with-selector': path.resolve(
           __dirname,
-          'src/shims/use-sync-external-store/with-selector.ts'
+          'src/shims/use-sync-external-store/with-selector.ts',
         ),
       },
     },
-    css: {preprocessorOptions: {less: {javascriptEnabled: true},},},
+    css: { preprocessorOptions: { less: { javascriptEnabled: true } } },
     optimizeDeps: {
-      exclude: [
-        'clsx',
-        'nanoid',
-        'radix-ui',
-        'lucide-react',
-        'tailwind-merge',
-      ],
+      exclude: ['clsx', 'nanoid', 'radix-ui', 'lucide-react', 'tailwind-merge'],
     },
     server: {
       // true = 监听所有网卡，兼容 localhost(IPv6) 与 127.0.0.1(IPv4)
@@ -77,7 +69,10 @@ export default defineConfig(({ command, mode }) => {
             if (/[\\/]node_modules[\\/](react|react-dom|react-router-dom)[\\/]/.test(id)) {
               return 'vendor-react';
             }
-            if (normalizedId.includes('/node_modules/antd/') || normalizedId.includes('/node_modules/@ant-design/')) {
+            if (
+              normalizedId.includes('/node_modules/antd/') ||
+              normalizedId.includes('/node_modules/@ant-design/')
+            ) {
               return 'vendor-antd';
             }
             if (normalizedId.includes('/node_modules/echarts/')) {
@@ -106,5 +101,5 @@ export default defineConfig(({ command, mode }) => {
         },
       },
     },
-  }
+  };
 });

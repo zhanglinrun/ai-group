@@ -23,3 +23,6 @@ docs/evals/last-report.json
 # Agent workflow assets (local only)
 .cursor/
 .trellis/
+.codegraph/
+
+study/

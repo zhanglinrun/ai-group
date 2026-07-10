@@ -1,17 +1,13 @@
-"use client";
+'use client';
 
-import { useControllableState } from "@radix-ui/react-use-controllable-state";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
-import { cn } from "@/lib/utils";
-import { BrainIcon, ChevronDownIcon, SparklesIcon } from "lucide-react";
-import type { ComponentProps, ReactNode } from "react";
-import { createContext, memo, useContext, useEffect, useState } from "react";
-import { motion } from "motion/react";
-import { MessageResponse } from "./message";
+import { useControllableState } from '@radix-ui/react-use-controllable-state';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { cn } from '@/lib/utils';
+import { BrainIcon, ChevronDownIcon, SparklesIcon } from 'lucide-react';
+import type { ComponentProps, ReactNode } from 'react';
+import { createContext, memo, useContext, useEffect, useState } from 'react';
+import { motion } from 'motion/react';
+import { MessageResponse } from './message';
 
 type ReasoningContextValue = {
   isStreaming: boolean;
@@ -25,7 +21,7 @@ const ReasoningContext = createContext<ReasoningContextValue | null>(null);
 export const useReasoning = () => {
   const context = useContext(ReasoningContext);
   if (!context) {
-    throw new Error("Reasoning components must be used within Reasoning");
+    throw new Error('Reasoning components must be used within Reasoning');
   }
   return context;
 };
@@ -80,16 +76,14 @@ export const Reasoning = memo(
     };
 
     return (
-      <ReasoningContext.Provider
-        value={{ isStreaming, isOpen, setIsOpen, duration }}
-      >
+      <ReasoningContext.Provider value={{ isStreaming, isOpen, setIsOpen, duration }}>
         <motion.div
           initial={{ opacity: 1, y: 3 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.18, ease: [0.25, 0.46, 0.45, 0.94] }}
         >
           <Collapsible
-            className={cn("not-prose mb-4", className)}
+            className={cn('not-prose mb-4', className)}
             onOpenChange={handleOpenChange}
             open={isOpen}
             {...props}
@@ -99,7 +93,7 @@ export const Reasoning = memo(
         </motion.div>
       </ReasoningContext.Provider>
     );
-  }
+  },
 );
 
 export type ReasoningTriggerProps = ComponentProps<typeof CollapsibleTrigger> & {
@@ -120,7 +114,7 @@ const ThinkingIndicator = memo(() => {
   );
 });
 
-ThinkingIndicator.displayName = "ThinkingIndicator";
+ThinkingIndicator.displayName = 'ThinkingIndicator';
 
 const defaultGetThinkingMessage = (isStreaming: boolean, duration?: number) => {
   if (isStreaming || duration === 0) {
@@ -133,14 +127,19 @@ const defaultGetThinkingMessage = (isStreaming: boolean, duration?: number) => {
 };
 
 export const ReasoningTrigger = memo(
-  ({ className, children, getThinkingMessage = defaultGetThinkingMessage, ...props }: ReasoningTriggerProps) => {
+  ({
+    className,
+    children,
+    getThinkingMessage = defaultGetThinkingMessage,
+    ...props
+  }: ReasoningTriggerProps) => {
     const { isStreaming, isOpen, duration } = useReasoning();
 
     return (
       <CollapsibleTrigger
         className={cn(
-          "flex w-full items-center gap-2 rounded-lg p-2 -m-2 text-[13px] text-muted-foreground/88 transition-colors hover:bg-muted/30 hover:text-foreground/82",
-          className
+          'flex w-full items-center gap-2 rounded-lg p-2 -m-2 text-[13px] text-muted-foreground/88 transition-colors hover:bg-muted/30 hover:text-foreground/82',
+          className,
         )}
         {...props}
       >
@@ -153,9 +152,7 @@ export const ReasoningTrigger = memo(
                 <BrainIcon className="size-4" />
               )}
             </div>
-            <div className="flex-1 text-left">
-              {getThinkingMessage(isStreaming, duration)}
-            </div>
+            <div className="flex-1 text-left">{getThinkingMessage(isStreaming, duration)}</div>
             <motion.div
               animate={{ rotate: isOpen ? 180 : 0 }}
               transition={{ duration: 0.3, ease: [0.25, 0.46, 0.45, 0.94] }}
@@ -166,42 +163,32 @@ export const ReasoningTrigger = memo(
         )}
       </CollapsibleTrigger>
     );
-  }
+  },
 );
 
-export type ReasoningContentProps = ComponentProps<
-  typeof CollapsibleContent
-> & {
+export type ReasoningContentProps = ComponentProps<typeof CollapsibleContent> & {
   children: string;
 };
 
-export const ReasoningContent = memo(
-  ({ className, children, ...props }: ReasoningContentProps) => {
-    const { isStreaming } = useReasoning();
+export const ReasoningContent = memo(({ className, children, ...props }: ReasoningContentProps) => {
+  const { isStreaming } = useReasoning();
 
-    return (
-      <CollapsibleContent
-        className={cn(
-          "overflow-hidden",
-          className
-        )}
-        {...props}
-      >
-        <div className="mt-3.5">
-          <MessageResponse
-            isStreaming={isStreaming}
-            animateByChars={false}
-            showStreamingCursor={false}
-            className="text-[12px] leading-6 text-foreground/62 [&_p]:text-[12px] [&_p]:leading-6 [&_li]:text-[12px] [&_li]:leading-6 [&_ol]:leading-6 [&_ul]:leading-6 [&_h1]:text-[14px] [&_h2]:text-[13px] [&_h3]:text-[12px] [&_blockquote]:text-foreground/56 [&_code]:text-[11.5px]"
-          >
-            {children}
-          </MessageResponse>
-        </div>
-      </CollapsibleContent>
-    );
-  }
-);
+  return (
+    <CollapsibleContent className={cn('overflow-hidden', className)} {...props}>
+      <div className="mt-3.5">
+        <MessageResponse
+          isStreaming={isStreaming}
+          animateByChars={false}
+          showStreamingCursor={false}
+          className="text-[12px] leading-6 text-foreground/62 [&_p]:text-[12px] [&_p]:leading-6 [&_li]:text-[12px] [&_li]:leading-6 [&_ol]:leading-6 [&_ul]:leading-6 [&_h1]:text-[14px] [&_h2]:text-[13px] [&_h3]:text-[12px] [&_blockquote]:text-foreground/56 [&_code]:text-[11.5px]"
+        >
+          {children}
+        </MessageResponse>
+      </div>
+    </CollapsibleContent>
+  );
+});
 
-Reasoning.displayName = "Reasoning";
-ReasoningTrigger.displayName = "ReasoningTrigger";
-ReasoningContent.displayName = "ReasoningContent";
+Reasoning.displayName = 'Reasoning';
+ReasoningTrigger.displayName = 'ReasoningTrigger';
+ReasoningContent.displayName = 'ReasoningContent';

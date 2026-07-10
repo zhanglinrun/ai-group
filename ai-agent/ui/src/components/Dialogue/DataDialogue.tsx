@@ -1,8 +1,8 @@
-import { FC } from "react";
-import DataChat from "@/components/DataChat";
-import { Message, MessageContent, MessageResponse } from "@/components/ai-elements/message";
-import { Reasoning, ReasoningContent, ReasoningTrigger } from "@/components/ai-elements/reasoning";
-import ThinkingMessage from "./ThinkingMessage";
+import { FC } from 'react';
+import DataChat from '@/components/DataChat';
+import { Message, MessageContent, MessageResponse } from '@/components/ai-elements/message';
+import { Reasoning, ReasoningContent, ReasoningTrigger } from '@/components/ai-elements/reasoning';
+import ThinkingMessage from './ThinkingMessage';
 
 type Props = {
   chat: CHAT.DataChatItem;
@@ -21,9 +21,7 @@ const DataDialogue: FC<Props> = (props) => {
         </div>
       ) : null}
 
-      {chat.loading && !chat.think && !chat.chartData && !chat.error ? (
-        <ThinkingMessage />
-      ) : null}
+      {chat.loading && !chat.think && !chat.chartData && !chat.error ? <ThinkingMessage /> : null}
 
       {chat.think ? (
         <div className="mt-6 w-full">
@@ -60,7 +58,6 @@ const DataDialogue: FC<Props> = (props) => {
           </Message>
         </div>
       ) : null}
-
     </div>
   );
 };

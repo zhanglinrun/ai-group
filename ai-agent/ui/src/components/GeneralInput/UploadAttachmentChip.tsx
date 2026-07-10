@@ -1,4 +1,4 @@
-import React from "react";
+import React from 'react';
 import {
   AlertCircleIcon,
   CheckIcon,
@@ -6,19 +6,19 @@ import {
   LoaderCircleIcon,
   RefreshCwIcon,
   XIcon,
-} from "lucide-react";
+} from 'lucide-react';
 
-import { usePromptInputAttachments } from "@/components/ai-elements/prompt-input";
-import { cn } from "@/lib/utils";
-import type { PromptInputAttachmentItem } from "@/components/ai-elements/prompt-input";
-import type { UploadAttachmentState } from "./uploadQueue";
+import { usePromptInputAttachments } from '@/components/ai-elements/prompt-input';
+import { cn } from '@/lib/utils';
+import type { PromptInputAttachmentItem } from '@/components/ai-elements/prompt-input';
+import type { UploadAttachmentState } from './uploadQueue';
 
 function formatAttachmentSize(size?: number) {
-  if (typeof size !== "number" || Number.isNaN(size) || size < 0) {
-    return "未知大小";
+  if (typeof size !== 'number' || Number.isNaN(size) || size < 0) {
+    return '未知大小';
   }
 
-  const units = ["B", "KB", "MB", "GB"];
+  const units = ['B', 'KB', 'MB', 'GB'];
   let unitIndex = 0;
   let currentSize = size;
   while (currentSize >= 1024 && unitIndex < units.length - 1) {
@@ -30,20 +30,18 @@ function formatAttachmentSize(size?: number) {
 
 export function resolveUploadStatusLabel(uploadState?: UploadAttachmentState) {
   if (!uploadState) {
-    return "";
+    return '';
   }
   switch (uploadState.status) {
-    case "pending":
-    case "uploading":
-      return "上传中";
-    case "success":
-      return formatAttachmentSize(
-        uploadState.uploadedFile?.size ?? uploadState.file.size
-      );
-    case "error":
-      return uploadState.error || "上传失败";
+    case 'pending':
+    case 'uploading':
+      return '上传中';
+    case 'success':
+      return formatAttachmentSize(uploadState.uploadedFile?.size ?? uploadState.file.size);
+    case 'error':
+      return uploadState.error || '上传失败';
     default:
-      return "";
+      return '';
   }
 }
 
@@ -54,12 +52,11 @@ export default function UploadAttachmentChip(props: {
   onRetryAttachment: (id: string) => void;
 }) {
   const attachments = usePromptInputAttachments();
-  const isImage = props.attachment.mediaType?.startsWith("image/") && props.attachment.url;
+  const isImage = props.attachment.mediaType?.startsWith('image/') && props.attachment.url;
   const isUploading =
-    props.uploadState?.status === "pending" ||
-    props.uploadState?.status === "uploading";
-  const isSuccess = props.uploadState?.status === "success";
-  const isError = props.uploadState?.status === "error";
+    props.uploadState?.status === 'pending' || props.uploadState?.status === 'uploading';
+  const isSuccess = props.uploadState?.status === 'success';
+  const isError = props.uploadState?.status === 'error';
 
   const removeAttachment = (event: React.MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
@@ -77,7 +74,7 @@ export default function UploadAttachmentChip(props: {
       <div className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-white/90">
         {isImage ? (
           <img
-            alt={props.attachment.filename || "attachment"}
+            alt={props.attachment.filename || 'attachment'}
             className="size-full object-cover"
             src={props.attachment.url}
           />
@@ -87,22 +84,18 @@ export default function UploadAttachmentChip(props: {
       </div>
       <div className="min-w-0 flex-1">
         <div className="truncate text-[13px] font-medium text-[var(--chat-text)]">
-          {props.attachment.filename || "未命名文件"}
+          {props.attachment.filename || '未命名文件'}
         </div>
         <div
           className={cn(
-            "flex items-center gap-1 text-[11px] leading-4",
-            isError ? "text-[#d14343]" : "text-[var(--chat-text-soft)]"
+            'flex items-center gap-1 text-[11px] leading-4',
+            isError ? 'text-[#d14343]' : 'text-[var(--chat-text-soft)]',
           )}
         >
-          {isUploading ? (
-            <LoaderCircleIcon className="size-3 animate-spin" />
-          ) : null}
+          {isUploading ? <LoaderCircleIcon className="size-3 animate-spin" /> : null}
           {isSuccess ? <CheckIcon className="size-3 text-[#0a74da]" /> : null}
           {isError ? <AlertCircleIcon className="size-3" /> : null}
-          <span className="truncate">
-            {resolveUploadStatusLabel(props.uploadState)}
-          </span>
+          <span className="truncate">{resolveUploadStatusLabel(props.uploadState)}</span>
         </div>
       </div>
       {isError ? (

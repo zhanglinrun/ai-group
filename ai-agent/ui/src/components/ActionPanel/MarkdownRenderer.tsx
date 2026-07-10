@@ -10,10 +10,7 @@ import {
   CodeBlockCopyButton,
 } from '@/components/ai-elements/code-block';
 import { MessageResponse } from '@/components/ai-elements/message';
-import {
-  normalizeMarkdownForDisplay,
-  type MarkdownNormalizationScope,
-} from '@/utils/markdown';
+import { normalizeMarkdownForDisplay, type MarkdownNormalizationScope } from '@/utils/markdown';
 import type { BundledLanguage } from 'shiki/bundle/web';
 import { bundledLanguages } from 'shiki/bundle/web';
 
@@ -65,13 +62,10 @@ const MarkdownRenderer: ReactorType.FC<{
   isStreaming?: boolean;
   normalizationScope?: MarkdownNormalizationScope;
 }> = (props) => {
-  const {
-    markDownContent,
-    className,
-    isStreaming = false,
-    normalizationScope = 'default',
-  } = props;
-  const normalizedContent = normalizeMarkdownForDisplay(markDownContent, { scope: normalizationScope });
+  const { markDownContent, className, isStreaming = false, normalizationScope = 'default' } = props;
+  const normalizedContent = normalizeMarkdownForDisplay(markDownContent, {
+    scope: normalizationScope,
+  });
 
   const { scrollToBottom } = usePanelContext() || {};
   const lastScrollAtRef = useRef<number>(0);
@@ -85,17 +79,13 @@ const MarkdownRenderer: ReactorType.FC<{
   }, [normalizedContent, scrollToBottom, isStreaming]);
 
   if (!normalizedContent) {
-    return <Empty description="暂无内容" className='mx-auto mt-32' />;
+    return <Empty description="暂无内容" className="mx-auto mt-32" />;
   }
 
   if (isStreaming) {
     return (
       <div className={classNames('w-full markdown-body', className)}>
-        <MessageResponse
-          isStreaming
-          showStreamingCursor={false}
-          disableAutoScroll
-        >
+        <MessageResponse isStreaming showStreamingCursor={false} disableAutoScroll>
           {normalizedContent}
         </MessageResponse>
       </div>
@@ -117,5 +107,5 @@ export default memo(
     prevProps.markDownContent === nextProps.markDownContent &&
     prevProps.isStreaming === nextProps.isStreaming &&
     prevProps.normalizationScope === nextProps.normalizationScope &&
-    prevProps.className === nextProps.className
+    prevProps.className === nextProps.className,
 );

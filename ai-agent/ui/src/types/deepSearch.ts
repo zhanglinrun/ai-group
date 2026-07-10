@@ -1,4 +1,4 @@
-export type DeepSearchCardItemKind = "result" | "query";
+export type DeepSearchCardItemKind = 'result' | 'query';
 
 export type DeepSearchCardItem = {
   name: string;
@@ -10,7 +10,7 @@ export type DeepSearchCardItem = {
 };
 
 export type DeepSearchPreviewModel = {
-  stage: "extend" | "search";
+  stage: 'extend' | 'search';
   query: string;
   statusLabel: string;
   description: string;

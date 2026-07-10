@@ -1,11 +1,11 @@
 import request from '@/utils/request';
-import type { AxiosRequestConfig } from "axios";
+import type { AxiosRequestConfig } from 'axios';
 
 interface ApiResponse<T> {
-  code: number | string
-  data: T
-  msg?: string
-  info?: string
+  code: number | string;
+  data: T;
+  msg?: string;
+  info?: string;
 }
 
 export const api = {

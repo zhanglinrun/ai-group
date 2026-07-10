@@ -1,4 +1,4 @@
-import { resolveToolCallTargetName } from "./toolCalls";
+import { resolveToolCallTargetName } from './toolCalls';
 
 type RenderSearchResult = {
   query: string[];
@@ -22,15 +22,11 @@ function cloneSearchResultSnapshot(searchResult?: MESSAGE.SearchResult) {
   return {
     ...searchResult,
     query: [...(searchResult.query || [])],
-    docs: (searchResult.docs || []).map((item) =>
-      Array.isArray(item) ? [...item] : item
-    ),
+    docs: (searchResult.docs || []).map((item) => (Array.isArray(item) ? [...item] : item)),
   };
 }
 
-function cloneResultMapSnapshot(
-  resultMap?: MESSAGE.ResultMap
-): MESSAGE.ResultMap {
+function cloneResultMapSnapshot(resultMap?: MESSAGE.ResultMap): MESSAGE.ResultMap {
   if (!resultMap) {
     return {} as MESSAGE.ResultMap;
   }
@@ -66,11 +62,11 @@ export function cloneTaskSnapshot(task: MESSAGE.Task): MESSAGE.Task {
     resultMap: cloneResultMapSnapshot(task.resultMap),
     toolResult: task.toolResult
       ? {
-        ...task.toolResult,
-        toolParam: task.toolResult.toolParam
-          ? { ...task.toolResult.toolParam }
-          : task.toolResult.toolParam,
-      }
+          ...task.toolResult,
+          toolParam: task.toolResult.toolParam
+            ? { ...task.toolResult.toolParam }
+            : task.toolResult.toolParam,
+        }
       : task.toolResult,
   };
 }
@@ -81,46 +77,47 @@ function getTaskRenderSignature(task: RenderableTask, baseId: string): string {
   const plan = task.plan;
   const artifactRefs = Array.isArray(task.artifactRefs) ? task.artifactRefs : [];
   const toolCallTargetName = resolveToolCallTargetName(
-    resultMap as unknown as MESSAGE.ResultMap | undefined
+    resultMap as unknown as MESSAGE.ResultMap | undefined,
   );
-  const querySignature = Array.isArray(searchResult?.query)
-    ? searchResult.query.join("||")
-    : "";
+  const querySignature = Array.isArray(searchResult?.query) ? searchResult.query.join('||') : '';
   const docsSignature = Array.isArray(searchResult?.docs)
     ? searchResult.docs
-      .map((docs: MESSAGE.Doc[] | MESSAGE.Doc) => (Array.isArray(docs) ? docs.length : 0))
-      .join(",")
-    : "";
+        .map((docs: MESSAGE.Doc[] | MESSAGE.Doc) => (Array.isArray(docs) ? docs.length : 0))
+        .join(',')
+    : '';
 
   return [
     baseId,
-    task.messageId || "",
-    task.messageType || "",
-    task.messageTime || "",
-    resultMap.messageType || "",
-    resultMap.isFinal ? "1" : "0",
-    resultMap.searchFinish ? "1" : "0",
-    resultMap.status || "",
-    resultMap.summary || "",
-    resultMap.toolName || "",
-    resultMap.toolCallId || "",
+    task.messageId || '',
+    task.messageType || '',
+    task.messageTime || '',
+    resultMap.messageType || '',
+    resultMap.isFinal ? '1' : '0',
+    resultMap.searchFinish ? '1' : '0',
+    resultMap.status || '',
+    resultMap.summary || '',
+    resultMap.toolName || '',
+    resultMap.toolCallId || '',
     toolCallTargetName,
     task.toolThought?.length || 0,
     resultMap.answer?.length || 0,
     resultMap.codeOutput?.length || 0,
     resultMap.data?.length || 0,
     artifactRefs.length,
-    artifactRefs[0]?.resourceKey || artifactRefs[0]?.previewUrl || artifactRefs[0]?.downloadUrl || "",
+    artifactRefs[0]?.resourceKey ||
+      artifactRefs[0]?.previewUrl ||
+      artifactRefs[0]?.downloadUrl ||
+      '',
     querySignature,
     docsSignature,
-    Array.isArray(plan?.stepStatus) ? plan.stepStatus.join(",") : "",
-  ].join("|");
+    Array.isArray(plan?.stepStatus) ? plan.stepStatus.join(',') : '',
+  ].join('|');
 }
 
 function createRenderTask(
   task: RenderableTask,
   id: string,
-  searchResult?: RenderSearchResult
+  searchResult?: RenderSearchResult,
 ): CHAT.Task {
   const nextTask = {
     ...task,
@@ -130,24 +127,19 @@ function createRenderTask(
   } as CHAT.Task;
 
   if (searchResult && nextTask.resultMap) {
-    nextTask.resultMap.searchResult = searchResult as CHAT.Task["resultMap"]["searchResult"];
+    nextTask.resultMap.searchResult = searchResult as CHAT.Task['resultMap']['searchResult'];
   }
 
   return nextTask;
 }
 
-function processDeepSearchTask(
-  task: RenderableTask,
-  baseId: string
-): CHAT.Task[] {
+function processDeepSearchTask(task: RenderableTask, baseId: string): CHAT.Task[] {
   const messageType = task.resultMap?.messageType;
-  if (messageType === "report") {
-    return [
-      createRenderTask(task, baseId),
-    ];
+  if (messageType === 'report') {
+    return [createRenderTask(task, baseId)];
   }
 
-  if (messageType === "extend" || messageType === "search") {
+  if (messageType === 'extend' || messageType === 'search') {
     const queries = task.resultMap?.searchResult?.query || [];
 
     // 查询分解和检索阶段都按 query 拆分；没有真实 query 时不制造伪占位项。
@@ -166,15 +158,10 @@ function processDeepSearchTask(
     });
   }
 
-  return [
-    createRenderTask(task, baseId),
-  ];
+  return [createRenderTask(task, baseId)];
 }
 
-export function processTaskForRender(
-  task: RenderableTask,
-  baseId: string
-): CHAT.Task[] {
+export function processTaskForRender(task: RenderableTask, baseId: string): CHAT.Task[] {
   const signature = getTaskRenderSignature(task, baseId);
   const cached = taskRenderCache.get(task);
   if (cached?.signature === signature) {
@@ -182,7 +169,7 @@ export function processTaskForRender(
   }
 
   let items: CHAT.Task[];
-  if (task.messageType === "deep_search") {
+  if (task.messageType === 'deep_search') {
     items = processDeepSearchTask(task, baseId);
   } else {
     items = [createRenderTask(task, baseId)];

@@ -1,5 +1,5 @@
-import React from "react";
-import { motion } from "motion/react";
+import React from 'react';
+import { motion } from 'motion/react';
 
 /**
  * 优化的 LoadingDot 组件
@@ -21,7 +21,7 @@ export const LoadingDot: React.FC = () => {
             duration: 1.2,
             repeat: Infinity,
             delay: index * 0.15,
-            ease: "easeInOut",
+            ease: 'easeInOut',
           }}
         />
       ))}
@@ -44,7 +44,7 @@ export const LoadingPulse: React.FC<{ className?: string }> = ({ className }) =>
         transition={{
           duration: 1.5,
           repeat: Infinity,
-          ease: "easeOut",
+          ease: 'easeOut',
         }}
       />
       <motion.div
@@ -55,7 +55,7 @@ export const LoadingPulse: React.FC<{ className?: string }> = ({ className }) =>
         transition={{
           duration: 1,
           repeat: Infinity,
-          ease: "easeInOut",
+          ease: 'easeInOut',
         }}
       />
     </div>
@@ -74,13 +74,13 @@ export const LoadingOrbit: React.FC<{ className?: string }> = ({ className }) =>
         transition={{
           duration: 2,
           repeat: Infinity,
-          ease: "linear",
+          ease: 'linear',
         }}
       >
         <div className="absolute inset-0 rounded-full border-2 border-primary/20" />
         <motion.div
           className="absolute w-2 h-2 rounded-full bg-primary"
-          style={{ top: 0, left: "50%", marginLeft: -4 }}
+          style={{ top: 0, left: '50%', marginLeft: -4 }}
         />
       </motion.div>
     </div>
@@ -105,7 +105,7 @@ export const LoadingWave: React.FC<{ className?: string }> = ({ className }) => 
             duration: 0.8,
             repeat: Infinity,
             delay: index * 0.1,
-            ease: "easeInOut",
+            ease: 'easeInOut',
           }}
         />
       ))}
@@ -128,14 +128,10 @@ export const LoadingGradient: React.FC<{ size?: number; className?: string }> = 
       transition={{
         duration: 1.5,
         repeat: Infinity,
-        ease: "linear",
+        ease: 'linear',
       }}
     >
-      <svg
-        viewBox="0 0 24 24"
-        fill="none"
-        className="w-full h-full"
-      >
+      <svg viewBox="0 0 24 24" fill="none" className="w-full h-full">
         <defs>
           <linearGradient id="loading-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
             <stop offset="0%" stopColor="#0071e3" />
@@ -171,7 +167,7 @@ export const LoadingTyping: React.FC<{ className?: string }> = ({ className }) =
         transition={{
           duration: 0.6,
           repeat: Infinity,
-          ease: "easeInOut",
+          ease: 'easeInOut',
         }}
       />
       <motion.span
@@ -184,7 +180,7 @@ export const LoadingTyping: React.FC<{ className?: string }> = ({ className }) =
           duration: 0.6,
           repeat: Infinity,
           delay: 0.2,
-          ease: "easeInOut",
+          ease: 'easeInOut',
         }}
       />
       <motion.span
@@ -197,7 +193,7 @@ export const LoadingTyping: React.FC<{ className?: string }> = ({ className }) =
           duration: 0.6,
           repeat: Infinity,
           delay: 0.4,
-          ease: "easeInOut",
+          ease: 'easeInOut',
         }}
       />
     </div>

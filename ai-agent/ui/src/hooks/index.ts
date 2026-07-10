@@ -1,5 +1,5 @@
-import { useTypeWriter } from "./useTypeWriter";
+import { useTypeWriter } from './useTypeWriter';
 
-export * from "./useConstants";
+export * from './useConstants';
 
 export { useTypeWriter };

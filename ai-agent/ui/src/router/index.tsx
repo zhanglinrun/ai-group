@@ -19,14 +19,10 @@ const Admin = React.lazy(() => import('@/pages/Admin'));
 const NotFound = React.lazy(() => import('@/components/NotFound'));
 
 const withSuspense = (element: React.ReactNode) => (
-  <Suspense fallback={<Loading loading={true} className="h-full"/>}>
-    {element}
-  </Suspense>
+  <Suspense fallback={<Loading loading={true} className="h-full" />}>{element}</Suspense>
 );
 
-const withAuth = (element: React.ReactNode) => (
-  <RequireAuth>{withSuspense(element)}</RequireAuth>
-);
+const withAuth = (element: React.ReactNode) => <RequireAuth>{withSuspense(element)}</RequireAuth>;
 
 const router = createBrowserRouter([
   {

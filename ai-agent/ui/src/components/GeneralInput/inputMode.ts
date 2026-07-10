@@ -1,4 +1,4 @@
-type InputModeKey = "quick" | "think" | "research";
+type InputModeKey = 'quick' | 'think' | 'research';
 
 export function buildSubmitPayload(params: {
   question: string;
@@ -9,19 +9,19 @@ export function buildSubmitPayload(params: {
   chatRole: CHAT.ConversationRole | null;
 }) {
   const outputStyle = params.isDataAgent
-    ? "dataAgent"
-    : params.visibleMode === "quick"
-      ? "chat"
+    ? 'dataAgent'
+    : params.visibleMode === 'quick'
+      ? 'chat'
       : params.visibleOutputProduct.type;
 
   return {
     message: params.question.trim(),
     outputStyle,
     deepThink:
-      outputStyle !== "chat" && outputStyle !== "dataAgent"
-        ? params.visibleMode === "research"
+      outputStyle !== 'chat' && outputStyle !== 'dataAgent'
+        ? params.visibleMode === 'research'
         : false,
     files: params.uploadedFiles.length > 0 ? params.uploadedFiles : undefined,
-    aiAgentId: outputStyle === "chat" ? params.chatRole?.agentId : undefined,
+    aiAgentId: outputStyle === 'chat' ? params.chatRole?.agentId : undefined,
   };
 }

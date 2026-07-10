@@ -1,30 +1,30 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { agentFileApi, type UploadedConversationFile } from "@/services/agentFile";
-import { normalizeFileUrlForBrowser } from "@/utils/fileUrl";
+import { agentFileApi, type UploadedConversationFile } from '@/services/agentFile';
+import { normalizeFileUrlForBrowser } from '@/utils/fileUrl';
 import {
   markUploadError,
   markUploadSuccess,
   markUploadUploading,
   type UploadAttachmentState,
-} from "./uploadQueue";
+} from './uploadQueue';
 
 function resolveFileExtension(fileName?: string, mimeType?: string | null) {
-  const ext = fileName?.split(".").pop()?.trim().toLowerCase();
+  const ext = fileName?.split('.').pop()?.trim().toLowerCase();
   if (ext) {
     return ext;
   }
-  if (mimeType?.includes("/")) {
-    return mimeType.split("/").pop() || "";
+  if (mimeType?.includes('/')) {
+    return mimeType.split('/').pop() || '';
   }
-  return "";
+  return '';
 }
 
 export function normalizeUploadedFile(file: UploadedConversationFile): CHAT.TFile {
   const previewUrl = normalizeFileUrlForBrowser(
-    file.previewUrl || file.url || file.downloadUrl || ""
+    file.previewUrl || file.url || file.downloadUrl || '',
   );
-  const downloadUrl = normalizeFileUrlForBrowser(file.downloadUrl || file.url || "");
+  const downloadUrl = normalizeFileUrlForBrowser(file.downloadUrl || file.url || '');
   return {
     name: file.name,
     url: previewUrl,
@@ -39,9 +39,9 @@ export function normalizeUploadedFile(file: UploadedConversationFile): CHAT.TFil
 }
 
 export function useAttachmentUploads(sessionId: string) {
-  const [attachmentUploads, setAttachmentUploads] = useState<
-    Record<string, UploadAttachmentState>
-  >({});
+  const [attachmentUploads, setAttachmentUploads] = useState<Record<string, UploadAttachmentState>>(
+    {},
+  );
   const [attachmentOrder, setAttachmentOrder] = useState<string[]>([]);
   const attachmentUploadsRef = useRef<Record<string, UploadAttachmentState>>({});
 
@@ -76,22 +76,16 @@ export function useAttachmentUploads(sessionId: string) {
 
       try {
         const uploadedFile = normalizeUploadedFile(
-          await agentFileApi.uploadConversationFile(sessionId, file)
+          await agentFileApi.uploadConversationFile(sessionId, file),
         );
-        setAttachmentUploads((prev) =>
-          markUploadSuccess(prev, attachmentId, uploadedFile)
-        );
+        setAttachmentUploads((prev) => markUploadSuccess(prev, attachmentId, uploadedFile));
       } catch (error) {
         const errorMessage =
-          error instanceof Error && error.message
-            ? error.message
-            : "上传失败，请稍后重试";
-        setAttachmentUploads((prev) =>
-          markUploadError(prev, attachmentId, errorMessage)
-        );
+          error instanceof Error && error.message ? error.message : '上传失败，请稍后重试';
+        setAttachmentUploads((prev) => markUploadError(prev, attachmentId, errorMessage));
       }
     },
-    [sessionId]
+    [sessionId],
   );
 
   const addAttachmentUploads = useCallback(
@@ -109,7 +103,7 @@ export function useAttachmentUploads(sessionId: string) {
           next[attachment.id] = {
             id: attachment.id,
             file: attachment.file,
-            status: "pending",
+            status: 'pending',
           };
         });
         return next;
@@ -129,7 +123,7 @@ export function useAttachmentUploads(sessionId: string) {
         void uploadAttachment(attachment.id, attachment.file);
       });
     },
-    [uploadAttachment]
+    [uploadAttachment],
   );
 
   const retryAttachmentUpload = useCallback(
@@ -140,7 +134,7 @@ export function useAttachmentUploads(sessionId: string) {
       }
       void uploadAttachment(id, target.file);
     },
-    [uploadAttachment]
+    [uploadAttachment],
   );
 
   return {

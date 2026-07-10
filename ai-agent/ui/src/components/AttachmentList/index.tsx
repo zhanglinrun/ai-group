@@ -1,7 +1,7 @@
-import { iconType } from "@/utils/constants";
-import docxIcon from "@/assets/icon/docx.png";
-import { Tooltip } from "antd";
-import { isImageFileLike } from "@/utils/taskArtifacts";
+import { iconType } from '@/utils/constants';
+import docxIcon from '@/assets/icon/docx.png';
+import { Tooltip } from 'antd';
+import { isImageFileLike } from '@/utils/taskArtifacts';
 
 type Props = {
   files?: CHAT.TFile[];
@@ -16,10 +16,10 @@ const AttachmentList: ReactorType.FC<Props> = (props) => {
   const attachmentList = Array.isArray(files) ? files : [];
 
   const formatSize = (size?: number) => {
-    if (typeof size !== "number" || Number.isNaN(size) || size < 0) {
-      return "未知大小";
+    if (typeof size !== 'number' || Number.isNaN(size) || size < 0) {
+      return '未知大小';
     }
-    const units = ["B", "KB", "MB", "GB"];
+    const units = ['B', 'KB', 'MB', 'GB'];
     let unitIndex = 0;
     while (size >= 1024 && unitIndex < units.length - 1) {
       size /= 1024;
@@ -29,7 +29,7 @@ const AttachmentList: ReactorType.FC<Props> = (props) => {
   };
 
   const combinIcon = (f: CHAT.TFile) => {
-    const fileType = f.type?.toLowerCase?.() || "";
+    const fileType = f.type?.toLowerCase?.() || '';
     if (isImageFileLike(f) && f.url) {
       return f.url;
     } else {
@@ -54,16 +54,20 @@ const AttachmentList: ReactorType.FC<Props> = (props) => {
       <div
         key={index}
         className={`group relative box-border flex w-full max-w-sm items-center gap-2 rounded-lg px-1 py-1 transition-colors ${
-          preview ? "cursor-pointer hover:bg-muted/35" : "cursor-default"
+          preview ? 'cursor-pointer hover:bg-muted/35' : 'cursor-default'
         }`}
         onClick={() => reviewFile(f)}
       >
-        <img src={combinIcon(f)} alt={f.name || "附件"} className="h-9 w-9 shrink-0 object-contain" />
+        <img
+          src={combinIcon(f)}
+          alt={f.name || '附件'}
+          className="h-9 w-9 shrink-0 object-contain"
+        />
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-1.5">
-            <Tooltip title={f.name || "未命名文件"}>
+            <Tooltip title={f.name || '未命名文件'}>
               <div className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[13px] leading-snug text-[#27272A]">
-                {f.name || "未命名文件"}
+                {f.name || '未命名文件'}
               </div>
             </Tooltip>
             <span className="shrink-0 text-[11px] leading-snug text-[#C4C4C8]" aria-hidden>

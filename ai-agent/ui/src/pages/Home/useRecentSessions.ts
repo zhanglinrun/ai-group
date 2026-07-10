@@ -1,14 +1,9 @@
-import { useCallback, useState } from "react";
+import { useCallback, useState } from 'react';
 
-import {
-  conversationHistoryApi,
-  type ConversationSessionItem,
-} from "@/services/agentConversation";
+import { conversationHistoryApi, type ConversationSessionItem } from '@/services/agentConversation';
 
 export function useRecentSessions() {
-  const [recentSessions, setRecentSessions] = useState<ConversationSessionItem[]>(
-    []
-  );
+  const [recentSessions, setRecentSessions] = useState<ConversationSessionItem[]>([]);
   const [recentSessionsLoading, setRecentSessionsLoading] = useState(false);
 
   const refreshRecentSessions = useCallback((enabled = true) => {
@@ -24,7 +19,7 @@ export function useRecentSessions() {
         return nextSessions;
       })
       .catch((error) => {
-        console.error("加载近期会话失败", error);
+        console.error('加载近期会话失败', error);
         return [] as ConversationSessionItem[];
       })
       .finally(() => {

@@ -1,6 +1,6 @@
-"use client";
+'use client';
 
-import { Button } from "@/components/ui/button";
+import { Button } from '@/components/ui/button';
 import {
   Card,
   CardAction,
@@ -9,17 +9,13 @@ import {
   CardFooter,
   CardHeader,
   CardTitle,
-} from "@/components/ui/card";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
-import { cn } from "@/lib/utils";
-import { ChevronDown } from "lucide-react";
-import type { ComponentProps } from "react";
-import { createContext, useContext, useEffect, useRef, useState } from "react";
-import { Shimmer } from "./shimmer";
+} from '@/components/ui/card';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { cn } from '@/lib/utils';
+import { ChevronDown } from 'lucide-react';
+import type { ComponentProps } from 'react';
+import { createContext, useContext, useEffect, useRef, useState } from 'react';
+import { Shimmer } from './shimmer';
 
 type PlanContextValue = {
   isStreaming: boolean;
@@ -30,7 +26,7 @@ const PlanContext = createContext<PlanContextValue | null>(null);
 const usePlan = () => {
   const context = useContext(PlanContext);
   if (!context) {
-    throw new Error("Plan components must be used within Plan");
+    throw new Error('Plan components must be used within Plan');
   }
   return context;
 };
@@ -54,18 +50,13 @@ export type PlanProps = ComponentProps<typeof Collapsible> & {
   isStreaming?: boolean;
 };
 
-export const Plan = ({
-  className,
-  isStreaming = false,
-  children,
-  ...props
-}: PlanProps) => (
+export const Plan = ({ className, isStreaming = false, children, ...props }: PlanProps) => (
   <PlanContext.Provider value={{ isStreaming }}>
     <Collapsible asChild data-slot="plan" {...props}>
       <Card
         className={cn(
-          "gap-0 rounded-2xl border-0 bg-[var(--chat-surface-soft)]/92 py-0 text-[var(--chat-text)] shadow-[var(--shadow-sm)] ring-0",
-          className
+          'gap-0 rounded-2xl border-0 bg-[var(--chat-surface-soft)]/92 py-0 text-[var(--chat-text)] shadow-[var(--shadow-sm)] ring-0',
+          className,
         )}
       >
         {children}
@@ -79,18 +70,15 @@ export type PlanHeaderProps = ComponentProps<typeof CardHeader>;
 export const PlanHeader = ({ className, ...props }: PlanHeaderProps) => (
   <CardHeader
     className={cn(
-      "flex flex-row items-center justify-between gap-3 space-y-0 px-5 pb-3 pt-4",
-      className
+      'flex flex-row items-center justify-between gap-3 space-y-0 px-5 pb-3 pt-4',
+      className,
     )}
     data-slot="plan-header"
     {...props}
   />
 );
 
-export type PlanTitleProps = Omit<
-  ComponentProps<typeof CardTitle>,
-  "children"
-> & {
+export type PlanTitleProps = Omit<ComponentProps<typeof CardTitle>, 'children'> & {
   children: string;
 };
 
@@ -101,8 +89,8 @@ export const PlanTitle = ({ children, className, ...props }: PlanTitleProps) => 
   return (
     <CardTitle
       className={cn(
-        "text-[15px] font-semibold leading-snug tracking-[-0.02em] text-[var(--chat-text)]",
-        className
+        'text-[15px] font-semibold leading-snug tracking-[-0.02em] text-[var(--chat-text)]',
+        className,
       )}
       data-slot="plan-title"
       {...props}
@@ -118,24 +106,17 @@ export const PlanTitle = ({ children, className, ...props }: PlanTitleProps) => 
   );
 };
 
-export type PlanDescriptionProps = Omit<
-  ComponentProps<typeof CardDescription>,
-  "children"
-> & {
+export type PlanDescriptionProps = Omit<ComponentProps<typeof CardDescription>, 'children'> & {
   children: string;
 };
 
-export const PlanDescription = ({
-  className,
-  children,
-  ...props
-}: PlanDescriptionProps) => {
+export const PlanDescription = ({ className, children, ...props }: PlanDescriptionProps) => {
   const { isStreaming } = usePlan();
   const shimmerKey = useShimmerRemountKey(isStreaming);
 
   return (
     <CardDescription
-      className={cn("text-balance", className)}
+      className={cn('text-balance', className)}
       data-slot="plan-description"
       {...props}
     >
@@ -161,14 +142,14 @@ export type PlanContentProps = ComponentProps<typeof CardContent>;
 export const PlanContent = ({ className, ...props }: PlanContentProps) => (
   <CollapsibleContent asChild>
     <CardContent
-      className={cn("space-y-2 px-5 pb-5 pt-0", className)}
+      className={cn('space-y-2 px-5 pb-5 pt-0', className)}
       data-slot="plan-content"
       {...props}
     />
   </CollapsibleContent>
 );
 
-export type PlanFooterProps = ComponentProps<"div">;
+export type PlanFooterProps = ComponentProps<'div'>;
 
 export const PlanFooter = (props: PlanFooterProps) => (
   <CardFooter data-slot="plan-footer" {...props} />
@@ -180,8 +161,8 @@ export const PlanTrigger = ({ className, ...props }: PlanTriggerProps) => (
   <CollapsibleTrigger asChild>
     <Button
       className={cn(
-        "size-9 shrink-0 rounded-full text-[var(--chat-text-soft)] transition-colors hover:bg-[var(--chat-surface-muted)] data-[state=open]:bg-[var(--chat-surface-muted)]/80 [&_svg]:transition-transform data-[state=open]:[&_svg]:rotate-180",
-        className
+        'size-9 shrink-0 rounded-full text-[var(--chat-text-soft)] transition-colors hover:bg-[var(--chat-surface-muted)] data-[state=open]:bg-[var(--chat-surface-muted)]/80 [&_svg]:transition-transform data-[state=open]:[&_svg]:rotate-180',
+        className,
       )}
       data-slot="plan-trigger"
       size="icon"

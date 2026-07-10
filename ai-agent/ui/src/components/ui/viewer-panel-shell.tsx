@@ -1,5 +1,5 @@
-import { cn } from "@/lib/utils";
-import type { HTMLAttributes, ReactNode } from "react";
+import { cn } from '@/lib/utils';
+import type { HTMLAttributes, ReactNode } from 'react';
 
 export type ViewerPanelShellProps = {
   label: string;
@@ -8,7 +8,7 @@ export type ViewerPanelShellProps = {
   children: ReactNode;
   /** 下方内容区（浅色底）额外 class，例如 `p-0` 让 iframe 贴边 */
   bodyClassName?: string;
-} & Omit<HTMLAttributes<HTMLDivElement>, "children">;
+} & Omit<HTMLAttributes<HTMLDivElement>, 'children'>;
 
 export function ViewerPanelShell({
   label,
@@ -22,8 +22,8 @@ export function ViewerPanelShell({
   return (
     <div
       className={cn(
-        "relative w-full overflow-hidden rounded-xl bg-[var(--chat-surface)] shadow-[var(--shadow-md)]",
-        className
+        'relative w-full overflow-hidden rounded-xl bg-[var(--chat-surface)] shadow-[var(--shadow-md)]',
+        className,
       )}
       {...props}
     >
@@ -44,8 +44,8 @@ export function ViewerPanelShell({
       </div>
       <div
         className={cn(
-          "relative bg-[var(--json-view-inner-bg)] px-3 py-3 sm:px-4 sm:py-4",
-          bodyClassName
+          'relative bg-[var(--json-view-inner-bg)] px-3 py-3 sm:px-4 sm:py-4',
+          bodyClassName,
         )}
       >
         {children}

@@ -1,7 +1,7 @@
-import { FC, useEffect, useMemo, useState } from "react";
-import { Drawer, Segmented, Input, Table } from "antd";
-import { agentApi } from "../../services/agent";
-import type { TableColumnType } from "antd";
+import { FC, useEffect, useMemo, useState } from 'react';
+import { Drawer, Segmented, Input, Table } from 'antd';
+import { agentApi } from '../../services/agent';
+import type { TableColumnType } from 'antd';
 
 type Props = {
   show: boolean;
@@ -16,31 +16,34 @@ interface DataDataType {
 const ColsAndDataDrawer: FC<Props> = (props) => {
   const { show, modelInfo, dataShow } = props;
   const { Search } = Input;
-  const [segType, setSegType] = useState<string>("字段详情");
-  const [searchValue, setSearchValue] = useState<string>("");
+  const [segType, setSegType] = useState<string>('字段详情');
+  const [searchValue, setSearchValue] = useState<string>('');
   const [viewDataSource, setViewDataSource] = useState<any[]>([]);
 
   const colColumns: TableColumnType<Record<string, any>>[] = [
     {
-      title: "字段名称",
-      dataIndex: "columnName",
-      key: "columnName",
+      title: '字段名称',
+      dataIndex: 'columnName',
+      key: 'columnName',
     },
     {
-      title: "字段类型",
-      dataIndex: "dataType",
-      key: "dataType",
+      title: '字段类型',
+      dataIndex: 'dataType',
+      key: 'dataType',
     },
     {
-      title: "字段描述",
-      dataIndex: "columnComment",
-      key: "columnComment",
+      title: '字段描述',
+      dataIndex: 'columnComment',
+      key: 'columnComment',
     },
   ];
 
   const dataSource = useMemo(() => {
     return (modelInfo.schemaList || []).filter(
-      (item) => item.columnName?.includes(searchValue) || item.columnComment?.includes(searchValue) || item.dataType?.includes(searchValue)
+      (item) =>
+        item.columnName?.includes(searchValue) ||
+        item.columnComment?.includes(searchValue) ||
+        item.dataType?.includes(searchValue),
     );
   }, [modelInfo, searchValue]);
 
@@ -74,16 +77,36 @@ const ColsAndDataDrawer: FC<Props> = (props) => {
     <Drawer title={modelInfo.modelName} width={1000} onClose={() => dataShow(false)} open={show}>
       <div className="flex align-middle justify-between mb-[20px]">
         <Segmented<string>
-          options={["字段详情", "数据预览"]}
+          options={['字段详情', '数据预览']}
           value={segType}
           onChange={(value) => {
             setSegType(value); // string
           }}
         />
-        <Search placeholder="请输入内容搜索" style={{ width: 200 }} onSearch={(value) => setSearchValue(value)} />
+        <Search
+          placeholder="请输入内容搜索"
+          style={{ width: 200 }}
+          onSearch={(value) => setSearchValue(value)}
+        />
       </div>
-      {segType === "字段详情" && <Table size="middle" dataSource={dataSource} columns={colColumns} scroll={{ y: "calc(100vh - 200px)" }} pagination={false} />}
-      {segType === "数据预览" && <Table size="middle" dataSource={viewShowData} columns={dataColumns} scroll={{ y: "calc(100vh - 200px)", x: "max-content" }} pagination={false} />}
+      {segType === '字段详情' && (
+        <Table
+          size="middle"
+          dataSource={dataSource}
+          columns={colColumns}
+          scroll={{ y: 'calc(100vh - 200px)' }}
+          pagination={false}
+        />
+      )}
+      {segType === '数据预览' && (
+        <Table
+          size="middle"
+          dataSource={viewShowData}
+          columns={dataColumns}
+          scroll={{ y: 'calc(100vh - 200px)', x: 'max-content' }}
+          pagination={false}
+        />
+      )}
     </Drawer>
   );
 };

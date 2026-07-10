@@ -1,20 +1,20 @@
 export function buildPlannerRoundsForDisplay(
   chat: CHAT.ChatItem,
-  streamingThought?: string
+  streamingThought?: string,
 ): CHAT.PlannerRound[] {
   const rounds = Array.isArray(chat.multiAgent?.plannerRounds)
     ? chat.multiAgent.plannerRounds.map((item) => ({
-      ...item,
-      plan: item.plan
-        ? {
-          ...item.plan,
-          notes: [...(item.plan.notes || [])],
-          stages: [...(item.plan.stages || [])],
-          steps: [...(item.plan.steps || [])],
-          stepStatus: [...(item.plan.stepStatus || [])],
-        }
-        : item.plan,
-    }))
+        ...item,
+        plan: item.plan
+          ? {
+              ...item.plan,
+              notes: [...(item.plan.notes || [])],
+              stages: [...(item.plan.stages || [])],
+              steps: [...(item.plan.steps || [])],
+              stepStatus: [...(item.plan.stepStatus || [])],
+            }
+          : item.plan,
+      }))
     : [];
 
   if (!rounds.length) {
@@ -23,11 +23,13 @@ export function buildPlannerRoundsForDisplay(
     if (!fallbackThought && !fallbackPlan) {
       return [];
     }
-    return [{
-      plannerRoundId: "latest",
-      planThought: fallbackThought,
-      plan: fallbackPlan,
-    }];
+    return [
+      {
+        plannerRoundId: 'latest',
+        planThought: fallbackThought,
+        plan: fallbackPlan,
+      },
+    ];
   }
 
   if (streamingThought) {
@@ -44,7 +46,7 @@ export function buildPlannerRoundsForDisplay(
 export function syncPlannerVersionCursor(
   currentCursor: number | undefined,
   previousRoundCount: number,
-  nextRoundCount: number
+  nextRoundCount: number,
 ) {
   const nextLatestIndex = Math.max(nextRoundCount - 1, 0);
   const previousLatestIndex = Math.max(previousRoundCount - 1, 0);

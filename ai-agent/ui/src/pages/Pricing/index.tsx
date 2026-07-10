@@ -1,60 +1,50 @@
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
-import {
-  Loader2,
-  RefreshCw,
-  ShoppingBag,
-  Sparkles,
-  Users,
-  Wallet,
-} from "lucide-react";
-import { message } from "antd";
-import ShellNav from "@/components/ShellNav";
-import StatCard from "@/components/trade/StatCard";
-import PackageCard from "@/components/trade/PackageCard";
-import GroupPreviewDialog from "@/components/trade/GroupPreviewDialog";
+import { memo, useCallback, useEffect, useMemo, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
+import { Loader2, RefreshCw, ShoppingBag, Sparkles, Users, Wallet } from 'lucide-react';
+import { message } from 'antd';
+import ShellNav from '@/components/ShellNav';
+import StatCard from '@/components/trade/StatCard';
+import PackageCard from '@/components/trade/PackageCard';
+import GroupPreviewDialog from '@/components/trade/GroupPreviewDialog';
 import {
   bffApi,
   type AccountSummary,
   type GroupBuyInfo,
   type OrderItem,
   type SkuItem,
-} from "@/services/bff";
-import { payApi } from "@/services/pay";
-import { useTradePurchase } from "@/hooks/useTradePurchase";
+} from '@/services/bff';
+import { payApi } from '@/services/pay';
+import { useTradePurchase } from '@/hooks/useTradePurchase';
 import {
   summarizeTradeWorkspace,
   tradeOrderStatusLabel,
   tradeSettlementHint,
-} from "@/utils/tradeWorkspace";
-import {
-  paymentOutcomeMessage,
-  resolvePaymentOutcome,
-} from "@/utils/paymentStatus";
-import { submitAlipayForm } from "@/utils/payForm";
-import { ROUTES } from "@/router/routes";
-import { isMemberSku, isTopupSku } from "@/utils/tradeDisplay";
+} from '@/utils/tradeWorkspace';
+import { paymentOutcomeMessage, resolvePaymentOutcome } from '@/utils/paymentStatus';
+import { submitAlipayForm } from '@/utils/payForm';
+import { ROUTES } from '@/router/routes';
+import { isMemberSku, isTopupSku } from '@/utils/tradeDisplay';
 
-type TradeTab = "packages" | "orders";
+type TradeTab = 'packages' | 'orders';
 
 const EmptyLine = memo(({ text }: { text: string }) => (
   <div className="rounded-2xl border border-dashed border-[var(--chat-border)] px-4 py-8 text-center text-sm text-[var(--chat-text-soft)]">
     {text}
   </div>
 ));
-EmptyLine.displayName = "EmptyLine";
+EmptyLine.displayName = 'EmptyLine';
 
 const hintToneClass = (tone: string) => {
-  if (tone === "warn") return "text-amber-700";
-  if (tone === "ready") return "text-emerald-700";
-  if (tone === "danger") return "text-red-700";
-  return "text-[var(--chat-text-soft)]";
+  if (tone === 'warn') return 'text-amber-700';
+  if (tone === 'ready') return 'text-emerald-700';
+  if (tone === 'danger') return 'text-red-700';
+  return 'text-[var(--chat-text-soft)]';
 };
 
 const PricingPage = memo(() => {
   const [searchParams, setSearchParams] = useSearchParams();
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [error, setError] = useState('');
   const [skus, setSkus] = useState<SkuItem[]>([]);
   const [groupBuy, setGroupBuy] = useState<GroupBuyInfo | null>(null);
   const [summary, setSummary] = useState<AccountSummary | null>(null);
@@ -64,16 +54,11 @@ const PricingPage = memo(() => {
   const [paymentReturned, setPaymentReturned] = useState(false);
   const { buyingKey, handleBuy } = useTradePurchase(groupBuy);
 
-  const activeTab: TradeTab =
-    searchParams.get("tab") === "orders" ? "orders" : "packages";
+  const activeTab: TradeTab = searchParams.get('tab') === 'orders' ? 'orders' : 'packages';
   const paymentReturn =
-    searchParams.get("paymentReturn") === "1" ||
-    searchParams.get("payment") === "success";
+    searchParams.get('paymentReturn') === '1' || searchParams.get('payment') === 'success';
 
-  const workspace = useMemo(
-    () => summarizeTradeWorkspace(summary, orders),
-    [summary, orders]
-  );
+  const workspace = useMemo(() => summarizeTradeWorkspace(summary, orders), [summary, orders]);
 
   const paymentMessage = useMemo(() => {
     if (!paymentReturned || !summary) return null;
@@ -82,7 +67,7 @@ const PricingPage = memo(() => {
 
   const loadTradeData = useCallback(async () => {
     setLoading(true);
-    setError("");
+    setError('');
     try {
       const [pricing, orderList, accountSummary] = await Promise.all([
         bffApi.getPricing(),
@@ -94,8 +79,8 @@ const PricingPage = memo(() => {
       setOrders(orderList?.items || []);
       setSummary(accountSummary);
     } catch (nextError) {
-      console.error("加载交易数据失败", nextError);
-      setError("交易数据读取失败，请稍后重试");
+      console.error('加载交易数据失败', nextError);
+      setError('交易数据读取失败，请稍后重试');
     } finally {
       setLoading(false);
     }
@@ -110,14 +95,14 @@ const PricingPage = memo(() => {
     setPaymentReturned(true);
     // 支付宝同步回跳会在 return_url 上附带 out_trade_no：
     // 先调 sync_settle 主动查单结算（本地环境异步 notify 打不到，靠它完成开通闭环），再刷新数据。
-    const outTradeNo = searchParams.get("out_trade_no");
-    setSearchParams({ tab: "orders" }, { replace: true });
+    const outTradeNo = searchParams.get('out_trade_no');
+    setSearchParams({ tab: 'orders' }, { replace: true });
     const settleThenReload = async () => {
       if (outTradeNo) {
         try {
           await payApi.syncSettle(outTradeNo);
         } catch (err) {
-          console.error("支付回跳结算失败", err);
+          console.error('支付回跳结算失败', err);
         }
       }
       await loadTradeData();
@@ -129,7 +114,7 @@ const PricingPage = memo(() => {
     (tab: TradeTab) => {
       setSearchParams({ tab });
     },
-    [setSearchParams]
+    [setSearchParams],
   );
 
   const refreshGroupTeams = useCallback(async (activityId: number) => {
@@ -138,8 +123,8 @@ const PricingPage = memo(() => {
       const data = await bffApi.getGroupBuy(activityId);
       setGroupBuy(data?.groupBuy || null);
     } catch (nextError) {
-      console.error("加载拼团队伍失败", nextError);
-      message.error("拼团信息读取失败");
+      console.error('加载拼团队伍失败', nextError);
+      message.error('拼团信息读取失败');
     } finally {
       setGroupTeamsLoading(false);
     }
@@ -149,51 +134,51 @@ const PricingPage = memo(() => {
     async (sku: SkuItem) => {
       const activityId = sku.groupActivityId ?? groupBuy?.activityId;
       if (!activityId) {
-        message.error("当前没有可用拼团活动");
+        message.error('当前没有可用拼团活动');
         return;
       }
       setGroupPreviewSku(sku);
       await refreshGroupTeams(activityId);
     },
-    [groupBuy?.activityId, refreshGroupTeams]
+    [groupBuy?.activityId, refreshGroupTeams],
   );
 
   const handleDirectBuy = useCallback(
     async (sku: SkuItem) => {
-      const ok = await handleBuy(sku, "direct");
-      if (ok) switchTab("orders");
+      const ok = await handleBuy(sku, 'direct');
+      if (ok) switchTab('orders');
     },
-    [handleBuy, switchTab]
+    [handleBuy, switchTab],
   );
 
   const handleGroupBuy = useCallback(
     async (sku: SkuItem, teamId?: string) => {
-      const ok = await handleBuy(sku, "group", teamId);
+      const ok = await handleBuy(sku, 'group', teamId);
       if (ok) {
         setGroupPreviewSku(null);
-        switchTab("orders");
+        switchTab('orders');
       }
     },
-    [handleBuy, switchTab]
+    [handleBuy, switchTab],
   );
 
   // 待支付订单恢复支付：复用 pay 服务持久化的收银台表单，重新打开支付宝页面
   const handleResumePay = useCallback((order: OrderItem) => {
     if (!order.payUrl) {
-      message.error("该订单暂无可用支付链接，请重新下单");
+      message.error('该订单暂无可用支付链接，请重新下单');
       return;
     }
     try {
       submitAlipayForm(order.payUrl);
     } catch (err) {
-      console.error("恢复支付失败", err);
-      message.error("打开支付页面失败，请稍后重试");
+      console.error('恢复支付失败', err);
+      message.error('打开支付页面失败，请稍后重试');
     }
   }, []);
 
   const memberSkus = useMemo(
-    () => skus.filter((sku) => isMemberSku(sku) && sku.code !== "FREE"),
-    [skus]
+    () => skus.filter((sku) => isMemberSku(sku) && sku.code !== 'FREE'),
+    [skus],
   );
   const topupSkus = useMemo(() => skus.filter(isTopupSku), [skus]);
   const canGroupBuy = groupBuy?.activityId != null;
@@ -205,40 +190,40 @@ const PricingPage = memo(() => {
         <div className="flex flex-col gap-4 rounded-3xl border border-[var(--chat-border)] bg-[var(--chat-surface)]/90 p-6 shadow-[var(--shadow-md)] lg:flex-row lg:items-center lg:justify-between">
           <div>
             <h1 className="font-[family-name:var(--font-display)] text-3xl font-normal tracking-tight">
-              {activeTab === "packages" ? "购买中心" : "订单与到账"}
+              {activeTab === 'packages' ? '购买中心' : '订单与到账'}
             </h1>
             <p className="mt-1 text-sm text-[var(--chat-text-soft)]">
-              {activeTab === "packages"
-                ? "支持直接购买与拼团购买，会员套餐与额度包一站选购。"
-                : "查看支付状态、拼团进度与配额到账情况。"}
+              {activeTab === 'packages'
+                ? '支持直接购买与拼团购买，会员套餐与额度包一站选购。'
+                : '查看支付状态、拼团进度与配额到账情况。'}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <div className="inline-flex rounded-full border border-[var(--chat-border)] bg-[var(--chat-surface)]/70 p-1">
               <button
                 type="button"
-                onClick={() => switchTab("packages")}
+                onClick={() => switchTab('packages')}
                 className={
-                  activeTab === "packages"
-                    ? "rounded-full bg-[var(--chat-text)] px-4 py-2 text-sm text-white"
-                    : "rounded-full px-4 py-2 text-sm text-[var(--chat-text-soft)]"
+                  activeTab === 'packages'
+                    ? 'rounded-full bg-[var(--chat-text)] px-4 py-2 text-sm text-white'
+                    : 'rounded-full px-4 py-2 text-sm text-[var(--chat-text-soft)]'
                 }
               >
                 购买套餐
               </button>
               <button
                 type="button"
-                onClick={() => switchTab("orders")}
+                onClick={() => switchTab('orders')}
                 className={
-                  activeTab === "orders"
-                    ? "rounded-full bg-[var(--chat-text)] px-4 py-2 text-sm text-white"
-                    : "rounded-full px-4 py-2 text-sm text-[var(--chat-text-soft)]"
+                  activeTab === 'orders'
+                    ? 'rounded-full bg-[var(--chat-text)] px-4 py-2 text-sm text-white'
+                    : 'rounded-full px-4 py-2 text-sm text-[var(--chat-text-soft)]'
                 }
               >
                 订单记录
               </button>
             </div>
-            {activeTab === "packages" && canGroupBuy ? (
+            {activeTab === 'packages' && canGroupBuy ? (
               <Link
                 to={ROUTES.GROUP_BUY_HALL}
                 className="inline-flex items-center gap-2 rounded-full border border-violet-200 bg-violet-50 px-4 py-2 text-sm font-medium text-violet-700"
@@ -299,7 +284,7 @@ const PricingPage = memo(() => {
           </div>
         )}
 
-        {activeTab === "packages" ? (
+        {activeTab === 'packages' ? (
           <div className="mt-6 space-y-8">
             <section>
               <div className="mb-4 flex items-center gap-2">
@@ -325,9 +310,7 @@ const PricingPage = memo(() => {
                       sku={sku}
                       highlight={index === 0}
                       groupPrice={sku.groupPayPrice ?? groupBuy?.goods?.payPrice}
-                      deductionPrice={
-                        sku.groupDeductionPrice ?? groupBuy?.goods?.deductionPrice
-                      }
+                      deductionPrice={sku.groupDeductionPrice ?? groupBuy?.goods?.deductionPrice}
                       buyingKey={buyingKey}
                       onDirectBuy={() => void handleDirectBuy(sku)}
                       onGroupBuy={
@@ -366,9 +349,7 @@ const PricingPage = memo(() => {
                       buyingKey={buyingKey}
                       onDirectBuy={() => void handleDirectBuy(sku)}
                       onGroupBuy={
-                        sku.groupActivityId != null
-                          ? () => void openGroupPreview(sku)
-                          : undefined
+                        sku.groupActivityId != null ? () => void openGroupPreview(sku) : undefined
                       }
                     />
                   ))}
@@ -376,7 +357,7 @@ const PricingPage = memo(() => {
               )}
             </section>
 
-            {skus.some((sku) => sku.code === "FREE") && (
+            {skus.some((sku) => sku.code === 'FREE') && (
               <div className="rounded-2xl border border-dashed border-[var(--chat-border)] px-4 py-4 text-sm text-[var(--chat-text-soft)]">
                 <ShoppingBag className="mb-2 h-4 w-4" />
                 Free 套餐注册即享，无需购买。
@@ -415,7 +396,7 @@ const PricingPage = memo(() => {
                         <div className="flex flex-wrap items-start justify-between gap-3">
                           <div className="min-w-0">
                             <div className="truncate text-sm font-medium">
-                              {order.productName || "会员订单"}
+                              {order.productName || '会员订单'}
                             </div>
                             <div className="mt-1 text-xs text-[var(--chat-text-soft)]">
                               {order.orderId}
@@ -423,13 +404,13 @@ const PricingPage = memo(() => {
                           </div>
                           <div className="text-right">
                             <div className="text-sm font-medium">
-                              {order.amount != null ? `¥${order.amount}` : "-"}
+                              {order.amount != null ? `¥${order.amount}` : '-'}
                             </div>
                             <div className="mt-1 text-xs text-[var(--chat-text-soft)]">
                               {tradeOrderStatusLabel(
                                 order.status,
                                 order.groupStatus,
-                                order.displayStatus
+                                order.displayStatus,
                               )}
                             </div>
                           </div>
@@ -440,7 +421,7 @@ const PricingPage = memo(() => {
                           >
                             {hint.label}：{hint.detail}
                           </div>
-                          {order.displayStatus === "PAY_WAIT" && order.payUrl ? (
+                          {order.displayStatus === 'PAY_WAIT' && order.payUrl ? (
                             <button
                               type="button"
                               onClick={() => handleResumePay(order)}
@@ -463,13 +444,11 @@ const PricingPage = memo(() => {
                 <div className="space-y-3 text-sm">
                   <div className="flex justify-between">
                     <span className="text-[var(--chat-text-soft)]">等级</span>
-                    <span>{summary.tier || "FREE"}</span>
+                    <span>{summary.tier || 'FREE'}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-[var(--chat-text-soft)]">可用配额</span>
-                    <span>
-                      {summary.availableQuota ?? summary.periodQuotaBalance ?? 0} 点
-                    </span>
+                    <span>{summary.availableQuota ?? summary.periodQuotaBalance ?? 0} 点</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-[var(--chat-text-soft)]">加油包余额</span>
@@ -519,6 +498,6 @@ const PricingPage = memo(() => {
   );
 });
 
-PricingPage.displayName = "PricingPage";
+PricingPage.displayName = 'PricingPage';
 
 export default PricingPage;

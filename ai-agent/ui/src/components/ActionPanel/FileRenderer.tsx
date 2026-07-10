@@ -1,12 +1,13 @@
-import React, { useMemo } from "react";
-import { useRequest } from "ahooks";
-import { Alert } from "antd";
-import MarkdownRenderer from "./MarkdownRenderer";
-import Loading from "./Loading";
-import { ViewerPanelShell } from "@/components/ui/viewer-panel-shell";
+import React, { useMemo } from 'react';
+import { useRequest } from 'ahooks';
+import { Alert } from 'antd';
+import MarkdownRenderer from './MarkdownRenderer';
+import Loading from './Loading';
+import { ViewerPanelShell } from '@/components/ui/viewer-panel-shell';
 
 const LOADING_CLASS = 'mr-32';
-const ERROR_CLASS = "m-12 md:m-24 min-w-[260px] max-w-[calc(100%-24px)] md:max-w-[calc(100%-48px)] [&_.ant-alert-description]:break-words [&_.ant-alert-description]:whitespace-normal";
+const ERROR_CLASS =
+  'm-12 md:m-24 min-w-[260px] max-w-[calc(100%-24px)] md:max-w-[calc(100%-48px)] [&_.ant-alert-description]:break-words [&_.ant-alert-description]:whitespace-normal';
 
 interface FileRendererProps {
   /** 文件路径 */
@@ -58,29 +59,28 @@ const FileRenderer: ReactorType.FC<FileRendererProps> = React.memo((props) => {
 
   const ext = useMemo(() => getFileExtension(fileName), [fileName]);
 
-  const { data, loading, error } = useRequest(async () => {
-    if (missingReason) {
-      throw new Error(missingReason);
-    }
-    if (!fileUrl) {
-      throw new Error('引用资源不存在或已失效');
-    }
-    const response = await fetch(fileUrl);
-    if (!response.ok) {
-      throw new Error('Network response was not ok');
-    }
-    return await response.text();
-  }, { refreshDeps: [fileUrl, missingReason] });
+  const { data, loading, error } = useRequest(
+    async () => {
+      if (missingReason) {
+        throw new Error(missingReason);
+      }
+      if (!fileUrl) {
+        throw new Error('引用资源不存在或已失效');
+      }
+      const response = await fetch(fileUrl);
+      if (!response.ok) {
+        throw new Error('Network response was not ok');
+      }
+      return await response.text();
+    },
+    { refreshDeps: [fileUrl, missingReason] },
+  );
 
   const markStr = useMemo(() => formatFileContent(ext, data), [ext, data]);
 
   if (loading) {
     return (
-      <ViewerPanelShell
-        label="FILE"
-        subtitle={fileName || "文件预览"}
-        className={className}
-      >
+      <ViewerPanelShell label="FILE" subtitle={fileName || '文件预览'} className={className}>
         <Loading className={LOADING_CLASS} />
       </ViewerPanelShell>
     );
@@ -88,11 +88,7 @@ const FileRenderer: ReactorType.FC<FileRendererProps> = React.memo((props) => {
 
   if (error) {
     return (
-      <ViewerPanelShell
-        label="FILE"
-        subtitle={fileName || "文件预览"}
-        className={className}
-      >
+      <ViewerPanelShell label="FILE" subtitle={fileName || '文件预览'} className={className}>
         <Alert
           type="error"
           message="内容不可读取"
@@ -105,15 +101,8 @@ const FileRenderer: ReactorType.FC<FileRendererProps> = React.memo((props) => {
   }
 
   return (
-    <ViewerPanelShell
-      label="FILE"
-      subtitle={fileName || "文件预览"}
-      className={className}
-    >
-      <MarkdownRenderer
-        markDownContent={markStr}
-        normalizationScope="default"
-      />
+    <ViewerPanelShell label="FILE" subtitle={fileName || '文件预览'} className={className}>
+      <MarkdownRenderer markDownContent={markStr} normalizationScope="default" />
     </ViewerPanelShell>
   );
 });

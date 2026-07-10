@@ -10,6 +10,7 @@
 ### Replacement: shadcn `Plan` (Collapsible Card)
 
 **State & controlled mode:**
+
 ```tsx
 const [open, setOpen] = useState(false);
 // forwardRef handlers update this state:
@@ -19,15 +20,19 @@ const [open, setOpen] = useState(false);
 
 <Plan open={open} onOpenChange={setOpen} isStreaming={isStreaming}>
 ```
+
 Both `open` and `onOpenChange` are required for controlled mode — user clicks on `PlanTrigger` fire `onOpenChange`.
 
 **isStreaming logic:**
+
 ```tsx
-const isStreaming = Boolean(plan && !plan.stepStatus?.some(s => s === 'completed'));
+const isStreaming = Boolean(plan && !plan.stepStatus?.some((s) => s === 'completed'));
 ```
+
 Drives the `PlanTitle` shimmer effect during active task execution.
 
 **Stage list inside PlanContent:**
+
 ```tsx
 <PlanContent>
   {stages?.map((name, index) => (
@@ -41,6 +46,7 @@ Drives the `PlanTitle` shimmer effect during active task execution.
   ))}
 </PlanContent>
 ```
+
 `getStatusIcon` is imported from existing `./config` — no change needed.
 
 **ResizeObserver removal:** Safe — Radix Collapsible handles expand/collapse animation natively via CSS. The ResizeObserver + manual `style.height` is no longer needed.
@@ -57,32 +63,40 @@ Drives the `PlanTitle` shimmer effect during active task execution.
 ### Replacement: shadcn `CodeBlock` + `CodeBlockCopyButton`
 
 **Import alias to avoid collision:**
+
 ```tsx
-import { CodeBlock as ShadcnCodeBlock, CodeBlockCopyButton } from "@/components/ai-elements/code-block";
-import type { BundledLanguage } from "shiki";
-import { bundledLanguages } from "shiki";
+import {
+  CodeBlock as ShadcnCodeBlock,
+  CodeBlockCopyButton,
+} from '@/components/ai-elements/code-block';
+import type { BundledLanguage } from 'shiki';
+import { bundledLanguages } from 'shiki';
 ```
 
 **Safe language resolution:**
+
 ```tsx
 const rawLang = match[1];
 const safeLanguage = (rawLang in bundledLanguages ? rawLang : 'text') as BundledLanguage;
 ```
+
 Prevents shiki from throwing on unknown language identifiers (e.g. `vue`, `plaintext`).
 
 **Children serialization:**
 ReactMarkdown passes code content as a `ReactNode` array. Flatten to string:
+
 ```tsx
 const codeString = Array.isArray(children)
   ? children.join('')
   : typeof children === 'string'
-  ? children
-  : String(children);
+    ? children
+    : String(children);
 ```
 
 **Race condition:** shadcn `CodeBlock` uses a `mounted` ref in its `useEffect` cleanup — when `code` prop changes, cleanup resets `mounted=false` so the stale promise resolve is ignored. No additional handling needed.
 
 **New CodeBlock component:**
+
 ```tsx
 const CodeBlock: ReactorType.FC<{ inline?: boolean }> = ({ inline, className, children }) => {
   const match = /language-(\w+)/.exec(className || '');
@@ -97,8 +111,8 @@ const CodeBlock: ReactorType.FC<{ inline?: boolean }> = ({ inline, className, ch
     const codeString = Array.isArray(children)
       ? children.join('')
       : typeof children === 'string'
-      ? children
-      : String(children);
+        ? children
+        : String(children);
 
     return (
       <ShadcnCodeBlock code={codeString.trim()} language={safeLanguage}>

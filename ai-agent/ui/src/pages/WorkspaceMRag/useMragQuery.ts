@@ -1,27 +1,24 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useRef, useState } from 'react';
 
-import { mapMragError, streamMragQuery } from "@/services/mragWorkspace";
-import { showMessage } from "@/utils";
+import { mapMragError, streamMragQuery } from '@/services/mragWorkspace';
+import { showMessage } from '@/utils';
 
-export function useMragQuery(
-  toolBaseUrl: string,
-  selectedKnowledgeBaseId: string
-) {
+export function useMragQuery(toolBaseUrl: string, selectedKnowledgeBaseId: string) {
   const queryAbortRef = useRef<AbortController | null>(null);
-  const [question, setQuestion] = useState("");
+  const [question, setQuestion] = useState('');
   const [querying, setQuerying] = useState(false);
-  const [queryAnswer, setQueryAnswer] = useState("");
-  const [queryError, setQueryError] = useState("");
+  const [queryAnswer, setQueryAnswer] = useState('');
+  const [queryError, setQueryError] = useState('');
   const [queryRawChunks, setQueryRawChunks] = useState<unknown[]>([]);
 
   const handleSubmitQuery = useCallback(async () => {
     const currentQuestion = question.trim();
     if (!selectedKnowledgeBaseId) {
-      showMessage()?.error("请先选择知识库");
+      showMessage()?.error('请先选择知识库');
       return;
     }
     if (!currentQuestion) {
-      showMessage()?.error("请输入问题");
+      showMessage()?.error('请输入问题');
       return;
     }
 
@@ -30,8 +27,8 @@ export function useMragQuery(
     queryAbortRef.current = abortController;
 
     setQuerying(true);
-    setQueryError("");
-    setQueryAnswer("");
+    setQueryError('');
+    setQueryAnswer('');
     setQueryRawChunks([]);
 
     try {
@@ -67,12 +64,12 @@ export function useMragQuery(
     queryAbortRef.current.abort();
     queryAbortRef.current = null;
     setQuerying(false);
-    showMessage()?.info("已停止当前检索");
+    showMessage()?.info('已停止当前检索');
   }, []);
 
   const handleClearQueryResult = useCallback(() => {
-    setQueryAnswer("");
-    setQueryError("");
+    setQueryAnswer('');
+    setQueryError('');
     setQueryRawChunks([]);
   }, []);
 

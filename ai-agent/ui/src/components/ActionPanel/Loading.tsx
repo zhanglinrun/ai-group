@@ -23,7 +23,7 @@ const Loading: ReactorType.FC<LoadingProps> = React.memo(({ loading, className, 
 
   return (
     <div className={classNames(LOADING_CONTAINER_CLASS, className)}>
-      <LoadingSpinner className='text-[32px]'>
+      <LoadingSpinner className="text-[32px]">
         <p className={TEXT_CLASS}>{children || '加载中'}</p>
       </LoadingSpinner>
     </div>

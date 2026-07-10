@@ -1,10 +1,4 @@
-import {
-  type RefObject,
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
+import { type RefObject, useCallback, useEffect, useRef, useState } from 'react';
 
 interface PromptInputSpeechRecognition extends EventTarget {
   continuous: boolean;
@@ -76,8 +70,8 @@ export function useSpeechRecognition(options: UseSpeechRecognitionOptions) {
 
   useEffect(() => {
     if (
-      typeof window !== "undefined" &&
-      ("SpeechRecognition" in window || "webkitSpeechRecognition" in window)
+      typeof window !== 'undefined' &&
+      ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window)
     ) {
       const SpeechRecognitionConstructor =
         window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -85,7 +79,7 @@ export function useSpeechRecognition(options: UseSpeechRecognitionOptions) {
 
       speechRecognition.continuous = true;
       speechRecognition.interimResults = true;
-      speechRecognition.lang = "en-US";
+      speechRecognition.lang = 'en-US';
 
       speechRecognition.onstart = () => {
         setIsListening(true);
@@ -96,29 +90,28 @@ export function useSpeechRecognition(options: UseSpeechRecognitionOptions) {
       };
 
       speechRecognition.onresult = (event) => {
-        let finalTranscript = "";
+        let finalTranscript = '';
 
         for (let index = event.resultIndex; index < event.results.length; index += 1) {
           const result = event.results[index];
           if (result.isFinal) {
-            finalTranscript += result[0]?.transcript ?? "";
+            finalTranscript += result[0]?.transcript ?? '';
           }
         }
 
         if (finalTranscript && textareaRef?.current) {
           const textarea = textareaRef.current;
           const currentValue = textarea.value;
-          const nextValue =
-            currentValue + (currentValue ? " " : "") + finalTranscript;
+          const nextValue = currentValue + (currentValue ? ' ' : '') + finalTranscript;
 
           textarea.value = nextValue;
-          textarea.dispatchEvent(new Event("input", { bubbles: true }));
+          textarea.dispatchEvent(new Event('input', { bubbles: true }));
           onTranscriptionChange?.(nextValue);
         }
       };
 
       speechRecognition.onerror = (event) => {
-        console.error("Speech recognition error:", event.error);
+        console.error('Speech recognition error:', event.error);
         setIsListening(false);
       };
 

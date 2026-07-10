@@ -1,4 +1,4 @@
-import classNames from "classnames";
+import classNames from 'classnames';
 import {
   ArrowLeft,
   BookOpenText,
@@ -14,31 +14,24 @@ import {
   Trash2,
   UploadCloud,
   X,
-} from "lucide-react";
-import { useState } from "react";
-import type { ReactNode } from "react";
-import { Link } from "react-router-dom";
+} from 'lucide-react';
+import { useState } from 'react';
+import type { ReactNode } from 'react';
+import { Link } from 'react-router-dom';
 
-import MarkdownRenderer from "@/components/ActionPanel/MarkdownRenderer";
-import WorkspaceToolSwitcher from "@/components/WorkspaceToolSwitcher";
-import {
-  StaggerContainer,
-  StaggerItem,
-} from "@/components/ai-elements/animated-message";
-import { motion } from "motion/react";
-import { EmptyState } from "@/components/ui/empty-state";
-import { ROUTES } from "@/router/routes";
-import type {
-  KnowledgeBase,
-  KnowledgeBaseFile,
-  MRagFullContentStatus,
-} from "./types";
+import MarkdownRenderer from '@/components/ActionPanel/MarkdownRenderer';
+import WorkspaceToolSwitcher from '@/components/WorkspaceToolSwitcher';
+import { StaggerContainer, StaggerItem } from '@/components/ai-elements/animated-message';
+import { motion } from 'motion/react';
+import { EmptyState } from '@/components/ui/empty-state';
+import { ROUTES } from '@/router/routes';
+import type { KnowledgeBase, KnowledgeBaseFile, MRagFullContentStatus } from './types';
 import {
   formatFileDocCount,
   formatWorkspaceDateTime,
   resolveFileStatusMeta,
   toPrettyJson,
-} from "./utils";
+} from './utils';
 
 export type WorkspaceMRagViewProps = {
   embedded?: boolean;
@@ -103,20 +96,20 @@ function ActionButton(props: {
   href?: string;
   loading?: boolean;
   disabled?: boolean;
-  variant?: "primary" | "secondary" | "danger" | "ghost";
+  variant?: 'primary' | 'secondary' | 'danger' | 'ghost';
 }) {
-  const { label, icon, onClick, href, loading, disabled, variant = "secondary" } = props;
+  const { label, icon, onClick, href, loading, disabled, variant = 'secondary' } = props;
 
   const className = classNames(
-    "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[13px] font-medium transition-all duration-200",
-    variant === "primary" &&
-      "bg-[var(--primary)] text-[var(--primary-foreground)] hover:opacity-90 disabled:opacity-40",
-    variant === "secondary" &&
-      "border border-[var(--chat-border)] bg-[var(--chat-surface)] text-[var(--chat-text-soft)] hover:border-[var(--chat-border-strong)] hover:text-[var(--chat-text)] disabled:opacity-40",
-    variant === "danger" &&
-      "border border-rose-200 bg-rose-50 text-rose-600 hover:bg-rose-100 hover:text-rose-700",
-    variant === "ghost" &&
-      "text-[var(--chat-text-muted)] hover:text-[var(--chat-text)] hover:bg-[var(--chat-surface-soft)]"
+    'inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[13px] font-medium transition-all duration-200',
+    variant === 'primary' &&
+      'bg-[var(--primary)] text-[var(--primary-foreground)] hover:opacity-90 disabled:opacity-40',
+    variant === 'secondary' &&
+      'border border-[var(--chat-border)] bg-[var(--chat-surface)] text-[var(--chat-text-soft)] hover:border-[var(--chat-border-strong)] hover:text-[var(--chat-text)] disabled:opacity-40',
+    variant === 'danger' &&
+      'border border-rose-200 bg-rose-50 text-rose-600 hover:bg-rose-100 hover:text-rose-700',
+    variant === 'ghost' &&
+      'text-[var(--chat-text-muted)] hover:text-[var(--chat-text)] hover:bg-[var(--chat-surface-soft)]',
   );
 
   const content = (
@@ -128,7 +121,12 @@ function ActionButton(props: {
 
   if (href) {
     return (
-      <a href={href} target="_blank" rel="noreferrer" className={classNames(className, disabled && "pointer-events-none opacity-40")}>
+      <a
+        href={href}
+        target="_blank"
+        rel="noreferrer"
+        className={classNames(className, disabled && 'pointer-events-none opacity-40')}
+      >
         {content}
       </a>
     );
@@ -157,17 +155,15 @@ function KnowledgeBaseItem(props: {
       type="button"
       onClick={onSelect}
       className={classNames(
-        "group relative w-full rounded-xl py-3 pr-4 text-left transition-all duration-200",
-        selected
-          ? "bg-[var(--chat-surface-soft)]"
-          : "hover:bg-[var(--chat-surface-soft)]/60"
+        'group relative w-full rounded-xl py-3 pr-4 text-left transition-all duration-200',
+        selected ? 'bg-[var(--chat-surface-soft)]' : 'hover:bg-[var(--chat-surface-soft)]/60',
       )}
     >
       {/* Selected indicator */}
       <div
         className={classNames(
-          "absolute bottom-2 left-0 top-2 w-[3px] rounded-r-full transition-all duration-200",
-          selected ? "bg-[var(--primary)]" : "bg-transparent"
+          'absolute bottom-2 left-0 top-2 w-[3px] rounded-r-full transition-all duration-200',
+          selected ? 'bg-[var(--primary)]' : 'bg-transparent',
         )}
       />
 
@@ -178,15 +174,15 @@ function KnowledgeBaseItem(props: {
               {knowledgeBase.name}
             </div>
             <div className="mt-0.5 text-[12px] text-[var(--chat-text-muted)]">
-              {knowledgeBase.description || "暂无描述"}
+              {knowledgeBase.description || '暂无描述'}
             </div>
           </div>
           <span
             className={classNames(
-              "shrink-0 rounded-md px-2 py-0.5 text-[11px] font-medium",
+              'shrink-0 rounded-md px-2 py-0.5 text-[11px] font-medium',
               selected
-                ? "bg-[var(--primary)]/10 text-[var(--primary)]"
-                : "bg-[var(--chat-surface-soft)] text-[var(--chat-text-muted)]"
+                ? 'bg-[var(--primary)]/10 text-[var(--primary)]'
+                : 'bg-[var(--chat-surface-soft)] text-[var(--chat-text-muted)]',
             )}
           >
             {knowledgeBase.chunkType}
@@ -213,7 +209,7 @@ function FileRecordRow(props: {
 }) {
   const { file, fullContentActive, onOpenFullContent, onDelete } = props;
   const statusMeta = resolveFileStatusMeta(file.fileStatus);
-  const isWebSource = file.sourceType === "url";
+  const isWebSource = file.sourceType === 'url';
 
   return (
     <div className="group border-b border-[var(--chat-border)] py-2.5 transition-colors hover:bg-[var(--chat-surface-soft)]/40 last:border-b-0">
@@ -221,10 +217,10 @@ function FileRecordRow(props: {
         {/* Source type icon */}
         <div
           className={classNames(
-            "flex h-7 w-7 shrink-0 items-center justify-center rounded-md",
+            'flex h-7 w-7 shrink-0 items-center justify-center rounded-md',
             isWebSource
-              ? "bg-[var(--status-info-bg)] text-[var(--status-info-text)]"
-              : "bg-[var(--chat-surface-soft)] text-[var(--chat-text-muted)]"
+              ? 'bg-[var(--status-info-bg)] text-[var(--status-info-text)]'
+              : 'bg-[var(--chat-surface-soft)] text-[var(--chat-text-muted)]',
           )}
         >
           {isWebSource ? (
@@ -242,17 +238,14 @@ function FileRecordRow(props: {
             </span>
             <span
               className={classNames(
-                "shrink-0 rounded px-1 py-0 text-[10px] font-medium leading-4",
-                statusMeta.className
+                'shrink-0 rounded px-1 py-0 text-[10px] font-medium leading-4',
+                statusMeta.className,
               )}
             >
               {statusMeta.label}
             </span>
             {file.errorMessage ? (
-              <span
-                className="shrink-0 text-rose-500"
-                title={file.errorMessage}
-              >
+              <span className="shrink-0 text-rose-500" title={file.errorMessage}>
                 <svg
                   className="h-3.5 w-3.5"
                   viewBox="0 0 24 24"
@@ -268,7 +261,7 @@ function FileRecordRow(props: {
             ) : null}
           </div>
           <div className="mt-0.5 flex items-center gap-1.5 truncate text-[11px] text-[var(--chat-text-muted)]">
-            <span>{isWebSource ? "网页" : file.fileExt?.toUpperCase() || "文件"}</span>
+            <span>{isWebSource ? '网页' : file.fileExt?.toUpperCase() || '文件'}</span>
             <span className="text-[var(--chat-border-strong)]">·</span>
             <span>{formatFileDocCount(file)}</span>
             <span className="text-[var(--chat-border-strong)]">·</span>
@@ -354,9 +347,8 @@ function FullContentPanel(props: {
     return null;
   }
 
-  const showUnavailable = !loading && contentStatus !== "READY";
-  const unavailableTitle =
-    contentStatus === "PROCESSING" ? "正文生成中" : "正文暂不可用";
+  const showUnavailable = !loading && contentStatus !== 'READY';
+  const unavailableTitle = contentStatus === 'PROCESSING' ? '正文生成中' : '正文暂不可用';
 
   return (
     <div className="fixed inset-y-0 right-0 z-50 w-full max-w-[560px] border-l border-[var(--chat-border)] bg-[var(--chat-surface)] shadow-[var(--shadow-xl)]">
@@ -367,7 +359,7 @@ function FullContentPanel(props: {
               整篇正文
             </div>
             <div className="mt-1 truncate text-[15px] font-semibold text-[var(--chat-text)]">
-              {title || "未命名资料"}
+              {title || '未命名资料'}
             </div>
           </div>
           <ActionButton
@@ -380,11 +372,9 @@ function FullContentPanel(props: {
 
         {file ? (
           <div className="border-b border-[var(--chat-border)] px-5 py-3">
-            <div className="text-[12px] font-semibold text-[var(--chat-text-soft)]">
-              原始资料
-            </div>
+            <div className="text-[12px] font-semibold text-[var(--chat-text-soft)]">原始资料</div>
             <div className="mt-2 flex flex-wrap gap-2">
-              {file.sourceType === "url" ? (
+              {file.sourceType === 'url' ? (
                 <ActionButton
                   label="打开原链接"
                   icon={<ExternalLink className="h-3.5 w-3.5" />}
@@ -427,17 +417,14 @@ function FullContentPanel(props: {
             <div className="rounded-2xl border border-amber-100 bg-amber-50 px-4 py-4 text-amber-700">
               <div className="text-[14px] font-semibold">{unavailableTitle}</div>
               <div className="mt-2 text-[13px] leading-6">
-                {errorMessage || "当前文件暂时没有可回显的正文内容。"}
+                {errorMessage || '当前文件暂时没有可回显的正文内容。'}
               </div>
             </div>
           ) : null}
 
-          {!loading && contentStatus === "READY" ? (
+          {!loading && contentStatus === 'READY' ? (
             <div className="rounded-2xl border border-[var(--chat-border)] bg-[var(--chat-surface-soft)] px-4 py-4">
-              <MarkdownRenderer
-                markDownContent={markdown}
-                className="text-[14px] leading-7"
-              />
+              <MarkdownRenderer markDownContent={markdown} className="text-[14px] leading-7" />
             </div>
           ) : null}
         </div>
@@ -503,12 +490,11 @@ export function WorkspaceMRagView(props: WorkspaceMRagViewProps) {
     onClearQueryResult,
   } = props;
 
-  const selectedKnowledgeBaseName = selectedKnowledgeBase?.name || "尚未选择";
+  const selectedKnowledgeBaseName = selectedKnowledgeBase?.name || '尚未选择';
   const [isCreateFormOpen, setIsCreateFormOpen] = useState(false);
   const [isToolUrlOpen, setIsToolUrlOpen] = useState(false);
   const [showDebug, setShowDebug] = useState(false);
-  const activeFullContentFile =
-    files.find((file) => file.id === activeFullContentFileId) || null;
+  const activeFullContentFile = files.find((file) => file.id === activeFullContentFileId) || null;
 
   return (
     <div className="flex h-full flex-col bg-[var(--page-gradient)] text-[var(--chat-text)]">
@@ -545,10 +531,10 @@ export function WorkspaceMRagView(props: WorkspaceMRagViewProps) {
                 type="button"
                 onClick={() => setIsToolUrlOpen((v) => !v)}
                 className={classNames(
-                  "flex h-8 w-8 items-center justify-center rounded-lg border transition-all",
+                  'flex h-8 w-8 items-center justify-center rounded-lg border transition-all',
                   isToolUrlOpen
-                    ? "border-[var(--primary)]/30 bg-[var(--primary)]/10 text-[var(--primary)]"
-                    : "border-[var(--chat-border)] text-[var(--chat-text-muted)] hover:bg-[var(--chat-surface-soft)] hover:text-[var(--chat-text)]"
+                    ? 'border-[var(--primary)]/30 bg-[var(--primary)]/10 text-[var(--primary)]'
+                    : 'border-[var(--chat-border)] text-[var(--chat-text-muted)] hover:bg-[var(--chat-surface-soft)] hover:text-[var(--chat-text)]',
                 )}
                 title="配置 Tool URL"
               >
@@ -557,10 +543,7 @@ export function WorkspaceMRagView(props: WorkspaceMRagViewProps) {
 
               {isToolUrlOpen && (
                 <>
-                  <div
-                    className="fixed inset-0 z-40"
-                    onClick={() => setIsToolUrlOpen(false)}
-                  />
+                  <div className="fixed inset-0 z-40" onClick={() => setIsToolUrlOpen(false)} />
                   <div className="absolute right-0 top-full z-50 mt-2 w-80 rounded-xl border border-[var(--chat-border)] bg-[var(--chat-surface)] p-3 shadow-[var(--shadow-md)]">
                     <div className="text-[12px] font-semibold text-[var(--chat-text-soft)]">
                       Tool Base URL
@@ -570,7 +553,7 @@ export function WorkspaceMRagView(props: WorkspaceMRagViewProps) {
                         value={toolBaseUrlDraft}
                         onChange={(e) => onToolBaseUrlChange(e.target.value)}
                         onKeyDown={(e) => {
-                          if (e.key === "Enter") {
+                          if (e.key === 'Enter') {
                             e.preventDefault();
                             onApplyToolBaseUrl();
                             setIsToolUrlOpen(false);
@@ -590,7 +573,7 @@ export function WorkspaceMRagView(props: WorkspaceMRagViewProps) {
                       />
                     </div>
                     <div className="mt-2 text-[11px] text-[var(--chat-text-muted)]">
-                      当前：{activeToolBaseUrl || "未配置"}
+                      当前：{activeToolBaseUrl || '未配置'}
                     </div>
                   </div>
                 </>
@@ -630,10 +613,7 @@ export function WorkspaceMRagView(props: WorkspaceMRagViewProps) {
                 ) : null}
 
                 {knowledgeBases.length ? (
-                  <StaggerContainer
-                    key={`kbs-${knowledgeBases.length}`}
-                    staggerDelay={0.03}
-                  >
+                  <StaggerContainer key={`kbs-${knowledgeBases.length}`} staggerDelay={0.03}>
                     {knowledgeBases.map((kb) => (
                       <StaggerItem key={kb.id}>
                         <KnowledgeBaseItem
@@ -672,7 +652,9 @@ export function WorkspaceMRagView(props: WorkspaceMRagViewProps) {
                 </button>
               ) : (
                 <div className="space-y-2">
-                  <div className="text-[12px] font-semibold text-[var(--chat-text-soft)]">新建知识库</div>
+                  <div className="text-[12px] font-semibold text-[var(--chat-text-soft)]">
+                    新建知识库
+                  </div>
                   <input
                     value={createKnowledgeBaseName}
                     onChange={(e) => onCreateKnowledgeBaseNameChange(e.target.value)}
@@ -712,7 +694,7 @@ export function WorkspaceMRagView(props: WorkspaceMRagViewProps) {
             {/* Tabs */}
             <div className="flex shrink-0 items-center gap-1 border-b border-[var(--chat-border)] bg-[var(--chat-surface)] px-4 py-2">
               <span className="text-[12px] font-semibold uppercase tracking-wider text-[var(--chat-text-muted)]">
-                {selectedKnowledgeBase ? selectedKnowledgeBaseName : "文件工作区"}
+                {selectedKnowledgeBase ? selectedKnowledgeBaseName : '文件工作区'}
               </span>
               <span className="ml-2 rounded-md bg-[var(--chat-surface-soft)] px-2 py-0.5 text-[11px] text-[var(--chat-text-muted)]">
                 {files.length} 个文件
@@ -839,10 +821,10 @@ export function WorkspaceMRagView(props: WorkspaceMRagViewProps) {
                               type="button"
                               onClick={() => setShowDebug((v) => !v)}
                               className={classNames(
-                                "inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-medium transition-colors",
+                                'inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-medium transition-colors',
                                 showDebug
-                                  ? "bg-[var(--primary)]/10 text-[var(--primary)]"
-                                  : "text-[var(--chat-text-muted)] hover:bg-[var(--chat-surface-soft)] hover:text-[var(--chat-text)]"
+                                  ? 'bg-[var(--primary)]/10 text-[var(--primary)]'
+                                  : 'text-[var(--chat-text-muted)] hover:bg-[var(--chat-surface-soft)] hover:text-[var(--chat-text)]',
                               )}
                             >
                               <DatabaseZap className="h-3 w-3" />
@@ -940,7 +922,7 @@ export function WorkspaceMRagView(props: WorkspaceMRagViewProps) {
                           }}
                           animate={{
                             opacity: 1,
-                            height: "auto",
+                            height: 'auto',
                           }}
                           transition={{
                             duration: 0.25,

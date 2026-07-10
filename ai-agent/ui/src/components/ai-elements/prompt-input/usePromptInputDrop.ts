@@ -1,4 +1,4 @@
-import { type RefObject, useEffect } from "react";
+import { type RefObject, useEffect } from 'react';
 
 type UsePromptInputDropOptions = {
   add: (files: File[] | FileList) => void;
@@ -22,12 +22,12 @@ export function usePromptInputDrop(options: UsePromptInputDropOptions) {
     }
 
     const onDragOver = (event: DragEvent) => {
-      if (event.dataTransfer?.types?.includes("Files")) {
+      if (event.dataTransfer?.types?.includes('Files')) {
         event.preventDefault();
       }
     };
     const onDrop = (event: DragEvent) => {
-      if (event.dataTransfer?.types?.includes("Files")) {
+      if (event.dataTransfer?.types?.includes('Files')) {
         event.preventDefault();
       }
       if (event.dataTransfer?.files && event.dataTransfer.files.length > 0) {
@@ -35,11 +35,11 @@ export function usePromptInputDrop(options: UsePromptInputDropOptions) {
       }
     };
 
-    form.addEventListener("dragover", onDragOver);
-    form.addEventListener("drop", onDrop);
+    form.addEventListener('dragover', onDragOver);
+    form.addEventListener('drop', onDrop);
     return () => {
-      form.removeEventListener("dragover", onDragOver);
-      form.removeEventListener("drop", onDrop);
+      form.removeEventListener('dragover', onDragOver);
+      form.removeEventListener('drop', onDrop);
     };
   }, [add, formRef, globalDrop]);
 
@@ -49,12 +49,12 @@ export function usePromptInputDrop(options: UsePromptInputDropOptions) {
     }
 
     const onDragOver = (event: DragEvent) => {
-      if (event.dataTransfer?.types?.includes("Files")) {
+      if (event.dataTransfer?.types?.includes('Files')) {
         event.preventDefault();
       }
     };
     const onDrop = (event: DragEvent) => {
-      if (event.dataTransfer?.types?.includes("Files")) {
+      if (event.dataTransfer?.types?.includes('Files')) {
         event.preventDefault();
       }
       if (event.dataTransfer?.files && event.dataTransfer.files.length > 0) {
@@ -62,11 +62,11 @@ export function usePromptInputDrop(options: UsePromptInputDropOptions) {
       }
     };
 
-    document.addEventListener("dragover", onDragOver);
-    document.addEventListener("drop", onDrop);
+    document.addEventListener('dragover', onDragOver);
+    document.addEventListener('drop', onDrop);
     return () => {
-      document.removeEventListener("dragover", onDragOver);
-      document.removeEventListener("drop", onDrop);
+      document.removeEventListener('dragover', onDragOver);
+      document.removeEventListener('drop', onDrop);
     };
   }, [add, globalDrop]);
 }

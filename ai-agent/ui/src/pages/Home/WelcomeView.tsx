@@ -1,26 +1,26 @@
-import { motion } from "motion/react";
-import classNames from "classnames";
+import { motion } from 'motion/react';
+import classNames from 'classnames';
 
-import GeneralInput from "@/components/GeneralInput";
-import { AiChatSurface } from "@/components/ai-elements/ai-chat-surface";
-import { KeyboardTypewriter } from "@/components/ai-elements/keyboard-typewriter";
-import { chatQustions, demoList } from "@/utils/constants";
+import GeneralInput from '@/components/GeneralInput';
+import { AiChatSurface } from '@/components/ai-elements/ai-chat-surface';
+import { KeyboardTypewriter } from '@/components/ai-elements/keyboard-typewriter';
+import { chatQustions, demoList } from '@/utils/constants';
 
 const SHOW_FEATURED_CASES = false;
 
 const greetings = [
-  "今天有什么计划？",
-  "想了解哪些前沿知识？",
-  "有什么代码需要我帮忙看看？",
-  "遇到什么棘手的问题了吗？",
-  "让我帮你梳理一下思路吧！",
-  "有什么好点子想探讨一下？"
+  '今天有什么计划？',
+  '想了解哪些前沿知识？',
+  '有什么代码需要我帮忙看看？',
+  '遇到什么棘手的问题了吗？',
+  '让我帮你梳理一下思路吧！',
+  '有什么好点子想探讨一下？',
 ];
 
 const tagColorMap: Record<string, string> = {
-  专业研究: "bg-[var(--secondary)] text-[var(--secondary-foreground)]",
-  数据分析: "bg-[oklch(0.95_0.05_200)] text-[oklch(0.5_0.1_200)]",
-  竞品调研: "bg-[oklch(0.95_0.05_50)] text-[oklch(0.5_0.12_50)]",
+  专业研究: 'bg-[var(--secondary)] text-[var(--secondary-foreground)]',
+  数据分析: 'bg-[oklch(0.95_0.05_200)] text-[oklch(0.5_0.1_200)]',
+  竞品调研: 'bg-[oklch(0.95_0.05_50)] text-[oklch(0.5_0.12_50)]',
 };
 
 type CaseCardProps = {
@@ -37,18 +37,8 @@ type CaseCardProps = {
 };
 
 function CaseCard(props: CaseCardProps) {
-  const {
-    title,
-    description,
-    tag,
-    image,
-    url,
-    videoUrl,
-    onOpenVideo,
-    index,
-  } = props;
-  const tagColor =
-    tagColorMap[tag] ?? "bg-[var(--muted)] text-[var(--muted-foreground)]";
+  const { title, description, tag, image, url, videoUrl, onOpenVideo, index } = props;
+  const tagColor = tagColorMap[tag] ?? 'bg-[var(--muted)] text-[var(--muted-foreground)]';
 
   return (
     <motion.div
@@ -116,10 +106,7 @@ export default function WelcomeView(props: {
   currentConversationRole: CHAT.ConversationRole | null;
   fixRoles: CHAT.FixRole[];
   videoModalOpen?: string;
-  onSelectionChange: (selection: {
-    product: CHAT.Product;
-    deepThink: boolean;
-  }) => void;
+  onSelectionChange: (selection: { product: CHAT.Product; deepThink: boolean }) => void;
   onRoleSelect: (role: CHAT.FixRole) => void;
   onSend: (inputInfo: CHAT.TInputInfo) => void;
   onSendQuestion: (query: { label: string; type: number }) => void;
@@ -172,7 +159,7 @@ export default function WelcomeView(props: {
               displayOutput={props.displayOutput}
               chatRole={props.currentConversationRole}
               chatRoles={props.fixRoles}
-              showRoleSelector={props.product.type === "chat"}
+              showRoleSelector={props.product.type === 'chat'}
               send={props.onSend}
               onSelectionChange={props.onSelectionChange}
               onRoleSelect={props.onRoleSelect}
@@ -183,18 +170,18 @@ export default function WelcomeView(props: {
         <motion.div
           initial={false}
           animate={{
-            opacity: props.product.type === "dataAgent" ? 1 : 0,
-            y: props.product.type === "dataAgent" ? 0 : -10,
+            opacity: props.product.type === 'dataAgent' ? 1 : 0,
+            y: props.product.type === 'dataAgent' ? 0 : -10,
           }}
           transition={{
             duration: 0.3,
             ease: [0.16, 1, 0.3, 1],
           }}
           className={classNames(
-            "mx-auto w-full max-w-[800px] overflow-hidden",
-            props.product.type === "dataAgent"
-              ? "mb-12 max-h-[100px] pointer-events-auto"
-              : "mb-0 max-h-0 pointer-events-none"
+            'mx-auto w-full max-w-[800px] overflow-hidden',
+            props.product.type === 'dataAgent'
+              ? 'mb-12 max-h-[100px] pointer-events-auto'
+              : 'mb-0 max-h-0 pointer-events-none',
           )}
         >
           <div className="flex flex-wrap justify-center gap-3">
@@ -233,13 +220,13 @@ export default function WelcomeView(props: {
             >
               <h2
                 className="mb-3 text-[28px] font-normal tracking-[-0.02em] text-[var(--chat-text)]"
-                style={{ fontFamily: "var(--font-display)" }}
+                style={{ fontFamily: 'var(--font-display)' }}
               >
                 精选案例
               </h2>
               <p
                 className="text-[15px] text-[var(--chat-text-soft)]"
-                style={{ fontFamily: "var(--font-sans)" }}
+                style={{ fontFamily: 'var(--font-sans)' }}
               >
                 和熊博士agent一起，让效率飞起来
               </p>

@@ -1,5 +1,5 @@
-import api from "./index";
-import { setAuthTokens, setAuthUser, clearAuthTokens } from "@/auth/token";
+import api from './index';
+import { setAuthTokens, setAuthUser, clearAuthTokens } from '@/auth/token';
 
 export interface UserProfile {
   id: number;
@@ -30,14 +30,14 @@ export interface RegisterRequest {
 
 export const authApi = {
   register: (payload: RegisterRequest) =>
-    api.post<UserProfile>("/api/auth/register", payload) as unknown as Promise<UserProfile>,
+    api.post<UserProfile>('/api/auth/register', payload) as unknown as Promise<UserProfile>,
 
   login: (payload: LoginRequest) =>
-    api.post<LoginResponse>("/api/auth/login", payload) as unknown as Promise<LoginResponse>,
+    api.post<LoginResponse>('/api/auth/login', payload) as unknown as Promise<LoginResponse>,
 
   logout: async () => {
     try {
-      await api.post<void>("/api/auth/logout");
+      await api.post<void>('/api/auth/logout');
     } catch {
       // ignore network errors during logout
     } finally {
@@ -45,8 +45,7 @@ export const authApi = {
     }
   },
 
-  profile: () =>
-    api.get<UserProfile>("/api/auth/profile") as unknown as Promise<UserProfile>,
+  profile: () => api.get<UserProfile>('/api/auth/profile') as unknown as Promise<UserProfile>,
 
   persistLogin: (response: LoginResponse) => {
     setAuthTokens(response.accessToken, response.refreshToken);

@@ -1,21 +1,21 @@
-import { memo } from "react";
-import { Crown, Sparkles } from "lucide-react";
-import type { AccountSummary } from "@/services/bff";
-import { tierLabel } from "@/utils/tradeDisplay";
+import { memo } from 'react';
+import { Crown, Sparkles } from 'lucide-react';
+import type { AccountSummary } from '@/services/bff';
+import { tierLabel } from '@/utils/tradeDisplay';
 
 type MembershipStatusCardProps = {
   summary: AccountSummary;
 };
 
 const MembershipStatusCard = memo(({ summary }: MembershipStatusCardProps) => {
-  const isPro = (summary.tier || "").toUpperCase() === "PRO";
+  const isPro = (summary.tier || '').toUpperCase() === 'PRO';
 
   return (
     <section
       className={`overflow-hidden rounded-3xl border shadow-[var(--shadow-md)] ${
         isPro
-          ? "border-violet-200/80 bg-gradient-to-br from-violet-600 via-violet-500 to-indigo-500 text-white"
-          : "border-[var(--chat-border)] bg-[var(--chat-surface)]/90"
+          ? 'border-violet-200/80 bg-gradient-to-br from-violet-600 via-violet-500 to-indigo-500 text-white'
+          : 'border-[var(--chat-border)] bg-[var(--chat-surface)]/90'
       }`}
     >
       <div className="p-6 sm:p-8">
@@ -26,39 +26,39 @@ const MembershipStatusCard = memo(({ summary }: MembershipStatusCardProps) => {
               <span>{tierLabel(summary.tier)}</span>
             </div>
             <h1 className="mt-4 font-[family-name:var(--font-display)] text-3xl font-normal tracking-tight sm:text-4xl">
-              {isPro ? "尊享 AI 对话权益" : "开启 Pro，解锁更高配额"}
+              {isPro ? '尊享 AI 对话权益' : '开启 Pro，解锁更高配额'}
             </h1>
             <p
               className={`mt-2 max-w-xl text-sm ${
-                isPro ? "text-white/80" : "text-[var(--chat-text-soft)]"
+                isPro ? 'text-white/80' : 'text-[var(--chat-text-soft)]'
               }`}
             >
               {isPro
-                ? "你的会员已生效，可在对话中直接使用周期配额与加油包额度。"
-                : "升级 Pro 会员或购买额度包，获得更充裕的模型调用配额。"}
+                ? '你的会员已生效，可在对话中直接使用周期配额与加油包额度。'
+                : '升级 Pro 会员或购买额度包，获得更充裕的模型调用配额。'}
             </p>
           </div>
 
           <div
             className={`grid min-w-[220px] grid-cols-2 gap-3 rounded-2xl p-4 ${
-              isPro ? "bg-white/10 backdrop-blur-sm" : "bg-[var(--chat-surface-soft)]"
+              isPro ? 'bg-white/10 backdrop-blur-sm' : 'bg-[var(--chat-surface-soft)]'
             }`}
           >
             <div>
               <div
-                className={`text-xs ${isPro ? "text-white/70" : "text-[var(--chat-text-soft)]"}`}
+                className={`text-xs ${isPro ? 'text-white/70' : 'text-[var(--chat-text-soft)]'}`}
               >
                 生效时间
               </div>
-              <div className="mt-1 text-sm font-medium">{summary.startAt || "-"}</div>
+              <div className="mt-1 text-sm font-medium">{summary.startAt || '-'}</div>
             </div>
             <div>
               <div
-                className={`text-xs ${isPro ? "text-white/70" : "text-[var(--chat-text-soft)]"}`}
+                className={`text-xs ${isPro ? 'text-white/70' : 'text-[var(--chat-text-soft)]'}`}
               >
                 到期时间
               </div>
-              <div className="mt-1 text-sm font-medium">{summary.expireAt || "-"}</div>
+              <div className="mt-1 text-sm font-medium">{summary.expireAt || '-'}</div>
             </div>
           </div>
         </div>
@@ -67,6 +67,6 @@ const MembershipStatusCard = memo(({ summary }: MembershipStatusCardProps) => {
   );
 });
 
-MembershipStatusCard.displayName = "MembershipStatusCard";
+MembershipStatusCard.displayName = 'MembershipStatusCard';
 
 export default MembershipStatusCard;

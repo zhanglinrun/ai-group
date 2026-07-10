@@ -1,10 +1,10 @@
-import type { PanelItemType } from "../ActionPanel";
+import type { PanelItemType } from '../ActionPanel';
 import {
   resolveDeepSearchStage,
   resolveDeepSearchTitle,
   shouldRenderDeepSearchWorkspace,
-} from "@/utils/deepSearch";
-import { getStableTaskIdentity } from "@/utils/chat";
+} from '@/utils/deepSearch';
+import { getStableTaskIdentity } from '@/utils/chat';
 
 export interface PreviewRendererFlags {
   useFile?: boolean;
@@ -16,11 +16,9 @@ export interface PreviewRendererFlags {
 export function filterPreviewTaskList(taskList?: PanelItemType[]) {
   return (taskList || []).filter(
     (item) =>
-      !["task_summary", "result"].includes(item.messageType) &&
-      (
-        item.messageType !== "deep_search" ||
-        shouldRenderDeepSearchWorkspace(item.resultMap?.messageType)
-      )
+      !['task_summary', 'result'].includes(item.messageType) &&
+      (item.messageType !== 'deep_search' ||
+        shouldRenderDeepSearchWorkspace(item.resultMap?.messageType)),
   );
 }
 
@@ -31,7 +29,7 @@ export function resolvePreviewTaskSelection(params: {
 }) {
   const { defaultTaskItem, taskList, activeTaskIndex } = params;
   let taskItem =
-    typeof activeTaskIndex === "number"
+    typeof activeTaskIndex === 'number'
       ? taskList[activeTaskIndex] || defaultTaskItem
       : defaultTaskItem;
 
@@ -49,63 +47,52 @@ export function resolvePreviewTaskSelection(params: {
 
 export function resolvePreviewTitle(
   taskItem?: CHAT.Task | PanelItemType,
-  primaryFile?: CHAT.TFile
+  primaryFile?: CHAT.TFile,
 ) {
   if (!taskItem) {
-    return "";
+    return '';
   }
 
   const { messageType, resultMap } = taskItem;
-  if (messageType === "tool_result") {
-    if (
-      taskItem.toolResult?.toolName === "image_generation_tool" &&
-      primaryFile?.name
-    ) {
+  if (messageType === 'tool_result') {
+    if (taskItem.toolResult?.toolName === 'image_generation_tool' && primaryFile?.name) {
       return primaryFile.name;
     }
-    return taskItem.toolResult?.toolName || "工具执行";
+    return taskItem.toolResult?.toolName || '工具执行';
   }
 
-  if (
-    ["file", "html", "markdown", "code", "ppt", "data_analysis"].includes(
-      messageType
-    )
-  ) {
+  if (['file', 'html', 'markdown', 'code', 'ppt', 'data_analysis'].includes(messageType)) {
     return primaryFile?.name || messageType;
   }
 
-  if (messageType === "deep_search") {
+  if (messageType === 'deep_search') {
     const stage = resolveDeepSearchStage(resultMap?.messageType);
-    const titleQueries =
-      stage === "report" ? resultMap?.query : resultMap?.searchResult?.query;
+    const titleQueries = stage === 'report' ? resultMap?.query : resultMap?.searchResult?.query;
     return resolveDeepSearchTitle(stage, titleQueries);
   }
 
   return messageType;
 }
 
-export function resolvePreviewLeadingIcon(
-  taskItem?: CHAT.Task | PanelItemType
-) {
-  if (taskItem?.messageType !== "deep_search") {
+export function resolvePreviewLeadingIcon(taskItem?: CHAT.Task | PanelItemType) {
+  if (taskItem?.messageType !== 'deep_search') {
     return undefined;
   }
 
   const stage = resolveDeepSearchStage(taskItem.resultMap?.messageType);
-  return stage === "extend" || stage === "search" ? "search" : undefined;
+  return stage === 'extend' || stage === 'search' ? 'search' : undefined;
 }
 
 export function resolvePreviewCanPreview(
   flags: PreviewRendererFlags | undefined,
-  artifactMissing: boolean
+  artifactMissing: boolean,
 ) {
-  return !artifactMissing && Boolean(
-    flags?.useFile || flags?.useHtml || flags?.useExcel || flags?.useImage
+  return (
+    !artifactMissing &&
+    Boolean(flags?.useFile || flags?.useHtml || flags?.useExcel || flags?.useImage)
   );
 }
 
-export function resolvePreviewTaskRenderKey(
-  taskItem?: CHAT.Task | PanelItemType
-) {
-  return getStableTaskIdentity(taskItem) || "empty";
+export function resolvePreviewTaskRenderKey(taskItem?: CHAT.Task | PanelItemType) {
+  return getStableTaskIdentity(taskItem) || 'empty';
 }

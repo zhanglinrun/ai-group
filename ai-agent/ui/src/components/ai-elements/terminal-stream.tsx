@@ -1,7 +1,7 @@
-"use client";
+'use client';
 
-import { memo, useEffect, useRef, useState } from "react";
-import { cn } from "@/lib/utils";
+import { memo, useEffect, useRef, useState } from 'react';
+import { cn } from '@/lib/utils';
 
 export type TerminalStreamTextProps = {
   text: string;
@@ -26,15 +26,15 @@ const TerminalStreamTextComponent = ({
   isStreaming,
   speed = 10,
   className,
-  caretClassName = "bg-[var(--chat-text)]/55",
-  caretWidthClassName = "w-[3px]",
-  caretHeightClassName = "h-[0.9em]",
+  caretClassName = 'bg-[var(--chat-text)]/55',
+  caretWidthClassName = 'w-[3px]',
+  caretHeightClassName = 'h-[0.9em]',
 }: TerminalStreamTextProps) => {
   const latestTextRef = useRef(text);
-  const displayedRef = useRef("");
+  const displayedRef = useRef('');
   const prevIsStreamingRef = useRef(isStreaming);
 
-  const [displayed, setDisplayed] = useState(isStreaming ? text : "");
+  const [displayed, setDisplayed] = useState(isStreaming ? text : '');
 
   useEffect(() => {
     latestTextRef.current = text;
@@ -62,8 +62,8 @@ const TerminalStreamTextComponent = ({
 
     // Only reset when we enter streaming mode.
     if (!prevIsStreamingRef.current) {
-      displayedRef.current = "";
-      setDisplayed("");
+      displayedRef.current = '';
+      setDisplayed('');
       startTs = performance.now();
       startLen = 0;
     } else {
@@ -72,7 +72,7 @@ const TerminalStreamTextComponent = ({
     }
 
     const tick = (now: number) => {
-      const target = latestTextRef.current || "";
+      const target = latestTextRef.current || '';
       const targetLen = target.length;
 
       const elapsedMs = now - startTs;
@@ -99,8 +99,8 @@ const TerminalStreamTextComponent = ({
   return (
     <pre
       className={cn(
-        "m-0 w-full whitespace-pre-wrap break-words font-mono text-[13px] leading-6",
-        className
+        'm-0 w-full whitespace-pre-wrap break-words font-mono text-[13px] leading-6',
+        className,
       )}
     >
       <code>{displayed}</code>
@@ -108,11 +108,11 @@ const TerminalStreamTextComponent = ({
         <span
           aria-hidden="true"
           className={cn(
-            "inline-block align-baseline ml-1 rounded-[1px] translate-y-[2px]",
+            'inline-block align-baseline ml-1 rounded-[1px] translate-y-[2px]',
             caretWidthClassName,
             caretHeightClassName,
             caretClassName,
-            "animate-pulse"
+            'animate-pulse',
           )}
         />
       ) : null}
@@ -121,4 +121,3 @@ const TerminalStreamTextComponent = ({
 };
 
 export const TerminalStreamText = memo(TerminalStreamTextComponent);
-

@@ -1,14 +1,13 @@
 export function deriveConversationMetaFromInput(
-  info: Pick<CHAT.TInputInfo, "outputStyle" | "deepThink">,
+  info: Pick<CHAT.TInputInfo, 'outputStyle' | 'deepThink'>,
   params: {
     productType: string;
     currentRole: CHAT.ConversationRole | null;
-  }
+  },
 ) {
   const outputStyle = info.outputStyle || params.productType;
-  const isChatMode = outputStyle === "chat";
-  const deepThink =
-    isChatMode || outputStyle === "dataAgent" ? false : Boolean(info.deepThink);
+  const isChatMode = outputStyle === 'chat';
+  const deepThink = isChatMode || outputStyle === 'dataAgent' ? false : Boolean(info.deepThink);
 
   return {
     productType: outputStyle,
@@ -23,8 +22,8 @@ export function shouldHydrateConversationHistory(params: {
 }) {
   return Boolean(
     params.conversation.sessionId &&
-      params.conversation.chatList.length === 0 &&
-      params.conversation.dataChatList.length === 0 &&
-      !params.hydratedSessionIds.has(params.conversation.sessionId)
+    params.conversation.chatList.length === 0 &&
+    params.conversation.dataChatList.length === 0 &&
+    !params.hydratedSessionIds.has(params.conversation.sessionId),
   );
 }

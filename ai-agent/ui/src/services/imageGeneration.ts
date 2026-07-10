@@ -1,9 +1,13 @@
-import api from "./index";
+import api from './index';
 import type {
   ImageGenerationHistoryPage,
   ImageGenerationToolResponse,
-} from "@/pages/WorkspaceImageGeneration/types";
-import { extractImageFromUnknown, extractTextFromUnknown, trimTrailingSlash } from "@/pages/WorkspaceImageGeneration/utils";
+} from '@/pages/WorkspaceImageGeneration/types';
+import {
+  extractImageFromUnknown,
+  extractTextFromUnknown,
+  trimTrailingSlash,
+} from '@/pages/WorkspaceImageGeneration/utils';
 
 const IMAGE_GENERATION_REQUEST_TIMEOUT_MS = 330_000;
 
@@ -17,7 +21,7 @@ type DirectChatRequest = {
 type ToolRequest = {
   requestId: string;
   prompt: string;
-  mode: "images" | "edits";
+  mode: 'images' | 'edits';
   size: string;
   n: number;
   fileNames: string[];
@@ -31,48 +35,50 @@ export class ImageGenerationRequestError extends Error {
 
   constructor(message: string, rawResponse?: unknown) {
     super(message);
-    this.name = "ImageGenerationRequestError";
+    this.name = 'ImageGenerationRequestError';
     this.rawResponse = rawResponse;
   }
 }
 
 export async function requestImageGenerationTool(
-  payload: ToolRequest
+  payload: ToolRequest,
 ): Promise<ImageGenerationToolResponse> {
   try {
-    return (await api.post<ImageGenerationToolResponse>("/api/agent/image-generation/generate", {
-      requestId: payload.requestId,
-      prompt: payload.prompt,
-      mode: payload.mode,
-      fileNames: payload.fileNames,
-      maskFileNames: payload.maskFileNames,
-      fileName: payload.fileName,
-      fileDescription: payload.fileDescription,
-      size: payload.size,
-      n: payload.n,
-    }, {
-      timeout: IMAGE_GENERATION_REQUEST_TIMEOUT_MS,
-    })) as unknown as ImageGenerationToolResponse;
+    return (await api.post<ImageGenerationToolResponse>(
+      '/api/agent/image-generation/generate',
+      {
+        requestId: payload.requestId,
+        prompt: payload.prompt,
+        mode: payload.mode,
+        fileNames: payload.fileNames,
+        maskFileNames: payload.maskFileNames,
+        fileName: payload.fileName,
+        fileDescription: payload.fileDescription,
+        size: payload.size,
+        n: payload.n,
+      },
+      {
+        timeout: IMAGE_GENERATION_REQUEST_TIMEOUT_MS,
+      },
+    )) as unknown as ImageGenerationToolResponse;
   } catch (error) {
-    throw new ImageGenerationRequestError(
-      error instanceof Error ? error.message : "请求失败"
-    );
+    throw new ImageGenerationRequestError(error instanceof Error ? error.message : '请求失败');
   }
 }
 
 export async function requestDirectChat(payload: DirectChatRequest) {
   const response = await fetch(`${trimTrailingSlash(payload.baseUrl)}/v1/chat/completions`, {
-    method: "POST",
+    method: 'POST',
     headers: {
       Authorization: `Bearer ${payload.apiKey}`,
-      "Content-Type": "application/json",
-      Accept: "application/json",
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
     },
     body: JSON.stringify({
       model: payload.model,
       messages: [
         {
-          role: "user",
+          role: 'user',
           content: payload.prompt,
         },
       ],
@@ -88,10 +94,7 @@ export async function requestDirectChat(payload: DirectChatRequest) {
   }
 
   if (!response.ok) {
-    throw new ImageGenerationRequestError(
-      `${response.status} ${response.statusText}`,
-      rawResponse
-    );
+    throw new ImageGenerationRequestError(`${response.status} ${response.statusText}`, rawResponse);
   }
 
   return {
@@ -106,10 +109,11 @@ export async function requestImageGenerationHistory(params: {
   pageSize: number;
 }): Promise<ImageGenerationHistoryPage> {
   try {
-    return (await api.get<ImageGenerationHistoryPage>("/api/agent/image-generation/history", params)) as unknown as ImageGenerationHistoryPage;
+    return (await api.get<ImageGenerationHistoryPage>(
+      '/api/agent/image-generation/history',
+      params,
+    )) as unknown as ImageGenerationHistoryPage;
   } catch (error) {
-    throw new ImageGenerationRequestError(
-      error instanceof Error ? error.message : "历史查询失败"
-    );
+    throw new ImageGenerationRequestError(error instanceof Error ? error.message : '历史查询失败');
   }
 }

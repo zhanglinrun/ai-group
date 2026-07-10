@@ -2,7 +2,7 @@ import { memo, useEffect } from 'react';
 import { Outlet } from 'react-router-dom';
 import { ConfigProvider, message } from 'antd';
 import { ConstantProvider } from '@/hooks';
-import * as constants from "@/utils/constants";
+import * as constants from '@/utils/constants';
 import { setMessage } from '@/utils';
 
 // Layout 组件：应用的主要布局结构

@@ -1,17 +1,14 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState } from 'react';
 
-import type {
-  GenerationConfig,
-  RequestMode,
-} from "./types";
-import { IMAGE_GENERATION_STORAGE_KEY } from "./utils";
+import type { GenerationConfig, RequestMode } from './types';
+import { IMAGE_GENERATION_STORAGE_KEY } from './utils';
 
 export const createDefaultConfig = (): GenerationConfig => ({
-  baseUrl: "https://www.openclaudecode.cn",
-  apiKey: "",
-  model: "gpt-image-2",
-  mode: "images",
-  size: "1024x1024",
+  baseUrl: 'https://www.openclaudecode.cn',
+  apiKey: '',
+  model: 'gpt-image-2',
+  mode: 'images',
+  size: '1024x1024',
   n: 1,
   batchMode: true,
 });
@@ -30,9 +27,7 @@ export const loadStoredConfig = (): GenerationConfig => {
       ...parsed,
       mode: (parsed.mode as RequestMode) || defaults.mode,
       n: Math.max(1, Math.min(10, Number(parsed.n) || defaults.n)),
-      batchMode: typeof parsed.batchMode === "boolean"
-        ? parsed.batchMode
-        : defaults.batchMode,
+      batchMode: typeof parsed.batchMode === 'boolean' ? parsed.batchMode : defaults.batchMode,
     };
   } catch {
     return defaults;
@@ -49,10 +44,7 @@ export function useImageGenerationConfig() {
     localStorage.setItem(IMAGE_GENERATION_STORAGE_KEY, JSON.stringify(config));
   }, [config]);
 
-  const updateConfig = <K extends keyof GenerationConfig>(
-    key: K,
-    value: GenerationConfig[K]
-  ) => {
+  const updateConfig = <K extends keyof GenerationConfig>(key: K, value: GenerationConfig[K]) => {
     setConfig((previous) => ({
       ...previous,
       [key]: value,

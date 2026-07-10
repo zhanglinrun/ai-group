@@ -1,41 +1,38 @@
-import classNames from "classnames";
-import { motion } from "motion/react";
+import classNames from 'classnames';
+import { motion } from 'motion/react';
 
 interface LoadingSpinnerProps {
   color?: string;
   className?: string;
   children?: React.ReactNode;
-  size?: "sm" | "md" | "lg";
+  size?: 'sm' | 'md' | 'lg';
 }
 
 const sizeMap = {
-  sm: "w-4 h-4",
-  md: "w-5 h-5",
-  lg: "w-6 h-6",
+  sm: 'w-4 h-4',
+  md: 'w-5 h-5',
+  lg: 'w-6 h-6',
 };
 
 const LoadingSpinner: React.FC<LoadingSpinnerProps> = ({
   className,
   children,
-  color = "white",
-  size = "md",
+  color = 'white',
+  size = 'md',
 }) => {
   return (
-    <div className={classNames("flex items-center gap-2", className)}>
-      <div className={classNames("relative shrink-0", sizeMap[size])}>
+    <div className={classNames('flex items-center gap-2', className)}>
+      <div className={classNames('relative shrink-0', sizeMap[size])}>
         {/* 外圈旋转 */}
         <div
           className="absolute inset-0 rounded-full animate-spin"
           style={{
             background: `conic-gradient(from 0deg, transparent 0%, #4040ff 50%, transparent 100%)`,
-            animationDuration: "1.2s",
+            animationDuration: '1.2s',
           }}
         />
         {/* 内圈背景 */}
-        <div
-          className="absolute inset-[2px] rounded-full"
-          style={{ backgroundColor: color }}
-        />
+        <div className="absolute inset-[2px] rounded-full" style={{ backgroundColor: color }} />
       </div>
       {children}
     </div>
@@ -51,13 +48,13 @@ export const GradientSpinner: React.FC<{
 }> = ({ className, size = 20 }) => {
   return (
     <motion.div
-      className={classNames("relative", className)}
+      className={classNames('relative', className)}
       style={{ width: size, height: size }}
       animate={{ rotate: 360 }}
       transition={{
         duration: 1.5,
         repeat: Infinity,
-        ease: "linear",
+        ease: 'linear',
       }}
     >
       <svg viewBox="0 0 24 24" fill="none" className="w-full h-full">
@@ -87,7 +84,7 @@ export const GradientSpinner: React.FC<{
  */
 export const PulseDots: React.FC<{ className?: string }> = ({ className }) => {
   return (
-    <div className={classNames("flex items-center gap-1", className)}>
+    <div className={classNames('flex items-center gap-1', className)}>
       {[0, 1, 2].map((i) => (
         <motion.span
           key={i}
@@ -100,7 +97,7 @@ export const PulseDots: React.FC<{ className?: string }> = ({ className }) => {
             duration: 1,
             repeat: Infinity,
             delay: i * 0.2,
-            ease: "easeInOut",
+            ease: 'easeInOut',
           }}
         />
       ))}
@@ -122,7 +119,7 @@ export const RingSpinner: React.FC<{
     : circumference * 0.25;
 
   return (
-    <div className={classNames("relative", className)} style={{ width: size, height: size }}>
+    <div className={classNames('relative', className)} style={{ width: size, height: size }}>
       <motion.svg
         viewBox={`0 0 ${size} ${size}`}
         className="w-full h-full -rotate-90"
@@ -133,7 +130,7 @@ export const RingSpinner: React.FC<{
             : {
                 duration: 1.5,
                 repeat: Infinity,
-                ease: "linear",
+                ease: 'linear',
               }
         }
       >

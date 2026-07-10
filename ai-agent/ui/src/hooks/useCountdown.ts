@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState } from 'react';
 
-export const COUNTDOWN_ENDED = "已结束";
+export const COUNTDOWN_ENDED = '已结束';
 
 function formatRemaining(ms: number): string {
   if (ms <= 0) {
@@ -10,7 +10,7 @@ function formatRemaining(ms: number): string {
   const hours = Math.floor(totalSeconds / 3600);
   const minutes = Math.floor((totalSeconds % 3600) / 60);
   const seconds = totalSeconds % 60;
-  const pad = (n: number) => String(n).padStart(2, "0");
+  const pad = (n: number) => String(n).padStart(2, '0');
   return `${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
 }
 
@@ -19,10 +19,7 @@ function formatRemaining(ms: number): string {
  * 后端返回的 validTimeCountdown 是查询瞬间算好的静态字符串（页面上永远不动），
  * 有 validEndTime 时优先用它本地跳秒，没有时回退静态串。
  */
-export function useCountdown(
-  endTime?: string | number | null,
-  fallback?: string
-): string {
+export function useCountdown(endTime?: string | number | null, fallback?: string): string {
   const end = endTime ? new Date(endTime).getTime() : Number.NaN;
   const valid = Number.isFinite(end);
   const [now, setNow] = useState(() => Date.now());
@@ -36,7 +33,7 @@ export function useCountdown(
   }, [valid, endTime]);
 
   if (!valid) {
-    return fallback || "";
+    return fallback || '';
   }
   return formatRemaining(end - now);
 }

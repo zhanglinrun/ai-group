@@ -1,11 +1,13 @@
-import { useMemoizedFn } from "ahooks";
-import classNames from "classnames";
-import React, { useEffect, useRef } from "react";
+import { useMemoizedFn } from 'ahooks';
+import classNames from 'classnames';
+import React, { useEffect, useRef } from 'react';
 
-const Tabs = <V extends string | number>(props: ReactorType.ControlProps<V> & {
-  options: (ReactorType.OptionsType & {split?: boolean})[];
-  className?: string;
-}) => {
+const Tabs = <V extends string | number>(
+  props: ReactorType.ControlProps<V> & {
+    options: (ReactorType.OptionsType & { split?: boolean })[];
+    className?: string;
+  },
+) => {
   const { value, onChange, className, options } = props;
 
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -40,7 +42,7 @@ const Tabs = <V extends string | number>(props: ReactorType.ControlProps<V> & {
     <div
       className={classNames(
         className,
-        "relative flex items-center gap-1 rounded-xl bg-[#f5f5f7] p-1.5 w-fit"
+        'relative flex items-center gap-1 rounded-xl bg-[#f5f5f7] p-1.5 w-fit',
       )}
       ref={wrapRef}
     >
@@ -49,8 +51,8 @@ const Tabs = <V extends string | number>(props: ReactorType.ControlProps<V> & {
           <div
             key={item.value}
             className={classNames(
-              "relative z-10 px-4 h-8 rounded-lg cursor-pointer flex items-center justify-center shrink-0 whitespace-nowrap text-[13px] font-medium transition-colors duration-200",
-              value === item.value ? "text-[#1d1d1f]" : "text-[#86868b] hover:text-[#1d1d1f]"
+              'relative z-10 px-4 h-8 rounded-lg cursor-pointer flex items-center justify-center shrink-0 whitespace-nowrap text-[13px] font-medium transition-colors duration-200',
+              value === item.value ? 'text-[#1d1d1f]' : 'text-[#86868b] hover:text-[#1d1d1f]',
             )}
             item-key={item.value}
             onClick={() => onChange?.(item.value as V)}
@@ -64,7 +66,7 @@ const Tabs = <V extends string | number>(props: ReactorType.ControlProps<V> & {
       <div
         ref={slideRef}
         className="absolute h-8 rounded-lg bg-white shadow-[0_1px_3px_rgba(0,0,0,0.1)] transition-[width,transform] duration-200 ease-out will-change-transform"
-        style={{ top: "6px" }}
+        style={{ top: '6px' }}
       />
     </div>
   );

@@ -1,6 +1,6 @@
-import api from "./index";
+import api from './index';
 
-const DEFAULT_DEVICE_ID = "device-default";
+const DEFAULT_DEVICE_ID = 'device-default';
 
 let runtimeDeviceId: string | null = DEFAULT_DEVICE_ID;
 
@@ -16,7 +16,7 @@ export function getDeviceId(): string {
 }
 
 export function getDeviceHeaders(): Record<string, string> {
-  return { "X-Device-Id": getDeviceId() };
+  return { 'X-Device-Id': getDeviceId() };
 }
 
 export interface FixRoleItem {
@@ -89,10 +89,10 @@ export const roleLibraryApi = {
 export const conversationHistoryApi = {
   listSessions: (limit = 20) =>
     api.get<ConversationSessionItem[]>(
-      `/api/agent/conversation/sessions?limit=${limit}`
+      `/api/agent/conversation/sessions?limit=${limit}`,
     ) as unknown as Promise<ConversationSessionItem[]>,
   getSessionDetail: (sessionId: string) =>
     api.get<ConversationHistoryDetail>(
-      `/api/agent/conversation/sessions/${sessionId}`
+      `/api/agent/conversation/sessions/${sessionId}`,
     ) as unknown as Promise<ConversationHistoryDetail>,
 };

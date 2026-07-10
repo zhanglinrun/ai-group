@@ -124,6 +124,7 @@
 ### Task 1: 锁住当前在途改动的基线
 
 **Files:**
+
 - Modify: `ui/docs/superpowers/plans/2026-05-05-ui-fat-code-simplification-plan.md`
 - Modify: `ui/docs/superpowers/plans/2026-05-05-ui-frontend-debt-governance-plan.md`
 - Test: `ui/src/utils/chat.test.ts`
@@ -183,6 +184,7 @@ git commit -m "docs: add ui frontend debt governance plan"
 ### Task 2: 收口聊天核心拆分，避免继续把复杂度倒回主文件
 
 **Files:**
+
 - Create: `ui/src/components/ChatView/streamState.ts`
 - Modify: `ui/src/components/ChatView/useConversationStream.ts`
 - Modify: `ui/src/utils/chat.ts`
@@ -193,19 +195,19 @@ git commit -m "docs: add ui frontend debt governance plan"
 - [ ] **Step 1: 为工作区显示判断补失败测试**
 
 ```ts
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from 'vitest';
 
-import { resolveActionPanelVisibility } from "./streamState";
+import { resolveActionPanelVisibility } from './streamState';
 
-describe("streamState", () => {
-  it("存在 plan 但没有 renderable task 时仍应打开右侧工作区", () => {
+describe('streamState', () => {
+  it('存在 plan 但没有 renderable task 时仍应打开右侧工作区', () => {
     expect(
       resolveActionPanelVisibility({
         plan: {
-          stages: [{ title: "分析需求", status: "completed" }],
+          stages: [{ title: '分析需求', status: 'completed' }],
         } as unknown as CHAT.Plan,
         taskList: [],
-      })
+      }),
     ).toBe(true);
   });
 });
@@ -215,11 +217,10 @@ describe("streamState", () => {
 
 ```ts
 // ui/src/components/ChatView/streamState.ts
-export function resolveActionPanelVisibility(params: {
-  plan?: CHAT.Plan;
-  taskList: CHAT.Task[];
-}) {
-  return Boolean(params.plan) || params.taskList.some((task) => task.messageType !== "task_summary");
+export function resolveActionPanelVisibility(params: { plan?: CHAT.Plan; taskList: CHAT.Task[] }) {
+  return (
+    Boolean(params.plan) || params.taskList.some((task) => task.messageType !== 'task_summary')
+  );
 }
 
 export function resolveLatestRunState(chat?: CHAT.ChatItem) {
@@ -237,14 +238,14 @@ export function resolveLatestRunState(chat?: CHAT.ChatItem) {
 
 ```ts
 // ui/src/components/ChatView/useConversationStream.ts
-import { resolveActionPanelVisibility, resolveLatestRunState } from "./streamState";
+import { resolveActionPanelVisibility, resolveLatestRunState } from './streamState';
 
 setActiveRunState(resolveLatestRunState(latestChatSnapshot));
 setShowAction(
   resolveActionPanelVisibility({
     plan: conversationTaskData.plan,
     taskList: conversationTaskData.taskList,
-  })
+  }),
 );
 ```
 
@@ -260,7 +261,7 @@ export {
   getStableTaskIdentity,
   handleTaskData,
   normalizeEventData,
-} from "../chat";
+} from '../chat';
 ```
 
 - [ ] **Step 5: 跑聊天核心相关测试**
@@ -287,6 +288,7 @@ git commit -m "refactor: stabilize chat stream core"
 ### Task 3: 拆掉 `Home/index.tsx` 的入口状态机
 
 **Files:**
+
 - Create: `ui/src/pages/Home/homeState.ts`
 - Create: `ui/src/pages/Home/homeState.test.ts`
 - Create: `ui/src/pages/Home/useRecentSessions.ts`
@@ -298,30 +300,30 @@ git commit -m "refactor: stabilize chat stream core"
 - [ ] **Step 1: 为首页模式切换元数据补失败测试**
 
 ```ts
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from 'vitest';
 
-import { deriveConversationMetaFromInput } from "./homeState";
+import { deriveConversationMetaFromInput } from './homeState';
 
-describe("homeState", () => {
-  it("切到 dataAgent 时应清空角色并关闭 deepThink", () => {
+describe('homeState', () => {
+  it('切到 dataAgent 时应清空角色并关闭 deepThink', () => {
     expect(
       deriveConversationMetaFromInput(
         {
-          outputStyle: "dataAgent",
+          outputStyle: 'dataAgent',
           deepThink: true,
         },
         {
-          productType: "html",
+          productType: 'html',
           currentRole: {
-            agentId: "agent-1",
-            agentName: "默认角色",
+            agentId: 'agent-1',
+            agentName: '默认角色',
             available: true,
             defaultRole: true,
           },
-        }
-      )
+        },
+      ),
     ).toMatchObject({
-      productType: "dataAgent",
+      productType: 'dataAgent',
       deepThink: false,
       role: null,
     });
@@ -334,16 +336,15 @@ describe("homeState", () => {
 ```ts
 // ui/src/pages/Home/homeState.ts
 export function deriveConversationMetaFromInput(
-  info: Pick<CHAT.TInputInfo, "outputStyle" | "deepThink">,
+  info: Pick<CHAT.TInputInfo, 'outputStyle' | 'deepThink'>,
   params: {
     productType: string;
     currentRole: CHAT.ConversationRole | null;
-  }
+  },
 ) {
   const outputStyle = info.outputStyle || params.productType;
-  const isChatMode = outputStyle === "chat";
-  const deepThink =
-    isChatMode || outputStyle === "dataAgent" ? false : Boolean(info.deepThink);
+  const isChatMode = outputStyle === 'chat';
+  const deepThink = isChatMode || outputStyle === 'dataAgent' ? false : Boolean(info.deepThink);
 
   return {
     productType: outputStyle,
@@ -358,9 +359,9 @@ export function shouldHydrateConversationHistory(params: {
 }) {
   return Boolean(
     params.conversation.sessionId &&
-      params.conversation.chatList.length === 0 &&
-      params.conversation.dataChatList.length === 0 &&
-      !params.hydratedSessionIds.has(params.conversation.sessionId)
+    params.conversation.chatList.length === 0 &&
+    params.conversation.dataChatList.length === 0 &&
+    !params.hydratedSessionIds.has(params.conversation.sessionId),
   );
 }
 ```
@@ -442,7 +443,7 @@ export default function WelcomeView(props: {
         displayOutput={props.displayOutput}
         chatRole={props.currentConversationRole}
         chatRoles={props.fixRoles}
-        showRoleSelector={props.product.type === "chat"}
+        showRoleSelector={props.product.type === 'chat'}
         send={props.onSend}
         onSelectionChange={props.onSelectionChange}
         onRoleSelect={props.onRoleSelect}
@@ -470,6 +471,7 @@ git commit -m "refactor: split home conversation state"
 ### Task 4: 拆掉 `GeneralInput/index.tsx` 的上传与模式状态机
 
 **Files:**
+
 - Create: `ui/src/components/GeneralInput/inputMode.ts`
 - Create: `ui/src/components/GeneralInput/inputMode.test.ts`
 - Create: `ui/src/components/GeneralInput/uploadQueue.ts`
@@ -481,23 +483,23 @@ git commit -m "refactor: split home conversation state"
 - [ ] **Step 1: 为发送 payload 组装补失败测试**
 
 ```ts
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from 'vitest';
 
-import { buildSubmitPayload } from "./inputMode";
+import { buildSubmitPayload } from './inputMode';
 
-describe("inputMode", () => {
-  it("深度研究模式应保留结构化输出类型并打开 deepThink", () => {
+describe('inputMode', () => {
+  it('深度研究模式应保留结构化输出类型并打开 deepThink', () => {
     expect(
       buildSubmitPayload({
-        question: "帮我调研竞品",
-        visibleMode: "research",
+        question: '帮我调研竞品',
+        visibleMode: 'research',
         isDataAgent: false,
-        visibleOutputProduct: { type: "html" } as CHAT.Product,
+        visibleOutputProduct: { type: 'html' } as CHAT.Product,
         uploadedFiles: [],
         chatRole: null,
-      })
+      }),
     ).toMatchObject({
-      outputStyle: "html",
+      outputStyle: 'html',
       deepThink: true,
     });
   });
@@ -510,27 +512,27 @@ describe("inputMode", () => {
 // ui/src/components/GeneralInput/inputMode.ts
 export function buildSubmitPayload(params: {
   question: string;
-  visibleMode: "quick" | "think" | "research";
+  visibleMode: 'quick' | 'think' | 'research';
   isDataAgent: boolean;
   visibleOutputProduct: CHAT.Product;
   uploadedFiles: CHAT.TFile[];
   chatRole: CHAT.ConversationRole | null;
 }) {
   const outputStyle = params.isDataAgent
-    ? "dataAgent"
-    : params.visibleMode === "quick"
-      ? "chat"
+    ? 'dataAgent'
+    : params.visibleMode === 'quick'
+      ? 'chat'
       : params.visibleOutputProduct.type;
 
   return {
     message: params.question.trim(),
     outputStyle,
     deepThink:
-      outputStyle !== "chat" && outputStyle !== "dataAgent"
-        ? params.visibleMode === "research"
+      outputStyle !== 'chat' && outputStyle !== 'dataAgent'
+        ? params.visibleMode === 'research'
         : false,
     files: params.uploadedFiles.length > 0 ? params.uploadedFiles : undefined,
-    aiAgentId: outputStyle === "chat" ? params.chatRole?.agentId : undefined,
+    aiAgentId: outputStyle === 'chat' ? params.chatRole?.agentId : undefined,
   };
 }
 ```
@@ -542,7 +544,7 @@ export function buildSubmitPayload(params: {
 export function markUploadSuccess(
   queue: Record<string, UploadAttachmentState>,
   id: string,
-  uploadedFile: CHAT.TFile
+  uploadedFile: CHAT.TFile,
 ) {
   const current = queue[id];
   if (!current) {
@@ -552,7 +554,7 @@ export function markUploadSuccess(
     ...queue,
     [id]: {
       ...current,
-      status: "success",
+      status: 'success',
       error: undefined,
       uploadedFile,
     },
@@ -563,15 +565,20 @@ export function markUploadSuccess(
 ```ts
 // ui/src/components/GeneralInput/useAttachmentUploads.ts
 export function useAttachmentUploads(sessionId: string) {
-  const [attachmentUploads, setAttachmentUploads] = useState<Record<string, UploadAttachmentState>>({});
+  const [attachmentUploads, setAttachmentUploads] = useState<Record<string, UploadAttachmentState>>(
+    {},
+  );
   const [attachmentOrder, setAttachmentOrder] = useState<string[]>([]);
 
-  const uploadAttachment = useCallback(async (attachmentId: string, file: File) => {
-    const uploadedFile = normalizeUploadedFile(
-      await agentFileApi.uploadConversationFile(sessionId, file)
-    );
-    setAttachmentUploads((prev) => markUploadSuccess(prev, attachmentId, uploadedFile));
-  }, [sessionId]);
+  const uploadAttachment = useCallback(
+    async (attachmentId: string, file: File) => {
+      const uploadedFile = normalizeUploadedFile(
+        await agentFileApi.uploadConversationFile(sessionId, file),
+      );
+      setAttachmentUploads((prev) => markUploadSuccess(prev, attachmentId, uploadedFile));
+    },
+    [sessionId],
+  );
 
   return {
     attachmentUploads,
@@ -593,14 +600,14 @@ export default function UploadAttachmentChip(props: {
   onRemoveAttachment: (id: string) => void;
   onRetryAttachment: (id: string) => void;
 }) {
-  const isError = props.uploadState?.status === "error";
+  const isError = props.uploadState?.status === 'error';
   return (
     <div className="group flex min-w-0 max-w-full items-center gap-2 rounded-2xl bg-[var(--chat-surface-muted)]/78 px-2.5 py-2 text-[13px] shadow-[var(--shadow-xs)]">
       <div className="min-w-0 flex-1">
         <div className="truncate text-[13px] font-medium text-[var(--chat-text)]">
-          {props.attachment.filename || "未命名文件"}
+          {props.attachment.filename || '未命名文件'}
         </div>
-        <div className={isError ? "text-[#d14343]" : "text-[var(--chat-text-soft)]"}>
+        <div className={isError ? 'text-[#d14343]' : 'text-[var(--chat-text-soft)]'}>
           {resolveUploadStatusLabel(props.uploadState)}
         </div>
       </div>
@@ -633,6 +640,7 @@ git commit -m "refactor: split general input state machine"
 ### Task 5: 拆掉 `WorkspaceMRag/index.tsx` 的异步编排
 
 **Files:**
+
 - Create: `ui/src/pages/WorkspaceMRag/knowledgeBaseState.ts`
 - Create: `ui/src/pages/WorkspaceMRag/knowledgeBaseState.test.ts`
 - Create: `ui/src/pages/WorkspaceMRag/useKnowledgeBaseCatalog.ts`
@@ -644,27 +652,21 @@ git commit -m "refactor: split general input state machine"
 - [ ] **Step 1: 为知识库选中规则补失败测试**
 
 ```ts
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from 'vitest';
 
-import { resolveSelectedKnowledgeBaseId, shouldPollKnowledgeBaseFiles } from "./knowledgeBaseState";
+import { resolveSelectedKnowledgeBaseId, shouldPollKnowledgeBaseFiles } from './knowledgeBaseState';
 
-describe("knowledgeBaseState", () => {
-  it("优先使用 preferredKnowledgeBaseId，缺失时回退当前选中，再回退第一项", () => {
-    const knowledgeBases = [{ id: "kb-1" }, { id: "kb-2" }] as Array<{ id: string }>;
+describe('knowledgeBaseState', () => {
+  it('优先使用 preferredKnowledgeBaseId，缺失时回退当前选中，再回退第一项', () => {
+    const knowledgeBases = [{ id: 'kb-1' }, { id: 'kb-2' }] as Array<{ id: string }>;
 
-    expect(
-      resolveSelectedKnowledgeBaseId(knowledgeBases, "kb-1", "kb-2")
-    ).toBe("kb-2");
-    expect(
-      resolveSelectedKnowledgeBaseId(knowledgeBases, "kb-1", "kb-x")
-    ).toBe("kb-1");
+    expect(resolveSelectedKnowledgeBaseId(knowledgeBases, 'kb-1', 'kb-2')).toBe('kb-2');
+    expect(resolveSelectedKnowledgeBaseId(knowledgeBases, 'kb-1', 'kb-x')).toBe('kb-1');
   });
 
-  it("只有存在处理中文件时才轮询文件列表", () => {
+  it('只有存在处理中文件时才轮询文件列表', () => {
     expect(
-      shouldPollKnowledgeBaseFiles([
-        { fileStatus: "RUNNING" },
-      ] as Array<{ fileStatus: string }>)
+      shouldPollKnowledgeBaseFiles([{ fileStatus: 'RUNNING' }] as Array<{ fileStatus: string }>),
     ).toBe(true);
   });
 });
@@ -677,7 +679,7 @@ describe("knowledgeBaseState", () => {
 export function resolveSelectedKnowledgeBaseId(
   knowledgeBases: Array<{ id: string }>,
   currentKnowledgeBaseId: string,
-  preferredKnowledgeBaseId?: string
+  preferredKnowledgeBaseId?: string,
 ) {
   const preferred = preferredKnowledgeBaseId?.trim();
   if (preferred && knowledgeBases.some((item) => item.id === preferred)) {
@@ -686,13 +688,11 @@ export function resolveSelectedKnowledgeBaseId(
   if (currentKnowledgeBaseId && knowledgeBases.some((item) => item.id === currentKnowledgeBaseId)) {
     return currentKnowledgeBaseId;
   }
-  return knowledgeBases[0]?.id || "";
+  return knowledgeBases[0]?.id || '';
 }
 
-export function shouldPollKnowledgeBaseFiles(
-  files: Array<{ fileStatus?: string }>
-) {
-  return files.some((file) => file.fileStatus === "RUNNING");
+export function shouldPollKnowledgeBaseFiles(files: Array<{ fileStatus?: string }>) {
+  return files.some((file) => file.fileStatus === 'RUNNING');
 }
 ```
 
@@ -703,23 +703,26 @@ export function shouldPollKnowledgeBaseFiles(
 export function useKnowledgeBaseCatalog(toolBaseUrl: string) {
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([]);
   const [knowledgeBasesLoading, setKnowledgeBasesLoading] = useState(false);
-  const [knowledgeBasesError, setKnowledgeBasesError] = useState("");
+  const [knowledgeBasesError, setKnowledgeBasesError] = useState('');
 
-  const refreshKnowledgeBases = useCallback(async (options?: { preferredKnowledgeBaseId?: string }) => {
-    setKnowledgeBasesLoading(true);
-    try {
-      const nextKnowledgeBases = await listKnowledgeBases(toolBaseUrl);
-      setKnowledgeBases(nextKnowledgeBases);
-      setKnowledgeBasesError("");
-      return nextKnowledgeBases;
-    } catch (error) {
-      setKnowledgeBasesError(mapMragError(error));
-      setKnowledgeBases([]);
-      return [];
-    } finally {
-      setKnowledgeBasesLoading(false);
-    }
-  }, [toolBaseUrl]);
+  const refreshKnowledgeBases = useCallback(
+    async (options?: { preferredKnowledgeBaseId?: string }) => {
+      setKnowledgeBasesLoading(true);
+      try {
+        const nextKnowledgeBases = await listKnowledgeBases(toolBaseUrl);
+        setKnowledgeBases(nextKnowledgeBases);
+        setKnowledgeBasesError('');
+        return nextKnowledgeBases;
+      } catch (error) {
+        setKnowledgeBasesError(mapMragError(error));
+        setKnowledgeBases([]);
+        return [];
+      } finally {
+        setKnowledgeBasesLoading(false);
+      }
+    },
+    [toolBaseUrl],
+  );
 
   return { knowledgeBases, knowledgeBasesLoading, knowledgeBasesError, refreshKnowledgeBases };
 }
@@ -730,31 +733,34 @@ export function useKnowledgeBaseCatalog(toolBaseUrl: string) {
 export function useMragQuery(toolBaseUrl: string, selectedKnowledgeBaseId: string) {
   const queryAbortRef = useRef<AbortController | null>(null);
   const [querying, setQuerying] = useState(false);
-  const [queryAnswer, setQueryAnswer] = useState("");
-  const [queryError, setQueryError] = useState("");
+  const [queryAnswer, setQueryAnswer] = useState('');
+  const [queryError, setQueryError] = useState('');
   const [queryRawChunks, setQueryRawChunks] = useState<unknown[]>([]);
 
-  const submitQuery = useCallback(async (question: string) => {
-    const abortController = new AbortController();
-    queryAbortRef.current = abortController;
-    setQuerying(true);
-    setQueryAnswer("");
-    setQueryError("");
-    setQueryRawChunks([]);
-    await streamMragQuery({
-      toolBaseUrl,
-      kbId: selectedKnowledgeBaseId,
-      question,
-      signal: abortController.signal,
-      onChunk(chunk) {
-        if (chunk.content) {
-          setQueryAnswer((previous) => previous + chunk.content);
-        }
-        setQueryRawChunks((previous) => [...previous, chunk.raw].slice(-50));
-      },
-    });
-    setQuerying(false);
-  }, [selectedKnowledgeBaseId, toolBaseUrl]);
+  const submitQuery = useCallback(
+    async (question: string) => {
+      const abortController = new AbortController();
+      queryAbortRef.current = abortController;
+      setQuerying(true);
+      setQueryAnswer('');
+      setQueryError('');
+      setQueryRawChunks([]);
+      await streamMragQuery({
+        toolBaseUrl,
+        kbId: selectedKnowledgeBaseId,
+        question,
+        signal: abortController.signal,
+        onChunk(chunk) {
+          if (chunk.content) {
+            setQueryAnswer((previous) => previous + chunk.content);
+          }
+          setQueryRawChunks((previous) => [...previous, chunk.raw].slice(-50));
+        },
+      });
+      setQuerying(false);
+    },
+    [selectedKnowledgeBaseId, toolBaseUrl],
+  );
 
   return { querying, queryAnswer, queryError, queryRawChunks, submitQuery };
 }
@@ -800,6 +806,7 @@ git commit -m "refactor: split mrag workspace orchestration"
 ### Task 6: 清理 `DataChat` 遗留 JS 和可变配置写法
 
 **Files:**
+
 - Delete: `ui/src/components/DataChat/ChartUtils.js`
 - Create: `ui/src/components/DataChat/chartPresets.ts`
 - Create: `ui/src/components/DataChat/chartConfig.ts`
@@ -810,25 +817,25 @@ git commit -m "refactor: split mrag workspace orchestration"
 - [ ] **Step 1: 为图表配置纯函数补失败测试**
 
 ```ts
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from 'vitest';
 
-import { buildChartConfig } from "./chartConfig";
+import { buildChartConfig } from './chartConfig';
 
-describe("chartConfig", () => {
-  it("构建图表配置时不应修改输入对象", () => {
+describe('chartConfig', () => {
+  it('构建图表配置时不应修改输入对象', () => {
     const input = {
-      chartSuggest: "line",
-      dimCols: ["dt"],
-      measureCols: ["gmv"],
+      chartSuggest: 'line',
+      dimCols: ['dt'],
+      measureCols: ['gmv'],
       columnList: [],
-      dataList: [{ dt: "2026-05-01", gmv: 10 }],
+      dataList: [{ dt: '2026-05-01', gmv: 10 }],
     };
     const frozen = Object.freeze({ ...input });
 
     const result = buildChartConfig(frozen as typeof input);
 
-    expect(result.chartType).toBe("line");
-    expect(frozen.chartSuggest).toBe("line");
+    expect(result.chartType).toBe('line');
+    expect(frozen.chartSuggest).toBe('line');
   });
 });
 ```
@@ -837,15 +844,13 @@ describe("chartConfig", () => {
 
 ```ts
 // ui/src/components/DataChat/chartConfig.ts
-import { defaultChartPresets } from "./chartPresets";
+import { defaultChartPresets } from './chartPresets';
 
-export function buildChartConfig(
-  chartCfg: Record<string, unknown>
-) {
+export function buildChartConfig(chartCfg: Record<string, unknown>) {
   const nextConfig = {
     ...chartCfg,
   };
-  const chartType = String(nextConfig.chartSuggest || "table");
+  const chartType = String(nextConfig.chartSuggest || 'table');
 
   if (defaultChartPresets.chartTypes.includes(chartType)) {
     return {
@@ -854,7 +859,7 @@ export function buildChartConfig(
     };
   }
 
-  if (chartType === "table") {
+  if (chartType === 'table') {
     return {
       chartType,
       ...initTable(nextConfig),
@@ -877,11 +882,13 @@ export function buildQuerySummary(chartCfg: Record<string, any>) {
   return {
     dims: (chartCfg.dimCols || []).map((item: string) => item),
     measures: (chartCfg.measureCols || []).map((item: string) => item),
-    filters: (chartCfg.filters || []).map((item: { name: string; optName: string; val?: string }) => {
-      const value = item.val?.replace(/^\%+/g, "").replace(/\%+$/g, "") || "";
-      return `${item.name}(${item.optName}${value})`;
-    }),
-    formula: chartCfg.overwriteCalc || "",
+    filters: (chartCfg.filters || []).map(
+      (item: { name: string; optName: string; val?: string }) => {
+        const value = item.val?.replace(/^\%+/g, '').replace(/\%+$/g, '') || '';
+        return `${item.name}(${item.optName}${value})`;
+      },
+    ),
+    formula: chartCfg.overwriteCalc || '',
   };
 }
 ```
@@ -917,6 +924,7 @@ git commit -m "refactor: type data chat config builders"
 ### Task 7: 收敛 `ActionPanel` / `FilePreview` 的渲染分发
 
 **Files:**
+
 - Create: `ui/src/components/ActionPanel/panelResolver.ts`
 - Create: `ui/src/components/ActionView/filePreviewModel.ts`
 - Create: `ui/src/components/ActionView/filePreviewModel.test.ts`
@@ -927,21 +935,21 @@ git commit -m "refactor: type data chat config builders"
 - [ ] **Step 1: 为预览标题派生补失败测试**
 
 ```ts
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from 'vitest';
 
-import { resolvePreviewTitle } from "./filePreviewModel";
+import { resolvePreviewTitle } from './filePreviewModel';
 
-describe("filePreviewModel", () => {
-  it("deep_search report 阶段应优先显示查询标题", () => {
+describe('filePreviewModel', () => {
+  it('deep_search report 阶段应优先显示查询标题', () => {
     expect(
       resolvePreviewTitle({
-        messageType: "deep_search",
+        messageType: 'deep_search',
         resultMap: {
-          messageType: "report",
-          query: "帮我总结 5 月投放效果",
+          messageType: 'report',
+          query: '帮我总结 5 月投放效果',
         },
-      } as unknown as CHAT.Task)
-    ).toContain("帮我总结 5 月投放效果");
+      } as unknown as CHAT.Task),
+    ).toContain('帮我总结 5 月投放效果');
   });
 });
 ```
@@ -952,15 +960,15 @@ describe("filePreviewModel", () => {
 // ui/src/components/ActionPanel/panelResolver.ts
 export function resolvePanelView(taskItem?: PanelItemType) {
   if (!taskItem) {
-    return { type: "empty" } as const;
+    return { type: 'empty' } as const;
   }
-  if (taskItem.messageType === "deep_search") {
-    return { type: "search" } as const;
+  if (taskItem.messageType === 'deep_search') {
+    return { type: 'search' } as const;
   }
-  if (taskItem.messageType === "html" || taskItem.messageType === "ppt") {
-    return { type: "html" } as const;
+  if (taskItem.messageType === 'html' || taskItem.messageType === 'ppt') {
+    return { type: 'html' } as const;
   }
-  return { type: "markdown" } as const;
+  return { type: 'markdown' } as const;
 }
 ```
 
@@ -968,12 +976,14 @@ export function resolvePanelView(taskItem?: PanelItemType) {
 // ui/src/components/ActionView/filePreviewModel.ts
 export function resolvePreviewTitle(taskItem?: CHAT.Task) {
   if (!taskItem) {
-    return "";
+    return '';
   }
-  if (taskItem.messageType === "deep_search") {
-    return String(taskItem.resultMap?.query || taskItem.resultMap?.searchResult?.query || "deep_search");
+  if (taskItem.messageType === 'deep_search') {
+    return String(
+      taskItem.resultMap?.query || taskItem.resultMap?.searchResult?.query || 'deep_search',
+    );
   }
-  return String(taskItem.messageType || "");
+  return String(taskItem.messageType || '');
 }
 ```
 
@@ -1011,6 +1021,7 @@ git commit -m "refactor: extract preview and panel resolvers"
 ### Task 8: 完整回归并更新前端维护约定
 
 **Files:**
+
 - Modify: `ui/CLAUDE.md`
 - Modify: `ui/docs/superpowers/plans/2026-05-05-ui-fat-code-simplification-plan.md`
 - Modify: `ui/docs/superpowers/plans/2026-05-05-ui-frontend-debt-governance-plan.md`

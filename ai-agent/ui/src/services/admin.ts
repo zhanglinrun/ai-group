@@ -1,4 +1,4 @@
-import api from "./index";
+import api from './index';
 
 /** 会员 SKU（member_db.product_sku 全字段行） */
 export interface AdminSku {
@@ -71,38 +71,37 @@ export interface AdminClientModel {
  */
 export const adminApi = {
   // ---- 会员套餐 / 价格（member-service） ----
-  listSkus: () =>
-    api.get<AdminSku[]>("/api/member/admin/skus") as unknown as Promise<AdminSku[]>,
+  listSkus: () => api.get<AdminSku[]>('/api/member/admin/skus') as unknown as Promise<AdminSku[]>,
 
   updateSku: (code: string, body: Partial<AdminSku>) =>
     api.put<AdminSku>(`/api/member/admin/skus/${code}`, body) as unknown as Promise<AdminSku>,
 
   // ---- 拼团活动 / 折扣 / 商品（group 服务） ----
   listGroupActivities: () =>
-    api.get<AdminGroupActivity[]>(
-      "/api/group/admin/activities"
-    ) as unknown as Promise<AdminGroupActivity[]>,
+    api.get<AdminGroupActivity[]>('/api/group/admin/activities') as unknown as Promise<
+      AdminGroupActivity[]
+    >,
 
   updateGroupActivity: (activityId: number, body: AdminGroupActivityUpdate) =>
     api.put<boolean>(
       `/api/group/admin/activities/${activityId}`,
-      body
+      body,
     ) as unknown as Promise<boolean>,
 
   // ---- 模型 Key（ai-agent 管理接口，经网关 /api/v1/admin/**） ----
   listClientApis: () =>
-    api.get<AdminClientApi[]>(
-      "/api/v1/admin/ai-client-api/query-all"
-    ) as unknown as Promise<AdminClientApi[]>,
+    api.get<AdminClientApi[]>('/api/v1/admin/ai-client-api/query-all') as unknown as Promise<
+      AdminClientApi[]
+    >,
 
   updateClientApi: (body: Partial<AdminClientApi>) =>
     api.put<boolean>(
-      "/api/v1/admin/ai-client-api/update-by-api-id",
-      body
+      '/api/v1/admin/ai-client-api/update-by-api-id',
+      body,
     ) as unknown as Promise<boolean>,
 
   listClientModels: () =>
-    api.get<AdminClientModel[]>(
-      "/api/v1/admin/ai-client-model/query-all"
-    ) as unknown as Promise<AdminClientModel[]>,
+    api.get<AdminClientModel[]>('/api/v1/admin/ai-client-model/query-all') as unknown as Promise<
+      AdminClientModel[]
+    >,
 };

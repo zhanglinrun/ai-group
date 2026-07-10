@@ -1,6 +1,6 @@
-import { useEffect, useRef } from "react";
-import * as echarts from "echarts";
-import type { EChartsOption } from "echarts";
+import { useEffect, useRef } from 'react';
+import * as echarts from 'echarts';
+import type { EChartsOption } from 'echarts';
 
 interface ChartProps {
   data: {
@@ -31,10 +31,10 @@ const Chart: ReactorType.FC<ChartProps> = ({ data }) => {
       if (option) {
         chartInstance.current.setOption(option, true);
       } else {
-        console.warn("图表配置项不存在");
+        console.warn('图表配置项不存在');
       }
     } catch (error) {
-      console.error("初始化图表失败:", error);
+      console.error('初始化图表失败:', error);
       chartInstance.current = null;
     }
 
@@ -44,11 +44,11 @@ const Chart: ReactorType.FC<ChartProps> = ({ data }) => {
     };
 
     // 监听窗口大小变化（使用被动监听提高性能）
-    window.addEventListener("resize", handleResize, { passive: true });
+    window.addEventListener('resize', handleResize, { passive: true });
 
     // 清理函数
     return () => {
-      window.removeEventListener("resize", handleResize);
+      window.removeEventListener('resize', handleResize);
       if (chartInstance.current) {
         chartInstance.current.dispose();
         chartInstance.current = null;

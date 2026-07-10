@@ -1,26 +1,16 @@
-@import "@fontsource-variable/geist";
+@import '@fontsource-variable/geist';
 
 .ai-chat-surface {
-  font-family:
-    "Geist Variable",
-    "Geist",
-    "SF Pro Display",
-    "Segoe UI",
-    sans-serif;
+  font-family: 'Geist Variable', 'Geist', 'SF Pro Display', 'Segoe UI', sans-serif;
 }
 
 .ai-chat-floating {
-  font-family:
-    "Geist Variable",
-    "Geist",
-    "SF Pro Display",
-    "Segoe UI",
-    sans-serif;
+  font-family: 'Geist Variable', 'Geist', 'SF Pro Display', 'Segoe UI', sans-serif;
   color: var(--foreground);
 }
 
 .ai-chat-surface::before {
-  content: "";
+  content: '';
   position: absolute;
   inset: 0;
   z-index: -2;
@@ -30,7 +20,7 @@
 }
 
 .ai-chat-surface::after {
-  content: "";
+  content: '';
   position: absolute;
   inset: 0;
   z-index: -1;
@@ -141,13 +131,7 @@
   border-radius: calc(var(--radius) - 5px);
   background: color-mix(in oklch, var(--muted) 70%, transparent);
   padding: 0.15rem 0.35rem;
-  font-family:
-    "SFMono-Regular",
-    "JetBrains Mono",
-    Consolas,
-    "Liberation Mono",
-    Menlo,
-    monospace;
+  font-family: 'SFMono-Regular', 'JetBrains Mono', Consolas, 'Liberation Mono', Menlo, monospace;
   font-size: 0.9em;
 }
 

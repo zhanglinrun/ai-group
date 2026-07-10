@@ -1,9 +1,9 @@
-"use client";
+'use client';
 
-import { motion, AnimatePresence, useSpring, useMotionValue } from "motion/react";
-import { Streamdown } from "streamdown";
-import { cn } from "@/lib/utils";
-import { memo, useEffect, useRef, useState, useMemo } from "react";
+import { motion, AnimatePresence, useSpring, useMotionValue } from 'motion/react';
+import { Streamdown } from 'streamdown';
+import { cn } from '@/lib/utils';
+import { memo, useEffect, useRef, useState, useMemo } from 'react';
 
 export interface StreamingTextProps {
   children: string;
@@ -14,7 +14,7 @@ export interface StreamingTextProps {
   /** 是否启用光标 */
   showCursor?: boolean;
   /** 光标样式 */
-  cursorStyle?: "block" | "line" | "pulse";
+  cursorStyle?: 'block' | 'line' | 'pulse';
 }
 
 /**
@@ -27,7 +27,7 @@ const StreamingTextComponent = ({
   className,
   enableCharAnimation = true,
   showCursor = true,
-  cursorStyle = "pulse",
+  cursorStyle = 'pulse',
 }: StreamingTextProps) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [displayText, setDisplayText] = useState(children);
@@ -104,7 +104,7 @@ const StreamingTextComponent = ({
     if (isNearBottom) {
       parent.scrollTo({
         top: parent.scrollHeight,
-        behavior: "smooth",
+        behavior: 'smooth',
       });
     }
   }, [displayText, isStreaming]);
@@ -114,17 +114,17 @@ const StreamingTextComponent = ({
     if (!showCursor || !isStreaming) return null;
 
     const cursorClasses = {
-      block: "w-2 h-5 bg-primary rounded-sm",
-      line: "w-0.5 h-5 bg-primary",
-      pulse: "w-2 h-5 bg-primary rounded-sm",
+      block: 'w-2 h-5 bg-primary rounded-sm',
+      line: 'w-0.5 h-5 bg-primary',
+      pulse: 'w-2 h-5 bg-primary rounded-sm',
     };
 
     return (
       <motion.span
-        className={cn("inline-block align-middle ml-0.5", cursorClasses[cursorStyle])}
-        style={{ opacity: cursorStyle === "pulse" ? smoothCursorOpacity : 1 }}
-        animate={cursorStyle === "pulse" ? {} : { opacity: [1, 0.3, 1] }}
-        transition={cursorStyle === "pulse" ? {} : { duration: 1, repeat: Infinity }}
+        className={cn('inline-block align-middle ml-0.5', cursorClasses[cursorStyle])}
+        style={{ opacity: cursorStyle === 'pulse' ? smoothCursorOpacity : 1 }}
+        animate={cursorStyle === 'pulse' ? {} : { opacity: [1, 0.3, 1] }}
+        transition={cursorStyle === 'pulse' ? {} : { duration: 1, repeat: Infinity }}
       />
     );
   }, [showCursor, isStreaming, cursorStyle, smoothCursorOpacity]);
@@ -133,8 +133,8 @@ const StreamingTextComponent = ({
     <div ref={containerRef} className="relative">
       <Streamdown
         className={cn(
-          "ai-chat-markdown size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
-          className
+          'ai-chat-markdown size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0',
+          className,
         )}
       >
         {enableCharAnimation && isStreaming ? displayText : displayText}
@@ -163,7 +163,7 @@ const StreamMessageWrapperComponent = ({
 }: StreamMessageWrapperProps) => {
   return (
     <motion.div
-      className={cn("w-full", className)}
+      className={cn('w-full', className)}
       initial={isNew ? { opacity: 0, y: 20, scale: 0.98 } : false}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       transition={{
@@ -171,7 +171,7 @@ const StreamMessageWrapperComponent = ({
         ease: [0.25, 0.46, 0.45, 0.94],
       }}
       layout
-      layoutId={isNew ? "new-message" : undefined}
+      layoutId={isNew ? 'new-message' : undefined}
     >
       {children}
     </motion.div>
@@ -205,13 +205,13 @@ const TypewriterComponent = ({
   hideCursorOnComplete = true,
   onComplete,
 }: TypewriterProps) => {
-  const [displayText, setDisplayText] = useState("");
+  const [displayText, setDisplayText] = useState('');
   const [isComplete, setIsComplete] = useState(false);
   const indexRef = useRef(0);
 
   useEffect(() => {
     indexRef.current = 0;
-    setDisplayText("");
+    setDisplayText('');
     setIsComplete(false);
 
     const interval = setInterval(() => {
@@ -234,11 +234,11 @@ const TypewriterComponent = ({
       {(!isComplete || !hideCursorOnComplete) && (
         <motion.span
           className={cn(
-            "inline-block align-middle ml-[0.18em] w-[0.1em] h-[0.85em] rounded-full bg-current/55 blur-[0.2px]",
-            cursorClassName
+            'inline-block align-middle ml-[0.18em] w-[0.1em] h-[0.85em] rounded-full bg-current/55 blur-[0.2px]',
+            cursorClassName,
           )}
           animate={{ opacity: [1, 0.25, 1] }}
-          transition={{ duration: cursorBlinkDuration, repeat: Infinity, ease: "easeInOut" }}
+          transition={{ duration: cursorBlinkDuration, repeat: Infinity, ease: 'easeInOut' }}
         />
       )}
     </span>
@@ -323,7 +323,7 @@ const StreamingPulseComponent = ({ isActive, className }: StreamingPulseProps) =
 
   return (
     <motion.div
-      className={cn("flex items-center gap-1.5", className)}
+      className={cn('flex items-center gap-1.5', className)}
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
@@ -340,7 +340,7 @@ const StreamingPulseComponent = ({ isActive, className }: StreamingPulseProps) =
             duration: 1.2,
             repeat: Infinity,
             delay: i * 0.2,
-            ease: "easeInOut",
+            ease: 'easeInOut',
           }}
         />
       ))}

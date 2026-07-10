@@ -10,7 +10,7 @@ export default class TypeWriterCore {
   maxQueueNum: number = 2000; // 队列中最大字符数
   timer: NodeJS.Timeout | number | undefined; // 用于控制下一次消费的定时器，兼容浏览器和Node.js环境
 
-  constructor({onConsume, maxStepSeconds}: TypeWriterCoreOptions) {
+  constructor({ onConsume, maxStepSeconds }: TypeWriterCoreOptions) {
     this.onConsume = onConsume; // 初始化消费字符的回调
 
     if (maxStepSeconds !== undefined) {
@@ -22,8 +22,7 @@ export default class TypeWriterCore {
   dynamicSpeed() {
     const speedQueueNum = this.maxQueueNum / this.queueList.length; // 根据队列长度动态调整速度
     const resNum = +(
-      speedQueueNum > this.maxStepSeconds
-        ? this.maxStepSeconds : speedQueueNum
+      speedQueueNum > this.maxStepSeconds ? this.maxStepSeconds : speedQueueNum
     ).toFixed(0); // 确保结果为整数
 
     return resNum;

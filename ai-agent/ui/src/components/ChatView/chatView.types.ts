@@ -1,4 +1,4 @@
-import type { MutableRefObject } from "react";
+import type { MutableRefObject } from 'react';
 
 export type ActiveRunState = {
   status?: string;
@@ -14,7 +14,7 @@ export type ThrottledStreamController<TValue> = {
   reset: (value: TValue) => void;
 };
 
-export type ConversationListKey = "chatList" | "dataChatList";
+export type ConversationListKey = 'chatList' | 'dataChatList';
 
 export type ConversationDraftController<TItem> = {
   conversationId: string;

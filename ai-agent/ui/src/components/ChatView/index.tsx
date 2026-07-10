@@ -1,30 +1,30 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { motion, AnimatePresence } from "motion/react";
-import { ActionViewItemEnum } from "@/utils";
-import querySSE from "@/utils/querySSE";
-import { getStableTaskIdentity } from "@/utils/chat";
-import Dialogue from "@/components/Dialogue";
-import DataDialogue from "@/components/Dialogue/DataDialogue";
-import GeneralInput from "@/components/GeneralInput";
-import ActionView from "@/components/ActionView";
-import { productList, defaultProduct } from "@/utils/constants";
-import { useMemoizedFn } from "ahooks";
-import classNames from "classnames";
-import { Modal } from "antd";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
+import { ActionViewItemEnum } from '@/utils';
+import querySSE from '@/utils/querySSE';
+import { getStableTaskIdentity } from '@/utils/chat';
+import Dialogue from '@/components/Dialogue';
+import DataDialogue from '@/components/Dialogue/DataDialogue';
+import GeneralInput from '@/components/GeneralInput';
+import ActionView from '@/components/ActionView';
+import { productList, defaultProduct } from '@/utils/constants';
+import { useMemoizedFn } from 'ahooks';
+import classNames from 'classnames';
+import { Modal } from 'antd';
 import {
   Conversation,
   ConversationContent,
   ConversationScrollButton,
-} from "@/components/ai-elements/conversation";
-import { PanelLeftClose, PanelRightClose } from "lucide-react";
-import { parseDataChatEvent } from "@/utils/sseParsers";
-import type { DataConversationRuntime } from "./chatView.types";
+} from '@/components/ai-elements/conversation';
+import { PanelLeftClose, PanelRightClose } from 'lucide-react';
+import { parseDataChatEvent } from '@/utils/sseParsers';
+import type { DataConversationRuntime } from './chatView.types';
 import {
   createConversationDraftController,
   createDraftConversation,
   useConversationStream,
-} from "./useConversationStream";
-import { useWorkspacePanels } from "./useWorkspacePanels";
+} from './useConversationStream';
+import { useWorkspacePanels } from './useWorkspacePanels';
 
 type Props = {
   inputInfo: CHAT.TInputInfo;
@@ -33,7 +33,7 @@ type Props = {
   chatRoles: CHAT.FixRole[];
   onConversationChange: (
     conversationId: string,
-    nextConversation: CHAT.ConversationHistory
+    nextConversation: CHAT.ConversationHistory,
   ) => void;
   onRoleSelect: (role: CHAT.FixRole) => void;
   onSelectionChange?: (selection: { product: CHAT.Product; deepThink: boolean }) => void;
@@ -104,8 +104,8 @@ const ChatView: ReactorType.FC<Props> = (props) => {
     },
     onTokenUseUp: () => {
       modal.info({
-        title: "您的试用次数已用尽",
-        content: "如需额外申请，请联系 liyang.1236@jd.com",
+        title: '您的试用次数已用尽',
+        content: '如需额外申请，请联系 liyang.1236@jd.com',
       });
     },
   });
@@ -166,36 +166,35 @@ const ChatView: ReactorType.FC<Props> = (props) => {
         ...nextConversation,
         updatedAt: Date.now(),
       });
-    }
+    },
   );
 
-  const updateDataChatFromEvent = useMemoizedFn((
-    runtime: DataConversationRuntime,
-    event: CHAT.DataChatEvent
-  ) => {
-    switch (event.eventType) {
-      case "THINK":
-        runtime.currentChat.think = event.data;
-        break;
-      case "CHART_DATA":
-        runtime.currentChat.chartData = event.data;
-        break;
-      case "ERROR":
-        runtime.currentChat.error = event.data;
-        runtime.currentChat.loading = false;
-        setDataLoading(false);
-        break;
-      case "READY":
-        runtime.currentChat.loading = false;
-        setDataLoading(false);
-        break;
-      default:
-        break;
-    }
+  const updateDataChatFromEvent = useMemoizedFn(
+    (runtime: DataConversationRuntime, event: CHAT.DataChatEvent) => {
+      switch (event.eventType) {
+        case 'THINK':
+          runtime.currentChat.think = event.data;
+          break;
+        case 'CHART_DATA':
+          runtime.currentChat.chartData = event.data;
+          break;
+        case 'ERROR':
+          runtime.currentChat.error = event.data;
+          runtime.currentChat.loading = false;
+          setDataLoading(false);
+          break;
+        case 'READY':
+          runtime.currentChat.loading = false;
+          setDataLoading(false);
+          break;
+        default:
+          break;
+      }
 
-    const nextConversation = runtime.draftController.replaceLastItem({ ...runtime.currentChat });
-    runtime.draftController.commit(nextConversation);
-  });
+      const nextConversation = runtime.draftController.replaceLastItem({ ...runtime.currentChat });
+      runtime.draftController.commit(nextConversation);
+    },
+  );
 
   const changeTask = (task: CHAT.Task, chat?: CHAT.ChatItem) => {
     setIsRightCollapsed(false);
@@ -232,25 +231,25 @@ const ChatView: ReactorType.FC<Props> = (props) => {
   const sendDataMessage = useMemoizedFn((inputInfo: CHAT.TInputInfo) => {
     const baseConversation = conversationRef.current;
     const conversationId = baseConversation.id;
-    const params = {content: inputInfo.message,};
+    const params = { content: inputInfo.message };
     const currentChat: CHAT.DataChatItem = {
       query: inputInfo.message,
       loading: true,
-      think: "",
+      think: '',
       chartData: undefined,
-      error: "",
+      error: '',
     };
     const initialConversation = createDraftConversation(baseConversation, {
-      chatTitle: inputInfo.message || "",
-      productType: "dataAgent",
+      chatTitle: inputInfo.message || '',
+      productType: 'dataAgent',
       deepThink: false,
       dataChatList: [...baseConversation.dataChatList, { ...currentChat }],
     });
     const draftController = createConversationDraftController<CHAT.DataChatItem>(
       conversationId,
       initialConversation,
-      "dataChatList",
-      commitConversation
+      'dataChatList',
+      commitConversation,
     );
 
     draftController.commit(initialConversation);
@@ -274,9 +273,9 @@ const ChatView: ReactorType.FC<Props> = (props) => {
     const handleError = (error: unknown) => {
       // 传输层断连时如实反馈并解除输入框锁定，而不是永远停留在“任务进行中...”
       if (abortController.signal.aborted) return;
-      console.error("DataAgent SSE stream error", error);
+      console.error('DataAgent SSE stream error', error);
       runtime.currentChat.loading = false;
-      runtime.currentChat.error = "数据分析连接异常，请重试";
+      runtime.currentChat.error = '数据分析连接异常，请重试';
       const nextConversation = runtime.draftController.replaceLastItem({ ...runtime.currentChat });
       runtime.draftController.commit(nextConversation);
       setDataLoading(false);
@@ -289,7 +288,9 @@ const ChatView: ReactorType.FC<Props> = (props) => {
       }
       if (runtime.currentChat.loading) {
         runtime.currentChat.loading = false;
-        const nextConversation = runtime.draftController.replaceLastItem({ ...runtime.currentChat });
+        const nextConversation = runtime.draftController.replaceLastItem({
+          ...runtime.currentChat,
+        });
         runtime.draftController.commit(nextConversation);
       }
       setDataLoading(false);
@@ -303,15 +304,14 @@ const ChatView: ReactorType.FC<Props> = (props) => {
         handleClose,
         signal: abortController.signal,
       },
-      `${SERVICE_BASE_URL}/data/chatQuery`
+      `${SERVICE_BASE_URL}/data/chatQuery`,
     );
   });
 
   useEffect(() => {
     if (inputInfoProp.message?.length !== 0) {
-      const targetOutput =
-        inputInfoProp.outputStyle || conversationRef.current.productType;
-      if (targetOutput === "dataAgent" && !inputInfoProp.deepThink) {
+      const targetOutput = inputInfoProp.outputStyle || conversationRef.current.productType;
+      if (targetOutput === 'dataAgent' && !inputInfoProp.deepThink) {
         sendDataMessage(inputInfoProp);
       } else {
         sendMessage(inputInfoProp);
@@ -334,7 +334,7 @@ const ChatView: ReactorType.FC<Props> = (props) => {
       !lastDataChat.chartData &&
       !lastDataChat.error;
     const shouldRenderOptimisticPlaceholder =
-      targetOutput === "dataAgent" &&
+      targetOutput === 'dataAgent' &&
       !inputInfoProp.deepThink &&
       inputInfoProp.message?.length > 0 &&
       !latestChatAlreadyHydrated;
@@ -346,9 +346,9 @@ const ChatView: ReactorType.FC<Props> = (props) => {
     return {
       query: inputInfoProp.message,
       loading: true,
-      think: "",
+      think: '',
       chartData: undefined,
-      error: "",
+      error: '',
     } satisfies CHAT.DataChatItem;
   }, [
     conversation.dataChatList,
@@ -371,15 +371,15 @@ const ChatView: ReactorType.FC<Props> = (props) => {
           key={`switch-${conversation.id}`}
           initial={{
             opacity: 0.9,
-            y: 6
+            y: 6,
           }}
           animate={{
             opacity: 1,
-            y: 0
+            y: 0,
           }}
           transition={{
             duration: 0.14,
-            ease: [0.25, 0.46, 0.45, 0.94]
+            ease: [0.25, 0.46, 0.45, 0.94],
           }}
         >
           {conversation.chatList.map((chat) => (
@@ -405,15 +405,15 @@ const ChatView: ReactorType.FC<Props> = (props) => {
             key={chat.requestId}
             initial={{
               opacity: 0.9,
-              y: 6
+              y: 6,
             }}
             animate={{
               opacity: 1,
-              y: 0
+              y: 0,
             }}
             exit={{
               opacity: 0.85,
-              y: -4
+              y: -4,
             }}
             transition={{
               duration: 0.14,
@@ -446,15 +446,15 @@ const ChatView: ReactorType.FC<Props> = (props) => {
           key={`switch-data-${conversation.id}`}
           initial={{
             opacity: 0.9,
-            y: 6
+            y: 6,
           }}
           animate={{
             opacity: 1,
-            y: 0
+            y: 0,
           }}
           transition={{
             duration: 0.14,
-            ease: [0.25, 0.46, 0.45, 0.94]
+            ease: [0.25, 0.46, 0.45, 0.94],
           }}
         >
           {visibleDataChats.map((chat, idx) => (
@@ -471,15 +471,15 @@ const ChatView: ReactorType.FC<Props> = (props) => {
             key={`${conversation.id}-${idx}`}
             initial={{
               opacity: 0.9,
-              y: 6
+              y: 6,
             }}
             animate={{
               opacity: 1,
-              y: 0
+              y: 0,
             }}
             exit={{
               opacity: 0.85,
-              y: -4
+              y: -4,
             }}
             transition={{
               duration: 0.14,
@@ -530,10 +530,10 @@ const ChatView: ReactorType.FC<Props> = (props) => {
                   sessionId={conversation.sessionId}
                   placeholder={
                     conversation.role?.available === false
-                      ? "当前角色已失效，请新建对话后重新选择角色"
+                      ? '当前角色已失效，请新建对话后重新选择角色'
                       : loading
-                        ? "任务进行中..."
-                        : "希望熊博士agent为你做哪些任务呢？"
+                        ? '任务进行中...'
+                        : '希望熊博士agent为你做哪些任务呢？'
                   }
                   showBtn={true}
                   size="medium"
@@ -543,7 +543,7 @@ const ChatView: ReactorType.FC<Props> = (props) => {
                   displayOutput={currentProduct}
                   chatRole={conversation.role}
                   chatRoles={chatRoles}
-                  showRoleSelector={conversation.productType === "chat"}
+                  showRoleSelector={conversation.productType === 'chat'}
                   allowDataAgentToggle={false}
                   onSelectionChange={onSelectionChange}
                   onRoleSelect={onRoleSelect}
@@ -551,9 +551,7 @@ const ChatView: ReactorType.FC<Props> = (props) => {
                     sendMessage({
                       ...info,
                       aiAgentId:
-                        info.outputStyle === "chat"
-                          ? conversation.role?.agentId
-                          : undefined,
+                        info.outputStyle === 'chat' ? conversation.role?.agentId : undefined,
                     })
                   }
                 />
@@ -566,104 +564,97 @@ const ChatView: ReactorType.FC<Props> = (props) => {
 
     // 38/62 双面板布局；专注模式隐藏对话区，把工作区拉满
     return (
-      <div
-        ref={containerRef}
-        className="flex h-full w-full gap-0.5 p-2"
-      >
+      <div ref={containerRef} className="flex h-full w-full gap-0.5 p-2">
         {/* Left Panel - Chat Area */}
         {!isFocusMode && (
-        <div
-          className={classNames(
-            "flex min-h-0 flex-col overflow-hidden rounded-[24px] bg-white/90 transition-all duration-300",
-            isLeftCollapsed && "w-14 min-w-14",
-            !isLeftCollapsed && "flex-1"
-          )}
-          style={!isLeftCollapsed ? { flex: `0 0 ${leftPanelWidth}%` } : undefined}
-        >
-          {isLeftCollapsed ? (
-            // 折叠状态
-            <div className="flex h-full flex-col items-center py-4">
-              <button
-                onClick={toggleLeftPanel}
-                className="flex h-10 w-10 items-center justify-center rounded-full text-[#86868b] transition-colors hover:bg-[#f5f5f7] hover:text-[#1d1d1f]"
-                title="展开聊天区"
-              >
-                <PanelRightClose className="h-5 w-5" />
-              </button>
-            </div>
-          ) : (
-            // 展开状态
-            <>
-              {/* Header */}
-              <div className="flex items-center justify-between px-5 py-4">
-                <div className="flex min-w-0 items-center gap-3">
-                  <h2 className="truncate text-[17px] font-semibold tracking-tight text-[#1d1d1f]">
-                    {headerTitle}
-                  </h2>
-                  {conversation.deepThink && (
-                    <div className="flex shrink-0 items-center gap-1.5 rounded-full bg-[#1d1d1f] px-3 py-1 text-[12px] font-medium text-white">
-                      <i className="font_family icon-shendusikao text-[11px]"></i>
-                      <span>深度研究</span>
-                    </div>
-                  )}
-                </div>
+          <div
+            className={classNames(
+              'flex min-h-0 flex-col overflow-hidden rounded-[24px] bg-white/90 transition-all duration-300',
+              isLeftCollapsed && 'w-14 min-w-14',
+              !isLeftCollapsed && 'flex-1',
+            )}
+            style={!isLeftCollapsed ? { flex: `0 0 ${leftPanelWidth}%` } : undefined}
+          >
+            {isLeftCollapsed ? (
+              // 折叠状态
+              <div className="flex h-full flex-col items-center py-4">
                 <button
                   onClick={toggleLeftPanel}
-                  className="flex h-8 w-8 items-center justify-center rounded-full text-[#86868b] transition-colors hover:bg-[#f5f5f7] hover:text-[#1d1d1f]"
-                  title="收起聊天区"
+                  className="flex h-10 w-10 items-center justify-center rounded-full text-[#86868b] transition-colors hover:bg-[#f5f5f7] hover:text-[#1d1d1f]"
+                  title="展开聊天区"
                 >
-                  <PanelLeftClose className="h-4 w-4" />
+                  <PanelRightClose className="h-5 w-5" />
                 </button>
               </div>
-
-              {/* Messages */}
-              <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-                <Conversation className="chat-fade-bottom min-h-0 flex-1 overflow-hidden px-5 pt-5">
-                  <ConversationContent>
-                    {renderChatDialogues()}
-                  </ConversationContent>
-                  <ConversationScrollButton />
-                </Conversation>
-
-                {/* Input */}
-                <div className="shrink-0 bg-gradient-to-t from-white via-white/95 to-transparent px-4 pb-4 pt-3">
-                  <GeneralInput
-                    key={`input-${conversation.sessionId}-left`}
-                    sessionId={conversation.sessionId}
-                    placeholder={
-                      conversation.role?.available === false
-                        ? "当前角色已失效，请新建对话后重新选择角色"
-                        : loading
-                          ? "任务进行中..."
-                          : "希望熊博士agent为你做哪些任务呢？"
-                    }
-                    showBtn={true}
-                    size="medium"
-                    disabled={loading || conversation.role?.available === false}
-                    product={currentProduct}
-                    deepThink={conversation.deepThink}
-                    displayOutput={currentProduct}
-                    chatRole={conversation.role}
-                    chatRoles={chatRoles}
-                    showRoleSelector={conversation.productType === "chat"}
-                    allowDataAgentToggle={false}
-                    onSelectionChange={onSelectionChange}
-                    onRoleSelect={onRoleSelect}
-                    send={(info) =>
-                      sendMessage({
-                        ...info,
-                        aiAgentId:
-                          info.outputStyle === "chat"
-                            ? conversation.role?.agentId
-                            : undefined,
-                      })
-                    }
-                  />
+            ) : (
+              // 展开状态
+              <>
+                {/* Header */}
+                <div className="flex items-center justify-between px-5 py-4">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <h2 className="truncate text-[17px] font-semibold tracking-tight text-[#1d1d1f]">
+                      {headerTitle}
+                    </h2>
+                    {conversation.deepThink && (
+                      <div className="flex shrink-0 items-center gap-1.5 rounded-full bg-[#1d1d1f] px-3 py-1 text-[12px] font-medium text-white">
+                        <i className="font_family icon-shendusikao text-[11px]"></i>
+                        <span>深度研究</span>
+                      </div>
+                    )}
+                  </div>
+                  <button
+                    onClick={toggleLeftPanel}
+                    className="flex h-8 w-8 items-center justify-center rounded-full text-[#86868b] transition-colors hover:bg-[#f5f5f7] hover:text-[#1d1d1f]"
+                    title="收起聊天区"
+                  >
+                    <PanelLeftClose className="h-4 w-4" />
+                  </button>
                 </div>
-              </div>
-            </>
-          )}
-        </div>
+
+                {/* Messages */}
+                <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                  <Conversation className="chat-fade-bottom min-h-0 flex-1 overflow-hidden px-5 pt-5">
+                    <ConversationContent>{renderChatDialogues()}</ConversationContent>
+                    <ConversationScrollButton />
+                  </Conversation>
+
+                  {/* Input */}
+                  <div className="shrink-0 bg-gradient-to-t from-white via-white/95 to-transparent px-4 pb-4 pt-3">
+                    <GeneralInput
+                      key={`input-${conversation.sessionId}-left`}
+                      sessionId={conversation.sessionId}
+                      placeholder={
+                        conversation.role?.available === false
+                          ? '当前角色已失效，请新建对话后重新选择角色'
+                          : loading
+                            ? '任务进行中...'
+                            : '希望熊博士agent为你做哪些任务呢？'
+                      }
+                      showBtn={true}
+                      size="medium"
+                      disabled={loading || conversation.role?.available === false}
+                      product={currentProduct}
+                      deepThink={conversation.deepThink}
+                      displayOutput={currentProduct}
+                      chatRole={conversation.role}
+                      chatRoles={chatRoles}
+                      showRoleSelector={conversation.productType === 'chat'}
+                      allowDataAgentToggle={false}
+                      onSelectionChange={onSelectionChange}
+                      onRoleSelect={onRoleSelect}
+                      send={(info) =>
+                        sendMessage({
+                          ...info,
+                          aiAgentId:
+                            info.outputStyle === 'chat' ? conversation.role?.agentId : undefined,
+                        })
+                      }
+                    />
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
         )}
 
         {/* Drag Handle */}
@@ -671,19 +662,17 @@ const ChatView: ReactorType.FC<Props> = (props) => {
           <div
             onMouseDown={handleDragStart}
             className={classNames(
-              "group relative flex w-3 shrink-0 cursor-col-resize items-center justify-center transition-colors",
-              "hover:bg-[#0071e3]/8",
-              isDragging && "bg-[#0071e3]/16"
+              'group relative flex w-3 shrink-0 cursor-col-resize items-center justify-center transition-colors',
+              'hover:bg-[#0071e3]/8',
+              isDragging && 'bg-[#0071e3]/16',
             )}
             title="拖拽调整左右区域宽度"
           >
             {/* Wider hit area with slim visual indicator */}
             <div
               className={classNames(
-                "h-10 w-0.5 rounded-full transition-all duration-200",
-                isDragging
-                  ? "bg-[#0071e3]"
-                  : "bg-[#d2d2d7] group-hover:bg-[#86868b]"
+                'h-10 w-0.5 rounded-full transition-all duration-200',
+                isDragging ? 'bg-[#0071e3]' : 'bg-[#d2d2d7] group-hover:bg-[#86868b]',
               )}
             />
           </div>
@@ -692,11 +681,15 @@ const ChatView: ReactorType.FC<Props> = (props) => {
         {/* Right Panel - Action/Workspace Area */}
         <div
           className={classNames(
-            "flex min-h-0 flex-col overflow-hidden rounded-[24px] bg-white/90 transition-all duration-300",
-            isRightCollapsed && "w-14 min-w-14",
-            !isRightCollapsed && "flex-1"
+            'flex min-h-0 flex-col overflow-hidden rounded-[24px] bg-white/90 transition-all duration-300',
+            isRightCollapsed && 'w-14 min-w-14',
+            !isRightCollapsed && 'flex-1',
           )}
-          style={!isRightCollapsed && !isFocusMode ? { flex: `0 0 ${100 - leftPanelWidth - (isLeftCollapsed ? 0 : 0)}%` } : undefined}
+          style={
+            !isRightCollapsed && !isFocusMode
+              ? { flex: `0 0 ${100 - leftPanelWidth - (isLeftCollapsed ? 0 : 0)}%` }
+              : undefined
+          }
         >
           {isRightCollapsed ? (
             // 折叠状态
@@ -768,7 +761,7 @@ const ChatView: ReactorType.FC<Props> = (props) => {
               <GeneralInput
                 key={`input-${conversation.sessionId}-data`}
                 sessionId={conversation.sessionId}
-                placeholder={loading ? "任务进行中..." : "希望熊博士agent为你做哪些任务呢？"}
+                placeholder={loading ? '任务进行中...' : '希望熊博士agent为你做哪些任务呢？'}
                 showBtn={false}
                 size="medium"
                 disabled={loading}
@@ -778,7 +771,7 @@ const ChatView: ReactorType.FC<Props> = (props) => {
                 send={(info) =>
                   sendDataMessage({
                     ...info,
-                    outputStyle: "dataAgent",
+                    outputStyle: 'dataAgent',
                     deepThink: false,
                   })
                 }
@@ -790,8 +783,7 @@ const ChatView: ReactorType.FC<Props> = (props) => {
     );
   };
 
-  const isDataConversation =
-    conversation.productType === "dataAgent" && !conversation.deepThink;
+  const isDataConversation = conversation.productType === 'dataAgent' && !conversation.deepThink;
 
   return (
     <div className="flex h-full w-full justify-center">

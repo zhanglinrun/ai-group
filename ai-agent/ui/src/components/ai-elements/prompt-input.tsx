@@ -1,3 +1,3 @@
-"use client";
+'use client';
 
-export * from "./prompt-input/index";
+export * from './prompt-input/index';

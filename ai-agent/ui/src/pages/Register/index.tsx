@@ -1,9 +1,9 @@
-import { memo, useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { Button, Card, Form, Input, Typography } from "antd";
-import { authApi } from "@/services/auth";
-import { ROUTES } from "@/router/routes";
-import { isAuthenticated } from "@/auth/token";
+import { memo, useEffect, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { Button, Card, Form, Input, Typography } from 'antd';
+import { authApi } from '@/services/auth';
+import { ROUTES } from '@/router/routes';
+import { isAuthenticated } from '@/auth/token';
 
 type RegisterFormValues = {
   username: string;
@@ -33,7 +33,7 @@ const RegisterPage = memo(() => {
       authApi.persistLogin(loginResponse);
       navigate(ROUTES.PRICING, { replace: true });
     } catch (error) {
-      console.error("注册失败", error);
+      console.error('注册失败', error);
     } finally {
       setLoading(false);
     }
@@ -53,8 +53,8 @@ const RegisterPage = memo(() => {
             label="用户名"
             name="username"
             rules={[
-              { required: true, message: "请输入用户名" },
-              { min: 3, message: "用户名至少 3 个字符" },
+              { required: true, message: '请输入用户名' },
+              { min: 3, message: '用户名至少 3 个字符' },
             ]}
           >
             <Input placeholder="3-50 个字符" />
@@ -63,8 +63,8 @@ const RegisterPage = memo(() => {
             label="密码"
             name="password"
             rules={[
-              { required: true, message: "请输入密码" },
-              { min: 6, message: "密码至少 6 个字符" },
+              { required: true, message: '请输入密码' },
+              { min: 6, message: '密码至少 6 个字符' },
             ]}
           >
             <Input.Password placeholder="6-64 个字符" />
@@ -80,7 +80,7 @@ const RegisterPage = memo(() => {
           </Button>
         </Form>
         <div className="mt-4 text-center text-sm text-[var(--chat-text-soft)]">
-          已有账号？{" "}
+          已有账号？{' '}
           <Link to={ROUTES.LOGIN} className="text-[var(--primary)]">
             去登录
           </Link>
@@ -90,6 +90,6 @@ const RegisterPage = memo(() => {
   );
 });
 
-RegisterPage.displayName = "RegisterPage";
+RegisterPage.displayName = 'RegisterPage';
 
 export default RegisterPage;

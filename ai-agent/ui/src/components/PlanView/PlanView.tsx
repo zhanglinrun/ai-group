@@ -1,6 +1,6 @@
-import { forwardRef, useImperativeHandle, useMemo, useState } from "react";
-import { motion } from "motion/react";
-import { ListOrdered } from "lucide-react";
+import { forwardRef, useImperativeHandle, useMemo, useState } from 'react';
+import { motion } from 'motion/react';
+import { ListOrdered } from 'lucide-react';
 
 import {
   Plan,
@@ -8,11 +8,11 @@ import {
   PlanTitle,
   PlanTrigger,
   PlanContent,
-} from "@/components/ai-elements/plan";
-import { Badge } from "@/components/ui/badge";
-import { cn } from "@/lib/utils";
+} from '@/components/ai-elements/plan';
+import { Badge } from '@/components/ui/badge';
+import { cn } from '@/lib/utils';
 
-import { getStatusIcon } from "./config";
+import { getStatusIcon } from './config';
 
 export type PlanViewAction = {
   closePlanView: () => void;
@@ -37,13 +37,13 @@ const PlanView: ReactorType.FC<{
 
   const total = stages?.length ?? 0;
   const completed = useMemo(
-    () => stepStatus?.filter((s) => s === "completed").length ?? 0,
-    [stepStatus]
+    () => stepStatus?.filter((s) => s === 'completed').length ?? 0,
+    [stepStatus],
   );
   const pct = total > 0 ? Math.min(100, Math.round((completed / total) * 100)) : 0;
 
   const isStreaming = Boolean(
-    plan && stepStatus && stepStatus.length > 0 && !stepStatus.every((s) => s === "completed")
+    plan && stepStatus && stepStatus.length > 0 && !stepStatus.every((s) => s === 'completed'),
   );
 
   if (!plan) {
@@ -60,21 +60,21 @@ const PlanView: ReactorType.FC<{
               animate={
                 isStreaming
                   ? {
-                    scale: [1, 1.04, 1],
-                    opacity: [0.85, 1, 0.85],
-                  }
+                      scale: [1, 1.04, 1],
+                      opacity: [0.85, 1, 0.85],
+                    }
                   : {
-                    scale: 1,
-                    opacity: 1,
-                  }
+                      scale: 1,
+                      opacity: 1,
+                    }
               }
               transition={
                 isStreaming
                   ? {
-                    duration: 2.2,
-                    repeat: Number.POSITIVE_INFINITY,
-                    ease: "easeInOut",
-                  }
+                      duration: 2.2,
+                      repeat: Number.POSITIVE_INFINITY,
+                      ease: 'easeInOut',
+                    }
                   : { duration: 0.2 }
               }
               className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--chat-surface)]/95 text-[var(--chat-text-soft)] shadow-[var(--shadow-xs)]"
@@ -90,7 +90,10 @@ const PlanView: ReactorType.FC<{
           </div>
           <div className="flex shrink-0 items-center gap-2">
             {total > 0 ? (
-              <Badge variant="secondary" className="h-6 px-2.5 text-[11px] font-medium tabular-nums">
+              <Badge
+                variant="secondary"
+                className="h-6 px-2.5 text-[11px] font-medium tabular-nums"
+              >
                 {completed}/{total}
               </Badge>
             ) : null}
@@ -111,7 +114,7 @@ const PlanView: ReactorType.FC<{
                   initial={false}
                   animate={{ width: `${pct}%` }}
                   transition={{
-                    type: "spring",
+                    type: 'spring',
                     stiffness: 380,
                     damping: 32,
                   }}
@@ -123,8 +126,8 @@ const PlanView: ReactorType.FC<{
           <div className="space-y-2 pt-1">
             {stages?.map((name, index) => {
               const status = stepStatus?.[index];
-              const active = status === "in_progress";
-              const done = status === "completed";
+              const active = status === 'in_progress';
+              const done = status === 'completed';
 
               return (
                 <motion.div
@@ -144,11 +147,10 @@ const PlanView: ReactorType.FC<{
                     ease: [0.25, 0.46, 0.45, 0.94],
                   }}
                   className={cn(
-                    "flex gap-1 rounded-xl px-2 py-2.5 transition-[background-color,box-shadow] duration-200 md:gap-2 md:px-3",
-                    active &&
-                      "bg-[var(--chat-surface)]/90 shadow-[var(--shadow-xs)] ring-0",
-                    done && !active && "opacity-[0.92]",
-                    status === "not_started" && "bg-transparent"
+                    'flex gap-1 rounded-xl px-2 py-2.5 transition-[background-color,box-shadow] duration-200 md:gap-2 md:px-3',
+                    active && 'bg-[var(--chat-surface)]/90 shadow-[var(--shadow-xs)] ring-0',
+                    done && !active && 'opacity-[0.92]',
+                    status === 'not_started' && 'bg-transparent',
                   )}
                 >
                   <div className="flex w-8 shrink-0 justify-center">{getStatusIcon(status)}</div>
@@ -172,6 +174,6 @@ const PlanView: ReactorType.FC<{
   );
 });
 
-PlanView.displayName = "PlanView";
+PlanView.displayName = 'PlanView';
 
 export default PlanView;

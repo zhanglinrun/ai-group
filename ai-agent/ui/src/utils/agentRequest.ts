@@ -1,39 +1,39 @@
-import { normalizeFileUrlForBrowser } from "@/utils/fileUrl";
+import { normalizeFileUrlForBrowser } from '@/utils/fileUrl';
 
 export type AgentSessionFile = {
-  fileName: string
-  ossUrl?: string
-  domainUrl?: string
-  fileSize?: number
-  fileType?: string
-  resourceKey?: string
-  mimeType?: string | null
-  originFileName?: string
-}
+  fileName: string;
+  ossUrl?: string;
+  domainUrl?: string;
+  fileSize?: number;
+  fileType?: string;
+  resourceKey?: string;
+  mimeType?: string | null;
+  originFileName?: string;
+};
 
 type BuildAgentStreamRequestInput = {
-  sessionId: string
-  requestId: string
-  message: string
-  deepThink: boolean
-  outputStyle?: string
-  files?: CHAT.TFile[]
-  aiAgentId?: string
-  fallbackRoleAgentId?: string
-}
+  sessionId: string;
+  requestId: string;
+  message: string;
+  deepThink: boolean;
+  outputStyle?: string;
+  files?: CHAT.TFile[];
+  aiAgentId?: string;
+  fallbackRoleAgentId?: string;
+};
 
 const resolvePreviewUrl = (file: CHAT.TFile) =>
-  normalizeFileUrlForBrowser(file.previewUrl || file.url || file.downloadUrl || "")
+  normalizeFileUrlForBrowser(file.previewUrl || file.url || file.downloadUrl || '');
 
 const resolveDownloadUrl = (file: CHAT.TFile) =>
-  normalizeFileUrlForBrowser(file.downloadUrl || file.previewUrl || file.url || "")
+  normalizeFileUrlForBrowser(file.downloadUrl || file.previewUrl || file.url || '');
 
 /**
  * 把当前轮上传附件转换为后端可直接消费的 sessionFiles 结构。
  */
 export const mapSessionFiles = (files?: CHAT.TFile[]): AgentSessionFile[] => {
   if (!files?.length) {
-    return []
+    return [];
   }
 
   return files
@@ -47,8 +47,8 @@ export const mapSessionFiles = (files?: CHAT.TFile[]): AgentSessionFile[] => {
       resourceKey: file.resourceKey,
       mimeType: file.mimeType,
       originFileName: file.originFileName,
-    }))
-}
+    }));
+};
 
 /**
  * 统一组装 Reactor SSE 请求，避免协议细节散落在组件里。
@@ -63,8 +63,8 @@ export const buildAgentStreamRequest = ({
   aiAgentId,
   fallbackRoleAgentId,
 }: BuildAgentStreamRequestInput) => {
-  const sessionFiles = mapSessionFiles(files)
-  const resolvedAgentId = aiAgentId || fallbackRoleAgentId
+  const sessionFiles = mapSessionFiles(files);
+  const resolvedAgentId = aiAgentId || fallbackRoleAgentId;
 
   return {
     sessionId,
@@ -73,8 +73,6 @@ export const buildAgentStreamRequest = ({
     deepThink: deepThink ? 1 : 0,
     outputStyle,
     ...(sessionFiles.length ? { sessionFiles } : {}),
-    ...(outputStyle === "chat" && resolvedAgentId
-      ? { aiAgentId: resolvedAgentId }
-      : {}),
-  }
-}
+    ...(outputStyle === 'chat' && resolvedAgentId ? { aiAgentId: resolvedAgentId } : {}),
+  };
+};

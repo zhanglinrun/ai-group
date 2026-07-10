@@ -27,7 +27,7 @@
     "paths": {
       "@/*": ["*"]
     },
-    "allowJs": true,
+    "allowJs": true
   },
   "include": ["src", "tailwind.config.js"]
 }

@@ -1,4 +1,4 @@
-import type { PanelItemType, SearchListItem } from "./type";
+import type { PanelItemType, SearchListItem } from './type';
 
 export interface PanelResolverMessageTypes {
   useCode?: boolean;
@@ -13,7 +13,7 @@ export interface PanelResolverMessageTypes {
 }
 
 type HtmlPanelView = {
-  type: "html";
+  type: 'html';
   htmlUrl?: string;
   downloadUrl?: string;
   missingReason?: string;
@@ -23,35 +23,35 @@ type HtmlPanelView = {
 };
 
 type InlineHtmlPanelView = {
-  type: "inline-html";
+  type: 'inline-html';
   htmlUrl: string;
 };
 
 type FilePanelView = {
-  type: "file" | "image" | "excel";
+  type: 'file' | 'image' | 'excel';
   fileUrl: string;
   fileName?: string;
   missingReason?: string;
 };
 
 type SearchPanelView = {
-  type: "search";
+  type: 'search';
   searchList: SearchListItem[];
 };
 
 type JsonPanelView = {
-  type: "json";
+  type: 'json';
   jsonData: object;
 };
 
 type MarkdownPanelView = {
-  type: "markdown";
+  type: 'markdown';
   content: string;
   isStreaming: boolean;
 };
 
 type EmptyPanelView = {
-  type: "empty";
+  type: 'empty';
 };
 
 export type PanelView =
@@ -79,8 +79,8 @@ interface ResolvePanelViewParams {
 
 function parseJsonSafely(value?: string) {
   try {
-    const parsed = JSON.parse(value || "{}");
-    return parsed && typeof parsed === "object" ? parsed : {};
+    const parsed = JSON.parse(value || '{}');
+    return parsed && typeof parsed === 'object' ? parsed : {};
   } catch {
     return {};
   }
@@ -102,31 +102,22 @@ export function resolvePanelView(params: ResolvePanelViewParams): PanelView {
   } = params;
 
   if (!taskItem) {
-    return { type: "empty" };
+    return { type: 'empty' };
   }
 
-  const {
-    useHtml,
-    useCode,
-    useFile,
-    useImage,
-    isHtml,
-    useExcel,
-    useJSON,
-    searchList,
-    usePpt,
-  } = msgTypes || {};
+  const { useHtml, useCode, useFile, useImage, isHtml, useExcel, useJSON, searchList, usePpt } =
+    msgTypes || {};
 
   if (searchList?.length) {
     return {
-      type: "search",
+      type: 'search',
       searchList,
     };
   }
 
   if (useHtml || usePpt) {
     return {
-      type: "html",
+      type: 'html',
       htmlUrl,
       downloadUrl: downloadHtmlUrl,
       missingReason,
@@ -138,15 +129,15 @@ export function resolvePanelView(params: ResolvePanelViewParams): PanelView {
 
   if (useCode && isHtml) {
     return {
-      type: "inline-html",
-      htmlUrl: `data:text/html;charset=utf-8,${encodeURIComponent(toolResultText || "")}`,
+      type: 'inline-html',
+      htmlUrl: `data:text/html;charset=utf-8,${encodeURIComponent(toolResultText || '')}`,
     };
   }
 
   if (useExcel) {
     return {
-      type: "excel",
-      fileUrl: primaryFile?.url || "",
+      type: 'excel',
+      fileUrl: primaryFile?.url || '',
       fileName: primaryFile?.name,
       missingReason,
     };
@@ -154,8 +145,8 @@ export function resolvePanelView(params: ResolvePanelViewParams): PanelView {
 
   if (useImage) {
     return {
-      type: "image",
-      fileUrl: primaryFile?.url || "",
+      type: 'image',
+      fileUrl: primaryFile?.url || '',
       fileName: primaryFile?.name,
       missingReason,
     };
@@ -163,8 +154,8 @@ export function resolvePanelView(params: ResolvePanelViewParams): PanelView {
 
   if (useFile) {
     return {
-      type: "file",
-      fileUrl: primaryFile?.url || "",
+      type: 'file',
+      fileUrl: primaryFile?.url || '',
       fileName: primaryFile?.name,
       missingReason,
     };
@@ -172,13 +163,13 @@ export function resolvePanelView(params: ResolvePanelViewParams): PanelView {
 
   if (useJSON) {
     return {
-      type: "json",
+      type: 'json',
       jsonData: parseJsonSafely(toolResultText),
     };
   }
 
   return {
-    type: "markdown",
+    type: 'markdown',
     content: markDownContent,
     isStreaming: !isFinal,
   };

@@ -1,5 +1,5 @@
-import { ChevronLeft } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { ChevronLeft } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 interface ActionViewFrameProps {
   titleNode?: React.ReactNode;
@@ -27,21 +27,12 @@ const ActionViewFrame: React.FC<ActionViewFrameProps> = ({
           >
             <ChevronLeft className="h-4 w-4" />
           </button>
-          <div className="min-w-0 flex-1 text-[13px] font-medium text-[#1d1d1f]">
-            {titleNode}
-          </div>
+          <div className="min-w-0 flex-1 text-[13px] font-medium text-[#1d1d1f]">{titleNode}</div>
         </div>
       )}
 
       {/* Content */}
-      <div
-        className={cn(
-          "flex-1 overflow-auto",
-          className
-        )}
-      >
-        {children}
-      </div>
+      <div className={cn('flex-1 overflow-auto', className)}>{children}</div>
 
       {/* Footer */}
       {footer}

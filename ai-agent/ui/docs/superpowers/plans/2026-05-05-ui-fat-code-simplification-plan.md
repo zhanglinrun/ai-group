@@ -129,6 +129,7 @@
 ### Task 1: 锁定重构范围与基线验证
 
 **Files:**
+
 - Modify: `ui/docs/superpowers/plans/2026-05-05-ui-fat-code-simplification-plan.md`
 - Test: `ui/src/utils/chat.test.ts`
 - Test: `ui/src/components/Dialogue/plannerHistory.test.ts`
@@ -167,6 +168,7 @@ git commit -m "docs: add ui fat code simplification plan"
 ### Task 2: 拆分 `utils/chat.ts` 的 planner / tool / timeline / render 责任
 
 **Files:**
+
 - Create: `ui/src/utils/chat/planner.ts`
 - Create: `ui/src/utils/chat/toolCalls.ts`
 - Create: `ui/src/utils/chat/timeline.ts`
@@ -178,33 +180,39 @@ git commit -m "docs: add ui fat code simplification plan"
 - [ ] **Step 1: 为 planner round 行为补保护性测试**
 
 ```ts
-it("plan_thought 非 final 时应追加到同一 plannerRound", () => {
-  const chat = createChatItem(createDeepSearchTask("search"));
+it('plan_thought 非 final 时应追加到同一 plannerRound', () => {
+  const chat = createChatItem(createDeepSearchTask('search'));
   chat.multiAgent.plannerRounds = [];
 
-  combineData({
-    messageType: "plan_thought",
-    messageId: "thought-msg-1",
-    taskId: "planner-task-1",
-    resultMap: {
-      plannerRoundId: "round-1",
-      planThought: "第一段",
-      isFinal: false,
-    },
-  } as unknown as MESSAGE.EventData, chat);
+  combineData(
+    {
+      messageType: 'plan_thought',
+      messageId: 'thought-msg-1',
+      taskId: 'planner-task-1',
+      resultMap: {
+        plannerRoundId: 'round-1',
+        planThought: '第一段',
+        isFinal: false,
+      },
+    } as unknown as MESSAGE.EventData,
+    chat,
+  );
 
-  combineData({
-    messageType: "plan_thought",
-    messageId: "thought-msg-1",
-    taskId: "planner-task-1",
-    resultMap: {
-      plannerRoundId: "round-1",
-      planThought: "第二段",
-      isFinal: false,
-    },
-  } as unknown as MESSAGE.EventData, chat);
+  combineData(
+    {
+      messageType: 'plan_thought',
+      messageId: 'thought-msg-1',
+      taskId: 'planner-task-1',
+      resultMap: {
+        plannerRoundId: 'round-1',
+        planThought: '第二段',
+        isFinal: false,
+      },
+    } as unknown as MESSAGE.EventData,
+    chat,
+  );
 
-  expect(chat.multiAgent.plannerRounds?.[0]?.planThought).toBe("第一段第二段");
+  expect(chat.multiAgent.plannerRounds?.[0]?.planThought).toBe('第一段第二段');
 });
 ```
 
@@ -227,7 +235,7 @@ export function syncLatestPlannerAlias(currentChat: CHAT.ChatItem) {
   }
   currentChat.multiAgent.plan_thought = latestRound.planThought;
   currentChat.multiAgent.plan = latestRound.plan;
-  currentChat.thought = latestRound.planThought || "";
+  currentChat.thought = latestRound.planThought || '';
 }
 ```
 
@@ -237,14 +245,14 @@ export function syncLatestPlannerAlias(currentChat: CHAT.ChatItem) {
 // ui/src/utils/chat/toolCalls.ts
 export function resolveTaskToolCallId(task?: Partial<MESSAGE.Task> | Partial<CHAT.Task>) {
   if (!task) {
-    return "";
+    return '';
   }
-  return task.resultMap?.toolCallId || task.toolResult?.toolCallId || "";
+  return task.resultMap?.toolCallId || task.toolResult?.toolCallId || '';
 }
 
 export function mergeTaskArtifactRefs(
   targetTask: MESSAGE.Task | undefined,
-  eventData?: MESSAGE.EventData
+  eventData?: MESSAGE.EventData,
 ) {
   if (!targetTask || !Array.isArray(eventData?.artifactRefs) || !eventData?.artifactRefs.length) {
     return;
@@ -264,7 +272,7 @@ export {
   handleTaskData,
   buildConversationTaskData,
   buildAction,
-} from "./chat/index";
+} from './chat/index';
 ```
 
 - [ ] **Step 5: 运行 `chat.ts` 相关测试**
@@ -291,6 +299,7 @@ git commit -m "refactor: split chat projection utilities"
 ### Task 3: 拆分 `ChatView` 的流式会话控制与布局状态
 
 **Files:**
+
 - Create: `ui/src/components/ChatView/useConversationStream.ts`
 - Create: `ui/src/components/ChatView/useWorkspacePanels.ts`
 - Create: `ui/src/components/ChatView/chatView.types.ts`
@@ -301,19 +310,19 @@ git commit -m "refactor: split chat projection utilities"
 - [ ] **Step 1: 为多智能体流式兜底错误补测试**
 
 ```ts
-it("guard error 应将当前 chat 标记为 FAILED 并生成 conclusion", () => {
+it('guard error 应将当前 chat 标记为 FAILED 并生成 conclusion', () => {
   const currentChat = {
-    requestId: "req-1",
+    requestId: 'req-1',
     loading: true,
     multiAgent: { tasks: [] },
     metrics: {},
   } as unknown as CHAT.ChatItem;
 
-  const next = applyGuardError(currentChat, "当前请求处理失败，请稍后重试");
+  const next = applyGuardError(currentChat, '当前请求处理失败，请稍后重试');
 
   expect(next.loading).toBe(false);
-  expect(next.metrics?.status).toBe("FAILED");
-  expect(next.conclusion?.messageType).toBe("task_summary");
+  expect(next.metrics?.status).toBe('FAILED');
+  expect(next.conclusion?.messageType).toBe('task_summary');
 });
 ```
 
@@ -401,6 +410,7 @@ git commit -m "refactor: split chat view stream and panel state"
 ### Task 4: 拆分 `Dialogue` 视图子块，降低单文件展示复杂度
 
 **Files:**
+
 - Create: `ui/src/components/Dialogue/PlanSection.tsx`
 - Create: `ui/src/components/Dialogue/Timeline.tsx`
 - Create: `ui/src/components/Dialogue/MessageToolbar.tsx`
@@ -412,16 +422,16 @@ git commit -m "refactor: split chat view stream and panel state"
 - [ ] **Step 1: 为时间线完成态图标补单测**
 
 ```tsx
-it("最后一组任务在 loading=false 且全部完成时显示完成图标", () => {
+it('最后一组任务在 loading=false 且全部完成时显示完成图标', () => {
   const { getByLabelText } = render(
     <Timeline
-      tasks={[[{ task: "收集资料", status: "completed", children: [] } as unknown as CHAT.Task]]}
+      tasks={[[{ task: '收集资料', status: 'completed', children: [] } as unknown as CHAT.Task]]}
       loading={false}
       deepThink={true}
-    />
+    />,
   );
 
-  expect(getByLabelText("timeline-completed")).toBeTruthy();
+  expect(getByLabelText('timeline-completed')).toBeTruthy();
 });
 ```
 
@@ -484,6 +494,7 @@ git commit -m "refactor: split dialogue sections"
 ### Task 5: 拆分 `WorkspaceImageGeneration` 的配置、编辑器、历史与会话
 
 **Files:**
+
 - Create: `ui/src/pages/WorkspaceImageGeneration/useImageGenerationConfig.ts`
 - Create: `ui/src/pages/WorkspaceImageGeneration/useImageEditor.ts`
 - Create: `ui/src/pages/WorkspaceImageGeneration/useImageGenerationHistory.ts`
@@ -495,18 +506,16 @@ git commit -m "refactor: split dialogue sections"
 - [ ] **Step 1: 为对象 URL 清理与蒙版同步补测试**
 
 ```ts
-it("卸载编辑器时会释放所有 objectUrl", () => {
-  const revokeSpy = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+it('卸载编辑器时会释放所有 objectUrl', () => {
+  const revokeSpy = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
   const { unmount } = renderHook(() =>
     useImageEditor({
-      initialImages: [
-        { id: "img-1", objectUrl: "blob:img-1" } as unknown as EditorImageItem,
-      ],
-    })
+      initialImages: [{ id: 'img-1', objectUrl: 'blob:img-1' } as unknown as EditorImageItem],
+    }),
   );
 
   unmount();
-  expect(revokeSpy).toHaveBeenCalledWith("blob:img-1");
+  expect(revokeSpy).toHaveBeenCalledWith('blob:img-1');
 });
 ```
 
@@ -533,7 +542,7 @@ export function useImageEditor() {
   const [images, setImages] = useState<EditorImageItem[]>([]);
   const [editingImageId, setEditingImageId] = useState<string | null>(null);
   const [brushSize, setBrushSize] = useState(32);
-  const [toolMode, setToolMode] = useState<"brush" | "eraser">("brush");
+  const [toolMode, setToolMode] = useState<'brush' | 'eraser'>('brush');
 
   return {
     images,
@@ -581,6 +590,7 @@ git commit -m "refactor: split image generation workspace logic"
 ### Task 6: 拆分 `prompt-input.tsx` 的附件、拖拽与语音输入
 
 **Files:**
+
 - Create: `ui/src/components/ai-elements/prompt-input/attachments.ts`
 - Create: `ui/src/components/ai-elements/prompt-input/usePromptInputAttachments.ts`
 - Create: `ui/src/components/ai-elements/prompt-input/usePromptInputDrop.ts`
@@ -592,17 +602,17 @@ git commit -m "refactor: split image generation workspace logic"
 - [ ] **Step 1: 为附件校验补测试**
 
 ```ts
-it("不符合 accept 的文件应触发 accept 错误", () => {
+it('不符合 accept 的文件应触发 accept 错误', () => {
   const onError = vi.fn();
-  const files = [new File(["abc"], "demo.exe", { type: "application/x-msdownload" })];
+  const files = [new File(['abc'], 'demo.exe', { type: 'application/x-msdownload' })];
 
   const result = validatePromptInputFiles(files, {
-    accept: "image/*,.pdf",
+    accept: 'image/*,.pdf',
     maxFiles: 3,
   });
 
   expect(result.accepted).toEqual([]);
-  expect(result.error?.code).toBe("accept");
+  expect(result.error?.code).toBe('accept');
   expect(onError).not.toHaveBeenCalled();
 });
 ```
@@ -611,10 +621,7 @@ it("不符合 accept 的文件应触发 accept 错误", () => {
 
 ```ts
 // ui/src/components/ai-elements/prompt-input/attachments.ts
-export function validatePromptInputFiles(
-  files: File[],
-  options: PromptInputAttachmentOptions
-) {
+export function validatePromptInputFiles(files: File[], options: PromptInputAttachmentOptions) {
   return {
     accepted: files.filter((file) => matchesAccept(file, options.accept)),
     error: undefined as PromptInputError | undefined,
@@ -649,7 +656,7 @@ export function useSpeechRecognition() {
 
 ```tsx
 // ui/src/components/ai-elements/prompt-input.tsx
-export * from "./prompt-input/index";
+export * from './prompt-input/index';
 ```
 
 - [x] **Step 5: 运行附件与输入相关测试**
@@ -676,6 +683,7 @@ git commit -m "refactor: split prompt input behaviors"
 ### Task 7: 第一阶段收尾验证与第二阶段候选登记
 
 **Files:**
+
 - Modify: `ui/docs/superpowers/plans/2026-05-05-ui-fat-code-simplification-plan.md`
 - Modify: `ui/CLAUDE.md`
 

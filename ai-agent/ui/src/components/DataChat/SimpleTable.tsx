@@ -1,4 +1,4 @@
-import { Table } from "antd";
+import { Table } from 'antd';
 
 // 定义表格列的类型
 interface TableColumn {
@@ -18,7 +18,15 @@ interface SimpleTableProps {
 const SimpleTable: ReactorType.FC<SimpleTableProps> = ({ data }) => {
   // 提供默认空数组，避免undefined导致的错误
   const { columnList = [], dataList = [] } = data || {};
-  return <Table dataSource={dataList} columns={columnList} size="middle" className="w-full" scroll={{ y: 400 }} />;
+  return (
+    <Table
+      dataSource={dataList}
+      columns={columnList}
+      size="middle"
+      className="w-full"
+      scroll={{ y: 400 }}
+    />
+  );
 };
 
 export default SimpleTable;

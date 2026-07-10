@@ -1,15 +1,11 @@
-import Chart from "./Chart";
-import SimpleTable from "./SimpleTable";
-import Card from "./Card";
-import classNames from "classnames";
-import { useState, useMemo } from "react";
-import {
-  buildChartConfig,
-  resolveChartType,
-  type DataChatSourceConfig,
-} from "./chartConfig";
-import { defaultChartPresets } from "./chartPresets";
-import { buildQuerySummary } from "./querySummary";
+import Chart from './Chart';
+import SimpleTable from './SimpleTable';
+import Card from './Card';
+import classNames from 'classnames';
+import { useState, useMemo } from 'react';
+import { buildChartConfig, resolveChartType, type DataChatSourceConfig } from './chartConfig';
+import { defaultChartPresets } from './chartPresets';
+import { buildQuerySummary } from './querySummary';
 
 /**
  * 图形切换Bar
@@ -22,11 +18,11 @@ const TypeBar: ReactorType.FC<{
   onChange?: (val: string) => void;
 }> = (props) => {
   const _chartTypes: Record<string, any>[] = [
-    { type: "line", icon: "icon-zhexian" },
-    { type: "bar", icon: "icon-zhuzhuang" },
-    { type: "hbar", icon: "icon-tiaoxing" },
-    { type: "pie", icon: "icon-shanxing" },
-    { type: "table", icon: "icon-biaoge" },
+    { type: 'line', icon: 'icon-zhexian' },
+    { type: 'bar', icon: 'icon-zhuzhuang' },
+    { type: 'hbar', icon: 'icon-tiaoxing' },
+    { type: 'pie', icon: 'icon-shanxing' },
+    { type: 'table', icon: 'icon-biaoge' },
   ];
 
   const { currentType, chartCfg, onChange } = props;
@@ -43,14 +39,14 @@ const TypeBar: ReactorType.FC<{
               return (
                 <div
                   key={index}
-                  className={classNames("p-[2px] pl-[8px] pr-[8px]", {
-                    "bg-[white]": currentType === item.type,
-                    "cursor-pointer": currentType !== item.type,
-                    "cursor-default": currentType === item.type,
+                  className={classNames('p-[2px] pl-[8px] pr-[8px]', {
+                    'bg-[white]': currentType === item.type,
+                    'cursor-pointer': currentType !== item.type,
+                    'cursor-default': currentType === item.type,
                   })}
                   onClick={() => onChange?.(item.type)}
                 >
-                  <i className={classNames("font_family", { [item.icon]: true })}></i>
+                  <i className={classNames('font_family', { [item.icon]: true })}></i>
                 </div>
               );
             })}
@@ -63,7 +59,12 @@ const TypeBar: ReactorType.FC<{
             onClick={() => setShowQueryArgs(!showQueryArgs)}
           >
             <span>分析参数</span>
-            <i className={classNames("font_family", { "icon-zhankai": showQueryArgs, "icon-shouqi": !showQueryArgs })}></i>
+            <i
+              className={classNames('font_family', {
+                'icon-zhankai': showQueryArgs,
+                'icon-shouqi': !showQueryArgs,
+              })}
+            ></i>
           </div>
         }
       </div>
@@ -77,7 +78,10 @@ const TypeBar: ReactorType.FC<{
               <div className="flex gap-[4px] flex-wrap">
                 {summary.dims.map((item, i) => {
                   return (
-                    <div key={i} className="p-[0] pl-[8px] pr-[8px] rounded-[4px] text-[#4a5fe8] bg-[#edeffd]">
+                    <div
+                      key={i}
+                      className="p-[0] pl-[8px] pr-[8px] rounded-[4px] text-[#4a5fe8] bg-[#edeffd]"
+                    >
                       {item}
                     </div>
                   );
@@ -93,7 +97,10 @@ const TypeBar: ReactorType.FC<{
               <div className="flex gap-[4px] flex-wrap">
                 {summary.measures.map((item, i) => {
                   return (
-                    <div key={i} className="p-[0] pl-[8px] pr-[8px] rounded-[4px] text-[#2fbc44] bg-[#eaf8ec]">
+                    <div
+                      key={i}
+                      className="p-[0] pl-[8px] pr-[8px] rounded-[4px] text-[#2fbc44] bg-[#eaf8ec]"
+                    >
                       {item}
                     </div>
                   );
@@ -109,7 +116,10 @@ const TypeBar: ReactorType.FC<{
               <div className="flex gap-[4px] flex-wrap">
                 {summary.filters.map((item, i) => {
                   return (
-                    <div key={i} className="p-[0] pl-[8px] pr-[8px] rounded-[4px] text-[#8031f5] bg-[#f2eafe]">
+                    <div
+                      key={i}
+                      className="p-[0] pl-[8px] pr-[8px] rounded-[4px] text-[#8031f5] bg-[#f2eafe]"
+                    >
                       {item}
                     </div>
                   );
@@ -139,7 +149,7 @@ const DataChat: ReactorType.FC<{
   data?: DataChatSourceConfig;
 }> = (props) => {
   const { data } = props;
-  const chartCfg = typeof data === "object" && data ? data : {};
+  const chartCfg = typeof data === 'object' && data ? data : {};
   const [currentType, setCurrentType] = useState<string>(resolveChartType(chartCfg));
 
   const transConfig = useMemo(() => {
@@ -155,9 +165,11 @@ const DataChat: ReactorType.FC<{
       <TypeBar currentType={currentType} chartCfg={chartCfg} onChange={(t) => setCurrentType(t)} />
       {/* 图形渲染 */}
       <div className="w-full flex flex-col items-center border rounded-[8px] border-[#e9e9f0] p-[10px]">
-        {transConfig.chartType === "kpiGroup" && <Card data={transConfig} />}
-        {transConfig.chartType === "table" && <SimpleTable data={transConfig} />}
-        {defaultChartPresets.chartTypes.includes(transConfig.chartType as never) && <Chart data={transConfig} />}
+        {transConfig.chartType === 'kpiGroup' && <Card data={transConfig} />}
+        {transConfig.chartType === 'table' && <SimpleTable data={transConfig} />}
+        {defaultChartPresets.chartTypes.includes(transConfig.chartType as never) && (
+          <Chart data={transConfig} />
+        )}
       </div>
     </div>
   );

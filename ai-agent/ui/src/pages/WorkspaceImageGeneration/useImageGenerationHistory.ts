@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState } from 'react';
 
-import { requestImageGenerationHistory } from "@/services/imageGeneration";
-import type { ImageGenerationHistoryBatch } from "./types";
+import { requestImageGenerationHistory } from '@/services/imageGeneration';
+import type { ImageGenerationHistoryBatch } from './types';
 
 export const HISTORY_PAGE_SIZE = 10;
 
@@ -14,7 +14,7 @@ export function useImageGenerationHistory() {
   const [historyPageNo, setHistoryPageNo] = useState(1);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyLoadingMore, setHistoryLoadingMore] = useState(false);
-  const [historyError, setHistoryError] = useState("");
+  const [historyError, setHistoryError] = useState('');
 
   const loadHistory = async (pageNo = 1, replace = true) => {
     if (replace) {
@@ -22,7 +22,7 @@ export function useImageGenerationHistory() {
     } else {
       setHistoryLoadingMore(true);
     }
-    setHistoryError("");
+    setHistoryError('');
 
     try {
       const page = await requestImageGenerationHistory({
@@ -32,10 +32,10 @@ export function useImageGenerationHistory() {
       setHistoryTotal(page.total || 0);
       setHistoryPageNo(pageNo);
       setHistoryBatches((previous) =>
-        replace ? page.list || [] : [...previous, ...(page.list || [])]
+        replace ? page.list || [] : [...previous, ...(page.list || [])],
       );
     } catch (error) {
-      setHistoryError(error instanceof Error ? error.message : "历史查询失败");
+      setHistoryError(error instanceof Error ? error.message : '历史查询失败');
     } finally {
       setHistoryLoading(false);
       setHistoryLoadingMore(false);

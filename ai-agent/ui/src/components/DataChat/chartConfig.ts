@@ -1,14 +1,8 @@
-import type { EChartsOption } from "echarts";
+import type { EChartsOption } from 'echarts';
 
-import { defaultChartPresets } from "./chartPresets";
+import { defaultChartPresets } from './chartPresets';
 
-export type DataChatChartType =
-  | "line"
-  | "bar"
-  | "hbar"
-  | "pie"
-  | "table"
-  | "kpiGroup";
+export type DataChatChartType = 'line' | 'bar' | 'hbar' | 'pie' | 'table' | 'kpiGroup';
 
 export interface DataChatColumn {
   name: string;
@@ -85,11 +79,11 @@ function findColumn(columns: DataChatColumn[], guid: string) {
 }
 
 function resolveTableColumnKey(column: DataChatColumn) {
-  return column.guid || column.col || "";
+  return column.guid || column.col || '';
 }
 
 function resolveKpiColumnKey(column: DataChatColumn) {
-  return column.guid || column.borderColor || "";
+  return column.guid || column.borderColor || '';
 }
 
 function formatSeriesData(dataList: DataChatRow[], key: string): ChartDatum[] {
@@ -105,7 +99,7 @@ function buildAxisTooltip(
     name: string;
     color: string;
     data: ChartDatum;
-  }>
+  }>,
 ) {
   const htmlParts: string[] = [];
   params.forEach((series, index) => {
@@ -120,14 +114,14 @@ function buildAxisTooltip(
           </div>
         </div>`);
   });
-  return htmlParts.join("");
+  return htmlParts.join('');
 }
 
 function attachHorizontalZoom(option: Record<string, unknown>, labels: unknown[]) {
   if (labels.length > 10) {
     option.dataZoom = [
       {
-        type: "slider",
+        type: 'slider',
         show: true,
         brushSelect: false,
         height: 25,
@@ -144,20 +138,20 @@ function formatData(cfg: DataChatSourceConfig) {
   const dataList = cfg.dataList || [];
   dataList.forEach((row) => {
     Object.keys(row).forEach((key) => {
-      if (key.endsWith("_format")) {
+      if (key.endsWith('_format')) {
         return;
       }
 
-      let value = typeof row[key] === "undefined" || row[key] === null ? "-" : row[key];
-      if (!isNaN(Number(value)) && value !== "-") {
+      let value = typeof row[key] === 'undefined' || row[key] === null ? '-' : row[key];
+      if (!isNaN(Number(value)) && value !== '-') {
         const [config, format] =
-          dataFormat.indexOf("|") > -1 ? dataFormat.split("|") : ["{}", dataFormat];
-        let formatStr = "";
+          dataFormat.indexOf('|') > -1 ? dataFormat.split('|') : ['{}', dataFormat];
+        let formatStr = '';
         const {
           numberLevels = [],
           numberLevelType,
           fillZero,
-        } = JSON.parse(config || "{}") as {
+        } = JSON.parse(config || '{}') as {
           numberLevels?: number[];
           numberLevelType?: number;
           fillZero?: boolean;
@@ -166,20 +160,17 @@ function formatData(cfg: DataChatSourceConfig) {
         if (numberLevelType === 1) {
           const formatArr = JSON.parse(format) as string[];
           const valueStr = Math.abs(Number(value)).toString();
-          const integerText = valueStr.split(".").shift() || "";
-          const index = findLastMatchedIndex(
-            numberLevels,
-            (item) => integerText.length + 1 > item
-          );
+          const integerText = valueStr.split('.').shift() || '';
+          const index = findLastMatchedIndex(numberLevels, (item) => integerText.length + 1 > item);
           formatStr = formatArr[index === -1 ? 0 : index];
         } else {
           formatStr = format;
         }
 
         try {
-          const formatter = new Function("v", `return ${formatStr}`);
+          const formatter = new Function('v', `return ${formatStr}`);
           let decimalLength = 0;
-          const splitArr = `${value}`.split(".");
+          const splitArr = `${value}`.split('.');
           if (splitArr.length === 2) {
             decimalLength = splitArr[1].length;
           }
@@ -187,25 +178,22 @@ function formatData(cfg: DataChatSourceConfig) {
             value = formatter(value);
           } else {
             value =
-              formatter(Number(value) * Math.pow(10, decimalLength)) /
-              Math.pow(10, decimalLength);
+              formatter(Number(value) * Math.pow(10, decimalLength)) / Math.pow(10, decimalLength);
           }
         } catch (error) {
           console.log(error);
         }
 
-        const [integerPart, decimalPart] = `${value}`.split(".");
+        const [integerPart, decimalPart] = `${value}`.split('.');
         if (decimalPart) {
-          const unit = `${decimalPart}`.split("").reduce((result, char) => {
+          const unit = `${decimalPart}`.split('').reduce((result, char) => {
             if (isNaN(Number(char))) {
               result += char;
             }
             return result;
-          }, "");
+          }, '');
           if (fillZero === false) {
-            const [, trimmed = ""] = Number.parseFloat(`0.${decimalPart}`)
-              .toString()
-              .split(".");
+            const [, trimmed = ''] = Number.parseFloat(`0.${decimalPart}`).toString().split('.');
             value = `${trimmed ? `${integerPart}.${trimmed}` : integerPart}${unit}`;
           }
         }
@@ -234,7 +222,7 @@ function initTable(cfg: DataChatSourceConfig) {
 
 function initChartOption(
   cfg: DataChatSourceConfig,
-  chartType: DataChatChartType
+  chartType: DataChatChartType,
 ): EChartsOption | Record<string, unknown> {
   const dimCols = cfg.dimCols || [];
   const measureCols = cfg.measureCols || [];
@@ -242,7 +230,7 @@ function initChartOption(
   const columnList = cfg.columnList || [];
   const common = clonePlainObject(defaultChartPresets.templateCommon);
 
-  if (chartType === "line") {
+  if (chartType === 'line') {
     const typeOption = clonePlainObject(defaultChartPresets.templateline);
     const option = Object.assign({}, common, typeOption) as Record<string, unknown>;
     const dimColumn = findColumn(columnList, dimCols[0])!;
@@ -255,16 +243,16 @@ function initChartOption(
       data: dataList.map((item) => item[dimCols[0]]),
     };
     option.series = measureCols.map((measureKey) => ({
-      type: "line",
+      type: 'line',
       name: findColumn(columnList, measureKey)!.name,
       data: formatSeriesData(dataList, measureKey),
       smooth: true,
-      symbol: "circle",
+      symbol: 'circle',
       symbolSize: 10,
       showSymbol: false,
       itemStyle: {
         borderWidth: 2,
-        borderColor: "#fff",
+        borderColor: '#fff',
       },
       columnId: measureKey,
       label: {},
@@ -277,7 +265,7 @@ function initChartOption(
     return option;
   }
 
-  if (chartType === "bar") {
+  if (chartType === 'bar') {
     const typeOption = clonePlainObject(defaultChartPresets.templatebar);
     const option = Object.assign({}, common, typeOption) as Record<string, unknown>;
     const dimColumn = findColumn(columnList, dimCols[0])!;
@@ -290,12 +278,12 @@ function initChartOption(
       data: dataList.map((item) => item[dimCols[0]]),
     };
     option.series = measureCols.map((measureKey) => ({
-      type: "bar",
+      type: 'bar',
       name: findColumn(columnList, measureKey)!.name,
       label: {
-        fontWeight: "bold",
-        color: "#1b1b1b",
-        fontSize: "12px",
+        fontWeight: 'bold',
+        color: '#1b1b1b',
+        fontSize: '12px',
       },
       data: formatSeriesData(dataList, measureKey),
       barMaxWidth: 32,
@@ -316,7 +304,7 @@ function initChartOption(
     return option;
   }
 
-  if (chartType === "hbar") {
+  if (chartType === 'hbar') {
     const typeOption = clonePlainObject(defaultChartPresets.templatehbar);
     const option = Object.assign({}, common, typeOption) as Record<string, unknown>;
     const dimColumn = findColumn(columnList, dimCols[0])!;
@@ -332,11 +320,11 @@ function initChartOption(
       name: findColumn(columnList, measureKey)!.name,
       data: formatSeriesData(dataList, measureKey),
       label: {
-        fontWeight: "bold",
-        color: "#1b1b1b",
-        fontSize: "12px",
+        fontWeight: 'bold',
+        color: '#1b1b1b',
+        fontSize: '12px',
       },
-      type: "bar",
+      type: 'bar',
       barMaxWidth: 32,
       itemStyle: {
         borderRadius: 4,
@@ -355,7 +343,7 @@ function initChartOption(
     if (yAxisData.length > 10) {
       option.dataZoom = [
         {
-          type: "slider",
+          type: 'slider',
           show: true,
           brushSelect: false,
           showDetail: false,
@@ -363,7 +351,7 @@ function initChartOption(
           endValue: yAxisData.length - 1,
           width: 25,
           yAxisIndex: 0,
-          left: "auto",
+          left: 'auto',
           right: 5,
         },
       ];
@@ -375,18 +363,18 @@ function initChartOption(
     return option;
   }
 
-  if (chartType === "pie") {
+  if (chartType === 'pie') {
     const typeOption = clonePlainObject(defaultChartPresets.templatepie);
     const option = Object.assign({}, common, typeOption) as Record<string, unknown>;
     const dimColumn = findColumn(columnList, dimCols[0])!;
     option.series = [
       {
         name: dimColumn.name,
-        type: "pie",
-        radius: ["0%", "55%"],
+        type: 'pie',
+        radius: ['0%', '55%'],
         label: {
-          position: "outer",
-          alignTo: "edge",
+          position: 'outer',
+          alignTo: 'edge',
           bleedMargin: 5,
           distanceToLabelLine: 10,
         },
@@ -415,7 +403,7 @@ function initChartOption(
           ${series.data.showValue} (${series.percent}%)
         </div>
       </div>`);
-        return htmlParts.join("");
+        return htmlParts.join('');
       },
     };
     return option;
@@ -425,31 +413,31 @@ function initChartOption(
 }
 
 export function resolveChartType(cfg: DataChatSourceConfig): DataChatChartType {
-  let chartType: DataChatChartType = "table";
+  let chartType: DataChatChartType = 'table';
   const dimCols = cfg.dimCols || [];
   const measureCols = cfg.measureCols || [];
   const dataList = cfg.dataList || [];
   const columnList = cfg.columnList || [];
 
   if (dimCols.length === 1 && measureCols.length > 0 && dataList.length > 1) {
-    if (findColumn(columnList, dimCols[0])?.dataType === "DATE") {
-      chartType = "line";
+    if (findColumn(columnList, dimCols[0])?.dataType === 'DATE') {
+      chartType = 'line';
     } else if (findColumn(columnList, measureCols[0])?.order !== null) {
-      chartType = "hbar";
+      chartType = 'hbar';
     } else if (dataList.length < 6) {
-      chartType = "pie";
+      chartType = 'pie';
     } else if (dataList.length >= 6) {
-      chartType = "bar";
+      chartType = 'bar';
     }
   } else if (cfg.overwriteCalc) {
-    chartType = "kpiGroup";
+    chartType = 'kpiGroup';
   } else if (
     dataList.length === 1 &&
     columnList.length > 0 &&
-    columnList.findIndex((column) => isNaN(Number(dataList[0][column.guid || ""]))) === -1 &&
+    columnList.findIndex((column) => isNaN(Number(dataList[0][column.guid || '']))) === -1 &&
     columnList.length <= 8
   ) {
-    chartType = "kpiGroup";
+    chartType = 'kpiGroup';
   }
 
   return chartType;
@@ -458,7 +446,7 @@ export function resolveChartType(cfg: DataChatSourceConfig): DataChatChartType {
 export function buildChartConfig(chartCfg: DataChatSourceConfig): DataChatTransformedConfig {
   const nextConfig = clonePlainObject(chartCfg);
   formatData(nextConfig);
-  const chartType = nextConfig.chartSuggest || "table";
+  const chartType = nextConfig.chartSuggest || 'table';
   const result: DataChatTransformedConfig = {
     chartType,
   };
@@ -467,13 +455,13 @@ export function buildChartConfig(chartCfg: DataChatSourceConfig): DataChatTransf
     result.option = initChartOption(nextConfig, chartType as DataChatChartType);
   }
 
-  if (chartType === "table") {
+  if (chartType === 'table') {
     const { columnList, dataList } = initTable(nextConfig);
     result.columnList = columnList;
     result.dataList = dataList;
   }
 
-  if (chartType === "kpiGroup") {
+  if (chartType === 'kpiGroup') {
     const columnList = nextConfig.columnList || [];
     const dataList = nextConfig.dataList || [];
     const firstRow = dataList[0] || {};

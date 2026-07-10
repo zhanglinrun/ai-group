@@ -1,54 +1,42 @@
-import {
-  memo,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
-import ChatView from "@/components/ChatView";
-import WorkspaceMRag from "@/pages/WorkspaceMRag";
-import WorkspaceImageGeneration from "@/pages/WorkspaceImageGeneration";
-import { defaultProduct, productList } from "@/utils/constants";
-import {
-  createSessionId,
-  getUniqId,
-  peekSessionId,
-  setSessionId,
-} from "@/utils";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import ChatView from '@/components/ChatView';
+import WorkspaceMRag from '@/pages/WorkspaceMRag';
+import WorkspaceImageGeneration from '@/pages/WorkspaceImageGeneration';
+import { defaultProduct, productList } from '@/utils/constants';
+import { createSessionId, getUniqId, peekSessionId, setSessionId } from '@/utils';
 import {
   conversationHistoryApi,
   roleLibraryApi,
   type ConversationSessionItem,
   type FixRoleItem,
-} from "@/services/agentConversation";
+} from '@/services/agentConversation';
 import {
   hydrateConversationFromReplayFrames,
   isHistoryDetailEmpty,
-} from "@/utils/conversationHistory";
-import { deriveConversationMetaFromInput } from "./homeState";
-import { resolveInitialSessionId } from "./sessionBootstrap";
-import { useRecentSessions } from "./useRecentSessions";
-import WelcomeView from "./WelcomeView";
-import ConversationSidebar from "./ConversationSidebar";
-import { Loading } from "@/components";
+} from '@/utils/conversationHistory';
+import { deriveConversationMetaFromInput } from './homeState';
+import { resolveInitialSessionId } from './sessionBootstrap';
+import { useRecentSessions } from './useRecentSessions';
+import WelcomeView from './WelcomeView';
+import ConversationSidebar from './ConversationSidebar';
+import { Loading } from '@/components';
 
 type HomeProps = Record<string, never>;
 
-type SidebarView = "chat" | "mrag" | "image-generation";
+type SidebarView = 'chat' | 'mrag' | 'image-generation';
 
 type InitialState = {
   productType: string;
 };
 
-const OUTPUT_TYPES = ["html", "docs", "ppt", "table"];
+const OUTPUT_TYPES = ['html', 'docs', 'ppt', 'table'];
 const EMPTY_INPUT: CHAT.TInputInfo = {
-  message: "",
+  message: '',
   deepThink: false,
 };
 
 const toConversationRole = (
-  role?: CHAT.FixRole | FixRoleItem | CHAT.ConversationRole | null
+  role?: CHAT.FixRole | FixRoleItem | CHAT.ConversationRole | null,
 ): CHAT.ConversationRole | null => {
   if (!role) {
     return null;
@@ -56,95 +44,82 @@ const toConversationRole = (
   return {
     agentId: role.agentId,
     agentName: role.agentName,
-    available: "available" in role ? role.available !== false : true,
+    available: 'available' in role ? role.available !== false : true,
     defaultRole: Boolean(role.defaultRole),
   };
 };
 
-const hasConversationContent = (
-  conversation: CHAT.ConversationHistory | undefined
-) => {
+const hasConversationContent = (conversation: CHAT.ConversationHistory | undefined) => {
   if (!conversation) {
     return false;
   }
-  return (
-    conversation.chatList.length > 0 || conversation.dataChatList.length > 0
-  );
+  return conversation.chatList.length > 0 || conversation.dataChatList.length > 0;
 };
 
 const createConversation = (
-  partial: Partial<CHAT.ConversationHistory> = {}
+  partial: Partial<CHAT.ConversationHistory> = {},
 ): CHAT.ConversationHistory => {
   const now = Date.now();
   return {
     id: partial.id || `conversation-${getUniqId()}`,
     sessionId: partial.sessionId || createSessionId(),
-    title: partial.title || "新对话",
-    productType: partial.productType || "chat",
+    title: partial.title || '新对话',
+    productType: partial.productType || 'chat',
     deepThink: Boolean(partial.deepThink),
     role: partial.role || null,
     createdAt: partial.createdAt ?? now,
     updatedAt: partial.updatedAt ?? now,
-    chatTitle: partial.chatTitle || "",
+    chatTitle: partial.chatTitle || '',
     chatList: partial.chatList || [],
     dataChatList: partial.dataChatList || [],
   };
 };
 
 const createInitialState = (): InitialState => {
-  const initialProduct =
-    productList.find((item) => item.type === "html") ?? defaultProduct;
-  return {productType: initialProduct.type,};
+  const initialProduct = productList.find((item) => item.type === 'html') ?? defaultProduct;
+  return { productType: initialProduct.type };
 };
 
 const Home: ReactorType.FC<HomeProps> = memo(() => {
   const initialRef = useRef<InitialState>(createInitialState());
   const [fixRoles, setFixRoles] = useState<CHAT.FixRole[]>([]);
-  const {
-    recentSessions,
-    recentSessionsLoading,
-    refreshRecentSessions,
-  } = useRecentSessions();
-  const [activeView, setActiveView] = useState<SidebarView>("chat");
+  const { recentSessions, recentSessionsLoading, refreshRecentSessions } = useRecentSessions();
+  const [activeView, setActiveView] = useState<SidebarView>('chat');
   const [inputInfo, setInputInfo] = useState<CHAT.TInputInfo>(EMPTY_INPUT);
   const [product, setProduct] = useState(
     () =>
-      productList.find(
-        (item) => item.type === initialRef.current.productType
-      ) ?? defaultProduct
+      productList.find((item) => item.type === initialRef.current.productType) ?? defaultProduct,
   );
   const [displayOutput, setDisplayOutput] = useState(
-    () => productList.find((item) => item.type === "html") ?? defaultProduct
+    () => productList.find((item) => item.type === 'html') ?? defaultProduct,
   );
   const [videoModalOpen, setVideoModalOpen] = useState<string>();
-  const [conversationBootstrapLoading, setConversationBootstrapLoading] =
-    useState(true);
+  const [conversationBootstrapLoading, setConversationBootstrapLoading] = useState(true);
 
   const defaultFixRole = useMemo(
     () => fixRoles.find((item) => item.defaultRole) ?? fixRoles[0],
-    [fixRoles]
+    [fixRoles],
   );
 
-  const [currentConversation, setCurrentConversation] =
-    useState<CHAT.ConversationHistory>(() =>
-      createConversation({productType: initialRef.current.productType,})
-    );
+  const [currentConversation, setCurrentConversation] = useState<CHAT.ConversationHistory>(() =>
+    createConversation({ productType: initialRef.current.productType }),
+  );
 
   const currentConversationRole = useMemo(() => {
-    if (currentConversation.productType !== "chat") {
+    if (currentConversation.productType !== 'chat') {
       return null;
     }
     return currentConversation.role || toConversationRole(defaultFixRole);
   }, [currentConversation.productType, currentConversation.role, defaultFixRole]);
 
   const canRenderChatView =
-    activeView === "chat" &&
+    activeView === 'chat' &&
     (hasConversationContent(currentConversation) || inputInfo.message.length > 0);
 
   const contentContainerClassName =
-    activeView === "chat" && canRenderChatView
-      ? "min-h-0 flex-1 overflow-hidden"
-      : "min-h-0 flex-1 overflow-auto";
+    activeView === 'chat' && canRenderChatView
+      ? 'min-h-0 flex-1 overflow-hidden'
+      : 'min-h-0 flex-1 overflow-auto';
 
   useEffect(() => {
     roleLibraryApi
@@ -153,7 +128,7 @@ const Home: ReactorType.FC<HomeProps> = memo(() => {
         setFixRoles(data || []);
       })
       .catch((error) => {
-        console.error("加载角色库失败", error);
+        console.error('加载角色库失败', error);
       });
   }, []);
 
@@ -174,7 +149,7 @@ const Home: ReactorType.FC<HomeProps> = memo(() => {
 
         if (!initialSessionId) {
           setCurrentConversation(
-            createConversation({productType: initialRef.current.productType,})
+            createConversation({ productType: initialRef.current.productType }),
           );
           return;
         }
@@ -188,12 +163,12 @@ const Home: ReactorType.FC<HomeProps> = memo(() => {
             setCurrentConversation(hydrateConversationFromReplayFrames(detail));
           })
           .catch((error) => {
-            console.error("加载默认会话详情失败", error);
+            console.error('加载默认会话详情失败', error);
             if (disposed) {
               return;
             }
             setCurrentConversation(
-              createConversation({productType: initialRef.current.productType,})
+              createConversation({ productType: initialRef.current.productType }),
             );
           });
       })
@@ -209,11 +184,7 @@ const Home: ReactorType.FC<HomeProps> = memo(() => {
   }, [refreshRecentSessions]);
 
   useEffect(() => {
-    if (
-      currentConversation.productType !== "chat" ||
-      currentConversation.role ||
-      !defaultFixRole
-    ) {
+    if (currentConversation.productType !== 'chat' || currentConversation.role || !defaultFixRole) {
       return;
     }
 
@@ -222,25 +193,17 @@ const Home: ReactorType.FC<HomeProps> = memo(() => {
       role: toConversationRole(defaultFixRole),
       updatedAt: Date.now(),
     }));
-  }, [
-    currentConversation.productType,
-    currentConversation.role,
-    defaultFixRole,
-  ]);
+  }, [currentConversation.productType, currentConversation.role, defaultFixRole]);
 
   useEffect(() => {
-    const matched = productList.find(
-      (item) => item.type === currentConversation.productType
-    );
+    const matched = productList.find((item) => item.type === currentConversation.productType);
     if (!matched) {
       return;
     }
 
     setProduct((prev) => (prev.type === matched.type ? prev : matched));
     if (OUTPUT_TYPES.includes(matched.type)) {
-      setDisplayOutput((prev) =>
-        prev.type === matched.type ? prev : matched
-      );
+      setDisplayOutput((prev) => (prev.type === matched.type ? prev : matched));
     }
   }, [currentConversation.productType]);
 
@@ -262,50 +225,44 @@ const Home: ReactorType.FC<HomeProps> = memo(() => {
         };
       });
     },
-    []
+    [],
   );
 
   const createNewChat = useCallback(
     (override?: Partial<CHAT.ConversationHistory>) => {
       const nextSessionId = override?.sessionId || createSessionId();
       const defaultStructuredProduct =
-        productList.find((item) => item.type === initialRef.current.productType) ??
-        defaultProduct;
+        productList.find((item) => item.type === initialRef.current.productType) ?? defaultProduct;
       const nextProductType =
         override?.productType ||
-        (product.type === "chat" ? defaultStructuredProduct.type : product.type);
-      setActiveView("chat");
+        (product.type === 'chat' ? defaultStructuredProduct.type : product.type);
+      setActiveView('chat');
       setCurrentConversation(
         createConversation({
           sessionId: nextSessionId,
           productType: nextProductType,
           deepThink:
-            nextProductType === "chat" || nextProductType === "dataAgent"
+            nextProductType === 'chat' || nextProductType === 'dataAgent'
               ? false
-              : override?.deepThink ?? false,
+              : (override?.deepThink ?? false),
           role:
             override?.role ||
-            (nextProductType === "chat"
-              ? toConversationRole(defaultFixRole)
-              : null),
+            (nextProductType === 'chat' ? toConversationRole(defaultFixRole) : null),
           ...override,
-        })
+        }),
       );
       resetInput();
     },
-    [defaultFixRole, product.type, resetInput]
+    [defaultFixRole, product.type, resetInput],
   );
 
-  const updateCurrentConversationMeta = useCallback(
-    (meta: Partial<CHAT.ConversationHistory>) => {
-      setCurrentConversation((prev) => ({
-        ...prev,
-        ...meta,
-        updatedAt: Date.now(),
-      }));
-    },
-    []
-  );
+  const updateCurrentConversationMeta = useCallback((meta: Partial<CHAT.ConversationHistory>) => {
+    setCurrentConversation((prev) => ({
+      ...prev,
+      ...meta,
+      updatedAt: Date.now(),
+    }));
+  }, []);
 
   const onInputConsumed = useCallback(() => {
     resetInput();
@@ -320,14 +277,14 @@ const Home: ReactorType.FC<HomeProps> = memo(() => {
             return;
           }
           setCurrentConversation(hydrateConversationFromReplayFrames(detail));
-          setActiveView("chat");
+          setActiveView('chat');
           resetInput();
         })
         .catch((error) => {
-          console.error("加载历史会话详情失败", error);
+          console.error('加载历史会话详情失败', error);
         });
     },
-    [resetInput]
+    [resetInput],
   );
 
   useEffect(() => {
@@ -350,12 +307,10 @@ const Home: ReactorType.FC<HomeProps> = memo(() => {
         ...info,
         outputStyle: nextMeta.productType,
         deepThink: nextMeta.deepThink,
-        aiAgentId: nextMeta.productType === "chat"
-          ? currentConversationRole?.agentId
-          : undefined,
+        aiAgentId: nextMeta.productType === 'chat' ? currentConversationRole?.agentId : undefined,
       });
     },
-    [currentConversationRole, product.type, updateCurrentConversationMeta]
+    [currentConversationRole, product.type, updateCurrentConversationMeta],
   );
 
   const handleInputSelectionChange = useCallback(
@@ -374,28 +329,25 @@ const Home: ReactorType.FC<HomeProps> = memo(() => {
       updateCurrentConversationMeta({
         productType: nextProduct.type,
         deepThink:
-          nextProduct.type === "chat" || nextProduct.type === "dataAgent"
-            ? false
-            : nextDeepThink,
+          nextProduct.type === 'chat' || nextProduct.type === 'dataAgent' ? false : nextDeepThink,
         role:
-          nextProduct.type === "chat"
+          nextProduct.type === 'chat'
             ? currentConversation.role || toConversationRole(defaultFixRole)
             : null,
       });
     },
-    [currentConversation.role, defaultFixRole, updateCurrentConversationMeta]
+    [currentConversation.role, defaultFixRole, updateCurrentConversationMeta],
   );
 
   const handleRoleSelect = useCallback(
     (role: CHAT.FixRole) => {
-      const chatProduct =
-        productList.find((item) => item.type === "chat") ?? defaultProduct;
+      const chatProduct = productList.find((item) => item.type === 'chat') ?? defaultProduct;
       const nextRole = toConversationRole(role);
 
       // 已有内容时切换角色 = 用新角色开一个新的聊天会话，避免污染当前上下文。
       if (hasConversationContent(currentConversation)) {
         createNewChat({
-          productType: "chat",
+          productType: 'chat',
           deepThink: false,
           role: nextRole,
         });
@@ -404,25 +356,25 @@ const Home: ReactorType.FC<HomeProps> = memo(() => {
 
       // 空会话：就地切到聊天模式并应用所选角色。
       updateCurrentConversationMeta({
-        productType: "chat",
+        productType: 'chat',
         deepThink: false,
         role: nextRole,
       });
       setProduct(chatProduct);
-      setActiveView("chat");
+      setActiveView('chat');
     },
-    [createNewChat, currentConversation, updateCurrentConversationMeta]
+    [createNewChat, currentConversation, updateCurrentConversationMeta],
   );
 
   const toSendMessage = useCallback(
     (query: { label: string; type: number }) => {
       changeInputInfo({
         message: query.label,
-        outputStyle: "dataAgent",
+        outputStyle: 'dataAgent',
         deepThink: query.type === 2,
       });
     },
-    [changeInputInfo]
+    [changeInputInfo],
   );
 
   if (conversationBootstrapLoading) {
@@ -431,55 +383,55 @@ const Home: ReactorType.FC<HomeProps> = memo(() => {
 
   return (
     <div className="agent-shell bg-white text-foreground">
-        <ConversationSidebar
-          activeView={activeView}
-          recentSessions={recentSessions}
-          recentSessionsLoading={recentSessionsLoading}
-          selectedSessionId={currentConversation.sessionId}
-          onNewChat={createNewChat}
-          onSelectSession={handleSelectRecentSession}
-          onChangeView={setActiveView}
-        />
+      <ConversationSidebar
+        activeView={activeView}
+        recentSessions={recentSessions}
+        recentSessionsLoading={recentSessionsLoading}
+        selectedSessionId={currentConversation.sessionId}
+        onNewChat={createNewChat}
+        onSelectSession={handleSelectRecentSession}
+        onChangeView={setActiveView}
+      />
 
-        <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-          <div className={contentContainerClassName}>
-            {activeView === "mrag" ? (
-              <WorkspaceMRag embedded />
-            ) : activeView === "image-generation" ? (
-              <WorkspaceImageGeneration embedded />
-            ) : canRenderChatView ? (
-              <ChatView
-                inputInfo={inputInfo}
-                product={product}
-                conversation={currentConversation}
-                chatRoles={fixRoles}
-                onConversationChange={updateConversation}
-                onRoleSelect={handleRoleSelect}
-                onSelectionChange={handleInputSelectionChange}
-                onInputConsumed={onInputConsumed}
-              />
-            ) : (
-              <WelcomeView
-                currentConversation={currentConversation}
-                product={product}
-                displayOutput={displayOutput}
-                currentConversationRole={currentConversationRole}
-                fixRoles={fixRoles}
-                videoModalOpen={videoModalOpen}
-                onSelectionChange={handleInputSelectionChange}
-                onRoleSelect={handleRoleSelect}
-                onSend={changeInputInfo}
-                onSendQuestion={toSendMessage}
-                onOpenVideo={setVideoModalOpen}
-                onCloseVideo={() => setVideoModalOpen(undefined)}
-              />
-            )}
-          </div>
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <div className={contentContainerClassName}>
+          {activeView === 'mrag' ? (
+            <WorkspaceMRag embedded />
+          ) : activeView === 'image-generation' ? (
+            <WorkspaceImageGeneration embedded />
+          ) : canRenderChatView ? (
+            <ChatView
+              inputInfo={inputInfo}
+              product={product}
+              conversation={currentConversation}
+              chatRoles={fixRoles}
+              onConversationChange={updateConversation}
+              onRoleSelect={handleRoleSelect}
+              onSelectionChange={handleInputSelectionChange}
+              onInputConsumed={onInputConsumed}
+            />
+          ) : (
+            <WelcomeView
+              currentConversation={currentConversation}
+              product={product}
+              displayOutput={displayOutput}
+              currentConversationRole={currentConversationRole}
+              fixRoles={fixRoles}
+              videoModalOpen={videoModalOpen}
+              onSelectionChange={handleInputSelectionChange}
+              onRoleSelect={handleRoleSelect}
+              onSend={changeInputInfo}
+              onSendQuestion={toSendMessage}
+              onOpenVideo={setVideoModalOpen}
+              onCloseVideo={() => setVideoModalOpen(undefined)}
+            />
+          )}
         </div>
+      </div>
     </div>
   );
 });
 
-Home.displayName = "Home";
+Home.displayName = 'Home';
 
 export default Home;

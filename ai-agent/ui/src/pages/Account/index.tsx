@@ -1,11 +1,11 @@
-import { memo, useEffect, useState } from "react";
-import { Link } from "react-router-dom";
-import { Clock3, Loader2, ShoppingBag, Users } from "lucide-react";
-import ShellNav from "@/components/ShellNav";
-import MembershipStatusCard from "@/components/trade/MembershipStatusCard";
-import QuotaOverview from "@/components/trade/QuotaOverview";
-import { bffApi, type AccountSummary } from "@/services/bff";
-import { ROUTES } from "@/router/routes";
+import { memo, useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { Clock3, Loader2, ShoppingBag, Users } from 'lucide-react';
+import ShellNav from '@/components/ShellNav';
+import MembershipStatusCard from '@/components/trade/MembershipStatusCard';
+import QuotaOverview from '@/components/trade/QuotaOverview';
+import { bffApi, type AccountSummary } from '@/services/bff';
+import { ROUTES } from '@/router/routes';
 
 const AccountPage = memo(() => {
   const [loading, setLoading] = useState(true);
@@ -15,7 +15,7 @@ const AccountPage = memo(() => {
     bffApi
       .getAccountSummary()
       .then((data) => setSummary(data))
-      .catch((error) => console.error("加载会员信息失败", error))
+      .catch((error) => console.error('加载会员信息失败', error))
       .finally(() => setLoading(false));
   }, []);
 
@@ -75,14 +75,12 @@ const AccountPage = memo(() => {
                       key={order.orderId}
                       className="rounded-2xl border border-amber-200/70 bg-white/80 px-4 py-4"
                     >
-                      <div className="font-medium">
-                        {order.productName || "会员订单"}
-                      </div>
+                      <div className="font-medium">{order.productName || '会员订单'}</div>
                       <div className="mt-1 text-xs text-[var(--chat-text-soft)]">
                         订单号 {order.orderId}
                       </div>
                       <div className="mt-3 inline-flex rounded-full bg-amber-100 px-2.5 py-1 text-xs font-medium text-amber-800">
-                        {order.status || "等待成团"}
+                        {order.status || '等待成团'}
                       </div>
                       {order.paidAt ? (
                         <div className="mt-2 text-xs text-[var(--chat-text-soft)]">
@@ -103,15 +101,11 @@ const AccountPage = memo(() => {
               <div className="mt-4 grid gap-3 text-sm text-[var(--chat-text-soft)] sm:grid-cols-3">
                 <div className="rounded-2xl bg-[var(--chat-surface-soft)] px-4 py-4">
                   <div className="font-medium text-[var(--chat-text)]">周期额度</div>
-                  <div className="mt-2">
-                    会员周期内可使用的配额，到期后按规则重置或失效。
-                  </div>
+                  <div className="mt-2">会员周期内可使用的配额，到期后按规则重置或失效。</div>
                 </div>
                 <div className="rounded-2xl bg-[var(--chat-surface-soft)] px-4 py-4">
                   <div className="font-medium text-[var(--chat-text)]">加油包额度</div>
-                  <div className="mt-2">
-                    单独购买的额度包，通常可叠加使用，适合临时补充用量。
-                  </div>
+                  <div className="mt-2">单独购买的额度包，通常可叠加使用，适合临时补充用量。</div>
                 </div>
                 <div className="rounded-2xl bg-[var(--chat-surface-soft)] px-4 py-4">
                   <div className="font-medium text-[var(--chat-text)]">拼团购买</div>
@@ -128,6 +122,6 @@ const AccountPage = memo(() => {
   );
 });
 
-AccountPage.displayName = "AccountPage";
+AccountPage.displayName = 'AccountPage';
 
 export default AccountPage;

@@ -1,10 +1,10 @@
-import { memo, useEffect, useState } from "react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
-import { Button, Card, Form, Input, Typography } from "antd";
-import { authApi } from "@/services/auth";
-import { ROUTES } from "@/router/routes";
-import { isAuthenticated } from "@/auth/token";
-import { showMessage } from "@/utils";
+import { memo, useEffect, useState } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { Button, Card, Form, Input, Typography } from 'antd';
+import { authApi } from '@/services/auth';
+import { ROUTES } from '@/router/routes';
+import { isAuthenticated } from '@/auth/token';
+import { showMessage } from '@/utils';
 
 type LoginFormValues = {
   username: string;
@@ -20,8 +20,7 @@ const LoginPage = memo(() => {
     if (!isAuthenticated()) {
       return;
     }
-    const redirectTo =
-      (location.state as { from?: string } | null)?.from || ROUTES.CHAT;
+    const redirectTo = (location.state as { from?: string } | null)?.from || ROUTES.CHAT;
     navigate(redirectTo, { replace: true });
   }, [location.state, navigate]);
 
@@ -34,12 +33,12 @@ const LoginPage = memo(() => {
     try {
       const response = await authApi.login(values);
       authApi.persistLogin(response);
-      const redirectTo =
-        (location.state as { from?: string } | null)?.from || ROUTES.CHAT;
+      const redirectTo = (location.state as { from?: string } | null)?.from || ROUTES.CHAT;
       navigate(redirectTo, { replace: true });
     } catch (error) {
-      console.error("登录失败", error);
-      const msg = error instanceof Error && error.message ? error.message : "登录失败，请检查用户名或密码";
+      console.error('登录失败', error);
+      const msg =
+        error instanceof Error && error.message ? error.message : '登录失败，请检查用户名或密码';
       showMessage()?.error(msg);
     } finally {
       setLoading(false);
@@ -59,14 +58,14 @@ const LoginPage = memo(() => {
           <Form.Item
             label="用户名"
             name="username"
-            rules={[{ required: true, message: "请输入用户名" }]}
+            rules={[{ required: true, message: '请输入用户名' }]}
           >
             <Input placeholder="请输入用户名" />
           </Form.Item>
           <Form.Item
             label="密码"
             name="password"
-            rules={[{ required: true, message: "请输入密码" }]}
+            rules={[{ required: true, message: '请输入密码' }]}
           >
             <Input.Password placeholder="请输入密码" />
           </Form.Item>
@@ -75,7 +74,7 @@ const LoginPage = memo(() => {
           </Button>
         </Form>
         <div className="mt-4 text-center text-sm text-[var(--chat-text-soft)]">
-          还没有账号？{" "}
+          还没有账号？{' '}
           <Link to={ROUTES.REGISTER} className="text-[var(--primary)]">
             立即注册
           </Link>
@@ -85,6 +84,6 @@ const LoginPage = memo(() => {
   );
 });
 
-LoginPage.displayName = "LoginPage";
+LoginPage.displayName = 'LoginPage';
 
 export default LoginPage;

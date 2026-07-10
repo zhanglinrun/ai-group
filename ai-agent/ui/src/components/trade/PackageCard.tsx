@@ -1,6 +1,6 @@
-import { memo } from "react";
-import { Crown, Loader2, Sparkles, Users, Zap } from "lucide-react";
-import type { SkuItem } from "@/services/bff";
+import { memo } from 'react';
+import { Crown, Loader2, Sparkles, Users, Zap } from 'lucide-react';
+import type { SkuItem } from '@/services/bff';
 import {
   formatPrice,
   formatQuota,
@@ -8,7 +8,7 @@ import {
   skuDescription,
   skuDisplayName,
   skuTheme,
-} from "@/utils/tradeDisplay";
+} from '@/utils/tradeDisplay';
 
 type PackageCardProps = {
   sku: SkuItem;
@@ -38,9 +38,7 @@ const PackageCard = memo(
     return (
       <article
         className={`relative overflow-hidden rounded-3xl border bg-white/80 p-6 shadow-[var(--shadow-sm)] backdrop-blur-sm transition hover:shadow-[var(--shadow-md)] dark:bg-white/5 ${
-          highlight
-            ? `border-transparent ring-2 ${theme.ring}`
-            : "border-[var(--chat-border)]"
+          highlight ? `border-transparent ring-2 ${theme.ring}` : 'border-[var(--chat-border)]'
         }`}
       >
         <div
@@ -53,11 +51,7 @@ const PackageCard = memo(
               <div
                 className={`flex h-11 w-11 items-center justify-center rounded-2xl text-white ${theme.accent}`}
               >
-                {member ? (
-                  <Crown className="h-5 w-5" />
-                ) : (
-                  <Zap className="h-5 w-5" />
-                )}
+                {member ? <Crown className="h-5 w-5" /> : <Zap className="h-5 w-5" />}
               </div>
               <div>
                 <div className="text-lg font-semibold">{skuDisplayName(sku)}</div>
@@ -76,9 +70,7 @@ const PackageCard = memo(
           </div>
 
           <div className="mt-5 flex items-end gap-2">
-            <div className="text-3xl font-semibold tracking-tight">
-              {formatPrice(sku.price)}
-            </div>
+            <div className="text-3xl font-semibold tracking-tight">{formatPrice(sku.price)}</div>
             {groupPrice != null && groupPrice !== sku.price ? (
               <div className="pb-1 text-sm text-[var(--chat-text-soft)]">
                 拼团 {formatPrice(groupPrice)}
@@ -149,9 +141,9 @@ const PackageCard = memo(
         </div>
       </article>
     );
-  }
+  },
 );
 
-PackageCard.displayName = "PackageCard";
+PackageCard.displayName = 'PackageCard';
 
 export default PackageCard;

@@ -1,16 +1,16 @@
-import React, { forwardRef, useImperativeHandle, useRef } from "react";
-import classNames from "classnames";
-import { motion, AnimatePresence } from "motion/react";
-import { X, Maximize2, Minimize2 } from "lucide-react";
-import Tabs from "../Tabs";
-import { useSafeState } from "ahooks";
-import { useConstants } from "@/hooks";
-import FilePreview from "./FilePreview";
-import { ActionViewItemEnum } from "@/utils";
+import React, { forwardRef, useImperativeHandle, useRef } from 'react';
+import classNames from 'classnames';
+import { motion, AnimatePresence } from 'motion/react';
+import { X, Maximize2, Minimize2 } from 'lucide-react';
+import Tabs from '../Tabs';
+import { useSafeState } from 'ahooks';
+import { useConstants } from '@/hooks';
+import FilePreview from './FilePreview';
+import { ActionViewItemEnum } from '@/utils';
 
-import FileList from "./FileList";
-import { PlanView, PlanViewAction } from "../PlanView";
-import { PanelItemType } from "../ActionPanel";
+import FileList from './FileList';
+import { PlanView, PlanViewAction } from '../PlanView';
+import { PanelItemType } from '../ActionPanel';
 
 type ActionViewRef = PlanViewAction & {
   setFilePreview: (file?: CHAT.TFile) => void;
@@ -40,7 +40,17 @@ type ActionViewProps = {
 };
 
 const ActionViewComp: ReactorType.FC<ActionViewProps> = forwardRef((props, ref) => {
-  const { className, onClose, activeTask, streamTask, taskList, plan, runState, isFocusMode, onToggleFocusMode } = props;
+  const {
+    className,
+    onClose,
+    activeTask,
+    streamTask,
+    taskList,
+    plan,
+    runState,
+    isFocusMode,
+    onToggleFocusMode,
+  } = props;
 
   const [curFileItem, setCurFileItem] = useSafeState<CHAT.TFile>();
   const planRef = useRef<PlanViewAction>(null);
@@ -63,7 +73,7 @@ const ActionViewComp: ReactorType.FC<ActionViewProps> = forwardRef((props, ref) 
 
   return (
     <motion.div
-      className={classNames("flex h-full w-full flex-col bg-white/50", className)}
+      className={classNames('flex h-full w-full flex-col bg-white/50', className)}
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={{
@@ -98,13 +108,9 @@ const ActionViewComp: ReactorType.FC<ActionViewProps> = forwardRef((props, ref) 
             <button
               onClick={onToggleFocusMode}
               className="flex h-8 w-8 items-center justify-center rounded-full text-[#86868b] transition-all duration-200 hover:bg-[#f5f5f7] hover:text-[#1d1d1f]"
-              title={isFocusMode ? "退出专注模式" : "专注模式"}
+              title={isFocusMode ? '退出专注模式' : '专注模式'}
             >
-              {isFocusMode ? (
-                <Minimize2 className="h-4 w-4" />
-              ) : (
-                <Maximize2 className="h-4 w-4" />
-              )}
+              {isFocusMode ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
             </button>
           )}
           <button

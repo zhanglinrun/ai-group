@@ -1,9 +1,9 @@
-"use client";
+'use client';
 
-import { Button } from "@/components/ui/button";
-import { ViewerPanelShell } from "@/components/ui/viewer-panel-shell";
-import { cn } from "@/lib/utils";
-import { CheckIcon, CopyIcon } from "lucide-react";
+import { Button } from '@/components/ui/button';
+import { ViewerPanelShell } from '@/components/ui/viewer-panel-shell';
+import { cn } from '@/lib/utils';
+import { CheckIcon, CopyIcon } from 'lucide-react';
 import {
   type ComponentProps,
   createContext,
@@ -12,8 +12,8 @@ import {
   useEffect,
   useRef,
   useState,
-} from "react";
-import { type BundledLanguage, codeToHtml, type ShikiTransformer } from "shiki/bundle/web";
+} from 'react';
+import { type BundledLanguage, codeToHtml, type ShikiTransformer } from 'shiki/bundle/web';
 
 type CodeBlockProps = HTMLAttributes<HTMLDivElement> & {
   code: string;
@@ -26,26 +26,26 @@ type CodeBlockContextType = {
 };
 
 const CodeBlockContext = createContext<CodeBlockContextType>({
-  code: "",
+  code: '',
 });
 
 const lineNumberTransformer: ShikiTransformer = {
-  name: "line-numbers",
+  name: 'line-numbers',
   line(node, line) {
     node.children.unshift({
-      type: "element",
-      tagName: "span",
+      type: 'element',
+      tagName: 'span',
       properties: {
         className: [
-          "inline-block",
-          "min-w-10",
-          "mr-4",
-          "text-right",
-          "select-none",
-          "text-muted-foreground",
+          'inline-block',
+          'min-w-10',
+          'mr-4',
+          'text-right',
+          'select-none',
+          'text-muted-foreground',
         ],
       },
-      children: [{ type: "text", value: String(line) }],
+      children: [{ type: 'text', value: String(line) }],
     });
   },
 };
@@ -53,21 +53,19 @@ const lineNumberTransformer: ShikiTransformer = {
 export async function highlightCode(
   code: string,
   language: BundledLanguage,
-  showLineNumbers = false
+  showLineNumbers = false,
 ) {
-  const transformers: ShikiTransformer[] = showLineNumbers
-    ? [lineNumberTransformer]
-    : [];
+  const transformers: ShikiTransformer[] = showLineNumbers ? [lineNumberTransformer] : [];
 
   return await Promise.all([
     codeToHtml(code, {
       lang: language,
-      theme: "one-light",
+      theme: 'one-light',
       transformers,
     }),
     codeToHtml(code, {
       lang: language,
-      theme: "one-dark-pro",
+      theme: 'one-dark-pro',
       transformers,
     }),
   ]);
@@ -81,7 +79,7 @@ export const CodeBlock = ({
   children,
   ...props
 }: CodeBlockProps) => {
-  const [html, setHtml] = useState<string>("");
+  const [html, setHtml] = useState<string>('');
   const mounted = useRef(false);
 
   useEffect(() => {
@@ -100,7 +98,7 @@ export const CodeBlock = ({
   return (
     <CodeBlockContext.Provider value={{ code }}>
       <ViewerPanelShell
-        className={cn("group w-full text-foreground", className)}
+        className={cn('group w-full text-foreground', className)}
         headerRight={children}
         label={language.toUpperCase()}
         subtitle="Source"
@@ -134,8 +132,8 @@ export const CodeBlockCopyButton = ({
   const { code } = useContext(CodeBlockContext);
 
   const copyToClipboard = async () => {
-    if (typeof window === "undefined" || !navigator?.clipboard?.writeText) {
-      onError?.(new Error("Clipboard API not available"));
+    if (typeof window === 'undefined' || !navigator?.clipboard?.writeText) {
+      onError?.(new Error('Clipboard API not available'));
       return;
     }
 
@@ -154,9 +152,9 @@ export const CodeBlockCopyButton = ({
   return (
     <Button
       className={cn(
-        "h-7 w-7 shrink-0 rounded-md bg-[var(--chat-surface)] text-[var(--chat-text-soft)] transition-colors hover:bg-[var(--chat-surface-muted)] hover:text-[var(--chat-text)]",
-        isCopied && "text-[var(--success)]",
-        className
+        'h-7 w-7 shrink-0 rounded-md bg-[var(--chat-surface)] text-[var(--chat-text-soft)] transition-colors hover:bg-[var(--chat-surface-muted)] hover:text-[var(--chat-text)]',
+        isCopied && 'text-[var(--success)]',
+        className,
       )}
       onClick={copyToClipboard}
       size="icon-sm"

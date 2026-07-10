@@ -1,4 +1,4 @@
-import request from "@/utils/request";
+import request from '@/utils/request';
 
 export type UploadedConversationFile = {
   name: string;
@@ -15,15 +15,15 @@ export type UploadedConversationFile = {
 export const agentFileApi = {
   uploadConversationFile: async (
     sessionId: string,
-    file: File
+    file: File,
   ): Promise<UploadedConversationFile> => {
     const formData = new FormData();
-    formData.append("sessionId", sessionId);
-    formData.append("file", file);
+    formData.append('sessionId', sessionId);
+    formData.append('file', file);
 
-    return request.post("/api/agent/file/upload", formData, {
+    return request.post('/api/agent/file/upload', formData, {
       headers: {
-        "Content-Type": "multipart/form-data",
+        'Content-Type': 'multipart/form-data',
       },
     });
   },

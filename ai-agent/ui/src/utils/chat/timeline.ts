@@ -9,10 +9,7 @@ export type TimelineTaskContainer = {
  * 历史回放里即便不是 deepThink，也可能存在多个任务组。
  * 这里按索引兜底创建时间线分组，避免后续容器逻辑读到 undefined。
  */
-export function ensureTimelineTaskGroup(
-  chatList: TimelineTaskContainer[][],
-  groupIndex: number
-) {
+export function ensureTimelineTaskGroup(chatList: TimelineTaskContainer[][], groupIndex: number) {
   if (!Array.isArray(chatList[groupIndex])) {
     chatList[groupIndex] = [];
   }
@@ -26,7 +23,7 @@ export function ensureTimelineTaskGroup(
  */
 export function ensureTimelineTaskContainer(
   taskGroup: TimelineTaskContainer[],
-  task?: MESSAGE.Task
+  task?: MESSAGE.Task,
 ): TimelineTaskContainer {
   const lastContainer = taskGroup[taskGroup.length - 1];
   if (lastContainer) {
@@ -35,7 +32,7 @@ export function ensureTimelineTaskContainer(
 
   const placeholder: TimelineTaskContainer = {
     hidden: false,
-    task: task?.task || "",
+    task: task?.task || '',
     taskId: task?.taskId,
     messageId: task?.messageId,
     messageTime: task?.messageTime,
@@ -52,7 +49,7 @@ export function ensureTimelineTaskContainer(
  */
 export function upsertTimelineTaskContainer(
   taskGroup: TimelineTaskContainer[],
-  task: MESSAGE.Task
+  task: MESSAGE.Task,
 ): TimelineTaskContainer {
   const lastContainer = taskGroup[taskGroup.length - 1];
   if (lastContainer?.__placeholder) {

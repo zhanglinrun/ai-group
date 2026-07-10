@@ -1,4 +1,4 @@
-import type { ConversationSessionItem } from "@/services/agentConversation";
+import type { ConversationSessionItem } from '@/services/agentConversation';
 
 /**
  * 首页首屏始终保持欢迎态，不自动恢复历史会话。

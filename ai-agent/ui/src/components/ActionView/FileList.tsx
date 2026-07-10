@@ -1,14 +1,20 @@
-import { copyText, downloadFile, formatTimestamp, showMessage } from "@/utils";
-import { keyBy } from "lodash";
-import React, { useMemo, useState } from "react";
-import ActionViewFrame from "./ActionViewFrame";
-import { FileRenderer, HTMLRenderer, ImageRenderer, PanelItemType, TableRenderer } from "../ActionPanel";
-import { useBoolean, useMemoizedFn } from "ahooks";
-import LoadingSpinner from "../LoadingSpinner";
-import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Separator } from "@/components/ui/separator";
-import { getTaskFiles, isImageFileLike } from "@/utils/taskArtifacts";
+import { copyText, downloadFile, formatTimestamp, showMessage } from '@/utils';
+import { keyBy } from 'lodash';
+import React, { useMemo, useState } from 'react';
+import ActionViewFrame from './ActionViewFrame';
+import {
+  FileRenderer,
+  HTMLRenderer,
+  ImageRenderer,
+  PanelItemType,
+  TableRenderer,
+} from '../ActionPanel';
+import { useBoolean, useMemoizedFn } from 'ahooks';
+import LoadingSpinner from '../LoadingSpinner';
+import { Card, CardContent } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Separator } from '@/components/ui/separator';
+import { getTaskFiles, isImageFileLike } from '@/utils/taskArtifacts';
 import {
   FileText,
   Download,
@@ -17,8 +23,8 @@ import {
   FileSpreadsheet,
   FileCode,
   FileIcon,
-} from "lucide-react";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+} from 'lucide-react';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 type FileItem = {
   name: string;
@@ -84,16 +90,15 @@ const FileList: React.FC<{
     }, []);
     return {
       list,
-      map
+      map,
     };
   }, [taskList]);
 
   const fileItem = activeFile || (activeItem ? fileMap[activeItem] : undefined);
-  const missing = !!fileItem && "missing" in fileItem && Boolean(fileItem.missing);
+  const missing = !!fileItem && 'missing' in fileItem && Boolean(fileItem.missing);
   const missingReason =
-    fileItem && "missingReason" in fileItem ? fileItem.missingReason : undefined;
-  const downloadUrl =
-    fileItem && "downloadUrl" in fileItem ? fileItem.downloadUrl : undefined;
+    fileItem && 'missingReason' in fileItem ? fileItem.missingReason : undefined;
+  const downloadUrl = fileItem && 'downloadUrl' in fileItem ? fileItem.downloadUrl : undefined;
   const isImageFile = Boolean(fileItem && isImageFileLike(fileItem));
 
   const copy = useMemoizedFn(async () => {
@@ -146,7 +151,7 @@ const FileList: React.FC<{
                     {item.name}
                   </p>
                   <p className="text-xs text-[#86868b]">
-                    {item.missing ? item.missingReason || "内容不可读取" : item.messageTime}
+                    {item.missing ? item.missingReason || '内容不可读取' : item.messageTime}
                   </p>
                 </div>
                 <ChevronRight className="h-3.5 w-3.5 shrink-0 text-[#c7c7cc] transition-colors group-hover:text-[#86868b]" />
@@ -169,7 +174,7 @@ const FileList: React.FC<{
             </div>
             <p className="text-sm font-medium text-[#1d1d1f]">文件不可读取</p>
             <p className="mt-1 text-xs text-[#86868b]">
-              {missingReason || "引用资源不存在或已失效"}
+              {missingReason || '引用资源不存在或已失效'}
             </p>
           </CardContent>
         </Card>
@@ -221,12 +226,7 @@ const FileList: React.FC<{
                 variant="ghost"
                 size="icon"
                 className="h-8 w-8 text-[#86868b] hover:text-[#1d1d1f]"
-                onClick={() =>
-                  downloadFile(
-                    downloadUrl || fileItem.url || "",
-                    fileItem.name
-                  )
-                }
+                onClick={() => downloadFile(downloadUrl || fileItem.url || '', fileItem.name)}
               >
                 <Download className="h-4 w-4" />
               </Button>
@@ -246,11 +246,7 @@ const FileList: React.FC<{
                   onClick={copy}
                   disabled={copying}
                 >
-                  {copying ? (
-                    <LoadingSpinner className="h-4 w-4" />
-                  ) : (
-                    <Copy className="h-4 w-4" />
-                  )}
+                  {copying ? <LoadingSpinner className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
                 </Button>
               </TooltipTrigger>
               <TooltipContent>
@@ -264,9 +260,7 @@ const FileList: React.FC<{
       <Separator className="bg-[#e8e8ed]" />
 
       {/* ActionViewFrame 本身已提供 flex 高度，这里不要再用 flex-1，避免高度失效导致 iframe 只显示一小段 */}
-      <div className="h-full overflow-auto p-4">
-        {renderContent()}
-      </div>
+      <div className="h-full overflow-auto p-4">{renderContent()}</div>
     </ActionViewFrame>
   );
 };

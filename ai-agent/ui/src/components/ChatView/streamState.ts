@@ -1,24 +1,18 @@
-import { shouldRenderDeepSearchWorkspace } from "@/utils/deepSearch";
-import type { ActiveRunState } from "./chatView.types";
+import { shouldRenderDeepSearchWorkspace } from '@/utils/deepSearch';
+import type { ActiveRunState } from './chatView.types';
 
-const WORKSPACE_HIDDEN_MESSAGE_TYPES = new Set([
-  "task_summary",
-  "result",
-  "tool_thought",
-]);
+const WORKSPACE_HIDDEN_MESSAGE_TYPES = new Set(['task_summary', 'result', 'tool_thought']);
 
-export function isWorkspaceRenderableTask(
-  task?: Partial<CHAT.Task> | Partial<MESSAGE.Task>
-) {
+export function isWorkspaceRenderableTask(task?: Partial<CHAT.Task> | Partial<MESSAGE.Task>) {
   if (!task) {
     return false;
   }
 
-  if (WORKSPACE_HIDDEN_MESSAGE_TYPES.has(task.messageType || "")) {
+  if (WORKSPACE_HIDDEN_MESSAGE_TYPES.has(task.messageType || '')) {
     return false;
   }
 
-  if (task.messageType === "deep_search") {
+  if (task.messageType === 'deep_search') {
     return shouldRenderDeepSearchWorkspace(task.resultMap?.messageType);
   }
 
@@ -31,15 +25,13 @@ export function shouldRefreshWorkspaceTask(eventData?: MESSAGE.EventData) {
   }
 
   // 最终总结流和思考流不属于右侧工作区内容，不要触发工作区跟随刷新。
-  if (eventData.messageType === "plan_thought") {
+  if (eventData.messageType === 'plan_thought') {
     return false;
   }
 
   if (
-    eventData.messageType === "task" &&
-    ["agent_stream", "tool_thought"].includes(
-      eventData.resultMap?.messageType || ""
-    )
+    eventData.messageType === 'task' &&
+    ['agent_stream', 'tool_thought'].includes(eventData.resultMap?.messageType || '')
   ) {
     return false;
   }
@@ -70,18 +62,12 @@ export function cloneWorkspaceTask(task: CHAT.Task): CHAT.Task {
   } as CHAT.Task;
 }
 
-export function resolveActionPanelVisibility(params: {
-  plan?: CHAT.Plan;
-  taskList: CHAT.Task[];
-}) {
-  return (
-    Boolean(params.plan) ||
-    params.taskList.some((task) => isWorkspaceRenderableTask(task))
-  );
+export function resolveActionPanelVisibility(params: { plan?: CHAT.Plan; taskList: CHAT.Task[] }) {
+  return Boolean(params.plan) || params.taskList.some((task) => isWorkspaceRenderableTask(task));
 }
 
 export function resolveLatestRunState(
-  chat?: Pick<CHAT.ChatItem, "metrics" | "finishedAt">
+  chat?: Pick<CHAT.ChatItem, 'metrics' | 'finishedAt'>,
 ): ActiveRunState | undefined {
   if (!chat) {
     return undefined;

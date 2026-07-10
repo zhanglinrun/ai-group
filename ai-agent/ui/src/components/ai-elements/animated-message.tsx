@@ -1,5 +1,5 @@
-import React, { memo } from "react";
-import { motion, AnimatePresence } from "motion/react";
+import React, { memo } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 
 interface AnimatedMessageListProps {
   children: React.ReactNode;
@@ -65,10 +65,10 @@ export const AnimatedMessage = memo(
         {children}
       </motion.div>
     );
-  }
+  },
 );
 
-AnimatedMessage.displayName = "AnimatedMessage";
+AnimatedMessage.displayName = 'AnimatedMessage';
 
 /**
  * 流式内容更新动画
@@ -97,7 +97,7 @@ export const StreamingContent: React.FC<StreamingContentProps> = ({
           ? {
               duration: 2,
               repeat: Infinity,
-              ease: "easeInOut",
+              ease: 'easeInOut',
             }
           : { duration: 0.3 }
       }
@@ -115,7 +115,7 @@ interface FadeInProps {
   delay?: number;
   duration?: number;
   className?: string;
-  direction?: "up" | "down" | "left" | "right" | "none";
+  direction?: 'up' | 'down' | 'left' | 'right' | 'none';
 }
 
 export const FadeIn: React.FC<FadeInProps> = ({
@@ -123,7 +123,7 @@ export const FadeIn: React.FC<FadeInProps> = ({
   delay = 0,
   duration = 0.4,
   className,
-  direction = "up",
+  direction = 'up',
 }) => {
   const directionOffset = {
     up: { y: 20 },
@@ -171,7 +171,7 @@ export const Pulse: React.FC<PulseProps> = ({ children, isActive = true }) => {
       transition={{
         duration: 2,
         repeat: Infinity,
-        ease: "easeInOut",
+        ease: 'easeInOut',
       }}
     >
       {children}

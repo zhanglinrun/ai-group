@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 const DEFAULT_LEFT_WIDTH = 38;
 const MIN_LEFT_WIDTH = 28;
@@ -19,14 +19,17 @@ export function useWorkspacePanels() {
   const dragStartWidthRef = useRef(DEFAULT_LEFT_WIDTH);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const handleDragStart = useCallback((event: React.MouseEvent) => {
-    event.preventDefault();
-    setIsDragging(true);
-    dragStartXRef.current = event.clientX;
-    dragStartWidthRef.current = leftPanelWidth;
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
-  }, [leftPanelWidth]);
+  const handleDragStart = useCallback(
+    (event: React.MouseEvent) => {
+      event.preventDefault();
+      setIsDragging(true);
+      dragStartXRef.current = event.clientX;
+      dragStartWidthRef.current = leftPanelWidth;
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+    },
+    [leftPanelWidth],
+  );
 
   useEffect(() => {
     const handleDragMove = (event: MouseEvent) => {
@@ -39,7 +42,7 @@ export function useWorkspacePanels() {
       const deltaPercent = (deltaPixels / containerWidth) * 100;
       const nextWidth = Math.max(
         MIN_LEFT_WIDTH,
-        Math.min(MAX_LEFT_WIDTH, dragStartWidthRef.current + deltaPercent)
+        Math.min(MAX_LEFT_WIDTH, dragStartWidthRef.current + deltaPercent),
       );
       setLeftPanelWidth(nextWidth);
     };
@@ -50,18 +53,18 @@ export function useWorkspacePanels() {
       }
 
       setIsDragging(false);
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
     };
 
     if (isDragging) {
-      document.addEventListener("mousemove", handleDragMove);
-      document.addEventListener("mouseup", handleDragEnd);
+      document.addEventListener('mousemove', handleDragMove);
+      document.addEventListener('mouseup', handleDragEnd);
     }
 
     return () => {
-      document.removeEventListener("mousemove", handleDragMove);
-      document.removeEventListener("mouseup", handleDragEnd);
+      document.removeEventListener('mousemove', handleDragMove);
+      document.removeEventListener('mouseup', handleDragEnd);
     };
   }, [isDragging]);
 

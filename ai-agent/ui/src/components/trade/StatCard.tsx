@@ -1,4 +1,4 @@
-import { memo } from "react";
+import { memo } from 'react';
 
 type StatCardProps = {
   label: string;
@@ -12,8 +12,8 @@ const StatCard = memo(({ label, value, warn }: StatCardProps) => (
     <div
       className={
         warn
-          ? "mt-2 text-xl font-semibold text-amber-600"
-          : "mt-2 text-xl font-semibold text-[var(--chat-text)]"
+          ? 'mt-2 text-xl font-semibold text-amber-600'
+          : 'mt-2 text-xl font-semibold text-[var(--chat-text)]'
       }
     >
       {value}
@@ -21,6 +21,6 @@ const StatCard = memo(({ label, value, warn }: StatCardProps) => (
   </div>
 ));
 
-StatCard.displayName = "StatCard";
+StatCard.displayName = 'StatCard';
 
 export default StatCard;

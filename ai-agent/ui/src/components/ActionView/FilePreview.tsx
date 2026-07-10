@@ -1,19 +1,19 @@
-import classNames from "classnames";
-import { useEffect, useMemo, useState } from "react";
-import { motion, AnimatePresence } from "motion/react";
-import ActionPanel, { PanelItemType } from "../ActionPanel";
-import { useMemoizedFn } from "ahooks";
-import dayjs from "dayjs";
-import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { ChevronLeft, ChevronRight, Clock } from "lucide-react";
-import RunStatus from "./RunStatus";
-import { getPrimaryTaskFile } from "@/utils/taskArtifacts";
+import classNames from 'classnames';
+import { useEffect, useMemo, useState } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
+import ActionPanel, { PanelItemType } from '../ActionPanel';
+import { useMemoizedFn } from 'ahooks';
+import dayjs from 'dayjs';
+import { Card, CardContent } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { ChevronLeft, ChevronRight, Clock } from 'lucide-react';
+import RunStatus from './RunStatus';
+import { getPrimaryTaskFile } from '@/utils/taskArtifacts';
 import {
   filterPreviewTaskList,
   resolvePreviewTaskRenderKey,
   resolvePreviewTaskSelection,
-} from "./filePreviewModel";
+} from './filePreviewModel';
 
 // 空状态动画组件
 const EmptyState = () => (
@@ -29,7 +29,7 @@ const EmptyState = () => (
           transition={{
             duration: 2,
             repeat: Infinity,
-            ease: "easeInOut",
+            ease: 'easeInOut',
           }}
         >
           <Clock className="h-5 w-5 text-[#86868b]" />
@@ -49,9 +49,7 @@ const MissingArtifactState = ({ reason }: { reason?: string }) => (
           <span className="text-lg text-[#86868b]">?</span>
         </div>
         <p className="text-sm font-medium text-[#1d1d1f]">引用内容不可读取</p>
-        <p className="mt-1 text-xs text-[#86868b]">
-          {reason || "引用资源不存在或已失效"}
-        </p>
+        <p className="mt-1 text-xs text-[#86868b]">{reason || '引用资源不存在或已失效'}</p>
       </CardContent>
     </Card>
   </div>
@@ -105,7 +103,7 @@ const FilePreview: React.FC<{
   }
 
   return (
-    <div className={classNames("flex h-full flex-col", className)}>
+    <div className={classNames('flex h-full flex-col', className)}>
       {/* Content — 删除内部 Header，直接上内容 */}
       <div className="flex-1 overflow-hidden">
         <div className="flex h-full flex-col">
@@ -137,11 +135,7 @@ const FilePreview: React.FC<{
                   transition={{ duration: 0.2 }}
                   className="h-full"
                 >
-                  <ActionPanel
-                    className="h-full"
-                    taskItem={taskItem}
-                    allowShowToolBar
-                  />
+                  <ActionPanel className="h-full" taskItem={taskItem} allowShowToolBar />
                 </motion.div>
               </AnimatePresence>
             )}
@@ -193,12 +187,12 @@ const FilePreview: React.FC<{
               >
                 <Clock className="h-3 w-3" />
                 <span>
-                  {dayjs(+(taskList[realActiveTaskIndex]?.messageTime || 0)).format(
-                    "HH:mm:ss"
-                  )}
+                  {dayjs(+(taskList[realActiveTaskIndex]?.messageTime || 0)).format('HH:mm:ss')}
                 </span>
                 <span className="mx-1 text-[#e8e8ed]">|</span>
-                <span>{realActiveTaskIndex + 1} / {taskLength}</span>
+                <span>
+                  {realActiveTaskIndex + 1} / {taskLength}
+                </span>
               </motion.div>
 
               <Button

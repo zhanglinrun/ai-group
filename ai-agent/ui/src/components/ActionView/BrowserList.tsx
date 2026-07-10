@@ -1,18 +1,12 @@
-import { useMemo, useState } from "react";
-import ActionViewFrame from "./ActionViewFrame";
-import { formatTimestamp, jumpUrl } from "@/utils";
-import { keyBy } from "lodash";
-import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
-import {
-  Search,
-  ExternalLink,
-  Globe,
-  ChevronRight,
-  Link2,
-} from "lucide-react";
-import { getSearchList, PanelItemType } from "../ActionPanel";
+import { useMemo, useState } from 'react';
+import ActionViewFrame from './ActionViewFrame';
+import { formatTimestamp, jumpUrl } from '@/utils';
+import { keyBy } from 'lodash';
+import { Card, CardContent } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Separator } from '@/components/ui/separator';
+import { Search, ExternalLink, Globe, ChevronRight, Link2 } from 'lucide-react';
+import { getSearchList, PanelItemType } from '../ActionPanel';
 
 type BrowserItem = {
   messageTime: string;
@@ -25,9 +19,7 @@ type BrowserItem = {
   id: string;
 };
 
-const BrowserDetail: React.FC<{ item: BrowserItem; onBack: () => void }> = ({
-  item,
-}) => {
+const BrowserDetail: React.FC<{ item: BrowserItem; onBack: () => void }> = ({ item }) => {
   const { result } = item;
 
   if (!result?.length) {
@@ -76,9 +68,7 @@ const BrowserDetail: React.FC<{ item: BrowserItem; onBack: () => void }> = ({
                     {ele.name}
                   </p>
                   {ele.pageContent && (
-                    <p className="mt-1 line-clamp-2 text-xs text-[#86868b]">
-                      {ele.pageContent}
-                    </p>
+                    <p className="mt-1 line-clamp-2 text-xs text-[#86868b]">{ele.pageContent}</p>
                   )}
                   <div className="mt-2 flex items-center gap-1 text-[11px] text-[#c7c7cc]">
                     <ExternalLink className="h-3 w-3" />

@@ -1,10 +1,4 @@
-import {
-  useDebugValue,
-  useEffect,
-  useMemo,
-  useRef,
-  useSyncExternalStore,
-} from 'react';
+import { useDebugValue, useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
 
 const objectIs = Object.is ?? ((x: unknown, y: unknown) => x === y || (x !== x && y !== y));
 
@@ -18,7 +12,7 @@ export function useSyncExternalStoreWithSelector<Snapshot, Selection>(
   getSnapshot: () => Snapshot,
   getServerSnapshot: (() => Snapshot) | undefined,
   selector: (snapshot: Snapshot) => Selection,
-  isEqual?: (a: Selection, b: Selection) => boolean
+  isEqual?: (a: Selection, b: Selection) => boolean,
 ) {
   const instRef = useRef<Inst<Selection> | null>(null);
 

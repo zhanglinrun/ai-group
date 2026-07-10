@@ -1,5 +1,5 @@
-import { MessageInstance } from "antd/es/message/interface";
-import { throttle } from "lodash";
+import { MessageInstance } from 'antd/es/message/interface';
+import { throttle } from 'lodash';
 
 /**
  * 检查字符串是否为有效的 JSON
@@ -20,10 +20,8 @@ export const isValidJSON = (str?: string): boolean => {
 export const isHTML = (text: string): boolean => {
   try {
     const parser = new DOMParser();
-    const doc = parser.parseFromString(text, "text/html");
-    return Array.from(doc.body.childNodes).some(
-      (node) => node.nodeType === Node.ELEMENT_NODE
-    );
+    const doc = parser.parseFromString(text, 'text/html');
+    return Array.from(doc.body.childNodes).some((node) => node.nodeType === Node.ELEMENT_NODE);
   } catch {
     return false;
   }
@@ -60,7 +58,7 @@ export const formatTimestamp = (timestamp: number | string): string => {
   } else if (diffTime < TEN_DAYS_MS) {
     return `${Math.ceil(diffTime / ONE_DAY_MS)}天前`;
   }
-  return "10天前";
+  return '10天前';
 };
 /**
  * 从 URL 中获取查询参数
@@ -72,21 +70,21 @@ export const getQuery = (targetUrl: string, key: string): string | null => {
 };
 
 export const scrollToTop = (dom: Element) => {
-  setTimeout(()=>{
+  setTimeout(() => {
     dom.scrollTop = dom.scrollHeight;
   }, 100);
 };
 
 export const copyText = throttle((text?: string | number) => {
   if (navigator.clipboard) {
-    navigator.clipboard.writeText((text || "") + "");
+    navigator.clipboard.writeText((text || '') + '');
   } else {
-    const input = document.createElement("textarea");
-    input.value = text + "";
+    const input = document.createElement('textarea');
+    input.value = text + '';
     document.body.appendChild(input);
     input.focus();
     input.select();
-    document.execCommand("copy");
+    document.execCommand('copy');
     document.body.removeChild(input);
   }
 }, 1000);
@@ -101,8 +99,8 @@ export const preventDefault = <
     stopPropagation?: () => void;
   },
 >(
-    e: T
-  ) => {
+  e: T,
+) => {
   e.stopPropagation?.();
   e.preventDefault?.();
 };
@@ -112,10 +110,10 @@ export const preventDefault = <
  */
 export const downloadFile = (url?: string, name?: string) => {
   if (!url) return;
-  const link = document.createElement("a");
+  const link = document.createElement('a');
   link.href = url;
-  link.style.display = "none";
-  link.target = "_blank";
+  link.style.display = 'none';
+  link.target = '_blank';
   if (name) {
     link.download = name;
   }
@@ -153,8 +151,8 @@ export const setSessionId = (sessionId: string) => {
     return sessionId;
   }
   try {
-    if (typeof window !== "undefined" && window.sessionStorage) {
-      window.sessionStorage.setItem("reactor.sessionId", sessionId);
+    if (typeof window !== 'undefined' && window.sessionStorage) {
+      window.sessionStorage.setItem('reactor.sessionId', sessionId);
     }
   } catch {
     // ignore storage access errors
@@ -167,8 +165,8 @@ export const setSessionId = (sessionId: string) => {
  */
 export const peekSessionId = () => {
   try {
-    if (typeof window !== "undefined" && window.sessionStorage) {
-      return window.sessionStorage.getItem("reactor.sessionId");
+    if (typeof window !== 'undefined' && window.sessionStorage) {
+      return window.sessionStorage.getItem('reactor.sessionId');
     }
   } catch {
     // ignore storage access errors
@@ -214,7 +212,7 @@ export const getOS = () => {
  * @param str csv字符串
  * @returns
  */
-export const parseCSVData = (str: string) =>  {
+export const parseCSVData = (str: string) => {
   const result = [];
   const jsonObj = str.split('\n');
   let arrHeader: string[] = [];

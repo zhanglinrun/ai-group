@@ -10,25 +10,17 @@ export function ensurePlannerRounds(currentChat: CHAT.ChatItem) {
 
 export function resolveLegacyPlannerRoundId(eventData: MESSAGE.EventData) {
   const resultMap = eventData?.resultMap;
-  return (
-    resultMap?.plannerRoundId ||
-    eventData?.taskId ||
-    eventData?.messageId ||
-    ""
-  );
+  return resultMap?.plannerRoundId || eventData?.taskId || eventData?.messageId || '';
 }
 
-function findPlannerRoundIndex(
-  plannerRounds: CHAT.PlannerRound[],
-  plannerRoundId: string
-) {
+function findPlannerRoundIndex(plannerRounds: CHAT.PlannerRound[], plannerRoundId: string) {
   return plannerRounds.findIndex((item) => item.plannerRoundId === plannerRoundId);
 }
 
 export function upsertPlannerRound(
   currentChat: CHAT.ChatItem,
   plannerRoundId: string,
-  updater: (round: CHAT.PlannerRound) => void
+  updater: (round: CHAT.PlannerRound) => void,
 ) {
   if (!plannerRoundId) {
     return undefined;
@@ -61,13 +53,10 @@ export function syncLatestPlannerAlias(currentChat: CHAT.ChatItem) {
 
   currentChat.multiAgent.plan_thought = latestRound.planThought;
   currentChat.multiAgent.plan = latestRound.plan;
-  currentChat.thought = latestRound.planThought || "";
+  currentChat.thought = latestRound.planThought || '';
 }
 
-export function handlePlanMessage(
-  eventData: MESSAGE.EventData,
-  currentChat: CHAT.ChatItem
-) {
+export function handlePlanMessage(eventData: MESSAGE.EventData, currentChat: CHAT.ChatItem) {
   const plannerRoundId = resolveLegacyPlannerRoundId(eventData);
   if (!plannerRoundId) {
     return;
@@ -86,21 +75,18 @@ export function handlePlanMessage(
   syncLatestPlannerAlias(currentChat);
 }
 
-export function handlePlanThoughtMessage(
-  eventData: MESSAGE.EventData,
-  currentChat: CHAT.ChatItem
-) {
+export function handlePlanThoughtMessage(eventData: MESSAGE.EventData, currentChat: CHAT.ChatItem) {
   const plannerRoundId = resolveLegacyPlannerRoundId(eventData);
   if (!plannerRoundId) {
     return;
   }
 
   upsertPlannerRound(currentChat, plannerRoundId, (round) => {
-    const currentThought = round.planThought || "";
+    const currentThought = round.planThought || '';
     if (eventData.resultMap.isFinal) {
       round.planThought = eventData.resultMap.planThought;
     } else {
-      round.planThought = `${currentThought}${eventData.resultMap.planThought || ""}`;
+      round.planThought = `${currentThought}${eventData.resultMap.planThought || ''}`;
     }
     round.planThoughtMessageId = eventData.messageId;
     round.planThoughtTaskId = eventData.taskId;

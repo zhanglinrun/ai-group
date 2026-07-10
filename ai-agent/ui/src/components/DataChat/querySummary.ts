@@ -1,4 +1,4 @@
-import type { DataChatFilter, DataChatSourceConfig } from "./chartConfig";
+import type { DataChatFilter, DataChatSourceConfig } from './chartConfig';
 
 export interface DataChatQuerySummary {
   showTypeSwitch: boolean;
@@ -9,36 +9,31 @@ export interface DataChatQuerySummary {
 }
 
 function resolveColumnLabel(chartCfg: DataChatSourceConfig, key: string) {
-  const column = (chartCfg.columnList || []).find(
-    (item) => item.guid === key || item.col === key
-  );
+  const column = (chartCfg.columnList || []).find((item) => item.guid === key || item.col === key);
   return column?.name || key;
 }
 
 function trimFilterValue(value?: string) {
-  return value?.replace(/^\%+/g, "").replace(/\%+$/g, "") || "";
+  return value?.replace(/^%+/g, '').replace(/%+$/g, '') || '';
 }
 
 function resolveFilterLabel(filter: DataChatFilter) {
-  if (filter.operator === "OR") {
+  if (filter.operator === 'OR') {
     return (filter.subFilters || [])
-      .map(
-        (item) =>
-          `${item.name}(${item.optName}${trimFilterValue(item.val)})`
-      )
-      .join(" 或 ");
+      .map((item) => `${item.name}(${item.optName}${trimFilterValue(item.val)})`)
+      .join(' 或 ');
   }
   return `${filter.name}(${filter.optName}${trimFilterValue(filter.val)})`;
 }
 
 function resolveFormula(chartCfg: DataChatSourceConfig) {
   const overwriteSource = chartCfg.overwriteSource || {};
-  let formula = chartCfg.overwriteCalc || "";
+  let formula = chartCfg.overwriteCalc || '';
   const keys = Object.keys(overwriteSource);
   if (formula && keys.length > 0) {
-    formula = formula.replace(/^\$\{/, "").replace(/\}$/, "");
+    formula = formula.replace(/^\$\{/, '').replace(/\}$/, '');
     keys.forEach((key) => {
-      const regExp = new RegExp(key, "g");
+      const regExp = new RegExp(key, 'g');
       formula = formula.replace(regExp, ` ${overwriteSource[key]} `);
     });
   }

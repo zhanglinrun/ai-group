@@ -1,7 +1,7 @@
-import { memo } from "react";
-import { ArrowLeft, CreditCard, Loader2, UserPlus, X } from "lucide-react";
-import type { GroupBuyInfo, GroupBuyTeam, SkuItem } from "@/services/bff";
-import { useCountdown, COUNTDOWN_ENDED } from "@/hooks/useCountdown";
+import { memo } from 'react';
+import { ArrowLeft, CreditCard, Loader2, UserPlus, X } from 'lucide-react';
+import type { GroupBuyInfo, GroupBuyTeam, SkuItem } from '@/services/bff';
+import { useCountdown, COUNTDOWN_ENDED } from '@/hooks/useCountdown';
 import {
   formatPrice,
   formatQuota,
@@ -9,7 +9,7 @@ import {
   skuDisplayName,
   skuTheme,
   teamProgress,
-} from "@/utils/tradeDisplay";
+} from '@/utils/tradeDisplay';
 
 type GroupPreviewDialogProps = {
   sku: SkuItem;
@@ -34,7 +34,7 @@ const TeamRow = memo(
     themeAccent: string;
     onBuy: (teamId: string) => void;
   }) => {
-    const teamId = team.teamId || "";
+    const teamId = team.teamId || '';
     const { target, complete, remaining, percent } = teamProgress(team);
     const joining = buyingKey === `${goodsKey}-group-${teamId}`;
     const countdown = useCountdown(team.validEndTime, team.validTimeCountdown);
@@ -47,7 +47,7 @@ const TeamRow = memo(
             <div className="text-sm font-medium">队伍 {shortTeamId(teamId)}</div>
             <div className="mt-1 text-xs text-[var(--chat-text-soft)]">
               已支付 {complete}/{target} 人
-              {countdown ? (ended ? ` · ${COUNTDOWN_ENDED}` : ` · 剩余 ${countdown}`) : ""}
+              {countdown ? (ended ? ` · ${COUNTDOWN_ENDED}` : ` · 剩余 ${countdown}`) : ''}
             </div>
           </div>
           <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
@@ -55,10 +55,7 @@ const TeamRow = memo(
           </span>
         </div>
         <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-[var(--chat-surface-soft)]">
-          <div
-            className={`h-full rounded-full ${themeAccent}`}
-            style={{ width: `${percent}%` }}
-          />
+          <div className={`h-full rounded-full ${themeAccent}`} style={{ width: `${percent}%` }} />
         </div>
         <button
           type="button"
@@ -71,13 +68,13 @@ const TeamRow = memo(
           ) : (
             <UserPlus className="h-3.5 w-3.5" />
           )}
-          <span>{ended ? "拼团已结束" : "加入这个团"}</span>
+          <span>{ended ? '拼团已结束' : '加入这个团'}</span>
         </button>
       </article>
     );
-  }
+  },
 );
-TeamRow.displayName = "TeamRow";
+TeamRow.displayName = 'TeamRow';
 
 const GroupPreviewDialog = memo(
   ({ sku, groupBuy, loading, buyingKey, onClose, onBuy }: GroupPreviewDialogProps) => {
@@ -92,7 +89,7 @@ const GroupPreviewDialog = memo(
       (team) =>
         sku.groupActivityId == null ||
         team.activityId == null ||
-        team.activityId === sku.groupActivityId
+        team.activityId === sku.groupActivityId,
     );
     const goodsKey = sku.code;
     const starting = buyingKey === `${goodsKey}-group`;
@@ -124,7 +121,9 @@ const GroupPreviewDialog = memo(
           </div>
 
           <div className="grid gap-4 md:grid-cols-[0.9fr_1.1fr]">
-            <section className={`rounded-2xl border border-[var(--chat-border)] bg-gradient-to-br ${theme.gradient} p-5`}>
+            <section
+              className={`rounded-2xl border border-[var(--chat-border)] bg-gradient-to-br ${theme.gradient} p-5`}
+            >
               <div className="text-sm text-[var(--chat-text-soft)]">拼团价格</div>
               <div className="mt-2 text-3xl font-semibold">{formatPrice(groupPrice)}</div>
               <div className="mt-2 text-sm text-[var(--chat-text-soft)]">
@@ -198,9 +197,9 @@ const GroupPreviewDialog = memo(
         </div>
       </div>
     );
-  }
+  },
 );
 
-GroupPreviewDialog.displayName = "GroupPreviewDialog";
+GroupPreviewDialog.displayName = 'GroupPreviewDialog';
 
 export default GroupPreviewDialog;

@@ -1,31 +1,21 @@
-import { FC, memo, useMemo } from "react";
-import { motion } from "motion/react";
-import AttachmentList from "@/components/AttachmentList";
-import LoadingSpinner from "@/components/LoadingSpinner";
-import { buildAction, getIcon } from "@/utils/chat";
+import { FC, memo, useMemo } from 'react';
+import { motion } from 'motion/react';
+import AttachmentList from '@/components/AttachmentList';
+import LoadingSpinner from '@/components/LoadingSpinner';
+import { buildAction, getIcon } from '@/utils/chat';
 import {
   buildDeepSearchPreviewModel,
   resolveDeepSearchStage,
   shouldRenderDeepSearchPreview,
-} from "@/utils/deepSearch";
-import { getTaskFiles } from "@/utils/taskArtifacts";
-import {
-  Reasoning,
-  ReasoningTrigger,
-  ReasoningContent,
-} from "@/components/ai-elements/reasoning";
-import {
-  CheckIcon,
-  LoaderCircleIcon,
-  FileTextIcon,
-  SearchIcon,
-  UserIcon,
-} from "lucide-react";
-import { resolveTaskSummaryText } from "./contentHelpers";
+} from '@/utils/deepSearch';
+import { getTaskFiles } from '@/utils/taskArtifacts';
+import { Reasoning, ReasoningTrigger, ReasoningContent } from '@/components/ai-elements/reasoning';
+import { CheckIcon, LoaderCircleIcon, FileTextIcon, SearchIcon, UserIcon } from 'lucide-react';
+import { resolveTaskSummaryText } from './contentHelpers';
 import {
   isTimelineTaskContainerCompleted,
   shouldShowTimelineGroupCompletedIcon,
-} from "./timelineStatus";
+} from './timelineStatus';
 
 type TimelineProps = {
   chat: CHAT.ChatItem;
@@ -43,152 +33,144 @@ type ToolItemProps = {
   changeFile?: (file: CHAT.TFile, chat?: CHAT.ChatItem) => void;
 };
 
-const ToolItem: FC<ToolItemProps> = memo(({
-  tool,
-  chat,
-  changePlan,
-  changeActiveChat,
-  changeFile,
-}) => {
-  const actionInfo = useMemo(() => buildAction(tool), [tool]);
+const ToolItem: FC<ToolItemProps> = memo(
+  ({ tool, chat, changePlan, changeActiveChat, changeFile }) => {
+    const actionInfo = useMemo(() => buildAction(tool), [tool]);
 
-  switch (tool.messageType) {
-    case "plan": {
-      const completedIndex = tool.plan?.stepStatus.lastIndexOf("completed") || 0;
-      return (
-        <div
-          className="mt-2 flex w-full max-w-full cursor-pointer items-center gap-3 rounded-xl px-1 py-2 transition-all duration-200 hover:bg-muted/35"
-          onClick={() => changePlan?.()}
-        >
-          <div className="flex size-7 shrink-0 items-center justify-center text-[#0071e3] [&_svg]:drop-shadow-none [&_svg]:[filter:none]">
-            <i className={`font_family ${getIcon(tool.messageType)} text-[17px] leading-none [text-shadow:none]`}></i>
-          </div>
-          <div className="flex min-w-0 items-center gap-2 overflow-hidden">
-            <span className="shrink-0 text-[14px] font-medium text-foreground">已完成</span>
-            <span className="truncate text-[13px] text-muted-foreground">
-              {tool.plan?.steps[completedIndex]}
-            </span>
-          </div>
-        </div>
-      );
-    }
-    case "tool_thought": {
-      // 思考流是否仍在进行：必须同时满足「本轮未标记 isFinal」且「整条对话仍在 loading」。
-      // 仅看 isFinal 会在 ReAct 轮次以 Finish[...] 收尾、末条 tool_thought 未回填 isFinal 时，
-      // 让思考标签永久停在“思考中”。对齐 Dialogue/DataDialogue 的 chat.loading 门控。
-      const streamingThought = !!chat.loading && !tool.resultMap?.isFinal;
-      return (
-        <div className="mt-[8px] rounded-2xl border border-[var(--chat-border)]/18 bg-[var(--chat-surface-soft)]/38 px-3 py-2.5">
-          <Reasoning isStreaming={streamingThought} defaultOpen>
-            <ReasoningTrigger />
-            <ReasoningContent>{tool.toolThought || ""}</ReasoningContent>
-          </Reasoning>
-        </div>
-      );
-    }
-    case "browser": {
-      return (
-        <div className="mt-[8px]">
-          {(tool.resultMap?.steps || [])
-            .filter((step) => step.status !== "completed")
-            .map((step, index) => (
-              <div key={`${step.goal}-${index}`}>
-                <i className={`font_family ${getIcon(tool.messageType)}`}></i>
-                <div>
-                  <div>{actionInfo.action}</div>
-                  <div>{step.goal}</div>
-                </div>
-              </div>
-            ))}
-        </div>
-      );
-    }
-    case "task_summary": {
-      const attachmentFiles = getTaskFiles(tool);
-      return (
-        <div className="mt-[8px]">
-          <div className="mb-[8px]">{resolveTaskSummaryText(tool) || "任务已完成"}</div>
-          <AttachmentList
-            files={attachmentFiles}
-            preview={true}
-            review={(file) => changeFile?.(file, chat)}
-          />
-        </div>
-      );
-    }
-    default: {
-      const loadingType = ["html", "markdown", "data_analysis"];
-      const deepSearchStage =
-        tool.messageType === "deep_search"
-          ? resolveDeepSearchStage(tool.resultMap?.messageType)
-          : undefined;
-      const loading =
-        !tool.resultMap?.isFinal &&
-        ((tool.messageType === "deep_search" &&
-          (deepSearchStage === "extend" || deepSearchStage === "report")) ||
-          loadingType.includes(tool.messageType));
-      const isSearching =
-        tool.messageType === "deep_search" &&
-        deepSearchStage !== "report";
-      const isSummarizing =
-        tool.messageType === "deep_search" && deepSearchStage === "report";
-      const isDeepSearchInline = isSearching || isSummarizing;
-
-      return (
-        <div
-          className="mt-2 flex w-full max-w-full cursor-pointer items-center gap-3 rounded-xl px-1 py-2 transition-all duration-200 hover:bg-muted/35"
-          onClick={() => changeActiveChat(tool, chat)}
-        >
-          {isDeepSearchInline ? (
-            <div className="flex size-7 shrink-0 items-center justify-center text-primary [&_svg]:drop-shadow-none [&_svg]:[filter:none]">
-              {loading ? (
-                <LoaderCircleIcon className="size-4 animate-spin" />
-              ) : isSearching ? (
-                <SearchIcon className="size-4" />
-              ) : (
-                <FileTextIcon className="size-4" />
-              )}
-            </div>
-          ) : loading ? (
-            <div className="flex size-7 shrink-0 items-center justify-center text-primary [&_svg]:drop-shadow-none [&_svg]:[filter:none]">
-              <LoaderCircleIcon className="size-4 animate-spin" />
-            </div>
-          ) : (
-            <div
-              className="flex size-7 shrink-0 items-center justify-center [&_svg]:drop-shadow-none [&_svg]:[filter:none]"
-              style={{ color: tool.messageType === "code" ? "#111827" : "#0071e3" }}
-            >
+    switch (tool.messageType) {
+      case 'plan': {
+        const completedIndex = tool.plan?.stepStatus.lastIndexOf('completed') || 0;
+        return (
+          <div
+            className="mt-2 flex w-full max-w-full cursor-pointer items-center gap-3 rounded-xl px-1 py-2 transition-all duration-200 hover:bg-muted/35"
+            onClick={() => changePlan?.()}
+          >
+            <div className="flex size-7 shrink-0 items-center justify-center text-[#0071e3] [&_svg]:drop-shadow-none [&_svg]:[filter:none]">
               <i
-                className={`font_family ${getIcon(
-                  tool.messageType === "deep_search" &&
-                    tool.resultMap.messageType === "report"
-                    ? "file"
-                    : tool.messageType
-                )} text-[17px] leading-none [text-shadow:none]`}
+                className={`font_family ${getIcon(tool.messageType)} text-[17px] leading-none [text-shadow:none]`}
               ></i>
             </div>
-          )}
-          <div className="flex min-w-0 items-center gap-2 overflow-hidden">
-            <span className="shrink-0 text-[14px] font-medium text-foreground">
-              {actionInfo.action}
-            </span>
-            <span className="truncate text-[13px] text-muted-foreground">
-              {actionInfo.name}
-            </span>
+            <div className="flex min-w-0 items-center gap-2 overflow-hidden">
+              <span className="shrink-0 text-[14px] font-medium text-foreground">已完成</span>
+              <span className="truncate text-[13px] text-muted-foreground">
+                {tool.plan?.steps[completedIndex]}
+              </span>
+            </div>
           </div>
-        </div>
-      );
+        );
+      }
+      case 'tool_thought': {
+        // 思考流是否仍在进行：必须同时满足「本轮未标记 isFinal」且「整条对话仍在 loading」。
+        // 仅看 isFinal 会在 ReAct 轮次以 Finish[...] 收尾、末条 tool_thought 未回填 isFinal 时，
+        // 让思考标签永久停在“思考中”。对齐 Dialogue/DataDialogue 的 chat.loading 门控。
+        const streamingThought = !!chat.loading && !tool.resultMap?.isFinal;
+        return (
+          <div className="mt-[8px] rounded-2xl border border-[var(--chat-border)]/18 bg-[var(--chat-surface-soft)]/38 px-3 py-2.5">
+            <Reasoning isStreaming={streamingThought} defaultOpen>
+              <ReasoningTrigger />
+              <ReasoningContent>{tool.toolThought || ''}</ReasoningContent>
+            </Reasoning>
+          </div>
+        );
+      }
+      case 'browser': {
+        return (
+          <div className="mt-[8px]">
+            {(tool.resultMap?.steps || [])
+              .filter((step) => step.status !== 'completed')
+              .map((step, index) => (
+                <div key={`${step.goal}-${index}`}>
+                  <i className={`font_family ${getIcon(tool.messageType)}`}></i>
+                  <div>
+                    <div>{actionInfo.action}</div>
+                    <div>{step.goal}</div>
+                  </div>
+                </div>
+              ))}
+          </div>
+        );
+      }
+      case 'task_summary': {
+        const attachmentFiles = getTaskFiles(tool);
+        return (
+          <div className="mt-[8px]">
+            <div className="mb-[8px]">{resolveTaskSummaryText(tool) || '任务已完成'}</div>
+            <AttachmentList
+              files={attachmentFiles}
+              preview={true}
+              review={(file) => changeFile?.(file, chat)}
+            />
+          </div>
+        );
+      }
+      default: {
+        const loadingType = ['html', 'markdown', 'data_analysis'];
+        const deepSearchStage =
+          tool.messageType === 'deep_search'
+            ? resolveDeepSearchStage(tool.resultMap?.messageType)
+            : undefined;
+        const loading =
+          !tool.resultMap?.isFinal &&
+          ((tool.messageType === 'deep_search' &&
+            (deepSearchStage === 'extend' || deepSearchStage === 'report')) ||
+            loadingType.includes(tool.messageType));
+        const isSearching = tool.messageType === 'deep_search' && deepSearchStage !== 'report';
+        const isSummarizing = tool.messageType === 'deep_search' && deepSearchStage === 'report';
+        const isDeepSearchInline = isSearching || isSummarizing;
+
+        return (
+          <div
+            className="mt-2 flex w-full max-w-full cursor-pointer items-center gap-3 rounded-xl px-1 py-2 transition-all duration-200 hover:bg-muted/35"
+            onClick={() => changeActiveChat(tool, chat)}
+          >
+            {isDeepSearchInline ? (
+              <div className="flex size-7 shrink-0 items-center justify-center text-primary [&_svg]:drop-shadow-none [&_svg]:[filter:none]">
+                {loading ? (
+                  <LoaderCircleIcon className="size-4 animate-spin" />
+                ) : isSearching ? (
+                  <SearchIcon className="size-4" />
+                ) : (
+                  <FileTextIcon className="size-4" />
+                )}
+              </div>
+            ) : loading ? (
+              <div className="flex size-7 shrink-0 items-center justify-center text-primary [&_svg]:drop-shadow-none [&_svg]:[filter:none]">
+                <LoaderCircleIcon className="size-4 animate-spin" />
+              </div>
+            ) : (
+              <div
+                className="flex size-7 shrink-0 items-center justify-center [&_svg]:drop-shadow-none [&_svg]:[filter:none]"
+                style={{ color: tool.messageType === 'code' ? '#111827' : '#0071e3' }}
+              >
+                <i
+                  className={`font_family ${getIcon(
+                    tool.messageType === 'deep_search' && tool.resultMap.messageType === 'report'
+                      ? 'file'
+                      : tool.messageType,
+                  )} text-[17px] leading-none [text-shadow:none]`}
+                ></i>
+              </div>
+            )}
+            <div className="flex min-w-0 items-center gap-2 overflow-hidden">
+              <span className="shrink-0 text-[14px] font-medium text-foreground">
+                {actionInfo.action}
+              </span>
+              <span className="truncate text-[13px] text-muted-foreground">{actionInfo.name}</span>
+            </div>
+          </div>
+        );
+      }
     }
-  }
-}, (prevProps, nextProps) =>
-  prevProps.tool === nextProps.tool &&
-  prevProps.chat === nextProps.chat &&
-  prevProps.changePlan === nextProps.changePlan &&
-  prevProps.changeActiveChat === nextProps.changeActiveChat &&
-  prevProps.changeFile === nextProps.changeFile
+  },
+  (prevProps, nextProps) =>
+    prevProps.tool === nextProps.tool &&
+    prevProps.chat === nextProps.chat &&
+    prevProps.changePlan === nextProps.changePlan &&
+    prevProps.changeActiveChat === nextProps.changeActiveChat &&
+    prevProps.changeFile === nextProps.changeFile,
 );
 
-ToolItem.displayName = "ToolItem";
+ToolItem.displayName = 'ToolItem';
 
 const DeepSearchPreviewItem: FC<{
   tool: CHAT.Task;
@@ -223,23 +205,23 @@ const DeepSearchPreviewItem: FC<{
         ease: [0.25, 0.46, 0.45, 0.94],
       }}
       className={[
-        "mt-2 overflow-hidden rounded-2xl border border-[var(--chat-border)]/18",
-        "bg-[var(--chat-surface-soft)]/72 px-4 py-3 shadow-[var(--shadow-xs)] ring-0",
+        'mt-2 overflow-hidden rounded-2xl border border-[var(--chat-border)]/18',
+        'bg-[var(--chat-surface-soft)]/72 px-4 py-3 shadow-[var(--shadow-xs)] ring-0',
         clickable
-          ? "cursor-pointer transition-all duration-200 hover:bg-[var(--chat-surface-muted)]/78 hover:shadow-[var(--shadow-sm)]"
-          : "",
-      ].join(" ")}
+          ? 'cursor-pointer transition-all duration-200 hover:bg-[var(--chat-surface-muted)]/78 hover:shadow-[var(--shadow-sm)]'
+          : '',
+      ].join(' ')}
       onClick={handleClick}
       onKeyDown={(event) => {
         if (!clickable) {
           return;
         }
-        if (event.key === "Enter" || event.key === " ") {
+        if (event.key === 'Enter' || event.key === ' ') {
           event.preventDefault();
           handleClick();
         }
       }}
-      role={clickable ? "button" : undefined}
+      role={clickable ? 'button' : undefined}
       tabIndex={clickable ? 0 : undefined}
     >
       <div className="flex items-start gap-3">
@@ -268,7 +250,7 @@ const DeepSearchPreviewItem: FC<{
   );
 });
 
-DeepSearchPreviewItem.displayName = "DeepSearchPreviewItem";
+DeepSearchPreviewItem.displayName = 'DeepSearchPreviewItem';
 
 const resolveDigitalEmployee = (task: CHAT.Task): string | undefined => {
   return task.children?.find((child) => child.digitalEmployee)?.digitalEmployee;
@@ -311,12 +293,11 @@ const TimelineContent: FC<{
             ) : null}
             {(task.children || []).map((tool, index) => {
               const stage =
-                tool.messageType === "deep_search"
+                tool.messageType === 'deep_search'
                   ? resolveDeepSearchStage(tool.resultMap?.messageType)
                   : undefined;
               const shouldRenderPreview =
-                tool.messageType === "deep_search" &&
-                shouldRenderDeepSearchPreview(stage);
+                tool.messageType === 'deep_search' && shouldRenderDeepSearchPreview(stage);
 
               return (
                 <div
@@ -398,4 +379,4 @@ export const Timeline: FC<TimelineProps> = ({
   </>
 );
 
-Timeline.displayName = "Timeline";
+Timeline.displayName = 'Timeline';

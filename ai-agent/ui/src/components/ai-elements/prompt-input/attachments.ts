@@ -1,9 +1,6 @@
-import { nanoid } from "nanoid";
+import { nanoid } from 'nanoid';
 
-import type {
-  PromptInputAttachmentError,
-  PromptInputAttachmentItem,
-} from "./types";
+import type { PromptInputAttachmentError, PromptInputAttachmentItem } from './types';
 
 export type PromptInputAttachmentValidationOptions = {
   accept?: string;
@@ -13,12 +10,12 @@ export type PromptInputAttachmentValidationOptions = {
 };
 
 export function matchesPromptInputAccept(file: File, accept?: string) {
-  if (!accept || accept.trim() === "") {
+  if (!accept || accept.trim() === '') {
     return true;
   }
 
   const patterns = accept
-    .split(",")
+    .split(',')
     .map((item) => item.trim())
     .filter(Boolean);
   const fileType = file.type.toLowerCase();
@@ -26,12 +23,12 @@ export function matchesPromptInputAccept(file: File, accept?: string) {
 
   return patterns.some((pattern) => {
     const normalizedPattern = pattern.toLowerCase();
-    if (normalizedPattern.endsWith("/*")) {
+    if (normalizedPattern.endsWith('/*')) {
       const prefix = normalizedPattern.slice(0, -1);
       return fileType.startsWith(prefix);
     }
     // 兼容 `.pdf`、`.md` 这类扩展名声明，避免前端校验与原生 accept 行为不一致。
-    if (normalizedPattern.startsWith(".")) {
+    if (normalizedPattern.startsWith('.')) {
       return fileName.endsWith(normalizedPattern);
     }
     return fileType === normalizedPattern;
@@ -40,64 +37,49 @@ export function matchesPromptInputAccept(file: File, accept?: string) {
 
 export function validatePromptInputFiles(
   fileList: File[] | FileList,
-  options: PromptInputAttachmentValidationOptions
+  options: PromptInputAttachmentValidationOptions,
 ): {
   accepted: File[];
   error?: PromptInputAttachmentError;
 } {
-  const {
-    accept,
-    maxFiles,
-    maxFileSize,
-    currentCount = 0,
-  } = options;
+  const { accept, maxFiles, maxFileSize, currentCount = 0 } = options;
   const incoming = Array.from(fileList);
-  const acceptedByType = incoming.filter((file) =>
-    matchesPromptInputAccept(file, accept)
-  );
+  const acceptedByType = incoming.filter((file) => matchesPromptInputAccept(file, accept));
 
   if (incoming.length && acceptedByType.length === 0) {
     return {
       accepted: [],
       error: {
-        code: "accept",
-        message: "No files match the accepted types.",
+        code: 'accept',
+        message: 'No files match the accepted types.',
       },
     };
   }
 
   const acceptedBySize = acceptedByType.filter((file) =>
-    maxFileSize ? file.size <= maxFileSize : true
+    maxFileSize ? file.size <= maxFileSize : true,
   );
 
   if (acceptedByType.length > 0 && acceptedBySize.length === 0) {
     return {
       accepted: [],
       error: {
-        code: "max_file_size",
-        message: "All files exceed the maximum size.",
+        code: 'max_file_size',
+        message: 'All files exceed the maximum size.',
       },
     };
   }
 
-  const capacity =
-    typeof maxFiles === "number"
-      ? Math.max(0, maxFiles - currentCount)
-      : undefined;
+  const capacity = typeof maxFiles === 'number' ? Math.max(0, maxFiles - currentCount) : undefined;
   const accepted =
-    typeof capacity === "number"
-      ? acceptedBySize.slice(0, capacity)
-      : acceptedBySize;
+    typeof capacity === 'number' ? acceptedBySize.slice(0, capacity) : acceptedBySize;
 
-  if (
-    typeof capacity === "number" &&
-    acceptedBySize.length > capacity
-  ) {
+  if (typeof capacity === 'number' && acceptedBySize.length > capacity) {
     return {
       accepted,
       error: {
-        code: "max_files",
-        message: "Too many files. Some were not added.",
+        code: 'max_files',
+        message: 'Too many files. Some were not added.',
       },
     };
   }
@@ -105,12 +87,10 @@ export function validatePromptInputFiles(
   return { accepted };
 }
 
-export function createPromptInputAttachmentItems(
-  files: File[]
-): PromptInputAttachmentItem[] {
+export function createPromptInputAttachmentItems(files: File[]): PromptInputAttachmentItem[] {
   return files.map((file) => ({
     id: nanoid(),
-    type: "file",
+    type: 'file',
     url: URL.createObjectURL(file),
     mediaType: file.type,
     filename: file.name,
@@ -119,7 +99,7 @@ export function createPromptInputAttachmentItems(
 }
 
 export function revokePromptInputAttachmentUrls(
-  items: Array<Pick<PromptInputAttachmentItem, "url">>
+  items: Array<Pick<PromptInputAttachmentItem, 'url'>>,
 ) {
   items.forEach((item) => {
     if (item.url) {
@@ -128,9 +108,7 @@ export function revokePromptInputAttachmentUrls(
   });
 }
 
-export async function convertBlobUrlToDataUrl(
-  url: string
-): Promise<string | null> {
+export async function convertBlobUrlToDataUrl(url: string): Promise<string | null> {
   try {
     const response = await fetch(url);
     const blob = await response.blob();

@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState, useCallback } from "react";
-import { useSpring, useMotionValue, animate } from "motion/react";
+import { useEffect, useRef, useState, useCallback } from 'react';
+import { useSpring, useMotionValue, animate } from 'motion/react';
 
 export interface StreamAnimationOptions {
   /** 是否启用流式动画 */
@@ -23,7 +23,7 @@ export interface StreamAnimationOptions {
 export const useStreamAnimation = (
   text: string,
   isStreaming: boolean,
-  options: StreamAnimationOptions = {}
+  options: StreamAnimationOptions = {},
 ) => {
   const {
     enabled = true,
@@ -117,7 +117,7 @@ export const useStreamAnimation = (
       if (isNearBottom) {
         parent.scrollTo({
           top: parent.scrollHeight,
-          behavior: "smooth",
+          behavior: 'smooth',
         });
       }
     }
@@ -149,10 +149,7 @@ export const useStreamAnimation = (
 /**
  * 使用平滑的数字动画
  */
-export const useSmoothNumber = (
-  target: number,
-  options: { delay?: number } = {}
-) => {
+export const useSmoothNumber = (target: number, options: { delay?: number } = {}) => {
   const { delay = 0 } = options;
   const motionValue = useMotionValue(0);
   const springValue = useSpring(motionValue, {
@@ -216,9 +213,12 @@ export const useStaggerAnimation = (itemCount: number, baseDelay: number = 0.05)
     const timeouts: number[] = [];
 
     for (let i = 0; i < itemCount; i++) {
-      const timeout = window.setTimeout(() => {
-        setVisibleItems((prev) => [...prev, i]);
-      }, i * baseDelay * 1000);
+      const timeout = window.setTimeout(
+        () => {
+          setVisibleItems((prev) => [...prev, i]);
+        },
+        i * baseDelay * 1000,
+      );
       timeouts.push(timeout);
     }
 

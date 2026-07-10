@@ -14,7 +14,7 @@ const request: AxiosInstance = axios.create({
   baseURL: apiBaseUrl,
   timeout: 10000,
   withCredentials: true,
-  headers: {'Content-Type': 'application/json',},
+  headers: { 'Content-Type': 'application/json' },
 });
 
 // Bare client for token refresh to avoid interceptor recursion.
@@ -39,7 +39,7 @@ request.interceptors.request.use(
   (error) => {
     console.error('请求错误:', error);
     return Promise.reject(error);
-  }
+  },
 );
 
 let isRefreshing = false;
@@ -81,7 +81,6 @@ const noAuth = (url?: string) => {
 // 响应拦截器
 request.interceptors.response.use(
   (response: AxiosResponse) => {
-
     const { data, status } = response;
 
     if (status === 200) {
@@ -156,7 +155,7 @@ request.interceptors.response.use(
     }
 
     return Promise.reject(error);
-  }
+  },
 );
 
 export default request;

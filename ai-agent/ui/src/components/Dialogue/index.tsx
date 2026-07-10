@@ -1,35 +1,19 @@
-import { FC, useState, useCallback, useMemo, memo, useEffect, useRef } from "react";
-import AttachmentList from "@/components/AttachmentList";
-import { getTaskFiles } from "@/utils/taskArtifacts";
-import {
-  Message,
-  MessageContent,
-} from "@/components/ai-elements/message";
-import MarkdownRenderer from "@/components/ActionPanel/MarkdownRenderer";
-import {
-  Reasoning,
-  ReasoningTrigger,
-  ReasoningContent,
-} from "@/components/ai-elements/reasoning";
-import ThinkingMessage from "./ThinkingMessage";
-import {
-} from "lucide-react";
-import {
-  type MarkdownNormalizationScope,
-} from "@/utils/markdown";
-import RunStatus from "@/components/ActionView/RunStatus";
-import {
-  isPlanSolveConversation,
-  isStructuredConversation,
-} from "@/utils/agentMode";
-import {
-  buildPlannerRoundsForDisplay,
-  syncPlannerVersionCursor,
-} from "./plannerHistory";
-import { PlanSection } from "./PlanSection";
-import { Timeline } from "./Timeline";
-import { MessageToolbar } from "./MessageToolbar";
-import { resolveTaskSummaryText } from "./contentHelpers";
+import { FC, useState, useCallback, useMemo, memo, useEffect, useRef } from 'react';
+import AttachmentList from '@/components/AttachmentList';
+import { getTaskFiles } from '@/utils/taskArtifacts';
+import { Message, MessageContent } from '@/components/ai-elements/message';
+import MarkdownRenderer from '@/components/ActionPanel/MarkdownRenderer';
+import { Reasoning, ReasoningTrigger, ReasoningContent } from '@/components/ai-elements/reasoning';
+import ThinkingMessage from './ThinkingMessage';
+import {} from 'lucide-react';
+import { type MarkdownNormalizationScope } from '@/utils/markdown';
+import RunStatus from '@/components/ActionView/RunStatus';
+import { isPlanSolveConversation, isStructuredConversation } from '@/utils/agentMode';
+import { buildPlannerRoundsForDisplay, syncPlannerVersionCursor } from './plannerHistory';
+import { PlanSection } from './PlanSection';
+import { Timeline } from './Timeline';
+import { MessageToolbar } from './MessageToolbar';
+import { resolveTaskSummaryText } from './contentHelpers';
 
 type Props = {
   chat: CHAT.ChatItem;
@@ -46,15 +30,10 @@ type Props = {
  */
 function resolveConclusionMarkdownScope(
   chat: CHAT.ChatItem,
-  deepThink: boolean
+  deepThink: boolean,
 ): MarkdownNormalizationScope {
-  const structuredConversation = isStructuredConversation(
-    chat.agentType,
-    deepThink
-  );
-  return chat.conclusion && structuredConversation
-    ? "structured_summary"
-    : "default";
+  const structuredConversation = isStructuredConversation(chat.agentType, deepThink);
+  return chat.conclusion && structuredConversation ? 'structured_summary' : 'default';
 }
 
 const ConclusionSection: FC<{
@@ -62,13 +41,9 @@ const ConclusionSection: FC<{
   changeFile?: (file: CHAT.TFile, chat?: CHAT.ChatItem) => void;
   normalizationScope: MarkdownNormalizationScope;
 }> = ({ chat, changeFile, normalizationScope }) => {
-  const summary = resolveTaskSummaryText(chat.conclusion) || "任务已完成";
-  const summaryStreaming =
-    !!chat.loading && chat.conclusion?.messageType === "agent_stream";
-  const attachmentFiles = useMemo(
-    () => getTaskFiles(chat.conclusion),
-    [chat.conclusion]
-  );
+  const summary = resolveTaskSummaryText(chat.conclusion) || '任务已完成';
+  const summaryStreaming = !!chat.loading && chat.conclusion?.messageType === 'agent_stream';
+  const attachmentFiles = useMemo(() => getTaskFiles(chat.conclusion), [chat.conclusion]);
   return (
     <div className="mb-[8px]">
       <div className="mb-[8px] rounded-2xl bg-white/72 px-1 py-1">
@@ -89,44 +64,39 @@ const ConclusionSection: FC<{
 };
 
 const DialogueComponent: FC<Props> = (props) => {
-  const { chat, streamingThought, deepThink, changeTask, changeFile, changePlan, onRegenerate } = props;
+  const { chat, streamingThought, deepThink, changeTask, changeFile, changePlan, onRegenerate } =
+    props;
   const isPlanSolveMessage = isPlanSolveConversation(chat.agentType, deepThink);
   const isReactType = !isPlanSolveMessage;
   const plannerRounds = useMemo(
     () => buildPlannerRoundsForDisplay(chat, streamingThought),
-    [chat, streamingThought]
+    [chat, streamingThought],
   );
   const [thoughtVersionIndex, setThoughtVersionIndex] = useState(() =>
-    Math.max(plannerRounds.length - 1, 0)
+    Math.max(plannerRounds.length - 1, 0),
   );
   const [planVersionIndex, setPlanVersionIndex] = useState(() =>
-    Math.max(plannerRounds.length - 1, 0)
+    Math.max(plannerRounds.length - 1, 0),
   );
   const previousRoundCountRef = useRef(plannerRounds.length);
   useEffect(() => {
     const previousCount = previousRoundCountRef.current;
     const nextCount = plannerRounds.length;
     setThoughtVersionIndex((current) =>
-      syncPlannerVersionCursor(current, previousCount, nextCount)
+      syncPlannerVersionCursor(current, previousCount, nextCount),
     );
-    setPlanVersionIndex((current) =>
-      syncPlannerVersionCursor(current, previousCount, nextCount)
-    );
+    setPlanVersionIndex((current) => syncPlannerVersionCursor(current, previousCount, nextCount));
     previousRoundCountRef.current = nextCount;
   }, [plannerRounds.length]);
   const latestRoundIndex = Math.max(plannerRounds.length - 1, 0);
   const selectedThoughtRound = plannerRounds[thoughtVersionIndex];
   const selectedPlanRound = plannerRounds[planVersionIndex];
-  const thoughtText = selectedThoughtRound?.planThought || "";
+  const thoughtText = selectedThoughtRound?.planThought || '';
   const displayedPlan = selectedPlanRound?.plan || chat.plan;
   const thoughtVersionLabel =
-    plannerRounds.length > 1
-      ? `${thoughtVersionIndex + 1}/${plannerRounds.length}`
-      : undefined;
+    plannerRounds.length > 1 ? `${thoughtVersionIndex + 1}/${plannerRounds.length}` : undefined;
   const planVersionLabel =
-    plannerRounds.length > 1
-      ? `${planVersionIndex + 1}/${plannerRounds.length}`
-      : undefined;
+    plannerRounds.length > 1 ? `${planVersionIndex + 1}/${plannerRounds.length}` : undefined;
   const planIsHistoricalSnapshot = planVersionIndex < latestRoundIndex;
   const conclusionMarkdownScope = resolveConclusionMarkdownScope(chat, deepThink);
   const hasAssistantPayload =
@@ -136,12 +106,14 @@ const DialogueComponent: FC<Props> = (props) => {
     !!displayedPlan ||
     !!chat.tasks.length ||
     !!chat.conclusion;
-  const showStandaloneResponse =
-    chat.agentType === 0 && !!chat.response && !chat.conclusion;
+  const showStandaloneResponse = chat.agentType === 0 && !!chat.response && !chat.conclusion;
 
-  const changeActiveChat = useCallback((task: CHAT.Task, targetChat: CHAT.ChatItem) => {
-    changeTask?.(task, targetChat);
-  }, [changeTask]);
+  const changeActiveChat = useCallback(
+    (task: CHAT.Task, targetChat: CHAT.ChatItem) => {
+      changeTask?.(task, targetChat);
+    },
+    [changeTask],
+  );
 
   return (
     <div className="flex h-full flex-col text-[15px] font-normal text-[#111827]">
@@ -156,25 +128,18 @@ const DialogueComponent: FC<Props> = (props) => {
       {chat.query ? (
         <div className="mt-6 flex w-full justify-end">
           <Message from="user" className="max-w-[82%]">
-            <MessageContent>
-              {chat.query}
-            </MessageContent>
+            <MessageContent>{chat.query}</MessageContent>
           </Message>
         </div>
       ) : null}
 
       {/* 提示 */}
       {chat.tip ? (
-        <div className="mt-5 w-full text-[15px] text-muted-foreground">
-          {chat.tip}
-        </div>
+        <div className="mt-5 w-full text-[15px] text-muted-foreground">{chat.tip}</div>
       ) : null}
 
       <div className="mt-5 w-full">
-        <RunStatus
-          status={chat.metrics?.status}
-          finishedAt={chat.finishedAt}
-        />
+        <RunStatus status={chat.metrics?.status} finishedAt={chat.finishedAt} />
       </div>
 
       {/* AI 回复（Markdown） */}
@@ -189,10 +154,7 @@ const DialogueComponent: FC<Props> = (props) => {
               />
             </MessageContent>
             {!chat.loading ? (
-              <MessageToolbar
-                response={chat.response}
-                onRegenerate={onRegenerate}
-              />
+              <MessageToolbar response={chat.response} onRegenerate={onRegenerate} />
             ) : null}
           </Message>
         </div>
@@ -216,16 +178,18 @@ const DialogueComponent: FC<Props> = (props) => {
                   onClick={() => setThoughtVersionIndex((current) => Math.max(current - 1, 0))}
                   disabled={thoughtVersionIndex <= 0}
                 >
-                  {"<"}
+                  {'<'}
                 </button>
                 <span>{thoughtVersionLabel}</span>
                 <button
                   type="button"
                   className="rounded px-1 disabled:opacity-40"
-                  onClick={() => setThoughtVersionIndex((current) => Math.min(current + 1, latestRoundIndex))}
+                  onClick={() =>
+                    setThoughtVersionIndex((current) => Math.min(current + 1, latestRoundIndex))
+                  }
                   disabled={thoughtVersionIndex >= latestRoundIndex}
                 >
-                  {">"}
+                  {'>'}
                 </button>
               </div>
             ) : null}
@@ -279,7 +243,6 @@ const DialogueComponent: FC<Props> = (props) => {
           />
         </div>
       ) : null}
-
     </div>
   );
 };
@@ -293,7 +256,7 @@ const Dialogue = memo(
     prev.changeTask === next.changeTask &&
     prev.changeFile === next.changeFile &&
     prev.changePlan === next.changePlan &&
-    prev.onRegenerate === next.onRegenerate
+    prev.onRegenerate === next.onRegenerate,
 );
 
 export default Dialogue;

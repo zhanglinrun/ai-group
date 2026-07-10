@@ -2,7 +2,7 @@ declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
   namespace CHAT {
     export type ChatItem = ReactorType.Merge<
-      Pick<MESSAGE.Question, "sessionId" | "query" | "requestId">,
+      Pick<MESSAGE.Question, 'sessionId' | 'query' | 'requestId'>,
       {
         files: TFile[];
         generatedFiles?: TFile[];
@@ -10,14 +10,14 @@ declare global {
         forceStop: boolean;
         tip?: string;
         multiAgent: MESSAGE.MultiAgent;
-        agentType?: MESSAGE.ResultMap["agentType"];
+        agentType?: MESSAGE.ResultMap['agentType'];
         conclusion?: Task;
         responseType?: string;
         loading: boolean;
         tasks: Task[][];
         thought?: string;
         response?: string;
-        taskStatus?: MESSAGE.MsgItem["taskStatus"];
+        taskStatus?: MESSAGE.MsgItem['taskStatus'];
         planList?: PlanItem[];
         timeline?: TimelineEntry[];
         metrics?: {
@@ -117,21 +117,21 @@ declare global {
 
     export type DataChatEvent =
       | {
-        eventType: "THINK";
-        data: string;
-      }
+          eventType: 'THINK';
+          data: string;
+        }
       | {
-        eventType: "CHART_DATA";
-        data: DataChatChartItem[];
-      }
+          eventType: 'CHART_DATA';
+          data: DataChatChartItem[];
+        }
       | {
-        eventType: "ERROR";
-        data: string;
-      }
+          eventType: 'ERROR';
+          data: string;
+        }
       | {
-        eventType: "READY";
-        data?: unknown;
-      };
+          eventType: 'READY';
+          data?: unknown;
+        };
 
     export type FileList = MESSAGE.FileInfo;
 
@@ -165,7 +165,12 @@ declare global {
     export type ModelInfo = {
       modelName: string;
       modelCode: string;
-      schemaList: { columnComment: string; columnName: string; dataType: string; columnId: string }[];
+      schemaList: {
+        columnComment: string;
+        columnName: string;
+        dataType: string;
+        columnId: string;
+      }[];
     };
 
     export type ConversationRole = {
@@ -182,9 +187,13 @@ declare global {
       defaultRole: boolean;
     };
 
-    export type ConversationSessionItem = import("@/services/agentConversation").ConversationSessionItem;
-    export type ConversationHistoryDetail = import("@/services/agentConversation").ConversationHistoryDetail;
-    export type ConversationHistoryRunDetail = import("@/services/agentConversation").ConversationHistoryRunDetail;
-    export type ConversationReplayFrame = import("@/services/agentConversation").ConversationReplayFrame;
+    export type ConversationSessionItem =
+      import('@/services/agentConversation').ConversationSessionItem;
+    export type ConversationHistoryDetail =
+      import('@/services/agentConversation').ConversationHistoryDetail;
+    export type ConversationHistoryRunDetail =
+      import('@/services/agentConversation').ConversationHistoryRunDetail;
+    export type ConversationReplayFrame =
+      import('@/services/agentConversation').ConversationReplayFrame;
   }
 }

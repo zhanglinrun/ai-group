@@ -5,11 +5,11 @@ type ToolProxyConfig = {
 };
 
 function trimTrailingSlash(value?: string): string {
-  return (value || "").trim().replace(/\/+$/, "");
+  return (value || '').trim().replace(/\/+$/, '');
 }
 
 function buildDefaultToolTarget(): string {
-  return "http://127.0.0.1:1601";
+  return 'http://127.0.0.1:1601';
 }
 
 function parseToolBaseUrl(rawBaseUrl?: string): { target: string; basePath: string } {
@@ -17,7 +17,7 @@ function parseToolBaseUrl(rawBaseUrl?: string): { target: string; basePath: stri
   if (!normalized) {
     return {
       target: buildDefaultToolTarget(),
-      basePath: "",
+      basePath: '',
     };
   }
 
@@ -25,12 +25,12 @@ function parseToolBaseUrl(rawBaseUrl?: string): { target: string; basePath: stri
     const parsed = new URL(normalized);
     return {
       target: `${parsed.protocol}//${parsed.host}`,
-      basePath: parsed.pathname === "/" ? "" : trimTrailingSlash(parsed.pathname),
+      basePath: parsed.pathname === '/' ? '' : trimTrailingSlash(parsed.pathname),
     };
   } catch {
     return {
       target: buildDefaultToolTarget(),
-      basePath: "",
+      basePath: '',
     };
   }
 }
@@ -45,7 +45,7 @@ export function createToolProxyConfig(rawBaseUrl?: string): ToolProxyConfig {
     target,
     changeOrigin: true,
     rewrite: (path: string) => {
-      const normalizedPath = path.startsWith("/tool") ? path.slice("/tool".length) || "/" : path;
+      const normalizedPath = path.startsWith('/tool') ? path.slice('/tool'.length) || '/' : path;
       return `${basePath}${normalizedPath}`;
     },
   };

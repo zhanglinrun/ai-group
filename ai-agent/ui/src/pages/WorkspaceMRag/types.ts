@@ -1,13 +1,8 @@
-export type MRagFileStatus = "PENDING" | "RUNNING" | "SUCCESS" | "FAILED" | "UNKNOWN";
+export type MRagFileStatus = 'PENDING' | 'RUNNING' | 'SUCCESS' | 'FAILED' | 'UNKNOWN';
 
-export type MRagSourceType = "file" | "url";
+export type MRagSourceType = 'file' | 'url';
 
-export type MRagFullContentStatus =
-  | "IDLE"
-  | "READY"
-  | "PROCESSING"
-  | "FAILED"
-  | "UNAVAILABLE";
+export type MRagFullContentStatus = 'IDLE' | 'READY' | 'PROCESSING' | 'FAILED' | 'UNAVAILABLE';
 
 export type MRagWorkspaceStoredState = {
   toolBaseUrl: string;

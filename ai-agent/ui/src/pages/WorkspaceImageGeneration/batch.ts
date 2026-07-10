@@ -1,4 +1,4 @@
-import type { ImageGenerationToolResponse, RequestMode } from "./types";
+import type { ImageGenerationToolResponse, RequestMode } from './types';
 
 export type ImageBatchPlanInput = {
   fileName: string;
@@ -16,7 +16,7 @@ export type ImageBatchPlan = {
 export type ImageBatchRequestPayload = {
   requestId: string;
   prompt: string;
-  mode: "edits";
+  mode: 'edits';
   size: string;
   n: number;
   fileNames: string[];
@@ -44,7 +44,7 @@ export function shouldUseImageBatchMode(input: {
   imageCount: number;
   batchMode: boolean;
 }) {
-  return input.mode === "edits" && input.batchMode && input.imageCount > 1;
+  return input.mode === 'edits' && input.batchMode && input.imageCount > 1;
 }
 
 export function buildImageBatchPlans(input: {
@@ -55,7 +55,7 @@ export function buildImageBatchPlans(input: {
   return input.images.map((image, index) => ({
     key: String(index + 1),
     fileNames: [image.source],
-    maskFileNames: [image.mask || ""],
+    maskFileNames: [image.mask || ''],
     fileName: normalizeBatchOutputName(image.fileName, index),
   }));
 }
@@ -74,7 +74,7 @@ export async function runImageBatchRequests(input: {
         const response = await input.request({
           requestId: input.createRequestId(index),
           prompt: input.prompt,
-          mode: "edits",
+          mode: 'edits',
           size: input.size,
           n: input.n,
           fileNames: plan.fileNames,
@@ -96,15 +96,15 @@ export async function runImageBatchRequests(input: {
           error,
         };
       }
-    })
+    }),
   );
 }
 
 function normalizeBatchOutputName(fileName: string, index: number) {
-  const trimmed = (fileName || "").trim();
+  const trimmed = (fileName || '').trim();
   if (!trimmed) {
     return `图片生成结果_${index + 1}`;
   }
-  const dotIndex = trimmed.lastIndexOf(".");
+  const dotIndex = trimmed.lastIndexOf('.');
   return dotIndex > 0 ? trimmed.slice(0, dotIndex) : trimmed;
 }

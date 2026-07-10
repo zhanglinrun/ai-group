@@ -1,4 +1,8 @@
-import { fetchEventSource, EventSourceMessage, EventStreamContentType } from '@microsoft/fetch-event-source';
+import {
+  fetchEventSource,
+  EventSourceMessage,
+  EventStreamContentType,
+} from '@microsoft/fetch-event-source';
 
 import { getDeviceId } from '@/services/agentConversation';
 import { getAccessToken } from '@/auth/token';
@@ -13,8 +17,8 @@ const DEFAULT_SSE_URL = `${customHost}/web/api/v1/gpt/queryAgentStreamIncr`;
 const SSE_HEADERS: Record<string, string> = {
   'Content-Type': 'application/json',
   'Cache-Control': 'no-cache',
-  'Connection': 'keep-alive',
-  'Accept': 'text/event-stream',
+  Connection: 'keep-alive',
+  Accept: 'text/event-stream',
   'X-Device-Id': getDeviceId(),
 };
 
@@ -51,7 +55,7 @@ interface SSEConfig<TMessage = unknown> {
  */
 export default <TMessage = unknown>(
   config: SSEConfig<TMessage>,
-  url: string = DEFAULT_SSE_URL
+  url: string = DEFAULT_SSE_URL,
 ): void => {
   const { body = null, parser, handleMessage, handleError, handleClose, signal } = config;
   let errorHandled = false;
@@ -113,7 +117,7 @@ export default <TMessage = unknown>(
     onclose() {
       console.log('SSE connection closed');
       handleClose();
-    }
+    },
   }).catch((error: Error) => {
     // Aborted streams (unmount / conversation switch) are expected; treat as a normal close.
     if (error?.name === 'AbortError' || signal?.aborted) {

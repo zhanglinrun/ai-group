@@ -1,18 +1,13 @@
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { Loader2, RefreshCw, Users } from "lucide-react";
-import { message } from "antd";
-import ShellNav from "@/components/ShellNav";
-import GroupTeamCard from "@/components/trade/GroupTeamCard";
-import {
-  bffApi,
-  type GroupBuyInfo,
-  type GroupBuyTeam,
-  type SkuItem,
-} from "@/services/bff";
-import { useTradePurchase } from "@/hooks/useTradePurchase";
-import { ROUTES } from "@/router/routes";
-import { isMemberSku, skuDisplayName } from "@/utils/tradeDisplay";
+import { memo, useCallback, useEffect, useMemo, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { Loader2, RefreshCw, Users } from 'lucide-react';
+import { message } from 'antd';
+import ShellNav from '@/components/ShellNav';
+import GroupTeamCard from '@/components/trade/GroupTeamCard';
+import { bffApi, type GroupBuyInfo, type GroupBuyTeam, type SkuItem } from '@/services/bff';
+import { useTradePurchase } from '@/hooks/useTradePurchase';
+import { ROUTES } from '@/router/routes';
+import { isMemberSku, skuDisplayName } from '@/utils/tradeDisplay';
 
 const GroupBuyHallPage = memo(() => {
   const navigate = useNavigate();
@@ -28,8 +23,8 @@ const GroupBuyHallPage = memo(() => {
       setGroupBuy(data?.groupBuy || null);
       setSkus(data?.skus || []);
     } catch (error) {
-      console.error("加载拼团大厅失败", error);
-      message.error("拼团大厅加载失败");
+      console.error('加载拼团大厅失败', error);
+      message.error('拼团大厅加载失败');
     } finally {
       setLoading(false);
     }
@@ -40,8 +35,8 @@ const GroupBuyHallPage = memo(() => {
   }, [loadHall]);
 
   const memberSkus = useMemo(
-    () => skus.filter((sku) => isMemberSku(sku) && sku.code !== "FREE"),
-    [skus]
+    () => skus.filter((sku) => isMemberSku(sku) && sku.code !== 'FREE'),
+    [skus],
   );
   const defaultSku = memberSkus[0] ?? null;
   const teamList = groupBuy?.teamList ?? [];
@@ -65,22 +60,22 @@ const GroupBuyHallPage = memo(() => {
       }
       return defaultSku;
     },
-    [skuByActivityId, defaultSku]
+    [skuByActivityId, defaultSku],
   );
 
   const handleJoinTeam = useCallback(
     async (team: GroupBuyTeam) => {
       const teamSku = resolveTeamSku(team);
       if (!teamSku) {
-        message.error("暂无可用套餐");
+        message.error('暂无可用套餐');
         return;
       }
-      const ok = await handleBuy(teamSku, "group", team.teamId);
+      const ok = await handleBuy(teamSku, 'group', team.teamId);
       if (ok) {
         navigate(`${ROUTES.PRICING}?tab=orders`);
       }
     },
-    [resolveTeamSku, handleBuy, navigate]
+    [resolveTeamSku, handleBuy, navigate],
   );
 
   return (
@@ -95,7 +90,7 @@ const GroupBuyHallPage = memo(() => {
             <p className="mt-1 text-sm text-[var(--chat-text-soft)]">
               {canGroupBuy
                 ? `共 ${teamList.length} 个进行中的拼团，参团享优惠，成团后自动开通会员`
-                : "拼团活动暂不可用，可前往购买页直接购买会员或额度包"}
+                : '拼团活动暂不可用，可前往购买页直接购买会员或额度包'}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -196,7 +191,9 @@ const GroupBuyHallPage = memo(() => {
             <button
               type="button"
               onClick={() =>
-                navigate(`${ROUTES.GROUP_BUY_HALL}/${groupBuy?.activityId}`, {state: { skuCode: defaultSku.code },})
+                navigate(`${ROUTES.GROUP_BUY_HALL}/${groupBuy?.activityId}`, {
+                  state: { skuCode: defaultSku.code },
+                })
               }
               className="mx-1 font-medium text-violet-700 underline"
             >
@@ -209,6 +206,6 @@ const GroupBuyHallPage = memo(() => {
   );
 });
 
-GroupBuyHallPage.displayName = "GroupBuyHallPage";
+GroupBuyHallPage.displayName = 'GroupBuyHallPage';
 
 export default GroupBuyHallPage;

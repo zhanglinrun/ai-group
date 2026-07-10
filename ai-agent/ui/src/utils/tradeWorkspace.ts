@@ -1,6 +1,6 @@
-import type { AccountSummary, OrderItem } from "@/services/bff";
+import type { AccountSummary, OrderItem } from '@/services/bff';
 
-export type TradeSettlementTone = "neutral" | "warn" | "ready" | "danger";
+export type TradeSettlementTone = 'neutral' | 'warn' | 'ready' | 'danger';
 
 export type TradeSettlementHint = {
   label: string;
@@ -19,146 +19,141 @@ export type TradeWorkspaceSummary = {
   consistencyHints: string[];
 };
 
-const WAITING_STATUSES = new Set([
-  "pay_success",
-  "PAY_SUCCESS",
-  "WAIT_GROUP",
-  "waiting",
-]);
+const WAITING_STATUSES = new Set(['pay_success', 'PAY_SUCCESS', 'WAIT_GROUP', 'waiting']);
 
-const DONE_STATUSES = new Set(["deal_done", "formed", "DEAL_DONE", "GROUP_SETTLED"]);
+const DONE_STATUSES = new Set(['deal_done', 'formed', 'DEAL_DONE', 'GROUP_SETTLED']);
 
 const DISPLAY_STATUS_LABELS: Record<string, string> = {
-  PAY_WAIT: "待支付",
-  PAID_WAIT_GROUP: "支付成功，待成团",
-  GROUP_FORMED: "已成团，权益发放中",
-  BENEFIT_GRANTED: "已开通 Pro",
-  WAIT_REFUND: "退款中",
-  CLOSED: "已关闭",
-  PAID: "已支付",
+  PAY_WAIT: '待支付',
+  PAID_WAIT_GROUP: '支付成功，待成团',
+  GROUP_FORMED: '已成团，权益发放中',
+  BENEFIT_GRANTED: '已开通 Pro',
+  WAIT_REFUND: '退款中',
+  CLOSED: '已关闭',
+  PAID: '已支付',
 };
 
 export function tradeOrderStatusLabel(
   status?: string,
   groupStatus?: string,
-  displayStatus?: string
+  displayStatus?: string,
 ): string {
   if (displayStatus && DISPLAY_STATUS_LABELS[displayStatus]) {
     return DISPLAY_STATUS_LABELS[displayStatus];
   }
-  const normalized = (status || "").toLowerCase();
-  const group = (groupStatus || "").toLowerCase();
-  if (group === "waiting" || WAITING_STATUSES.has(status || "")) {
-    return "等待成团";
+  const normalized = (status || '').toLowerCase();
+  const group = (groupStatus || '').toLowerCase();
+  if (group === 'waiting' || WAITING_STATUSES.has(status || '')) {
+    return '等待成团';
   }
-  if (group === "formed" || DONE_STATUSES.has(status || "")) {
-    return "已成团";
+  if (group === 'formed' || DONE_STATUSES.has(status || '')) {
+    return '已成团';
   }
   const labels: Record<string, string> = {
-    create: "已创建",
-    pay_wait: "待支付",
-    pay_success: "已支付",
-    deal_done: "已完成",
-    close: "已关闭",
+    create: '已创建',
+    pay_wait: '待支付',
+    pay_success: '已支付',
+    deal_done: '已完成',
+    close: '已关闭',
   };
-  return labels[normalized] || status || "未知";
+  return labels[normalized] || status || '未知';
 }
 
 export function tradeSettlementHint(order: OrderItem): TradeSettlementHint {
-  const display = (order.displayStatus || "").toUpperCase();
-  if (display === "PAID_WAIT_GROUP") {
+  const display = (order.displayStatus || '').toUpperCase();
+  if (display === 'PAID_WAIT_GROUP') {
     return {
-      label: "等待成团",
-      detail: "拼团支付成功只表示名额已锁定，成团后才发放 Pro 与配额。",
-      tone: "warn",
+      label: '等待成团',
+      detail: '拼团支付成功只表示名额已锁定，成团后才发放 Pro 与配额。',
+      tone: 'warn',
     };
   }
-  if (display === "GROUP_FORMED") {
+  if (display === 'GROUP_FORMED') {
     return {
-      label: "成团待到账",
-      detail: "拼团已成团，权益发放中，请稍后刷新会员中心。",
-      tone: "warn",
+      label: '成团待到账',
+      detail: '拼团已成团，权益发放中，请稍后刷新会员中心。',
+      tone: 'warn',
     };
   }
-  if (display === "BENEFIT_GRANTED") {
+  if (display === 'BENEFIT_GRANTED') {
     return {
-      label: "已开通",
-      detail: "权益已发放，可在会员中心查看配额。",
-      tone: "ready",
+      label: '已开通',
+      detail: '权益已发放，可在会员中心查看配额。',
+      tone: 'ready',
     };
   }
-  if (display === "WAIT_REFUND" || display === "CLOSED") {
+  if (display === 'WAIT_REFUND' || display === 'CLOSED') {
     return {
-      label: display === "WAIT_REFUND" ? "退款中" : "已关闭",
-      detail: "订单已关闭或退款，请核对配额是否已回滚。",
-      tone: "danger",
+      label: display === 'WAIT_REFUND' ? '退款中' : '已关闭',
+      detail: '订单已关闭或退款，请核对配额是否已回滚。',
+      tone: 'danger',
     };
   }
 
-  const status = (order.status || "").toLowerCase();
-  const groupStatus = (order.groupStatus || "").toLowerCase();
+  const status = (order.status || '').toLowerCase();
+  const groupStatus = (order.groupStatus || '').toLowerCase();
   const isGroup = Boolean(groupStatus) || order.marketType === 1;
 
-  if (status.includes("refund") || status === "close") {
+  if (status.includes('refund') || status === 'close') {
     return {
-      label: "核对退款",
-      detail: "订单已关闭或退款，请核对配额是否已回滚。",
-      tone: "danger",
+      label: '核对退款',
+      detail: '订单已关闭或退款，请核对配额是否已回滚。',
+      tone: 'danger',
     };
   }
-  if (isGroup && (groupStatus === "waiting" || WAITING_STATUSES.has(status))) {
+  if (isGroup && (groupStatus === 'waiting' || WAITING_STATUSES.has(status))) {
     return {
-      label: "等待成团",
-      detail: "拼团支付成功只表示名额已锁定，成团后才发放 Pro 与配额。",
-      tone: "warn",
+      label: '等待成团',
+      detail: '拼团支付成功只表示名额已锁定，成团后才发放 Pro 与配额。',
+      tone: 'warn',
     };
   }
-  if (isGroup && (groupStatus === "formed" || DONE_STATUSES.has(status))) {
+  if (isGroup && (groupStatus === 'formed' || DONE_STATUSES.has(status))) {
     return {
-      label: "核对到账",
-      detail: "拼团已成团或交易完成，请核对会员中心配额是否到账。",
-      tone: "ready",
+      label: '核对到账',
+      detail: '拼团已成团或交易完成，请核对会员中心配额是否到账。',
+      tone: 'ready',
     };
   }
   if (!isGroup && WAITING_STATUSES.has(status)) {
     return {
-      label: "可到账",
-      detail: "直购支付成功后额度应立即到账。",
-      tone: "ready",
+      label: '可到账',
+      detail: '直购支付成功后额度应立即到账。',
+      tone: 'ready',
     };
   }
   if (DONE_STATUSES.has(status)) {
     return {
-      label: "已完成",
-      detail: "交易已完成。",
-      tone: "ready",
+      label: '已完成',
+      detail: '交易已完成。',
+      tone: 'ready',
     };
   }
   return {
-    label: "待核查",
-    detail: "请结合订单状态与会员中心配额判断。",
-    tone: "neutral",
+    label: '待核查',
+    detail: '请结合订单状态与会员中心配额判断。',
+    tone: 'neutral',
   };
 }
 
 export function summarizeTradeWorkspace(
   summary: AccountSummary | null,
-  orders: OrderItem[]
+  orders: OrderItem[],
 ): TradeWorkspaceSummary {
   const groupOrders = orders.filter(
-    (order) => order.marketType === 1 || Boolean(order.groupStatus)
+    (order) => order.marketType === 1 || Boolean(order.groupStatus),
   );
   const waitingGroupOrders = orders.filter((order) => {
     const hint = tradeSettlementHint(order);
-    return hint.tone === "warn";
+    return hint.tone === 'warn';
   });
 
   const consistencyHints: string[] = [];
   if (waitingGroupOrders.length > 0) {
-    consistencyHints.push("存在支付成功但等待成团的拼团单，成团后才会开通 Pro。");
+    consistencyHints.push('存在支付成功但等待成团的拼团单，成团后才会开通 Pro。');
   }
   if (orders.length === 0) {
-    consistencyHints.push("暂无订单，购买或参与拼团后这里会显示闭环状态。");
+    consistencyHints.push('暂无订单，购买或参与拼团后这里会显示闭环状态。');
   }
 
   return {
