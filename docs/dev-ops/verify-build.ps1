@@ -28,6 +28,7 @@ Pop-Location
 
 Write-Host "==> Build frontend"
 Push-Location ai-agent/ui
+pnpm install
 pnpm build
 Pop-Location
 

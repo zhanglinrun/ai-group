@@ -142,6 +142,11 @@ Pop-Location
 Push-Location "$root/s-pay-mall-ddd-market"
 mvn clean install -DskipTests -q
 Pop-Location
+# ai-agent 是独立聚合工程（不在根 pom 的 modules 里）；干净 .m2 下必须先 install，
+# 否则后面直接在 Reactor-agent-app 子模块 spring-boot:run 会因缺兄弟 SNAPSHOT 依赖失败。
+Push-Location "$root/ai-agent"
+mvn clean install -DskipTests -q
+Pop-Location
 Pop-Location
 
 $payEnv = @{
@@ -194,7 +199,8 @@ if (-not (Test-PortListening 1601)) {
 
 if (-not (Test-PortListening 5173)) {
     Write-Host "Start frontend on http://localhost:5173"
-    Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$root/ai-agent/ui'; pnpm dev" -WindowStyle Minimized
+    # 干净 checkout 没有 node_modules，必须先 pnpm install 再 pnpm dev，否则窗口会因缺 vite 直接退出。
+    Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$root/ai-agent/ui'; pnpm install; pnpm dev" -WindowStyle Minimized
     Start-Sleep -Seconds 5
 }
 
