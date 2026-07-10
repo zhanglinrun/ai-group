@@ -8,7 +8,7 @@ from reactor_tool.tool.mrag.query.aigent import AgenticRAG
 class AgenticRagEvalTraceTest(unittest.TestCase):
 
     def test_should_collect_trace_for_retrieval_backed_query(self):
-        agent = AgenticRAG("kb-demo")
+        agent = AgenticRAG("kb-demo", retriever=unittest.mock.Mock())
         first_round_hits = [
             [{"score": 0.91, "payload": {"chunk_type": "text", "text": "A", "filename": "demo.pdf", "file_sorted": "f-1"}}],
             [{"score": 0.72, "payload": {"chunk_type": "page", "page_path": "pages/page_1.png", "filename": "demo.pdf", "page_id": "p-1"}}],
@@ -59,7 +59,7 @@ class AgenticRagEvalTraceTest(unittest.TestCase):
         self.assertEqual("f-1", trace.rerank_text.hits[0].runtime_key)
 
     def test_should_keep_simple_query_fast_path_without_retrieval_trace(self):
-        agent = AgenticRAG("kb-demo")
+        agent = AgenticRAG("kb-demo", retriever=unittest.mock.Mock())
 
         with patch(
             "reactor_tool.tool.mrag.query.aigent.QueryProcessor.simple_query_check",
@@ -79,7 +79,7 @@ class AgenticRagEvalTraceTest(unittest.TestCase):
         collect_trace.assert_not_called()
 
     def test_should_keep_simple_image_query_fast_path_without_retrieval_trace(self):
-        agent = AgenticRAG("kb-demo")
+        agent = AgenticRAG("kb-demo", retriever=unittest.mock.Mock())
 
         with patch(
             "reactor_tool.tool.mrag.query.aigent.QueryProcessor.extract_image_content",

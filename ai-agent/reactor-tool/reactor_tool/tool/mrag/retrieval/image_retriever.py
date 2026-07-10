@@ -27,9 +27,10 @@ from ..utils.logger_utils import logger
 class ImageRetriever:
     """图像检索器类"""
 
-    def __init__(self):
-        self.embedding_model = get_image_embedding_model()
-        self.vector_store = VectorStore()
+    def __init__(self, embedding_model=None, vector_store=None):
+        # 依赖可注入：默认构造真实实现，行为不变；测试可注入 mock，避免真实图像 embedding / 向量库依赖
+        self.embedding_model = embedding_model if embedding_model is not None else get_image_embedding_model()
+        self.vector_store = vector_store if vector_store is not None else VectorStore()
 
     def text2image_search(self, kb_id: str, queries: list[str], limit: int = 10, score_threshold: float = 0.0,
                           filter_conditions: Optional[Dict] = None):

@@ -127,7 +127,7 @@ class ImageGenerationToolTest(unittest.TestCase):
         )
 
         async def _run():
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncClient(trust_env=False) as client:
                 primary, fallback = await _build_generation_requests(
                     request=request,
                     mode="edits",
@@ -156,7 +156,7 @@ class ImageGenerationToolTest(unittest.TestCase):
         )
 
         async def _run():
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncClient(trust_env=False) as client:
                 primary, fallback = await _build_generation_requests(
                     request=request,
                     mode="edits",

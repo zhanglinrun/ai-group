@@ -77,7 +77,7 @@ class QwenVLEmbeddingConfigTest(unittest.TestCase):
 class ImageRetrieverGuardTest(unittest.TestCase):
 
     def test_should_return_empty_results_when_text_embedding_is_empty(self):
-        retriever = ImageRetriever()
+        retriever = ImageRetriever(embedding_model=unittest.mock.Mock(), vector_store=unittest.mock.Mock())
         retriever.embedding_model = unittest.mock.Mock()
         retriever.vector_store = unittest.mock.Mock()
         retriever.embedding_model.encode_text_batch.return_value = [[], []]
@@ -88,7 +88,7 @@ class ImageRetrieverGuardTest(unittest.TestCase):
         retriever.vector_store.search_image_vector.assert_not_called()
 
     def test_should_return_empty_page_results_when_text_embedding_is_empty(self):
-        retriever = ImageRetriever()
+        retriever = ImageRetriever(embedding_model=unittest.mock.Mock(), vector_store=unittest.mock.Mock())
         retriever.embedding_model = unittest.mock.Mock()
         retriever.vector_store = unittest.mock.Mock()
         retriever.embedding_model.encode_text_batch.return_value = [[]]
@@ -99,7 +99,7 @@ class ImageRetrieverGuardTest(unittest.TestCase):
         retriever.vector_store.search_page_vector.assert_not_called()
 
     def test_should_fallback_to_empty_results_when_image_vector_dimension_mismatch(self):
-        retriever = ImageRetriever()
+        retriever = ImageRetriever(embedding_model=unittest.mock.Mock(), vector_store=unittest.mock.Mock())
         retriever.embedding_model = unittest.mock.Mock()
         retriever.vector_store = unittest.mock.Mock()
         retriever.embedding_model.encode_text_batch.return_value = [[0.1, 0.2], [0.3, 0.4]]
@@ -112,7 +112,7 @@ class ImageRetrieverGuardTest(unittest.TestCase):
         self.assertEqual([[], []], result)
 
     def test_should_fallback_to_empty_page_results_when_vector_dimension_mismatch(self):
-        retriever = ImageRetriever()
+        retriever = ImageRetriever(embedding_model=unittest.mock.Mock(), vector_store=unittest.mock.Mock())
         retriever.embedding_model = unittest.mock.Mock()
         retriever.vector_store = unittest.mock.Mock()
         retriever.embedding_model.encode_text_batch.return_value = [[0.1, 0.2]]

@@ -54,3 +54,18 @@ dependencies = [
     "fastembed>=0.8.0",
     "numpy>=2.3.1",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.uv]
+# requests 运行时要求 chardet<6，crawl4ai 要求 chardet>=5.2；不加约束解析器会选 7.x，
+# 触发 RequestsDependencyWarning。收敛到两者交集，消除告警且不影响功能。
+constraint-dependencies = [
+    "chardet>=5.2,<6",
+]

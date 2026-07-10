@@ -60,9 +60,10 @@ def display_chunks(chunks: List[Dict]):
 class AgenticRAG:
     """智能RAG系统类"""
 
-    def __init__(self, kb_id: str, n_round: int = 5):
+    def __init__(self, kb_id: str, n_round: int = 5, retriever=None):
+        # 依赖可注入：默认构造真实 BaseRetriever，行为不变；测试可注入 mock，跳过真实检索链构造
         self._n_round = n_round
-        self._retriever = BaseRetriever()
+        self._retriever = retriever if retriever is not None else BaseRetriever()
         self._kb_id = kb_id
 
     def retrieval(self, questions: list[str]) -> List[List[Dict]]:
