@@ -24,4 +24,6 @@ public interface IGroupBuyActivityDao {
     /** 运营端：更新活动可运营字段（名称/次数限制/目标/时长/状态） */
     int updateGroupBuyActivityConfig(GroupBuyActivity groupBuyActivityReq);
 
+    int insertGroupBuyActivity(GroupBuyActivity groupBuyActivityReq);
+
 }

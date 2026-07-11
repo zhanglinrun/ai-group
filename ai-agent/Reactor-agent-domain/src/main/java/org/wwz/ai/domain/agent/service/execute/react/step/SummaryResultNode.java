@@ -11,6 +11,7 @@ import org.wwz.ai.domain.agent.runtime.dto.TaskSummaryResult;
 import org.wwz.ai.domain.agent.ledger.model.ExecutionLedgerConstants;
 import org.wwz.ai.domain.agent.reactor.model.req.AgentRequest;
 import org.wwz.ai.domain.agent.ledger.ExecutionLedgerRunSupport;
+import org.wwz.ai.domain.agent.runtime.metrics.AgentRunMetrics;
 import org.wwz.ai.domain.agent.service.execute.react.step.factory.DefaultReactAgentExecuteStrategyFactory;
 
 import java.util.HashMap;
@@ -52,6 +53,14 @@ public class SummaryResultNode extends AbstractExecuteSupport {
             }
         } else {
             taskResult.put("fileList", result.getFiles());
+        }
+
+        // 展示级 run 元数据（模型 / 耗时），随最终帧下发供前端渲染 chips
+        Map<String, Object> metrics = AgentRunMetrics.fromContext(
+                agentContext,
+                agentContext.getRuntimeDependencies().requireReactorConfig().getReactModelName());
+        if (!metrics.isEmpty()) {
+            taskResult.put(AgentRunMetrics.KEY, metrics);
         }
 
         agentContext.getPrinter().send("result", taskResult);

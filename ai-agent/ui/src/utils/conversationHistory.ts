@@ -77,7 +77,16 @@ function hydrateRun(
     timeline: [],
     startedAt: run.startedAt,
     finishedAt: run.finishedAt,
-    metrics: { status: runStatus },
+    metrics: {
+      status: runStatus,
+      ...(run.modelName ? { modelName: run.modelName } : {}),
+      ...(typeof run.totalTokens === 'number' && run.totalTokens > 0
+        ? { totalTokens: run.totalTokens }
+        : {}),
+      ...(typeof run.durationMs === 'number' && run.durationMs >= 0
+        ? { durationMs: run.durationMs }
+        : {}),
+    },
   } as CHAT.ChatItem;
 
   for (const frame of run.replayFrames || []) {

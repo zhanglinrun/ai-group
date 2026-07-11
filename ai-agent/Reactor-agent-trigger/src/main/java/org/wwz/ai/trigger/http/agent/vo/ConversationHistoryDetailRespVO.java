@@ -62,6 +62,15 @@ public class ConversationHistoryDetailRespVO {
 
         private LocalDateTime finishedAt;
 
+        /** 本轮实际使用的模型名。 */
+        private String modelName;
+
+        /** 本轮总 token 用量。 */
+        private Integer totalTokens;
+
+        /** 本轮耗时（毫秒）。 */
+        private Long durationMs;
+
         @Builder.Default
         private List<GptProcessResult> replayFrames = new ArrayList<>();
     }

@@ -10,6 +10,7 @@ import {
   type ConversationSessionItem,
   type FixRoleItem,
 } from '@/services/agentConversation';
+import { modelCatalogApi, type ModelItem } from '@/services/models';
 import {
   hydrateConversationFromReplayFrames,
   isHistoryDetailEmpty,
@@ -30,6 +31,7 @@ type InitialState = {
 };
 
 const OUTPUT_TYPES = ['html', 'docs', 'ppt', 'table'];
+const CHAT_MODEL_STORAGE_KEY = 'ai_group_chat_model';
 const EMPTY_INPUT: CHAT.TInputInfo = {
   message: '',
   deepThink: false,
@@ -83,6 +85,13 @@ const createInitialState = (): InitialState => {
 const Home: ReactorType.FC<HomeProps> = memo(() => {
   const initialRef = useRef<InitialState>(createInitialState());
   const [fixRoles, setFixRoles] = useState<CHAT.FixRole[]>([]);
+  const [models, setModels] = useState<ModelItem[]>([]);
+  const [selectedModelId, setSelectedModelId] = useState<string | undefined>(() => {
+    if (typeof window === 'undefined') {
+      return undefined;
+    }
+    return window.localStorage.getItem(CHAT_MODEL_STORAGE_KEY) || undefined;
+  });
   const { recentSessions, recentSessionsLoading, refreshRecentSessions } = useRecentSessions();
   const [activeView, setActiveView] = useState<SidebarView>('chat');
   const [inputInfo, setInputInfo] = useState<CHAT.TInputInfo>(EMPTY_INPUT);
@@ -130,6 +139,35 @@ const Home: ReactorType.FC<HomeProps> = memo(() => {
       .catch((error) => {
         console.error('加载角色库失败', error);
       });
+  }, []);
+
+  useEffect(() => {
+    modelCatalogApi
+      .list()
+      .then((data) => {
+        setModels(data || []);
+      })
+      .catch((error) => {
+        console.error('加载模型列表失败', error);
+      });
+  }, []);
+
+  // 记住的模型若已从目录下线，则清空选择，回退默认模型逻辑，避免请求被白名单校验拒绝。
+  useEffect(() => {
+    if (!selectedModelId || models.length === 0) {
+      return;
+    }
+    if (!models.some((model) => model.modelId === selectedModelId)) {
+      setSelectedModelId(undefined);
+      window.localStorage.removeItem(CHAT_MODEL_STORAGE_KEY);
+    }
+  }, [models, selectedModelId]);
+
+  const handleSelectModel = useCallback((modelId: string) => {
+    setSelectedModelId(modelId);
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(CHAT_MODEL_STORAGE_KEY, modelId);
+    }
   }, []);
 
   useEffect(() => {
@@ -382,7 +420,7 @@ const Home: ReactorType.FC<HomeProps> = memo(() => {
   }
 
   return (
-    <div className="agent-shell bg-white text-foreground">
+    <div className="agent-shell text-foreground">
       <ConversationSidebar
         activeView={activeView}
         recentSessions={recentSessions}
@@ -405,10 +443,13 @@ const Home: ReactorType.FC<HomeProps> = memo(() => {
               product={product}
               conversation={currentConversation}
               chatRoles={fixRoles}
+              models={models}
+              selectedModelId={selectedModelId}
               onConversationChange={updateConversation}
               onRoleSelect={handleRoleSelect}
               onSelectionChange={handleInputSelectionChange}
               onInputConsumed={onInputConsumed}
+              onSelectModel={handleSelectModel}
             />
           ) : (
             <WelcomeView
@@ -417,6 +458,8 @@ const Home: ReactorType.FC<HomeProps> = memo(() => {
               displayOutput={displayOutput}
               currentConversationRole={currentConversationRole}
               fixRoles={fixRoles}
+              models={models}
+              selectedModelId={selectedModelId}
               videoModalOpen={videoModalOpen}
               onSelectionChange={handleInputSelectionChange}
               onRoleSelect={handleRoleSelect}
@@ -424,6 +467,7 @@ const Home: ReactorType.FC<HomeProps> = memo(() => {
               onSendQuestion={toSendMessage}
               onOpenVideo={setVideoModalOpen}
               onCloseVideo={() => setVideoModalOpen(undefined)}
+              onSelectModel={handleSelectModel}
             />
           )}
         </div>

@@ -27,6 +27,8 @@ export type GenerationConfig = {
   model: string;
   mode: RequestMode;
   size: string;
+  quality: 'standard' | 'high';
+  outputFormat: 'png' | 'jpeg' | 'webp';
   n: number;
   batchMode: boolean;
 };

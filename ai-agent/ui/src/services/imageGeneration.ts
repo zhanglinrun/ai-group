@@ -23,6 +23,9 @@ type ToolRequest = {
   prompt: string;
   mode: 'images' | 'edits';
   size: string;
+  model?: string;
+  quality?: string;
+  outputFormat?: string;
   n: number;
   fileNames: string[];
   maskFileNames: string[];
@@ -55,6 +58,9 @@ export async function requestImageGenerationTool(
         fileName: payload.fileName,
         fileDescription: payload.fileDescription,
         size: payload.size,
+        model: payload.model,
+        quality: payload.quality,
+        outputFormat: payload.outputFormat,
         n: payload.n,
       },
       {
@@ -116,4 +122,10 @@ export async function requestImageGenerationHistory(params: {
   } catch (error) {
     throw new ImageGenerationRequestError(error instanceof Error ? error.message : '历史查询失败');
   }
+}
+
+export async function deleteImageGenerationHistory(requestId: string): Promise<boolean> {
+  return (await api.delete<boolean>(
+    `/api/agent/image-generation/history/${encodeURIComponent(requestId)}`,
+  )) as unknown as boolean;
 }

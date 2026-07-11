@@ -7,6 +7,7 @@ import {
   buildConversationTaskData,
   buildTaskFromEventData,
   combineData,
+  extractRunMetrics,
   handleTaskData,
   normalizeEventData,
 } from '@/utils/chat';
@@ -28,6 +29,7 @@ import {
 
 type UseConversationStreamOptions = {
   conversation: CHAT.ConversationHistory;
+  selectedModelId?: string;
   onConversationChange: (
     conversationId: string,
     nextConversation: CHAT.ConversationHistory,
@@ -282,7 +284,13 @@ function resolveStreamErrorMessage(error: unknown): string {
 export function useConversationStream(
   options: UseConversationStreamOptions,
 ): UseConversationStreamResult {
-  const { conversation, onConversationChange, onPrepareStreamingWorkspace, onTokenUseUp } = options;
+  const {
+    conversation,
+    selectedModelId,
+    onConversationChange,
+    onPrepareStreamingWorkspace,
+    onTokenUseUp,
+  } = options;
 
   const [taskList, setTaskList] = useState<CHAT.Task[]>([]);
   const [workspaceStreamTask, setWorkspaceStreamTask] = useState<CHAT.Task>();
@@ -434,7 +442,8 @@ export function useConversationStream(
     const { message, deepThink, outputStyle } = inputInfo;
     const currentOutputStyle = outputStyle || baseConversation.productType;
     const isChatMode = currentOutputStyle === 'chat';
-    const normalizedDeepThink = isChatMode ? false : Boolean(deepThink);
+    const normalizedDeepThink = Boolean(deepThink);
+    const replaceLast = Boolean((inputInfo as CHAT.TInputInfo & { replaceLast?: boolean }).replaceLast);
     const requestId = getUniqId();
     let currentChat = createRunningChat(
       inputInfo,
@@ -455,7 +464,10 @@ export function useConversationStream(
       chatTitle: message || '',
       productType: currentOutputStyle,
       deepThink: normalizedDeepThink,
-      chatList: [...baseConversation.chatList, { ...currentChat }],
+      chatList: [
+        ...(replaceLast ? baseConversation.chatList.slice(0, -1) : baseConversation.chatList),
+        { ...currentChat },
+      ],
     });
     const draftController = createConversationDraftController<CHAT.ChatItem>(
       conversationId,
@@ -489,6 +501,7 @@ export function useConversationStream(
       files: inputInfo.files,
       aiAgentId: inputInfo.aiAgentId,
       fallbackRoleAgentId: baseConversation.role?.agentId,
+      modelId: inputInfo.modelId,
     });
     let pendingConversation: CHAT.ConversationHistory | null = null;
     let pendingTaskData: ReturnType<typeof handleTaskData> | null = null;
@@ -651,6 +664,7 @@ export function useConversationStream(
           currentChat.metrics = {
             ...(currentChat.metrics || {}),
             status: 'SUCCESS',
+            ...(extractRunMetrics(inner) || {}),
           };
           setLoading(false);
           syncRunningConversation();
@@ -686,6 +700,7 @@ export function useConversationStream(
         currentChat.metrics = {
           ...(currentChat.metrics || {}),
           status: 'SUCCESS',
+          ...(extractRunMetrics(eventData.resultMap) || {}),
         };
         setLoading(false);
         if (normalizedDeepThink) {
@@ -756,7 +771,9 @@ export function useConversationStream(
       outputStyle: conversation.productType,
       deepThink: conversation.deepThink,
       aiAgentId: conversation.role?.agentId,
-    });
+      modelId: selectedModelId,
+      replaceLast: true,
+    } as CHAT.TInputInfo & { replaceLast: boolean });
   });
 
   return {

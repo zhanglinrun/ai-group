@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react';
 
-import { requestImageGenerationHistory } from '@/services/imageGeneration';
+import {
+  deleteImageGenerationHistory,
+  requestImageGenerationHistory,
+} from '@/services/imageGeneration';
 import type { ImageGenerationHistoryBatch } from './types';
 
 export const HISTORY_PAGE_SIZE = 10;
@@ -46,6 +49,12 @@ export function useImageGenerationHistory() {
     void loadHistory(1, true);
   }, []);
 
+  const deleteHistory = async (requestId: string) => {
+    await deleteImageGenerationHistory(requestId);
+    setHistoryBatches((previous) => previous.filter((item) => item.requestId !== requestId));
+    setHistoryTotal((previous) => Math.max(0, previous - 1));
+  };
+
   return {
     historyBatches,
     historyTotal,
@@ -54,5 +63,6 @@ export function useImageGenerationHistory() {
     historyLoadingMore,
     historyError,
     loadHistory,
+    deleteHistory,
   };
 }

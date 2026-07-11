@@ -4,6 +4,7 @@ import lombok.Builder;
 import lombok.Value;
 import org.springframework.core.env.Environment;
 import org.wwz.ai.domain.agent.adapter.port.FileArtifactPort;
+import org.wwz.ai.domain.agent.adapter.port.ModelCatalogPort;
 import org.wwz.ai.domain.agent.adapter.port.RemoteHttpPort;
 import org.wwz.ai.domain.agent.adapter.port.RemoteStreamPort;
 import org.wwz.ai.domain.agent.runtime.llm.LLMSettings;
@@ -40,6 +41,9 @@ public class ReactorRuntimeDependencies {
     RemoteStreamPort remoteStreamPort;
 
     FileArtifactPort fileArtifactPort;
+
+    /** 模型目录端口，供用户按 modelId 覆盖模型时解析 DB 配置。可为空（未装配时回退静态配置）。 */
+    ModelCatalogPort modelCatalogPort;
 
     //预留给之后并发调用llm
     Executor llmExecutor;
@@ -100,7 +104,7 @@ public class ReactorRuntimeDependencies {
 
     /**
      * 统一解析 LLM 配置。
-     * 优先读取 ReactorConfig.llmSettings，其次回退到 Environment 中的 llm.default.*。
+     * 查找序：ReactorConfig.llmSettings（按模型名）→ 模型目录（DB，按 modelId/模型名）→ Environment 中的 llm.default.*。
      */
     public LLMSettings resolveLlmSettings(String modelName) {
         ReactorConfig config = requireReactorConfig();
@@ -112,11 +116,37 @@ public class ReactorRuntimeDependencies {
             }
         }
 
+        if (modelCatalogPort != null && !normalizedModelName.isBlank()) {
+            LLMSettings fromCatalog = modelCatalogPort.resolveLlmSettings(normalizedModelName);
+            if (fromCatalog != null) {
+                return fromCatalog;
+            }
+        }
+
         LLMSettings defaultConfig = buildDefaultLlmSettings();
         if (!normalizedModelName.isBlank()) {
             defaultConfig.setModel(normalizedModelName);
         }
         return defaultConfig;
+    }
+
+    /**
+     * 解析本次执行实际生效的 LLM 配置。
+     * 用户在对话中显式选择模型（overrideModelId）时，优先按 modelId 从模型目录解析；
+     * 未选择或目录解析失败时，回退到按静态配置模型名解析（保持既有默认行为）。
+     *
+     * @param overrideModelId   用户选择的 modelId（可空）
+     * @param fallbackModelName 静态配置的模型名（如 react/planner/executor/summary.model_name）
+     */
+    public LLMSettings resolveEffectiveLlmSettings(String overrideModelId, String fallbackModelName) {
+        String normalizedOverride = overrideModelId == null ? "" : overrideModelId.trim();
+        if (!normalizedOverride.isBlank() && modelCatalogPort != null) {
+            LLMSettings overrideSettings = modelCatalogPort.resolveLlmSettings(normalizedOverride);
+            if (overrideSettings != null) {
+                return overrideSettings;
+            }
+        }
+        return resolveLlmSettings(fallbackModelName);
     }
 
     private LLMSettings buildDefaultLlmSettings() {

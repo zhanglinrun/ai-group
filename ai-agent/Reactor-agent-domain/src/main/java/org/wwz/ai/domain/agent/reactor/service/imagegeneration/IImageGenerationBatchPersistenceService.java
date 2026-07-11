@@ -7,5 +7,5 @@ import org.wwz.ai.domain.agent.reactor.model.imagegeneration.ImageGenerationExec
  */
 public interface IImageGenerationBatchPersistenceService {
 
-    void persistWorkspaceBatch(String requestId, ImageGenerationExecutionResult result);
+    void persistWorkspaceBatch(String requestId, Long ownerId, ImageGenerationExecutionResult result);
 }

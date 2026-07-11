@@ -45,6 +45,10 @@ public class AgentRequest {
     private List<FileInformation> sessionFiles;
     private String outputStyle; // 交付物产出格式：html(网页模式）， docs(文档模式）， table(表格模式）
     private String aiAgentId;
+    /**
+     * 用户选择的模型 ID（可空）。贯穿到 AgentContext.modelIdOverride，供运行时按 modelId 覆盖模型。
+     */
+    private String modelId;
 
     @Data
     @Builder

@@ -61,9 +61,19 @@
             <if test="target != null">target = #{target},</if>
             <if test="validTime != null">valid_time = #{validTime},</if>
             <if test="status != null">status = #{status},</if>
+            <if test="activityType != null">activity_type = #{activityType},</if>
             update_time = now()
         </set>
         where activity_id = #{activityId}
     </update>
+
+    <insert id="insertGroupBuyActivity" parameterType="com.aigroup.groupbuy.infrastructure.dao.po.GroupBuyActivity">
+        insert into group_buy_activity
+        (activity_id, activity_name, discount_id, group_type, activity_type, take_limit_count,
+         target, valid_time, status, start_time, end_time, create_time, update_time)
+        values
+        (#{activityId}, #{activityName}, #{discountId}, #{groupType}, #{activityType}, #{takeLimitCount},
+         #{target}, #{validTime}, #{status}, now(), date_add(now(), interval 10 year), now(), now())
+    </insert>
 
 </mapper>

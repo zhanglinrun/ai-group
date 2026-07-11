@@ -32,6 +32,8 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import ChatRoleSelector from '@/components/ChatRoleSelector';
+import ModelSelector from '@/components/ModelSelector';
+import type { ModelItem } from '@/services/models';
 import { cn } from '@/lib/utils';
 import { defaultProduct, productList } from '@/utils/constants';
 import UploadAttachmentChip from './UploadAttachmentChip';
@@ -50,23 +52,28 @@ type Props = {
   chatRole?: CHAT.ConversationRole | null;
   chatRoles?: CHAT.FixRole[];
   showRoleSelector?: boolean;
+  /** 可选模型列表（管理端配置且启用）。 */
+  models?: ModelItem[];
+  /** 当前选择的模型 ID。 */
+  selectedModelId?: string;
+  /** 是否展示模型选择器（chat / multiAgent 展示，dataAgent 隐藏）。 */
+  showModelSelector?: boolean;
   /** 是否允许切到“数据分析”。会话内默认关闭（数据分析是独立渲染页，中途切换体验割裂）。 */
   allowDataAgentToggle?: boolean;
   send: (p: CHAT.TInputInfo) => void;
   onSelectionChange?: (selection: { product: CHAT.Product; deepThink: boolean }) => void;
   onRoleSelect?: (role: CHAT.FixRole) => void;
+  onSelectModel?: (modelId: string) => void;
 };
 
 type InputModeKey = 'quick' | 'think' | 'research';
 const OUTPUT_TYPES = ['html', 'docs', 'ppt', 'table'];
 const OUTPUT_PRODUCTS = productList.filter((item) =>
-  OUTPUT_TYPES.includes(item.type),
+  item.type === 'chat' || OUTPUT_TYPES.includes(item.type),
 ) as CHAT.Product[];
 const DATA_AGENT_PRODUCT =
   (productList.find((item) => item.type === 'dataAgent') as CHAT.Product | undefined) ??
   defaultProduct;
-const CHAT_PRODUCT =
-  (productList.find((item) => item.type === 'chat') as CHAT.Product | undefined) ?? defaultProduct;
 const DEFAULT_OUTPUT_PRODUCT = (OUTPUT_PRODUCTS[0] ?? defaultProduct) as CHAT.Product;
 
 const MODE_OPTIONS: Array<{
@@ -98,14 +105,14 @@ const MODE_OPTIONS: Array<{
 const VISIBLE_MODE_OPTIONS = MODE_OPTIONS;
 
 const getModeKey = (productType?: string, deepThink = false): InputModeKey => {
-  if (productType === 'chat') {
+  if (!deepThink) {
     return 'quick';
   }
-  return deepThink ? 'research' : 'think';
+  return productType === 'chat' ? 'think' : 'research';
 };
 
 const getOutputProduct = (product?: CHAT.Product, displayOutput?: CHAT.Product) => {
-  if (product && OUTPUT_TYPES.includes(product.type)) {
+  if (product && (product.type === 'chat' || OUTPUT_TYPES.includes(product.type))) {
     return product;
   }
   if (displayOutput && OUTPUT_TYPES.includes(displayOutput.type)) {
@@ -125,6 +132,8 @@ const getOutputShortDescription = (type: string) => {
       return '演示文稿';
     case 'table':
       return '数据表格';
+    case 'chat':
+      return '普通对话';
     default:
       return '结构化输出';
   }
@@ -136,52 +145,26 @@ type SelectorTone = {
   check: string;
 };
 
+const BRAND_TONE: SelectorTone = {
+  icon: 'text-[var(--chat-text-soft)]',
+  iconActive: 'bg-brand-soft text-brand',
+  check: 'text-brand',
+};
+
 const MODE_TONES: Record<InputModeKey, SelectorTone> = {
-  quick: {
-    icon: 'text-[#4b5563]',
-    iconActive: 'bg-[#e8f2ff] text-[#0a74da]',
-    check: 'text-[#0a74da]',
-  },
-  think: {
-    icon: 'text-[#4b5563]',
-    iconActive: 'bg-[#e8f2ff] text-[#0a74da]',
-    check: 'text-[#0a74da]',
-  },
-  research: {
-    icon: 'text-[#4b5563]',
-    iconActive: 'bg-[#e8f2ff] text-[#0a74da]',
-    check: 'text-[#0a74da]',
-  },
+  quick: BRAND_TONE,
+  think: BRAND_TONE,
+  research: BRAND_TONE,
 };
 
 const OUTPUT_TONES: Record<string, SelectorTone> = {
-  html: {
-    icon: 'text-[#4b5563]',
-    iconActive: 'bg-[#e8f2ff] text-[#0a74da]',
-    check: 'text-[#0a74da]',
-  },
-  docs: {
-    icon: 'text-[#4b5563]',
-    iconActive: 'bg-[#e8f2ff] text-[#0a74da]',
-    check: 'text-[#0a74da]',
-  },
-  ppt: {
-    icon: 'text-[#4b5563]',
-    iconActive: 'bg-[#e8f2ff] text-[#0a74da]',
-    check: 'text-[#0a74da]',
-  },
-  table: {
-    icon: 'text-[#4b5563]',
-    iconActive: 'bg-[#e8f2ff] text-[#0a74da]',
-    check: 'text-[#0a74da]',
-  },
+  html: BRAND_TONE,
+  docs: BRAND_TONE,
+  ppt: BRAND_TONE,
+  table: BRAND_TONE,
 };
 
-const DATA_AGENT_TONE: SelectorTone = {
-  icon: 'text-[#4b5563]',
-  iconActive: 'bg-[#e8f2ff] text-[#0a74da]',
-  check: 'text-[#0a74da]',
-};
+const DATA_AGENT_TONE: SelectorTone = BRAND_TONE;
 
 const selectorTrayClassName =
   'flex min-w-0 flex-1 flex-wrap items-center gap-1 rounded-full bg-transparent p-0.5 sm:flex-none';
@@ -189,28 +172,30 @@ const selectorTrayClassName =
 const chipButtonClassName = (active: boolean, disabled?: boolean) =>
   cn(
     'group inline-flex h-9 max-w-full items-center gap-2 rounded-full border border-transparent px-3 pr-3 text-[14px] font-medium transition-all duration-200',
-    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#b9d9ff] focus-visible:ring-offset-2 focus-visible:ring-offset-white',
+    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
     disabled && 'cursor-not-allowed opacity-50',
-    !disabled && 'hover:bg-white',
-    active ? 'bg-[#e8f2ff] text-[#0a74da]' : 'bg-transparent text-[#111827]',
+    !disabled && 'hover:bg-[var(--chat-surface-soft)]',
+    active ? 'bg-brand-soft text-brand' : 'bg-transparent text-[var(--chat-text)]',
   );
 
 const chipIconWrapClassName = (tone: SelectorTone, active: boolean) =>
   cn(
     'flex size-[26px] shrink-0 items-center justify-center rounded-full transition-all duration-200',
-    active ? tone.iconActive : cn('bg-transparent ring-0 group-hover:bg-white/90', tone.icon),
+    active
+      ? tone.iconActive
+      : cn('bg-transparent ring-0 group-hover:bg-[var(--chat-surface)]', tone.icon),
   );
 
 const menuContentClassName =
-  'rounded-[16px] border-0 bg-white p-0.5 shadow-[0_10px_28px_-18px_rgba(15,23,42,0.2)]';
+  'rounded-[16px] border border-border bg-popover p-0.5 shadow-[0_10px_28px_-18px_rgba(15,23,42,0.2)]';
 
 const menuTitleClassName =
-  'px-2 pb-1 pt-0.5 text-[10px] font-semibold tracking-[0.06em] text-[#6b7280] uppercase';
+  'px-2 pb-1 pt-0.5 text-[10px] font-semibold tracking-[0.06em] text-muted-foreground uppercase';
 
 const menuItemClassName = (active: boolean) =>
   cn(
     'flex w-full gap-1.5 rounded-xl border border-transparent px-1.5 py-2 text-left transition-all duration-200',
-    active ? 'bg-[#e8f2ff]' : 'bg-transparent hover:bg-[#f9fafb]',
+    active ? 'bg-brand-soft' : 'bg-transparent hover:bg-[var(--chat-surface-soft)]',
   );
 
 const menuIconWrapClassName = (tone: SelectorTone, active: boolean) =>
@@ -232,10 +217,14 @@ const GeneralInput: ReactorType.FC<Props> = (props) => {
     chatRole,
     chatRoles = [],
     showRoleSelector = false,
+    models = [],
+    selectedModelId,
+    showModelSelector = false,
     allowDataAgentToggle = true,
     send,
     onSelectionChange,
     onRoleSelect,
+    onSelectModel,
   } = props;
 
   const [question, setQuestion] = useState('');
@@ -291,8 +280,8 @@ const GeneralInput: ReactorType.FC<Props> = (props) => {
     .filter((file): file is CHAT.TFile => Boolean(file));
   const canSend =
     Boolean(question.trim()) && !disabled && !hasUploadingAttachment && !hasFailedAttachment;
-  // 快速(聊天)模式没有“输出格式”概念；数据分析切换按需开放（会话内关闭）。
-  const showOutputSelector = showBtn && !isQuickMode;
+  // 推理模式与输出格式相互独立，切换网页后仍可改为对话/文档/PPT/表格。
+  const showOutputSelector = showBtn && !isDataAgent;
   const showDataAgentToggle = showBtn && allowDataAgentToggle && (isDataAgent || !isQuickMode);
 
   const handleAttachmentsAdded = useCallback(
@@ -319,22 +308,22 @@ const GeneralInput: ReactorType.FC<Props> = (props) => {
   };
 
   const handleModeSelect = (modeKey: InputModeKey) => {
-    // 快速模式 = 普通聊天：切到 chat product（不带输出格式/深度思考）。
     if (modeKey === 'quick') {
-      handleSelectionChange(CHAT_PRODUCT, false);
+      handleSelectionChange(visibleOutputProduct, false);
       setModeMenuOpen(false);
       return;
     }
     // 从聊天模式切回任务模式时，恢复上一次的输出格式（避免落到 chat 无格式态）。
-    const nextOutput = OUTPUT_TYPES.includes(visibleOutputProduct.type)
+    const nextOutput =
+      visibleOutputProduct.type === 'chat' || OUTPUT_TYPES.includes(visibleOutputProduct.type)
       ? visibleOutputProduct
       : lastOutputProductRef.current;
-    handleSelectionChange(nextOutput, modeKey === 'research');
+    handleSelectionChange(nextOutput, true);
     setModeMenuOpen(false);
   };
 
   const handleOutputSelect = (nextOutput: CHAT.Product) => {
-    handleSelectionChange(nextOutput, visibleMode === 'research');
+    handleSelectionChange(nextOutput, visibleMode !== 'quick');
     setOutputMenuOpen(false);
   };
 
@@ -349,6 +338,7 @@ const GeneralInput: ReactorType.FC<Props> = (props) => {
         visibleOutputProduct,
         uploadedFiles,
         chatRole: chatRole || null,
+        modelId: selectedModelId,
       }),
     );
 
@@ -444,7 +434,7 @@ const GeneralInput: ReactorType.FC<Props> = (props) => {
                   size="icon-sm"
                   variant="ghost"
                   disabled={disabled}
-                  className="rounded-full border-0 bg-white text-[#111827] shadow-none ring-0 transition-all duration-200 hover:bg-[#f9fafb] focus-visible:ring-0"
+                  className="rounded-full border-0 bg-transparent text-[var(--chat-text)] shadow-none ring-0 transition-all duration-200 hover:bg-[var(--chat-surface-soft)] focus-visible:ring-0"
                 >
                   <PlusIcon className="size-5" />
                 </PromptInputActionMenuTrigger>
@@ -461,6 +451,14 @@ const GeneralInput: ReactorType.FC<Props> = (props) => {
                       selectedRole={chatRole}
                       disabled={disabled}
                       onSelect={(role) => onRoleSelect?.(role)}
+                    />
+                  ) : null}
+                  {showModelSelector ? (
+                    <ModelSelector
+                      models={models}
+                      selectedModelId={selectedModelId}
+                      disabled={disabled}
+                      onSelect={(modelId) => onSelectModel?.(modelId)}
                     />
                   ) : null}
                   <DropdownMenu open={modeMenuOpen} onOpenChange={setModeMenuOpen}>

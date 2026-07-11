@@ -4,10 +4,10 @@
 
     <insert id="insert" parameterType="map">
         INSERT INTO tool_output_image_generation (
-            tool_invocation_id, run_id, request_id, request_source, session_id, tool_call_id, status, error_msg,
+            tool_invocation_id, run_id, request_id, request_source, owner_id, session_id, tool_call_id, status, error_msg,
             prompt, mode, summary, size, batch_count, source_image_count, mask_image_count, used_fallback
         ) VALUES (
-            #{row.toolInvocationId}, #{row.runId}, #{row.requestId}, #{row.requestSource}, #{row.sessionId}, #{row.toolCallId}, #{row.status}, #{row.errorMsg},
+            #{row.toolInvocationId}, #{row.runId}, #{row.requestId}, #{row.requestSource}, #{row.ownerId}, #{row.sessionId}, #{row.toolCallId}, #{row.status}, #{row.errorMsg},
             #{row.prompt}, #{row.mode}, #{row.summary}, #{row.size}, #{row.batchCount}, #{row.sourceImageCount}, #{row.maskImageCount}, #{row.usedFallback}
         )
     </insert>
@@ -35,5 +35,21 @@
         ORDER BY id DESC
         LIMIT #{limit} OFFSET #{offset}
     </select>
+
+    <select id="countByOwnerAndRequestSource" resultType="int">
+        SELECT COUNT(*) FROM tool_output_image_generation
+        WHERE owner_id = #{ownerId} AND request_source = #{requestSource} AND deleted = 0
+    </select>
+
+    <select id="queryPageByOwnerAndRequestSource" resultType="map">
+        SELECT * FROM tool_output_image_generation
+        WHERE owner_id = #{ownerId} AND request_source = #{requestSource} AND deleted = 0
+        ORDER BY id DESC LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <update id="softDeleteByOwnerAndRequestId">
+        UPDATE tool_output_image_generation SET deleted = 1, updated_at = NOW()
+        WHERE owner_id = #{ownerId} AND request_id = #{requestId} AND deleted = 0
+    </update>
 
 </mapper>

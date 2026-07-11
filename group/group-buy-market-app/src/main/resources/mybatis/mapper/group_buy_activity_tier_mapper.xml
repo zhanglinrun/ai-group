@@ -21,4 +21,21 @@
         order by tier_no asc
     </select>
 
+    <select id="queryAllTiersByActivityId" parameterType="java.lang.Long" resultMap="dataMap">
+        select id, activity_id, tier_no, tier_name, target_count, bonus_quota, status, create_time, update_time
+        from group_buy_activity_tier where activity_id = #{activityId} order by tier_no asc
+    </select>
+
+    <update id="disableTiersByActivityId" parameterType="java.lang.Long">
+        update group_buy_activity_tier set status = 0, update_time = now() where activity_id = #{activityId}
+    </update>
+
+    <insert id="upsertTier" parameterType="com.aigroup.groupbuy.infrastructure.dao.po.GroupBuyActivityTier">
+        insert into group_buy_activity_tier
+        (activity_id, tier_no, tier_name, target_count, bonus_quota, status, create_time, update_time)
+        values (#{activityId}, #{tierNo}, #{tierName}, #{targetCount}, #{bonusQuota}, #{status}, now(), now())
+        on duplicate key update tier_name = values(tier_name), target_count = values(target_count),
+        bonus_quota = values(bonus_quota), status = values(status), update_time = now()
+    </insert>
+
 </mapper>

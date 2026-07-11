@@ -47,8 +47,8 @@ public class SummaryAgent extends BaseAgent {
 
         setContext(context);
         setRequestId(context.getRequestId());
-        // 总结阶段允许单独指定模型；未配置时保持原有兼容逻辑。
-        setLlm(new LLM(resolveSummaryModelName(reactorConfig), "", runtimeDependencies));
+        // 总结阶段允许单独指定模型；用户选择模型时优先按 modelId 覆盖，未配置时保持原有兼容逻辑。
+        setLlm(new LLM(runtimeDependencies.resolveEffectiveLlmSettings(context.getModelIdOverride(), resolveSummaryModelName(reactorConfig)), "", runtimeDependencies));
         setMessageSizeLimit(reactorConfig.getMessageSizeLimit());
         setSummaryTemperature(reactorConfig.getSummaryTemperature());
     }

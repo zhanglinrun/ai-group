@@ -1,10 +1,12 @@
 package com.aigroup.groupbuy.admin;
 
 import com.aigroup.groupbuy.infrastructure.dao.IGroupBuyActivityDao;
+import com.aigroup.groupbuy.infrastructure.dao.IGroupBuyActivityTierDao;
 import com.aigroup.groupbuy.infrastructure.dao.IGroupBuyDiscountDao;
 import com.aigroup.groupbuy.infrastructure.dao.ISCSkuActivityDao;
 import com.aigroup.groupbuy.infrastructure.dao.ISkuDao;
 import com.aigroup.groupbuy.infrastructure.dao.po.GroupBuyActivity;
+import com.aigroup.groupbuy.infrastructure.dao.po.GroupBuyActivityTier;
 import com.aigroup.groupbuy.infrastructure.dao.po.GroupBuyDiscount;
 import com.aigroup.groupbuy.infrastructure.dao.po.SCSkuActivity;
 import com.aigroup.groupbuy.infrastructure.dao.po.Sku;
@@ -19,10 +21,12 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -52,6 +56,8 @@ public class GroupBuyAdminController {
 
     @Resource
     private IGroupBuyActivityDao groupBuyActivityDao;
+    @Resource
+    private IGroupBuyActivityTierDao groupBuyActivityTierDao;
     @Resource
     private IGroupBuyDiscountDao groupBuyDiscountDao;
     @Resource
@@ -97,6 +103,8 @@ public class GroupBuyAdminController {
             row.put("target", activity.getTarget());
             row.put("validTime", activity.getValidTime());
             row.put("status", activity.getStatus());
+            row.put("activityType", activity.getActivityType());
+            row.put("tiers", groupBuyActivityTierDao.queryAllTiersByActivityId(activity.getActivityId()));
             row.put("startTime", activity.getStartTime());
             row.put("endTime", activity.getEndTime());
             GroupBuyDiscount discount = discountById.get(activity.getDiscountId());
@@ -122,6 +130,77 @@ public class GroupBuyAdminController {
                 .info(ResponseCode.SUCCESS.getInfo())
                 .data(result)
                 .build();
+    }
+
+    /** 创建活动、折扣、商品和渠道映射，作为一个本地事务提交。 */
+    @PostMapping("activities")
+    @Transactional(rollbackFor = Exception.class)
+    public Response<Boolean> createActivity(@RequestBody Map<String, Object> body,
+                                            HttpServletRequest request) {
+        if (!isAdmin(request)) {
+            return Response.<Boolean>builder().code(ResponseCode.ILLEGAL_PARAMETER.getCode())
+                    .info("admin role required").build();
+        }
+        try {
+            Long activityId = longValue(body.get("activityId"));
+            String activityName = requiredString(body, "activityName");
+            String goodsId = requiredString(body, "goodsId");
+            String goodsName = requiredString(body, "goodsName");
+            String discountId = requiredString(body, "discountId");
+            BigDecimal originalPrice = decimalValue(body.get("originalPrice"));
+            String marketExpr = requiredString(body, "marketExpr");
+            String marketPlan = normalizeMarketPlan(body.get("marketPlan"));
+            if (activityId == null || originalPrice == null) {
+                throw new IllegalArgumentException("activityId and originalPrice are required");
+            }
+
+            groupBuyDiscountDao.insertGroupBuyDiscount(GroupBuyDiscount.builder()
+                    .discountId(discountId).discountName(activityName + "优惠")
+                    .discountDesc(activityName + "运营配置").discountType(0)
+                    .marketPlan(marketPlan).marketExpr(marketExpr).build());
+            skuDao.insertSku(Sku.builder().source("s01").channel("c01")
+                    .goodsId(goodsId).goodsName(goodsName).originalPrice(originalPrice).build());
+            groupBuyActivityDao.insertGroupBuyActivity(GroupBuyActivity.builder()
+                    .activityId(activityId).activityName(activityName).discountId(discountId)
+                    .groupType(0).activityType(defaultInt(body.get("activityType"), 1))
+                    .takeLimitCount(defaultInt(body.get("takeLimitCount"), 10))
+                    .target(defaultInt(body.get("target"), 10))
+                    .validTime(defaultInt(body.get("validTime"), 1440))
+                    .status(defaultInt(body.get("status"), 1)).build());
+            scSkuActivityDao.insertSCSkuActivity(SCSkuActivity.builder()
+                    .source("s01").channel("c01").activityId(activityId).goodsId(goodsId).build());
+            return Response.<Boolean>builder().code(ResponseCode.SUCCESS.getCode())
+                    .info(ResponseCode.SUCCESS.getInfo()).data(Boolean.TRUE).build();
+        } catch (Exception e) {
+            log.error("admin create group-buy activity failed", e);
+            throw new IllegalStateException("create group-buy activity failed", e);
+        }
+    }
+
+    /** 整组保存阶梯档位；未提交的旧档位会停用，避免前后台规则漂移。 */
+    @PutMapping("activities/{activityId}/tiers")
+    @Transactional(rollbackFor = Exception.class)
+    public Response<Boolean> replaceTiers(@PathVariable Long activityId,
+                                          @RequestBody List<Map<String, Object>> tiers,
+                                          HttpServletRequest request) {
+        if (!isAdmin(request)) {
+            return Response.<Boolean>builder().code(ResponseCode.ILLEGAL_PARAMETER.getCode())
+                    .info("admin role required").build();
+        }
+        groupBuyActivityTierDao.disableTiersByActivityId(activityId);
+        for (Map<String, Object> row : tiers) {
+            groupBuyActivityTierDao.upsertTier(GroupBuyActivityTier.builder()
+                    .activityId(activityId)
+                    .tierNo(defaultInt(row.get("tierNo"), 1))
+                    .tierName(requiredString(row, "tierName"))
+                    .targetCount(defaultInt(row.get("targetCount"), 1))
+                    .bonusQuota(defaultInt(row.get("bonusQuota"), 0))
+                    .status(defaultInt(row.get("status"), 1))
+                    .build());
+        }
+        redisService.remove(GroupBuyActivityTier.cacheRedisKey(activityId));
+        return Response.<Boolean>builder().code(ResponseCode.SUCCESS.getCode())
+                .info(ResponseCode.SUCCESS.getInfo()).data(Boolean.TRUE).build();
     }
 
     /**
@@ -156,13 +235,16 @@ public class GroupBuyAdminController {
                     .target(intValue(body.get("target")))
                     .validTime(intValue(body.get("validTime")))
                     .status(intValue(body.get("status")))
+                    .activityType(intValue(body.get("activityType")))
                     .build();
             groupBuyActivityDao.updateGroupBuyActivityConfig(activityUpdate);
 
             String marketExpr = stringValue(body.get("marketExpr"));
-            if (StringUtils.isNotBlank(marketExpr)) {
+            String marketPlan = body.containsKey("marketPlan") ? normalizeMarketPlan(body.get("marketPlan")) : null;
+            if (StringUtils.isNotBlank(marketExpr) || StringUtils.isNotBlank(marketPlan)) {
                 GroupBuyDiscount discountUpdate = GroupBuyDiscount.builder()
                         .discountId(activity.getDiscountId())
+                        .marketPlan(marketPlan)
                         .marketExpr(marketExpr)
                         .build();
                 groupBuyDiscountDao.updateGroupBuyDiscountExpr(discountUpdate);
@@ -210,15 +292,41 @@ public class GroupBuyAdminController {
     }
 
     private Object resolveGroupPayPrice(BigDecimal originalPrice, GroupBuyDiscount discount) {
-        if (originalPrice == null || discount == null || !"ZJ".equals(discount.getMarketPlan())) {
+        if (originalPrice == null || discount == null) {
             return null;
         }
         try {
-            BigDecimal price = originalPrice.subtract(new BigDecimal(discount.getMarketExpr()));
+            String plan = discount.getMarketPlan();
+            String expr = discount.getMarketExpr();
+            BigDecimal price;
+            if ("ZJ".equals(plan)) {
+                price = originalPrice.subtract(new BigDecimal(expr));
+            } else if ("MJ".equals(plan)) {
+                String[] parts = expr.split(",");
+                if (parts.length != 2) return null;
+                BigDecimal threshold = new BigDecimal(parts[0].trim());
+                BigDecimal deduction = new BigDecimal(parts[1].trim());
+                price = originalPrice.compareTo(threshold) >= 0 ? originalPrice.subtract(deduction) : originalPrice;
+            } else if ("ZK".equals(plan)) {
+                price = originalPrice.multiply(new BigDecimal(expr));
+            } else if ("N".equals(plan)) {
+                price = new BigDecimal(expr);
+            } else {
+                return null;
+            }
+            price = price.setScale(2, java.math.RoundingMode.HALF_UP);
             return price.compareTo(BigDecimal.ZERO) <= 0 ? new BigDecimal("0.01") : price;
         } catch (NumberFormatException e) {
             return null;
         }
+    }
+
+    private String normalizeMarketPlan(Object value) {
+        String plan = StringUtils.upperCase(StringUtils.trimToEmpty(stringValue(value)));
+        if (!List.of("ZJ", "MJ", "ZK", "N").contains(plan)) {
+            throw new IllegalArgumentException("marketPlan must be one of ZJ, MJ, ZK, N");
+        }
+        return plan;
     }
 
     /**
@@ -265,5 +373,21 @@ public class GroupBuyAdminController {
         } catch (NumberFormatException e) {
             return null;
         }
+    }
+
+    private Long longValue(Object value) {
+        if (value == null || String.valueOf(value).isBlank()) return null;
+        return Long.valueOf(String.valueOf(value));
+    }
+
+    private Integer defaultInt(Object value, int fallback) {
+        Integer parsed = intValue(value);
+        return parsed == null ? fallback : parsed;
+    }
+
+    private String requiredString(Map<String, Object> body, String key) {
+        String value = stringValue(body.get(key));
+        if (StringUtils.isBlank(value)) throw new IllegalArgumentException(key + " is required");
+        return value.trim();
     }
 }

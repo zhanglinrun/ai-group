@@ -222,6 +222,19 @@ public class AgentContext {
      */
     String templateType;
 
+    /**
+     * 用户在本次对话中显式选择的模型 ID（可空）。
+     * 非空时，ReAct / PlanSolve 各阶段构建 LLM 时优先按该 modelId 从模型目录解析配置，
+     * 覆盖 react/planner/executor/summary 的静态配置模型；为空时保持既有默认行为。
+     */
+    String modelIdOverride;
+
+    /**
+     * 本次 run 起始时间戳（epoch millis），在根节点构建上下文时设置。
+     * 用于在最终结果帧上估算展示级耗时（modelName/tokens/耗时 chips），与账本 duration 解耦。
+     */
+    Long runStartedAtMillis;
+
     public void bindCurrentToolArtifactSource(ToolArtifactSource toolArtifactSource) {
         currentToolArtifactSourceHolder.set(toolArtifactSource);
     }
@@ -347,6 +360,8 @@ public class AgentContext {
                 .agentRunState(agentRunState)
                 .taskProductFiles(copyFiles(taskProductFiles))
                 .templateType(templateType)
+                .modelIdOverride(modelIdOverride)
+                .runStartedAtMillis(runStartedAtMillis)
                 .build();
     }
 

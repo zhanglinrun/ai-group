@@ -66,6 +66,8 @@ public class RootNode extends AbstractExecuteSupport {
                 .agentType(request.getAgentType())
                 .isStream(Objects.nonNull(request.getIsStream()) ? request.getIsStream() : false)
                 .templateType("dataAgent".equals(request.getOutputStyle()) ? "fix" : "empty")
+                .modelIdOverride(request.getModelId())
+                .runStartedAtMillis(System.currentTimeMillis())
                 .executionRecorder(agentExecutionRecorder)
                 .runtimeDependencies(reactorRuntimeDependencies)
                 .build();

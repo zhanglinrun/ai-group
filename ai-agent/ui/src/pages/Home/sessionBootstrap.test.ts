@@ -28,13 +28,13 @@ describe('sessionBootstrap', () => {
     },
   ] as CHAT.ConversationSessionItem[];
 
-  it('首屏进入时即使存在本地 sessionId 也不自动恢复历史会话', () => {
+  it('首屏进入时恢复仍存在的本地 sessionId', () => {
     expect(
       resolveInitialSessionId({
         recentSessions: sessions,
         storedSessionId: 'session-001',
       }),
-    ).toBeNull();
+    ).toBe('session-001');
   });
 
   it('首屏进入时即使存在最近会话也保持主界面空白态', () => {

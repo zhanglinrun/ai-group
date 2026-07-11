@@ -16,6 +16,7 @@ import java.util.List;
 @AllArgsConstructor
 public class WorkspaceImageGenerationCommand {
     private String requestId;
+    private Long ownerId;
     private String prompt;
     private String mode;
     private List<String> fileNames;
@@ -24,5 +25,7 @@ public class WorkspaceImageGenerationCommand {
     private String fileDescription;
     private String model;
     private String size;
+    private String quality;
+    private String outputFormat;
     private Integer n;
 }

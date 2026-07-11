@@ -34,6 +34,10 @@ public class ImageGenerationExecuteCommand {
 
     private String size;
 
+    private String quality;
+
+    private String outputFormat;
+
     private Integer n;
 
     private Integer timeoutSeconds;

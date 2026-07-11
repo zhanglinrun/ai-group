@@ -150,7 +150,8 @@ public class PlanningAgent extends ReActAgent {
         if (reactorConfig.getToolMaxAttempts() != null && reactorConfig.getToolMaxAttempts() > 0) {
             setToolMaxAttempts(reactorConfig.getToolMaxAttempts());
         }
-        setLlm(new LLM(reactorConfig.getPlannerModelName(), "", runtimeDependencies)); // 初始化大模型实例（指定模型名称）
+        // 用户选择模型时优先按 modelId 覆盖，否则回退 planner 配置模型
+        setLlm(new LLM(runtimeDependencies.resolveEffectiveLlmSettings(context.getModelIdOverride(), reactorConfig.getPlannerModelName()), "", runtimeDependencies));
 
         // 6. 关联上下文&配置计划更新开关
         setIsColseUpdate("1".equals(reactorConfig.getPlanningCloseUpdate())); // 从配置读取是否关闭计划更新（1=关闭）

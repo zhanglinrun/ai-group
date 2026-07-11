@@ -119,7 +119,8 @@ public class ReactImplAgent extends ReActAgent {
         if (reactorConfig.getToolMaxAttempts() != null && reactorConfig.getToolMaxAttempts() > 0) {
             setToolMaxAttempts(reactorConfig.getToolMaxAttempts());
         }
-        setLlm(new LLM(reactorConfig.getReactModelName(), "", runtimeDependencies)); // 初始化大模型实例（指定ReAct专用模型）
+        // 用户选择模型时优先按 modelId 覆盖，否则回退 ReAct 专用配置模型
+        setLlm(new LLM(runtimeDependencies.resolveEffectiveLlmSettings(context.getModelIdOverride(), reactorConfig.getReactModelName()), "", runtimeDependencies));
 
         // 步骤6：初始化可用工具集合（从上下文加载当前请求可调用的所有工具）
         availableTools = context.getToolCollection();

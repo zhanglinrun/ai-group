@@ -114,6 +114,15 @@ public class LLM {
     private final transient StreamResponseHandler streamResponseHandler;
 
     public LLM(String modelName, String llmErp, ReactorRuntimeDependencies runtimeDependencies) {
+        this(requireRuntimeDependencies(runtimeDependencies).resolveLlmSettings(modelName), llmErp, runtimeDependencies);
+    }
+
+    /**
+     * 直接以已解析的 {@link LLMSettings} 构造 LLM。
+     * 用于用户请求级模型覆盖：上层先按 modelId 解析出 settings，再据此实例化，
+     * 避免把 modelId/modelName 的解析歧义带进构造器。
+     */
+    public LLM(LLMSettings config, String llmErp, ReactorRuntimeDependencies runtimeDependencies) {
         this.llmErp = llmErp;
         this.runtimeDependencies = requireRuntimeDependencies(runtimeDependencies);
         ReactorLlmDependencies llmDependencies = this.runtimeDependencies.requireLlmDependencies();
@@ -123,7 +132,9 @@ public class LLM {
         this.responseMapper = llmDependencies.getResponseMapper();
         this.streamResponseHandler = llmDependencies.getStreamResponseHandler();
 
-        LLMSettings config = this.runtimeDependencies.resolveLlmSettings(modelName);
+        if (config == null) {
+            throw new IllegalArgumentException("LLMSettings must not be null");
+        }
         this.llmSettings = config;
         this.model = config.getModel();
         this.maxTokens = config.getMaxTokens();
@@ -134,7 +145,7 @@ public class LLM {
         if (StringUtils.isBlank(baseUrlFromConfig)) {
             throw new IllegalArgumentException(
                     "Base URL is not configured or empty. Please set llm.default.base_url in application.yml, or configure llm.settings for model: "
-                            + modelName);
+                            + config.getModel());
         }
         this.baseUrl = baseUrlFromConfig;
         this.interfaceUrl = StringUtils.isNotBlank(config.getInterfaceUrl())
@@ -1236,7 +1247,7 @@ public class LLM {
         }
     }
 
-    private ReactorRuntimeDependencies requireRuntimeDependencies(ReactorRuntimeDependencies dependencies) {
+    private static ReactorRuntimeDependencies requireRuntimeDependencies(ReactorRuntimeDependencies dependencies) {
         if (dependencies == null) {
             throw new IllegalArgumentException("ReactorRuntimeDependencies must not be null");
         }

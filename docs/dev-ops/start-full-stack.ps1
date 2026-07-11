@@ -162,8 +162,8 @@ $payEnv = @{
     ALIPAY_NOTIFY_URL           = $env:ALIPAY_NOTIFY_URL
     ALIPAY_RETURN_URL           = $env:ALIPAY_RETURN_URL
     ALIPAY_GATEWAY_URL          = $env:ALIPAY_GATEWAY_URL
-    # 沙箱小额真实支付：所有订单实收 0.01，便于演示完成扫码支付闭环（可被 .env 覆盖）
-    AI_GROUP_PAY_SANDBOX_AMOUNT = if ($env:AI_GROUP_PAY_SANDBOX_AMOUNT) { $env:AI_GROUP_PAY_SANDBOX_AMOUNT } else { "0.01" }
+    # 沙箱实收金额：默认按原价扣款；如需演示小额可在 .env 设 AI_GROUP_PAY_SANDBOX_AMOUNT=0.01
+    AI_GROUP_PAY_SANDBOX_AMOUNT = if ($env:AI_GROUP_PAY_SANDBOX_AMOUNT) { $env:AI_GROUP_PAY_SANDBOX_AMOUNT } else { "0" }
 }
 
 Start-ServiceWindow "gateway-service" "$root/gateway-service" 8080

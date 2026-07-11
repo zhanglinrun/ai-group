@@ -13,7 +13,9 @@ import { buildPlannerRoundsForDisplay, syncPlannerVersionCursor } from './planne
 import { PlanSection } from './PlanSection';
 import { Timeline } from './Timeline';
 import { MessageToolbar } from './MessageToolbar';
+import MessageMeta from './MessageMeta';
 import { resolveTaskSummaryText } from './contentHelpers';
+import { sanitizeReasoningText } from '@/utils/reasoningDisplay';
 
 type Props = {
   chat: CHAT.ChatItem;
@@ -91,7 +93,7 @@ const DialogueComponent: FC<Props> = (props) => {
   const latestRoundIndex = Math.max(plannerRounds.length - 1, 0);
   const selectedThoughtRound = plannerRounds[thoughtVersionIndex];
   const selectedPlanRound = plannerRounds[planVersionIndex];
-  const thoughtText = selectedThoughtRound?.planThought || '';
+  const thoughtText = sanitizeReasoningText(selectedThoughtRound?.planThought || '');
   const displayedPlan = selectedPlanRound?.plan || chat.plan;
   const thoughtVersionLabel =
     plannerRounds.length > 1 ? `${thoughtVersionIndex + 1}/${plannerRounds.length}` : undefined;
@@ -154,7 +156,10 @@ const DialogueComponent: FC<Props> = (props) => {
               />
             </MessageContent>
             {!chat.loading ? (
-              <MessageToolbar response={chat.response} onRegenerate={onRegenerate} />
+              <>
+                <MessageToolbar response={chat.response} onRegenerate={onRegenerate} />
+                <MessageMeta metrics={chat.metrics} className="mt-1 px-1" />
+              </>
             ) : null}
           </Message>
         </div>
@@ -241,6 +246,7 @@ const DialogueComponent: FC<Props> = (props) => {
             changeFile={changeFile}
             normalizationScope={conclusionMarkdownScope}
           />
+          {!chat.loading ? <MessageMeta metrics={chat.metrics} className="mt-2" /> : null}
         </div>
       ) : null}
     </div>

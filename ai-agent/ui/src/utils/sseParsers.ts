@@ -104,6 +104,10 @@ function buildAgentResponsePayload(raw: RecordValue): RecordValue {
       if ('fileList' in resultMap) {
         payload.fileList = resultMap.fileList;
       }
+      // 透传展示级 run 元数据（模型 / tokens / 耗时），否则会被此处重建逻辑丢弃
+      if ('metrics' in resultMap) {
+        payload.metrics = resultMap.metrics;
+      }
       break;
     default:
       if (Object.keys(resultMap).length) {

@@ -20,6 +20,7 @@ import org.wwz.ai.domain.agent.reactor.config.ReactorConfig;
 import org.wwz.ai.domain.agent.ledger.model.ExecutionLedgerConstants;
 import org.wwz.ai.domain.agent.reactor.model.req.AgentRequest;
 import org.wwz.ai.domain.agent.ledger.ExecutionLedgerRunSupport;
+import org.wwz.ai.domain.agent.runtime.metrics.AgentRunMetrics;
 import org.wwz.ai.domain.agent.service.execute.planexecute.step.factory.DefaultPlanSolveAgentExecuteStrategyFactory;
 
 import jakarta.annotation.Resource;
@@ -144,6 +145,14 @@ public class Step2PlanExecuteNode extends AbstractExecuteSupport {
             }
         } else {
             taskResult.put("fileList", result.getFiles());
+        }
+
+        // 展示级 run 元数据（模型 / 耗时），随最终帧下发供前端渲染 chips
+        Map<String, Object> metrics = AgentRunMetrics.fromContext(
+                agentContext,
+                agentContext.getRuntimeDependencies().requireReactorConfig().getPlannerModelName());
+        if (!metrics.isEmpty()) {
+            taskResult.put(AgentRunMetrics.KEY, metrics);
         }
 
         agentContext.getPrinter().send("result", taskResult);

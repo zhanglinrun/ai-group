@@ -36,4 +36,9 @@
         where goods_id = #{goodsId}
     </update>
 
+    <insert id="insertSku" parameterType="com.aigroup.groupbuy.infrastructure.dao.po.Sku">
+        insert into sku (source, channel, goods_id, goods_name, original_price, create_time, update_time)
+        values (#{source}, #{channel}, #{goodsId}, #{goodsName}, #{originalPrice}, now(), now())
+    </insert>
+
 </mapper>

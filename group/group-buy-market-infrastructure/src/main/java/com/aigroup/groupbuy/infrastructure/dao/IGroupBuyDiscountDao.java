@@ -20,4 +20,6 @@ public interface IGroupBuyDiscountDao {
     /** 运营端：更新折扣表达式（如 ZJ 直减金额），直接决定拼团价 */
     int updateGroupBuyDiscountExpr(GroupBuyDiscount groupBuyDiscountReq);
 
+    int insertGroupBuyDiscount(GroupBuyDiscount groupBuyDiscountReq);
+
 }

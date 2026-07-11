@@ -13,8 +13,11 @@ import {
   X,
   Pin,
   Trash2,
+  Moon,
+  Sun,
 } from 'lucide-react';
 import type { ConversationSessionItem } from '@/services/agentConversation';
+import { useTheme } from '@/theme';
 
 type SidebarView = 'chat' | 'mrag' | 'image-generation';
 
@@ -73,6 +76,7 @@ const ConversationSidebar = memo((props: ConversationSidebarProps) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [hoveredSessionId, setHoveredSessionId] = useState<string | null>(null);
   const [expandedSessionId, setExpandedSessionId] = useState<string | null>(null);
+  const { resolvedMode, setMode } = useTheme();
 
   const filteredSessions = searchQuery.trim()
     ? recentSessions.filter((s) =>
@@ -112,7 +116,7 @@ const ConversationSidebar = memo((props: ConversationSidebarProps) => {
         <button
           type="button"
           onClick={onNewChat}
-          className="flex w-full items-center justify-center gap-2.5 rounded-xl border border-gray-200 bg-white px-3.5 py-2.5 text-[13px] font-medium text-gray-800 transition-all hover:bg-gray-50"
+          className="flex w-full items-center justify-center gap-2.5 rounded-xl border border-[var(--chat-border)] bg-[var(--chat-surface)] px-3.5 py-2.5 text-[13px] font-medium text-[var(--chat-text)] transition-all hover:bg-[var(--chat-surface-soft)]"
         >
           <SquarePen className="h-4 w-4 text-[var(--chat-text-soft)]" />
           <span>新聊天</span>
@@ -123,7 +127,9 @@ const ConversationSidebar = memo((props: ConversationSidebarProps) => {
           onClick={handleSearchToggle}
           className={classNames(
             'mt-2 flex w-full items-center gap-2.5 rounded-xl px-3.5 py-2.5 text-[13px] transition-colors',
-            searchOpen ? 'bg-gray-200/50 text-gray-900' : 'text-gray-600 hover:bg-gray-200/50',
+            searchOpen
+              ? 'bg-[var(--chat-surface-muted)] text-[var(--chat-text)]'
+              : 'text-[var(--chat-text-soft)] hover:bg-[var(--chat-surface-muted)]',
           )}
         >
           <Search className="h-4 w-4" />
@@ -177,7 +183,7 @@ const ConversationSidebar = memo((props: ConversationSidebarProps) => {
 
       {/* 导航区 */}
       <div className="shrink-0 py-2">
-        <div className="px-3 py-1 text-[11px] font-medium uppercase tracking-wider text-gray-500">
+        <div className="px-3 py-1 text-[11px] font-medium uppercase tracking-wider text-[var(--chat-text-muted)]">
           工作台
         </div>
         {navItems.map((item) => {
@@ -191,8 +197,8 @@ const ConversationSidebar = memo((props: ConversationSidebarProps) => {
               className={classNames(
                 'flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-[13px] transition-colors',
                 isActive
-                  ? 'bg-gray-200/50 font-medium text-gray-900'
-                  : 'text-gray-600 hover:bg-gray-200/50 hover:text-gray-900',
+                  ? 'bg-[var(--chat-surface-muted)] font-medium text-[var(--chat-text)]'
+                  : 'text-[var(--chat-text-soft)] hover:bg-[var(--chat-surface-muted)] hover:text-[var(--chat-text)]',
               )}
             >
               <Icon className="h-4 w-4" />
@@ -205,7 +211,7 @@ const ConversationSidebar = memo((props: ConversationSidebarProps) => {
       {/* 最近会话 */}
       <div className="flex min-h-0 flex-1 flex-col pt-2">
         <div className="mb-1.5 flex items-center justify-between px-3">
-          <span className="text-[11px] font-medium uppercase tracking-wider text-gray-500">
+          <span className="text-[11px] font-medium uppercase tracking-wider text-[var(--chat-text-muted)]">
             最近
           </span>
           {recentSessionsLoading && (
@@ -238,8 +244,8 @@ const ConversationSidebar = memo((props: ConversationSidebarProps) => {
                       className={classNames(
                         'group flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left transition-colors',
                         isActive
-                          ? 'bg-gray-200/50 text-gray-900'
-                          : 'text-gray-600 hover:bg-gray-200/50 hover:text-gray-900',
+                          ? 'bg-[var(--chat-surface-muted)] text-[var(--chat-text)]'
+                          : 'text-[var(--chat-text-soft)] hover:bg-[var(--chat-surface-muted)] hover:text-[var(--chat-text)]',
                       )}
                     >
                       <span className="min-w-0 flex-1 truncate text-[13px]">
@@ -290,7 +296,7 @@ const ConversationSidebar = memo((props: ConversationSidebarProps) => {
         </div>
       </div>
 
-      <div className="shrink-0 border-t border-gray-200/50 py-3">
+      <div className="shrink-0 border-t border-[var(--chat-border)] py-3">
         <div className="flex flex-col gap-1">
           {platformNavItems.map((item) => (
             <NavLink
@@ -300,14 +306,27 @@ const ConversationSidebar = memo((props: ConversationSidebarProps) => {
                 classNames(
                   'rounded-lg px-3 py-2 text-[12px] transition-colors',
                   isActive
-                    ? 'bg-gray-200/50 text-gray-900'
-                    : 'text-gray-600 hover:bg-gray-200/50 hover:text-gray-900',
+                    ? 'bg-[var(--chat-surface-muted)] text-[var(--chat-text)]'
+                    : 'text-[var(--chat-text-soft)] hover:bg-[var(--chat-surface-muted)] hover:text-[var(--chat-text)]',
                 )
               }
             >
               {item.label}
             </NavLink>
           ))}
+          <button
+            type="button"
+            onClick={() => setMode(resolvedMode === 'dark' ? 'light' : 'dark')}
+            aria-label={resolvedMode === 'dark' ? '切换到浅色模式' : '切换到深色模式'}
+            className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-[12px] text-[var(--chat-text-soft)] transition-colors hover:bg-[var(--chat-surface-muted)] hover:text-[var(--chat-text)]"
+          >
+            {resolvedMode === 'dark' ? (
+              <Sun className="h-3.5 w-3.5" />
+            ) : (
+              <Moon className="h-3.5 w-3.5" />
+            )}
+            <span>{resolvedMode === 'dark' ? '浅色模式' : '深色模式'}</span>
+          </button>
         </div>
       </div>
     </div>

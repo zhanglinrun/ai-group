@@ -5,6 +5,7 @@ import org.wwz.ai.api.dto.AiClientModelQueryRequestDTO;
 import org.wwz.ai.api.dto.AiClientModelRequestDTO;
 import org.wwz.ai.api.dto.AiClientModelResponseDTO;
 import org.wwz.ai.api.response.Response;
+import org.wwz.ai.application.agent.model.IModelCatalogQueryService;
 import org.wwz.ai.infrastructure.dao.IAiClientModelDao;
 import org.wwz.ai.infrastructure.dao.po.AiClientModel;
 import org.wwz.ai.types.enums.ResponseCode;
@@ -31,6 +32,16 @@ public class AiClientModelAdminController implements IAiClientModelAdminService 
     @Resource
     private IAiClientModelDao aiClientModelDao;
 
+    @Resource
+    private IModelCatalogQueryService modelCatalogQueryService;
+
+    /** 写操作成功后失效模型目录缓存，避免管理端改库后用户侧列表 / 模型解析仍读旧值。 */
+    private void invalidateCatalogIfChanged(int affectedRows) {
+        if (affectedRows > 0) {
+            modelCatalogQueryService.invalidateCatalog();
+        }
+    }
+
     @Override
     @PostMapping("/create")
     public Response<Boolean> createAiClientModel(@RequestBody AiClientModelRequestDTO request) {
@@ -43,6 +54,7 @@ public class AiClientModelAdminController implements IAiClientModelAdminService 
             aiClientModel.setUpdateTime(LocalDateTime.now());
 
             int result = aiClientModelDao.insert(aiClientModel);
+            invalidateCatalogIfChanged(result);
 
             return Response.<Boolean>builder()
                     .code(ResponseCode.SUCCESS.getCode())
@@ -78,6 +90,7 @@ public class AiClientModelAdminController implements IAiClientModelAdminService 
             aiClientModel.setUpdateTime(LocalDateTime.now());
 
             int result = aiClientModelDao.updateById(aiClientModel);
+            invalidateCatalogIfChanged(result);
 
             return Response.<Boolean>builder()
                     .code(ResponseCode.SUCCESS.getCode())
@@ -113,6 +126,7 @@ public class AiClientModelAdminController implements IAiClientModelAdminService 
             aiClientModel.setUpdateTime(LocalDateTime.now());
 
             int result = aiClientModelDao.updateByModelId(aiClientModel);
+            invalidateCatalogIfChanged(result);
 
             return Response.<Boolean>builder()
                     .code(ResponseCode.SUCCESS.getCode())
@@ -136,6 +150,7 @@ public class AiClientModelAdminController implements IAiClientModelAdminService 
             log.info("根据ID删除AI客户端模型配置请求：{}", id);
 
             int result = aiClientModelDao.deleteById(id);
+            invalidateCatalogIfChanged(result);
 
             return Response.<Boolean>builder()
                     .code(ResponseCode.SUCCESS.getCode())
@@ -159,6 +174,7 @@ public class AiClientModelAdminController implements IAiClientModelAdminService 
             log.info("根据模型ID删除AI客户端模型配置请求：{}", modelId);
 
             int result = aiClientModelDao.deleteByModelId(modelId);
+            invalidateCatalogIfChanged(result);
 
             return Response.<Boolean>builder()
                     .code(ResponseCode.SUCCESS.getCode())

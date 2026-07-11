@@ -5,6 +5,7 @@ import org.wwz.ai.api.dto.AiClientApiQueryRequestDTO;
 import org.wwz.ai.api.dto.AiClientApiRequestDTO;
 import org.wwz.ai.api.dto.AiClientApiResponseDTO;
 import org.wwz.ai.api.response.Response;
+import org.wwz.ai.application.agent.model.IModelCatalogQueryService;
 import org.wwz.ai.infrastructure.dao.IAiClientApiDao;
 import org.wwz.ai.infrastructure.dao.po.AiClientApi;
 import org.wwz.ai.types.enums.ResponseCode;
@@ -30,6 +31,16 @@ public class AiClientApiAdminController implements IAiClientApiAdminService {
     @Resource
     private IAiClientApiDao aiClientApiDao;
 
+    @Resource
+    private IModelCatalogQueryService modelCatalogQueryService;
+
+    /** 写操作成功后失效模型目录缓存：API 的启停 / base_url / key 变化会影响可用模型集合与解析结果。 */
+    private void invalidateCatalogIfChanged(int affectedRows) {
+        if (affectedRows > 0) {
+            modelCatalogQueryService.invalidateCatalog();
+        }
+    }
+
     @Override
     @PostMapping("/create")
     public Response<Boolean> createAiClientApi(@RequestBody AiClientApiRequestDTO request) {
@@ -42,6 +53,7 @@ public class AiClientApiAdminController implements IAiClientApiAdminService {
             aiClientApi.setUpdateTime(LocalDateTime.now());
 
             int result = aiClientApiDao.insert(aiClientApi);
+            invalidateCatalogIfChanged(result);
 
             return Response.<Boolean>builder()
                     .code(ResponseCode.SUCCESS.getCode())
@@ -77,6 +89,7 @@ public class AiClientApiAdminController implements IAiClientApiAdminService {
             aiClientApi.setUpdateTime(LocalDateTime.now());
 
             int result = aiClientApiDao.updateById(aiClientApi);
+            invalidateCatalogIfChanged(result);
 
             return Response.<Boolean>builder()
                     .code(ResponseCode.SUCCESS.getCode())
@@ -112,6 +125,7 @@ public class AiClientApiAdminController implements IAiClientApiAdminService {
             aiClientApi.setUpdateTime(LocalDateTime.now());
 
             int result = aiClientApiDao.updateByApiId(aiClientApi);
+            invalidateCatalogIfChanged(result);
 
             return Response.<Boolean>builder()
                     .code(ResponseCode.SUCCESS.getCode())
@@ -135,6 +149,7 @@ public class AiClientApiAdminController implements IAiClientApiAdminService {
             log.info("根据ID删除AI客户端API配置请求：{}", id);
 
             int result = aiClientApiDao.deleteById(id);
+            invalidateCatalogIfChanged(result);
 
             return Response.<Boolean>builder()
                     .code(ResponseCode.SUCCESS.getCode())
@@ -158,6 +173,7 @@ public class AiClientApiAdminController implements IAiClientApiAdminService {
             log.info("根据API ID删除AI客户端API配置请求：{}", apiId);
 
             int result = aiClientApiDao.deleteByApiId(apiId);
+            invalidateCatalogIfChanged(result);
 
             return Response.<Boolean>builder()
                     .code(ResponseCode.SUCCESS.getCode())

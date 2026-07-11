@@ -10,6 +10,7 @@ import org.wwz.ai.domain.agent.ledger.model.DialogueRunView;
 import org.wwz.ai.domain.agent.ledger.model.DialogueSessionView;
 import org.wwz.ai.domain.agent.ledger.model.ExecutionLedgerConstants;
 import org.wwz.ai.domain.agent.ledger.model.ExecutionRunDetail;
+import org.wwz.ai.domain.agent.ledger.model.LlmInvocationView;
 import org.wwz.ai.domain.agent.ledger.model.ToolInvocationView;
 import org.wwz.ai.domain.agent.reactor.model.response.GptProcessResult;
 import org.wwz.ai.domain.agent.ledger.model.replay.ReplayFactBundle;
@@ -61,6 +62,10 @@ public class ConversationHistoryReplayService {
                         ? List.of()
                         : replayProjector.projectHistoryFrames(bundle);
                 historyModeSnapshot = resolveHistoryModeSnapshot(run, runDetail, replayFrames);
+                // 展示级 run 元数据（模型 / tokens / 耗时）：优先取单 run 明细的账本聚合，回退列表视图。
+                DialogueRunView metricsRun = (runDetail != null && runDetail.getRun() != null)
+                        ? runDetail.getRun()
+                        : run;
                 runDetails.add(ConversationHistoryDetail.ConversationRunDetail.builder()
                         .requestId(run.getRequestId())
                         .status(run.getStatus())
@@ -68,6 +73,9 @@ public class ConversationHistoryReplayService {
                         .finalSummaryText(run.getFinalSummaryText())
                         .startedAt(run.getStartedAt())
                         .finishedAt(run.getFinishedAt())
+                        .modelName(resolveRunModelName(runDetail))
+                        .totalTokens(metricsRun == null ? null : metricsRun.getTotalTokensTotal())
+                        .durationMs(metricsRun == null ? null : metricsRun.getDurationMs())
                         .replayFrames(historyReplayPrinter == null
                                 ? replayFrames
                                 : historyReplayPrinter.ensureReadableConclusion(run, replayFrames))
@@ -233,6 +241,23 @@ public class ConversationHistoryReplayService {
             case "table", "data_analysis" -> "table";
             default -> null;
         };
+    }
+
+    /**
+     * 取本轮实际使用的模型名：从后往前取最近一条带模型名的 LLM 调用（通常是最终总结调用）。
+     */
+    private String resolveRunModelName(ExecutionRunDetail runDetail) {
+        if (runDetail == null || CollectionUtils.isEmpty(runDetail.getLlmInvocations())) {
+            return null;
+        }
+        List<LlmInvocationView> invocations = runDetail.getLlmInvocations();
+        for (int index = invocations.size() - 1; index >= 0; index -= 1) {
+            LlmInvocationView invocation = invocations.get(index);
+            if (invocation != null && StringUtils.isNotBlank(invocation.getModelName())) {
+                return invocation.getModelName().trim();
+            }
+        }
+        return null;
     }
 
     private ConversationRoleVO resolveRole() {

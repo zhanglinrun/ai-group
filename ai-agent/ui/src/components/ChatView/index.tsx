@@ -31,6 +31,8 @@ type Props = {
   product?: CHAT.Product;
   conversation: CHAT.ConversationHistory;
   chatRoles: CHAT.FixRole[];
+  models?: import('@/services/models').ModelItem[];
+  selectedModelId?: string;
   onConversationChange: (
     conversationId: string,
     nextConversation: CHAT.ConversationHistory,
@@ -38,6 +40,7 @@ type Props = {
   onRoleSelect: (role: CHAT.FixRole) => void;
   onSelectionChange?: (selection: { product: CHAT.Product; deepThink: boolean }) => void;
   onInputConsumed?: () => void;
+  onSelectModel?: (modelId: string) => void;
 };
 
 const getProductByType = (type?: string) => {
@@ -54,10 +57,13 @@ const ChatView: ReactorType.FC<Props> = (props) => {
     product,
     conversation,
     chatRoles,
+    models = [],
+    selectedModelId,
     onConversationChange,
     onRoleSelect,
     onSelectionChange,
     onInputConsumed,
+    onSelectModel,
   } = props;
 
   const [activeTask, setActiveTask] = useState<CHAT.Task>();
@@ -96,6 +102,7 @@ const ChatView: ReactorType.FC<Props> = (props) => {
     regenerateLastMessage,
   } = useConversationStream({
     conversation,
+    selectedModelId,
     onConversationChange,
     onPrepareStreamingWorkspace: () => {
       // 新一轮请求开始后，工作区恢复自动跟随，避免仍停留在上一轮手动点开的旧任务上。
@@ -544,9 +551,13 @@ const ChatView: ReactorType.FC<Props> = (props) => {
                   chatRole={conversation.role}
                   chatRoles={chatRoles}
                   showRoleSelector={conversation.productType === 'chat'}
+                  models={models}
+                  selectedModelId={selectedModelId}
+                  showModelSelector={conversation.productType !== 'dataAgent'}
                   allowDataAgentToggle={false}
                   onSelectionChange={onSelectionChange}
                   onRoleSelect={onRoleSelect}
+                  onSelectModel={onSelectModel}
                   send={(info) =>
                     sendMessage({
                       ...info,
@@ -639,9 +650,13 @@ const ChatView: ReactorType.FC<Props> = (props) => {
                       chatRole={conversation.role}
                       chatRoles={chatRoles}
                       showRoleSelector={conversation.productType === 'chat'}
+                      models={models}
+                      selectedModelId={selectedModelId}
+                      showModelSelector={conversation.productType !== 'dataAgent'}
                       allowDataAgentToggle={false}
                       onSelectionChange={onSelectionChange}
                       onRoleSelect={onRoleSelect}
+                      onSelectModel={onSelectModel}
                       send={(info) =>
                         sendMessage({
                           ...info,

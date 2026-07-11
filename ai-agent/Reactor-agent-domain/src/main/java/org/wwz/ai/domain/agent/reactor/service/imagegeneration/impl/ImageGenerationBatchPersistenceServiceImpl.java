@@ -33,14 +33,15 @@ public class ImageGenerationBatchPersistenceServiceImpl implements IImageGenerat
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void persistWorkspaceBatch(String requestId, ImageGenerationExecutionResult result) {
-        if (StringUtils.isBlank(requestId) || result == null || CollectionUtils.isEmpty(result.getFiles())) {
+    public void persistWorkspaceBatch(String requestId, Long ownerId, ImageGenerationExecutionResult result) {
+        if (StringUtils.isBlank(requestId) || ownerId == null || result == null || CollectionUtils.isEmpty(result.getFiles())) {
             throw new IllegalArgumentException("工作台生图批次持久化参数不完整");
         }
         String toolCallId = buildWorkspaceToolCallId(requestId);
         toolOutputWriter.writeOrThrow(ToolOutputPersistCommand.builder()
                 .requestId(requestId)
                 .requestSource(ExecutionLedgerConstants.REQUEST_SOURCE_WORKSPACE)
+                .ownerId(ownerId)
                 .toolCallId(toolCallId)
                 .toolName(ImageGenerationWorkspaceConstants.WORKSPACE_TOOL_NAME)
                 .status(ExecutionLedgerConstants.STATUS_SUCCESS)

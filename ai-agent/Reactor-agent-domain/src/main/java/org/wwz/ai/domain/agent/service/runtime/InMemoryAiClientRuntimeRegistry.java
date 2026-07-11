@@ -75,4 +75,14 @@ public class InMemoryAiClientRuntimeRegistry implements AiClientRuntimeRegistry 
         }
         return chatClient;
     }
+
+    @Override
+    public ChatModel findModel(String modelId) {
+        return modelId == null ? null : modelRegistry.get(modelId);
+    }
+
+    @Override
+    public ChatClient findChatClient(String clientId) {
+        return clientId == null ? null : chatClientRegistry.get(clientId);
+    }
 }

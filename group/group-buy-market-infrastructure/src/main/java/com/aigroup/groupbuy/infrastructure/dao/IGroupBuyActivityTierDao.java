@@ -15,4 +15,10 @@ public interface IGroupBuyActivityTierDao {
     /** 按活动ID查询生效档位，按 tier_no 升序 */
     List<GroupBuyActivityTier> queryTiersByActivityId(Long activityId);
 
+    List<GroupBuyActivityTier> queryAllTiersByActivityId(Long activityId);
+
+    int disableTiersByActivityId(Long activityId);
+
+    int upsertTier(GroupBuyActivityTier tier);
+
 }

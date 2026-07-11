@@ -11,6 +11,14 @@ import org.springframework.ai.openai.api.OpenAiApi;
  */
 public interface AiClientRuntimeRegistry {
 
+    /**
+     * 组合对话客户端的注册键：{@code clientId::modelId}。
+     * 用于 chat/workflow 模式按"用户所选模型"取用同一 client 的不同模型客户端。
+     */
+    static String comboClientKey(String clientId, String modelId) {
+        return clientId + "::" + modelId;
+    }
+
     void registerApi(String apiId, OpenAiApi openAiApi);
 
     void registerModel(String modelId, ChatModel chatModel);
@@ -26,4 +34,14 @@ public interface AiClientRuntimeRegistry {
     Advisor getRequiredAdvisor(String advisorId);
 
     ChatClient getRequiredChatClient(String clientId);
+
+    /**
+     * 查找已注册模型，未命中返回 {@code null}（用于装配期判断某模型是否已就绪）。
+     */
+    ChatModel findModel(String modelId);
+
+    /**
+     * 查找已注册对话客户端，未命中返回 {@code null}（用于 chat 模式按 clientId::modelId 取组合客户端并安全回退）。
+     */
+    ChatClient findChatClient(String clientId);
 }

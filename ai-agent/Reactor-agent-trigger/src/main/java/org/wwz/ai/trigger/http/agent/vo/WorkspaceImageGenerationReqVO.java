@@ -18,5 +18,7 @@ public class WorkspaceImageGenerationReqVO {
     private String fileDescription;
     private String model;
     private String size;
+    private String quality;
+    private String outputFormat;
     private Integer n;
 }

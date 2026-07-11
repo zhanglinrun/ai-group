@@ -245,6 +245,7 @@ const WorkspaceImageGeneration: ReactorType.FC<WorkspaceImageGenerationProps> = 
     historyLoadingMore,
     historyError,
     loadHistory,
+    deleteHistory,
   } = useImageGenerationHistory();
   const {
     images,
@@ -385,6 +386,20 @@ const WorkspaceImageGeneration: ReactorType.FC<WorkspaceImageGenerationProps> = 
                 </>
               ) : null}
 
+              {config.mode !== 'chat' && (
+                <label className="block">
+                  <span className="mb-1 block text-[11px] font-medium text-[var(--chat-text-muted)]">
+                    图片模型
+                  </span>
+                  <input
+                    value={config.model}
+                    onChange={(event) => updateConfig('model', event.target.value)}
+                    placeholder="gpt-image-2"
+                    className="w-full rounded-lg border border-[var(--chat-border)] bg-[var(--chat-surface)] px-3 py-2 text-sm font-mono text-[var(--chat-text)] outline-none transition focus:border-[var(--primary)]/40"
+                  />
+                </label>
+              )}
+
               <div className="grid grid-cols-2 gap-2">
                 <label className="block">
                   <span className="mb-1 block text-[11px] font-medium text-[var(--chat-text-muted)]">
@@ -412,6 +427,42 @@ const WorkspaceImageGeneration: ReactorType.FC<WorkspaceImageGenerationProps> = 
                   />
                 </label>
               </div>
+
+              {config.mode !== 'chat' && (
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="block">
+                    <span className="mb-1 block text-[11px] font-medium text-[var(--chat-text-muted)]">
+                      质量
+                    </span>
+                    <select
+                      value={config.quality}
+                      onChange={(event) =>
+                        updateConfig('quality', event.target.value as 'standard' | 'high')
+                      }
+                      className="w-full rounded-lg border border-[var(--chat-border)] bg-[var(--chat-surface)] px-2 py-2 text-sm"
+                    >
+                      <option value="standard">标准</option>
+                      <option value="high">高清</option>
+                    </select>
+                  </label>
+                  <label className="block">
+                    <span className="mb-1 block text-[11px] font-medium text-[var(--chat-text-muted)]">
+                      格式
+                    </span>
+                    <select
+                      value={config.outputFormat}
+                      onChange={(event) =>
+                        updateConfig('outputFormat', event.target.value as 'png' | 'jpeg' | 'webp')
+                      }
+                      className="w-full rounded-lg border border-[var(--chat-border)] bg-[var(--chat-surface)] px-2 py-2 text-sm"
+                    >
+                      <option value="png">PNG</option>
+                      <option value="jpeg">JPEG</option>
+                      <option value="webp">WEBP</option>
+                    </select>
+                  </label>
+                </div>
+              )}
 
               {config.mode === 'edits' && (
                 <label className="flex items-start gap-2.5 rounded-lg border border-[var(--chat-border)] bg-[var(--chat-surface)] px-3 py-2.5 text-sm text-[var(--chat-text)]">
@@ -709,6 +760,18 @@ const WorkspaceImageGeneration: ReactorType.FC<WorkspaceImageGenerationProps> = 
                         <span className="rounded bg-[var(--chat-surface-muted)] px-1.5 py-0.5 text-[10px] text-[var(--chat-text-muted)]">
                           {batch.mode === 'edits' ? '图生图' : '文生图'}
                         </span>
+                        <button
+                          type="button"
+                          title="删除这条生成记录"
+                          onClick={() => {
+                            if (window.confirm('确定删除这条生图历史？')) {
+                              void deleteHistory(batch.requestId);
+                            }
+                          }}
+                          className="rounded p-0.5 text-[var(--chat-text-muted)] hover:bg-rose-50 hover:text-rose-600"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </button>
                       </div>
                     </div>
 

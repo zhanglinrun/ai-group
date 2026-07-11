@@ -25,6 +25,10 @@ public class GptQueryReq {
     private String user;
     private String aiAgentId;
     /**
+     * 用户在本轮对话选择的模型 ID（可空）。命中启用模型目录时覆盖默认模型，否则忽略并走默认逻辑。
+     */
+    private String modelId;
+    /**
      * 当前轮上传附件元数据，供 ReAct / PlanSolve 链路桥接到会话上下文。
      */
     private List<FileInformation> sessionFiles;

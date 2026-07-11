@@ -91,9 +91,9 @@ CREATE TABLE IF NOT EXISTS `quota_freeze` (
 
 INSERT INTO `product_sku` (`code`, `name`, `price`, `period_quota`, `topup_quota`, `member_days`, `tier`, `sku_type`, `status`, `group_goods_id`, `group_activity_id`) VALUES
 ('FREE', 'Free', 0.00, 20, 0, 0, 'FREE', 'FREE', 1, NULL, NULL),
-('PRO_MONTH', 'Pro Monthly', 49.00, 500, 0, 30, 'PRO', 'MEMBER', 1, '9890002', 100201),
-('PRO_YEAR', 'Pro Yearly', 399.00, 500, 0, 365, 'PRO', 'MEMBER', 1, '9890003', 100202),
-('TOPUP_200', 'Top-up 600', 29.00, 0, 600, 0, 'FREE', 'TOPUP', 1, '9890004', 100203)
+('PRO_MONTH', 'Pro 月卡', 49.00, 500, 0, 30, 'PRO', 'MEMBER', 1, '9890002', 100201),
+('PRO_YEAR', 'Pro 年卡', 399.00, 500, 0, 365, 'PRO', 'MEMBER', 1, '9890003', 100202),
+('TOPUP_200', '额度加油包', 29.00, 0, 600, 0, 'FREE', 'TOPUP', 1, '9890004', 100203)
 ON DUPLICATE KEY UPDATE
     `name` = VALUES(`name`),
     `sku_type` = VALUES(`sku_type`),

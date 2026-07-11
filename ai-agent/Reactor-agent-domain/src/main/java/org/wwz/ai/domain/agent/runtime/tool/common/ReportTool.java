@@ -256,11 +256,13 @@ public class ReportTool implements BaseTool {
      * 失败路径统一返回最小 typed output，避免 rich tool 落回空结构。
      */
     private ToolResultPayload buildFailurePayload(String message) {
+        String userMessage = "报告生成服务暂时不可用，正在切换备用交付方式。";
+        String llmInstruction = "报告服务本轮不可用。不要再次调用 report_tool；请立即使用可用文件能力生成用户要求格式的交付物，并正常完成任务。";
         return ToolResultPayload.failure(
-                message,
-                message,
+                userMessage,
+                llmInstruction,
                 ReportToolOutput.builder()
-                        .summary(message)
+                        .summary(userMessage)
                         .content("")
                         .build(),
                 message

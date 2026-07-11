@@ -5,6 +5,7 @@ import GeneralInput from '@/components/GeneralInput';
 import { AiChatSurface } from '@/components/ai-elements/ai-chat-surface';
 import { KeyboardTypewriter } from '@/components/ai-elements/keyboard-typewriter';
 import { chatQustions, demoList } from '@/utils/constants';
+import type { ModelItem } from '@/services/models';
 
 const SHOW_FEATURED_CASES = false;
 
@@ -105,6 +106,8 @@ export default function WelcomeView(props: {
   displayOutput: CHAT.Product;
   currentConversationRole: CHAT.ConversationRole | null;
   fixRoles: CHAT.FixRole[];
+  models?: ModelItem[];
+  selectedModelId?: string;
   videoModalOpen?: string;
   onSelectionChange: (selection: { product: CHAT.Product; deepThink: boolean }) => void;
   onRoleSelect: (role: CHAT.FixRole) => void;
@@ -112,6 +115,7 @@ export default function WelcomeView(props: {
   onSendQuestion: (query: { label: string; type: number }) => void;
   onOpenVideo: (url: string) => void;
   onCloseVideo: () => void;
+  onSelectModel?: (modelId: string) => void;
 }) {
   return (
     <div className="h-full w-full px-6 md:px-12 lg:px-16">
@@ -160,9 +164,13 @@ export default function WelcomeView(props: {
               chatRole={props.currentConversationRole}
               chatRoles={props.fixRoles}
               showRoleSelector={props.product.type === 'chat'}
+              models={props.models}
+              selectedModelId={props.selectedModelId}
+              showModelSelector={props.product.type !== 'dataAgent'}
               send={props.onSend}
               onSelectionChange={props.onSelectionChange}
               onRoleSelect={props.onRoleSelect}
+              onSelectModel={props.onSelectModel}
             />
           </AiChatSurface>
         </motion.div>

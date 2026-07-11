@@ -38,4 +38,11 @@
         where discount_id = #{discountId}
     </update>
 
+    <insert id="insertGroupBuyDiscount" parameterType="com.aigroup.groupbuy.infrastructure.dao.po.GroupBuyDiscount">
+        insert into group_buy_discount
+        (discount_id, discount_name, discount_desc, discount_type, market_plan, market_expr, create_time, update_time)
+        values
+        (#{discountId}, #{discountName}, #{discountDesc}, #{discountType}, #{marketPlan}, #{marketExpr}, now(), now())
+    </insert>
+
 </mapper>

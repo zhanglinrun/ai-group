@@ -54,7 +54,7 @@ const SKU_DESCRIPTIONS: Record<string, string> = {
 };
 
 export function skuDisplayName(sku: Pick<SkuItem, 'code' | 'name'>): string {
-  return SKU_DISPLAY_NAMES[sku.code] || sku.name || sku.code;
+  return sku.name || SKU_DISPLAY_NAMES[sku.code] || sku.code;
 }
 
 export function skuDescription(sku: Pick<SkuItem, 'code'>): string {
@@ -123,7 +123,9 @@ export function teamProgress(team: {
 // ---------------- 阶梯拼团（tiered group-buy）展示辅助 ----------------
 
 /** SKU 的基础额度：会员套餐取周期配额，加油包取额度包配额 */
-export function baseQuotaOf(sku: Pick<SkuItem, 'code' | 'skuType' | 'periodQuota' | 'topupQuota'>): number {
+export function baseQuotaOf(
+  sku: Pick<SkuItem, 'code' | 'skuType' | 'periodQuota' | 'topupQuota'>,
+): number {
   if (isTopupSku(sku as SkuItem)) return Number(sku.topupQuota ?? 0);
   return Number(sku.periodQuota ?? 0);
 }

@@ -24,4 +24,9 @@
         from sc_sku_activity
     </select>
 
+    <insert id="insertSCSkuActivity" parameterType="com.aigroup.groupbuy.infrastructure.dao.po.SCSkuActivity">
+        insert into sc_sku_activity (source, channel, activity_id, goods_id, create_time, update_time)
+        values (#{source}, #{channel}, #{activityId}, #{goodsId}, now(), now())
+    </insert>
+
 </mapper>

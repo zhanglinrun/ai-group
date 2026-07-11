@@ -6,6 +6,7 @@ import MembershipStatusCard from '@/components/trade/MembershipStatusCard';
 import QuotaOverview from '@/components/trade/QuotaOverview';
 import { bffApi, type AccountSummary } from '@/services/bff';
 import { ROUTES } from '@/router/routes';
+import { AppearanceSettings } from '@/theme';
 
 const AccountPage = memo(() => {
   const [loading, setLoading] = useState(true);
@@ -117,6 +118,10 @@ const AccountPage = memo(() => {
             </section>
           </div>
         )}
+
+        <div className="mt-6">
+          <AppearanceSettings />
+        </div>
       </main>
     </div>
   );

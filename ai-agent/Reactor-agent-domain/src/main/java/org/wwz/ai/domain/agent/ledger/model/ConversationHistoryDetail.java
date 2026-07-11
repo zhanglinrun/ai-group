@@ -63,6 +63,15 @@ public class ConversationHistoryDetail {
 
         private LocalDateTime finishedAt;
 
+        /** 本轮实际使用的模型名（取自 llm_invocation）。 */
+        private String modelName;
+
+        /** 本轮总 token 用量（取自 dialogue_run 聚合）。 */
+        private Integer totalTokens;
+
+        /** 本轮耗时（毫秒，取自 dialogue_run 聚合）。 */
+        private Long durationMs;
+
         @Builder.Default
         private List<GptProcessResult> replayFrames = new ArrayList<>();
     }

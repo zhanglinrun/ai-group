@@ -134,7 +134,7 @@ public class AgentImageGenerationControllerTest {
         }
 
         @Override
-        public WorkspaceImageGenerationHistoryPage queryHistory(int pageNo, int pageSize) {
+        public WorkspaceImageGenerationHistoryPage queryHistory(Long ownerId, int pageNo, int pageSize) {
             return WorkspaceImageGenerationHistoryPage.builder()
                     .total(1)
                     .list(List.of(
@@ -159,6 +159,11 @@ public class AgentImageGenerationControllerTest {
                                     .build()
                     ))
                     .build();
+        }
+
+        @Override
+        public boolean deleteHistory(Long ownerId, String requestId) {
+            return true;
         }
     }
 }

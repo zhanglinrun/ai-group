@@ -12,6 +12,7 @@ import { getTaskFiles } from '@/utils/taskArtifacts';
 import { Reasoning, ReasoningTrigger, ReasoningContent } from '@/components/ai-elements/reasoning';
 import { CheckIcon, LoaderCircleIcon, FileTextIcon, SearchIcon, UserIcon } from 'lucide-react';
 import { resolveTaskSummaryText } from './contentHelpers';
+import { sanitizeReasoningText } from '@/utils/reasoningDisplay';
 import {
   isTimelineTaskContainerCompleted,
   shouldShowTimelineGroupCompletedIcon,
@@ -68,7 +69,7 @@ const ToolItem: FC<ToolItemProps> = memo(
           <div className="mt-[8px] rounded-2xl border border-[var(--chat-border)]/18 bg-[var(--chat-surface-soft)]/38 px-3 py-2.5">
             <Reasoning isStreaming={streamingThought} defaultOpen>
               <ReasoningTrigger />
-              <ReasoningContent>{tool.toolThought || ''}</ReasoningContent>
+              <ReasoningContent>{sanitizeReasoningText(tool.toolThought || '')}</ReasoningContent>
             </Reasoning>
           </div>
         );

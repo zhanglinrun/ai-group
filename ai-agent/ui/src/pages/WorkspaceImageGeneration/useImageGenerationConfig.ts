@@ -9,6 +9,8 @@ export const createDefaultConfig = (): GenerationConfig => ({
   model: 'gpt-image-2',
   mode: 'images',
   size: '1024x1024',
+  quality: 'standard',
+  outputFormat: 'png',
   n: 1,
   batchMode: true,
 });

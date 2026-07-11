@@ -29,6 +29,12 @@
   --success: oklch(0.65 0.15 145);
   --warning: oklch(0.75 0.12 85);
 
+  /* Brand accent - signature color, overridable per palette (warm default) */
+  --brand: #c2683c;
+  --brand-hover: #ad572f;
+  --brand-foreground: #ffffff;
+  --brand-soft: oklch(0.95 0.03 55);
+
   /* Editorial Borders - refined */
   --border: oklch(0.88 0.008 90);
   --border-strong: oklch(0.78 0.012 90);
@@ -113,6 +119,7 @@
 }
 
 .dark {
+  color-scheme: dark;
   --background: oklch(0.08 0.005 90);
   --foreground: oklch(0.95 0.005 90);
   --card: oklch(0.12 0.01 90 / 0.72);
@@ -132,6 +139,12 @@
   --border-strong: oklch(0.25 0.015 90 / 0.15);
   --input: oklch(0.18 0.01 90 / 0.85);
   --ring: oklch(0.65 0.15 260 / 0.3);
+
+  /* Brand accent (warm default, dark) */
+  --brand: #d17a4e;
+  --brand-hover: #e08a5d;
+  --brand-foreground: #1a1206;
+  --brand-soft: oklch(0.28 0.06 55);
 
   --chat-bg: oklch(0.08 0.005 80);
   --chat-panel: oklch(0.12 0.01 80 / 0.65);
@@ -183,6 +196,120 @@
     );
 }
 
+/* ============================================================
+   Theme palettes — overridable signature colors + surface tints.
+   Applied via <html data-palette="..."> (combine with .dark).
+   Each light + dark block MUST define the same key set so the
+   dark variant fully overrides the light one in dark mode.
+   Default (warm) uses the base :root / .dark above (no block).
+   ============================================================ */
+
+/* Azure — cool blue */
+[data-palette='azure'] {
+  --brand: #2f80ed;
+  --brand-hover: #1f6fd6;
+  --brand-foreground: #ffffff;
+  --brand-soft: oklch(0.95 0.03 250);
+  --ring: oklch(0.55 0.18 255 / 0.35);
+  --background: oklch(0.985 0.004 250);
+  --chat-bg: oklch(0.985 0.005 248);
+  --chat-surface: oklch(0.995 0.004 250);
+  --chat-surface-soft: oklch(0.96 0.008 250);
+  --chat-surface-muted: oklch(0.92 0.01 250);
+  --page-gradient:
+    radial-gradient(ellipse 80% 50% at 50% -15%, oklch(0.6 0.1 255 / 0.06), transparent),
+    linear-gradient(180deg, oklch(1 0 0) 0%, oklch(0.985 0.005 250) 100%);
+}
+.dark[data-palette='azure'] {
+  --brand: #4a94f5;
+  --brand-hover: #62a4f8;
+  --brand-foreground: #06121f;
+  --brand-soft: oklch(0.28 0.07 255);
+  --ring: oklch(0.65 0.15 255 / 0.35);
+  --background: oklch(0.09 0.008 250);
+  --chat-bg: oklch(0.09 0.008 248);
+  --chat-surface: oklch(0.15 0.014 250);
+  --chat-surface-soft: oklch(0.2 0.016 250);
+  --chat-surface-muted: oklch(0.25 0.018 250);
+  --page-gradient:
+    radial-gradient(ellipse 80% 50% at 50% -15%, oklch(0.5 0.1 255 / 0.1), transparent),
+    linear-gradient(180deg, oklch(0.09 0.008 250) 0%, oklch(0.12 0.01 250) 100%);
+}
+
+/* Graphite — neutral monochrome */
+[data-palette='graphite'] {
+  --brand: #52525b;
+  --brand-hover: #3f3f46;
+  --brand-foreground: #ffffff;
+  --brand-soft: oklch(0.94 0.002 0);
+  --ring: oklch(0.5 0.01 0 / 0.35);
+  --background: oklch(0.985 0 0);
+  --chat-bg: oklch(0.985 0 0);
+  --chat-surface: oklch(0.995 0 0);
+  --chat-surface-soft: oklch(0.96 0 0);
+  --chat-surface-muted: oklch(0.92 0 0);
+  --page-gradient: linear-gradient(180deg, oklch(1 0 0) 0%, oklch(0.98 0 0) 100%);
+}
+.dark[data-palette='graphite'] {
+  --brand: #a1a1aa;
+  --brand-hover: #b4b4bb;
+  --brand-foreground: #111113;
+  --brand-soft: oklch(0.26 0.002 0);
+  --ring: oklch(0.6 0.01 0 / 0.35);
+  --background: oklch(0.09 0 0);
+  --chat-bg: oklch(0.09 0 0);
+  --chat-surface: oklch(0.15 0 0);
+  --chat-surface-soft: oklch(0.2 0 0);
+  --chat-surface-muted: oklch(0.25 0 0);
+  --page-gradient: linear-gradient(180deg, oklch(0.09 0 0) 0%, oklch(0.12 0 0) 100%);
+}
+
+/* Sepia — warm paper / brown */
+[data-palette='sepia'] {
+  --brand: #a06a43;
+  --brand-hover: #8b5a36;
+  --brand-foreground: #ffffff;
+  --brand-soft: oklch(0.94 0.03 65);
+  --ring: oklch(0.5 0.09 65 / 0.35);
+  --background: oklch(0.975 0.012 75);
+  --chat-bg: oklch(0.975 0.013 72);
+  --chat-surface: oklch(0.99 0.01 75);
+  --chat-surface-soft: oklch(0.95 0.015 72);
+  --chat-surface-muted: oklch(0.91 0.018 70);
+  --page-gradient:
+    radial-gradient(ellipse 80% 50% at 50% -15%, oklch(0.7 0.06 65 / 0.06), transparent),
+    linear-gradient(180deg, oklch(0.99 0.008 78) 0%, oklch(0.97 0.014 72) 100%);
+}
+.dark[data-palette='sepia'] {
+  --brand: #c08a5e;
+  --brand-hover: #cd9a6f;
+  --brand-foreground: #1c1206;
+  --brand-soft: oklch(0.28 0.05 65);
+  --ring: oklch(0.6 0.1 65 / 0.35);
+  --background: oklch(0.1 0.01 60);
+  --chat-bg: oklch(0.1 0.011 58);
+  --chat-surface: oklch(0.16 0.014 60);
+  --chat-surface-soft: oklch(0.21 0.016 60);
+  --chat-surface-muted: oklch(0.26 0.018 60);
+  --page-gradient:
+    radial-gradient(ellipse 80% 50% at 50% -15%, oklch(0.5 0.08 65 / 0.1), transparent),
+    linear-gradient(180deg, oklch(0.1 0.01 60) 0%, oklch(0.13 0.012 60) 100%);
+}
+
+/* Font scale — driven by <html data-font-scale="..."> */
+html[data-font-scale='sm'] {
+  font-size: 15px;
+}
+html[data-font-scale='base'] {
+  font-size: 16px;
+}
+html[data-font-scale='md'] {
+  font-size: 17px;
+}
+html[data-font-scale='lg'] {
+  font-size: 18px;
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -202,6 +329,10 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-brand: var(--brand);
+  --color-brand-hover: var(--brand-hover);
+  --color-brand-foreground: var(--brand-foreground);
+  --color-brand-soft: var(--brand-soft);
   --radius-sm: var(--radius-sm);
   --radius-md: var(--radius-md);
   --radius-lg: var(--radius-lg);
@@ -536,7 +667,7 @@ ol {
 
 /* AI Input Components - Clean Single Shadow Style */
 [data-slot='prompt-input-body'] {
-  background: white !important;
+  background: var(--chat-panel-strong) !important;
   border-radius: 24px !important;
   box-shadow: 0 4px 24px oklch(0 0 0 / 0.06) !important;
   border: none !important;
@@ -545,18 +676,18 @@ ol {
 
 [data-slot='prompt-input-body']:focus-within {
   box-shadow:
-    0 8px 32px oklch(0.55 0.18 260 / 0.12),
-    0 0 0 2px oklch(0.55 0.18 260 / 0.15) !important;
+    0 8px 32px color-mix(in oklab, var(--brand) 14%, transparent),
+    0 0 0 2px color-mix(in oklab, var(--brand) 22%, transparent) !important;
 }
 
 [data-slot='prompt-input-textarea'] {
-  font-size: 16px !important;
+  font-size: 1rem !important;
   line-height: 1.6 !important;
-  color: #1d1d1f !important;
+  color: var(--chat-text) !important;
 }
 
 [data-slot='prompt-input-textarea']::placeholder {
-  color: #4b5563 !important;
+  color: var(--chat-text-soft) !important;
   opacity: 1 !important;
 }
 
@@ -579,15 +710,16 @@ ol {
 }
 
 [data-slot='prompt-input-submit'] {
-  background: linear-gradient(135deg, oklch(0.55 0.18 260) 0%, oklch(0.6 0.15 270) 100%) !important;
+  background: var(--brand) !important;
+  color: var(--brand-foreground) !important;
   border-radius: 9999px !important;
-  box-shadow: 0 4px 14px oklch(0.55 0.18 260 / 0.35) !important;
+  box-shadow: 0 4px 14px color-mix(in oklab, var(--brand) 35%, transparent) !important;
   transition: all 0.2s ease !important;
 }
 
 [data-slot='prompt-input-submit']:hover:not(:disabled) {
-  background: linear-gradient(135deg, oklch(0.6 0.15 260) 0%, oklch(0.65 0.12 270) 100%) !important;
-  box-shadow: 0 6px 20px oklch(0.55 0.18 260 / 0.45) !important;
+  background: var(--brand-hover) !important;
+  box-shadow: 0 6px 20px color-mix(in oklab, var(--brand) 45%, transparent) !important;
   transform: translateY(-1px);
 }
 
@@ -607,14 +739,14 @@ ol {
 
 /* Flattened shell style for mode/input area */
 .reactor-input-flat {
-  background: rgba(255, 255, 255, 0.94) !important;
-  border: 1px solid rgba(0, 0, 0, 0.09) !important;
-  box-shadow: 0 3px 10px -8px rgba(15, 23, 42, 0.12) !important;
+  background: var(--chat-panel-strong) !important;
+  border: 1px solid var(--chat-border) !important;
+  box-shadow: 0 3px 10px -8px oklch(0 0 0 / 0.12) !important;
 }
 
 .reactor-input-flat:focus-within {
-  border-color: rgba(0, 0, 0, 0.14) !important;
-  box-shadow: 0 4px 12px -8px rgba(15, 23, 42, 0.14) !important;
+  border-color: var(--chat-border-strong) !important;
+  box-shadow: 0 4px 12px -8px oklch(0 0 0 / 0.14) !important;
 }
 
 .reactor-input-flat [data-slot='input-group'] {
@@ -1188,13 +1320,13 @@ ol {
   height: 100vh;
   display: grid;
   grid-template-columns: 260px minmax(0, 1fr);
-  background: var(--bg-color, #ffffff);
-  color: var(--text-main, #1d1c23);
+  background: var(--chat-bg);
+  color: var(--chat-text);
   overflow: hidden;
 }
 
 .agent-sidebar {
-  background: var(--sidebar-bg, #f9f9f9);
+  background: var(--chat-surface-soft);
   display: flex;
   flex-direction: column;
   padding: 12px;

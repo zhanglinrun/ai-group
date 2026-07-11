@@ -22,6 +22,8 @@ public class ToolOutputPersistCommand {
 
     private String requestSource;
 
+    private Long ownerId;
+
     private String sessionId;
 
     private String toolCallId;

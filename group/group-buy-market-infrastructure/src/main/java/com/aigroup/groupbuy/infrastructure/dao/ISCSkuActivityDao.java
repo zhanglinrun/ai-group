@@ -16,4 +16,6 @@ public interface ISCSkuActivityDao {
     /** 运营端：全量渠道商品-活动映射（活动列表联查商品用） */
     java.util.List<SCSkuActivity> querySCSkuActivityList();
 
+    int insertSCSkuActivity(SCSkuActivity mapping);
+
 }

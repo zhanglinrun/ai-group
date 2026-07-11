@@ -4,6 +4,7 @@ import org.junit.Assert;
 import org.junit.Test;
 import org.mockito.Mockito;
 import org.wwz.ai.application.agent.dispatch.IAgentDispatchService;
+import org.wwz.ai.application.agent.model.IModelCatalogQueryService;
 import org.wwz.ai.application.agent.query.GptQueryIngressService;
 import org.wwz.ai.application.agent.quota.AgentRunSettlementService;
 import org.wwz.ai.application.agent.quota.MemberQuotaBillingService;
@@ -32,7 +33,8 @@ public class GptQueryIngressServiceTest {
                 billingService,
                 ownershipService,
                 Mockito.mock(ReactorConfig.class),
-                Mockito.mock(AgentRunSettlementService.class)
+                Mockito.mock(AgentRunSettlementService.class),
+                Mockito.mock(IModelCatalogQueryService.class)
         );
         RecordingStream stream = new RecordingStream();
         Mockito.when(billingService.freezeForAgentRun(Mockito.eq(1001L), Mockito.any()))
@@ -62,7 +64,8 @@ public class GptQueryIngressServiceTest {
                 billingService,
                 ownershipService,
                 Mockito.mock(ReactorConfig.class),
-                Mockito.mock(AgentRunSettlementService.class)
+                Mockito.mock(AgentRunSettlementService.class),
+                Mockito.mock(IModelCatalogQueryService.class)
         );
         RecordingStream stream = new RecordingStream();
         Mockito.when(billingService.freezeForAgentRun(Mockito.eq(1001L), Mockito.any()))

@@ -71,9 +71,9 @@ public class WorkspaceImageGenerationServiceTest {
         IImageGenerationBatchPersistenceService persistenceService = Mockito.mock(IImageGenerationBatchPersistenceService.class);
         Mockito.doAnswer(invocation -> {
             persistedRequestId.set(invocation.getArgument(0));
-            persistedResult.set(invocation.getArgument(1));
+            persistedResult.set(invocation.getArgument(2));
             return null;
-        }).when(persistenceService).persistWorkspaceBatch(Mockito.anyString(), Mockito.any());
+        }).when(persistenceService).persistWorkspaceBatch(Mockito.anyString(), Mockito.anyLong(), Mockito.any());
 
         ReflectionTestUtils.setField(service, "imageGenerationExecutionKernel", kernel);
         ReflectionTestUtils.setField(service, "imageGenerationBatchPersistenceService", persistenceService);
@@ -81,6 +81,7 @@ public class WorkspaceImageGenerationServiceTest {
         WorkspaceImageGenerationResult result = service.generate(
                 WorkspaceImageGenerationCommand.builder()
                         .requestId("req-100")
+                        .ownerId(1L)
                         .prompt(" 生成一张海报 ")
                         .mode("edits")
                         .fileNames(List.of("source-1", "source-2"))
@@ -135,6 +136,7 @@ public class WorkspaceImageGenerationServiceTest {
             service.generate(
                     WorkspaceImageGenerationCommand.builder()
                             .requestId("req-empty")
+                            .ownerId(1L)
                             .prompt("生成空图")
                             .mode("images")
                             .n(1)
@@ -145,7 +147,7 @@ public class WorkspaceImageGenerationServiceTest {
             Assert.assertEquals("上游未返回可识别的图片结果", expected.getMessage());
         }
 
-        Mockito.verify(persistenceService, Mockito.never()).persistWorkspaceBatch(Mockito.anyString(), Mockito.any());
+        Mockito.verify(persistenceService, Mockito.never()).persistWorkspaceBatch(Mockito.anyString(), Mockito.anyLong(), Mockito.any());
     }
 
     @Test
@@ -154,7 +156,7 @@ public class WorkspaceImageGenerationServiceTest {
         IToolOutputImageGenerationDao imageGenerationDao = Mockito.mock(IToolOutputImageGenerationDao.class);
         ToolOutputReader toolOutputReader = Mockito.mock(ToolOutputReader.class);
 
-        Mockito.when(imageGenerationDao.countByRequestSource(ExecutionLedgerConstants.REQUEST_SOURCE_WORKSPACE)).thenReturn(2);
+        Mockito.when(imageGenerationDao.countByOwnerAndRequestSource(1L, ExecutionLedgerConstants.REQUEST_SOURCE_WORKSPACE)).thenReturn(2);
         Map<String, Object> newestRow = new LinkedHashMap<>();
         newestRow.put("request_id", "req-new");
         newestRow.put("request_source", ExecutionLedgerConstants.REQUEST_SOURCE_WORKSPACE);
@@ -168,7 +170,7 @@ public class WorkspaceImageGenerationServiceTest {
         newestRow.put("mask_image_count", 0);
         newestRow.put("used_fallback", 0);
         newestRow.put("created_at", LocalDateTime.of(2026, 4, 26, 10, 0, 0));
-        Mockito.when(imageGenerationDao.queryPageByRequestSource(ExecutionLedgerConstants.REQUEST_SOURCE_WORKSPACE, 0, 1))
+        Mockito.when(imageGenerationDao.queryPageByOwnerAndRequestSource(1L, ExecutionLedgerConstants.REQUEST_SOURCE_WORKSPACE, 0, 1))
                 .thenReturn(List.of(newestRow));
         Map<String, Object> oldestRow = new LinkedHashMap<>();
         oldestRow.put("request_id", "req-old");
@@ -183,7 +185,7 @@ public class WorkspaceImageGenerationServiceTest {
         oldestRow.put("mask_image_count", 1);
         oldestRow.put("used_fallback", 1);
         oldestRow.put("created_at", LocalDateTime.of(2026, 4, 25, 9, 0, 0));
-        Mockito.when(imageGenerationDao.queryPageByRequestSource(ExecutionLedgerConstants.REQUEST_SOURCE_WORKSPACE, 1, 1))
+        Mockito.when(imageGenerationDao.queryPageByOwnerAndRequestSource(1L, ExecutionLedgerConstants.REQUEST_SOURCE_WORKSPACE, 1, 1))
                 .thenReturn(List.of(oldestRow));
         Mockito.when(toolOutputReader.readDirect("req-new", ImageGenerationBatchPersistenceServiceImpl.buildWorkspaceToolCallId("req-new")))
                 .thenReturn(java.util.Optional.of(ToolOutputView.builder()
@@ -232,14 +234,14 @@ public class WorkspaceImageGenerationServiceTest {
         ReflectionTestUtils.setField(service, "toolOutputImageGenerationDao", imageGenerationDao);
         ReflectionTestUtils.setField(service, "toolOutputReader", toolOutputReader);
 
-        WorkspaceImageGenerationHistoryPage firstPage = service.queryHistory(1, 1);
+        WorkspaceImageGenerationHistoryPage firstPage = service.queryHistory(1L, 1, 1);
         Assert.assertEquals(2, firstPage.getTotal());
         Assert.assertEquals(1, firstPage.getList().size());
         Assert.assertEquals("req-new", firstPage.getList().get(0).getRequestId());
         Assert.assertEquals(2, firstPage.getList().get(0).getImages().size());
         Assert.assertEquals("最新批次", firstPage.getList().get(0).getPrompt());
 
-        WorkspaceImageGenerationHistoryPage secondPage = service.queryHistory(2, 1);
+        WorkspaceImageGenerationHistoryPage secondPage = service.queryHistory(1L, 2, 1);
         Assert.assertEquals(2, secondPage.getTotal());
         Assert.assertEquals(1, secondPage.getList().size());
         Assert.assertEquals("req-old", secondPage.getList().get(0).getRequestId());

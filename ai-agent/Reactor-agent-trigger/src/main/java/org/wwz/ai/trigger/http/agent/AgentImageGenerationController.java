@@ -3,6 +3,8 @@ package org.wwz.ai.trigger.http.agent;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -52,6 +54,7 @@ public class AgentImageGenerationController {
             WorkspaceImageGenerationResult result = workspaceImageGenerationService.generate(
                     WorkspaceImageGenerationCommand.builder()
                             .requestId(reqVO.getRequestId())
+                            .ownerId(userId)
                             .prompt(reqVO.getPrompt())
                             .mode(reqVO.getMode())
                             .fileNames(reqVO.getFileNames())
@@ -60,6 +63,8 @@ public class AgentImageGenerationController {
                             .fileDescription(reqVO.getFileDescription())
                             .model(reqVO.getModel())
                             .size(reqVO.getSize())
+                            .quality(reqVO.getQuality())
+                            .outputFormat(reqVO.getOutputFormat())
                             .n(reqVO.getN())
                             .build()
             );
@@ -104,11 +109,9 @@ public class AgentImageGenerationController {
     public Response<PageRespVO<WorkspaceImageHistoryBatchRespVO>> history(@RequestParam(name = "pageNo", defaultValue = "1") int pageNo,
                                                                           @RequestParam(name = "pageSize", defaultValue = "10") int pageSize) {
         try {
-            // tool_output_image_generation 无 owner 列且工作台历史记录无 run/session 可关联，
-            // 暂无法按 ownerId 过滤（见报告"未修·需加 owner 列"）；此处至少要求登录身份，阻断匿名直连拉取。
-            OwnerRequestContext.requireOwnerId();
+            Long ownerId = OwnerRequestContext.requireOwnerId();
             WorkspaceImageGenerationHistoryPage historyPage =
-                    workspaceImageGenerationService.queryHistory(pageNo, pageSize);
+                    workspaceImageGenerationService.queryHistory(ownerId, pageNo, pageSize);
 
             List<WorkspaceImageHistoryBatchRespVO> list = historyPage.getList().stream()
                     .map(this::toHistoryRespVO)
@@ -133,6 +136,17 @@ public class AgentImageGenerationController {
                     .info(e.getMessage())
                     .build();
         }
+    }
+
+    @DeleteMapping("/history/{requestId}")
+    public Response<Boolean> deleteHistory(@PathVariable String requestId) {
+        Long ownerId = OwnerRequestContext.requireOwnerId();
+        boolean deleted = workspaceImageGenerationService.deleteHistory(ownerId, requestId);
+        return Response.<Boolean>builder()
+                .code(ResponseCode.SUCCESS.getCode())
+                .info(deleted ? ResponseCode.SUCCESS.getInfo() : "记录不存在或无权删除")
+                .data(deleted)
+                .build();
     }
 
     private WorkspaceImageHistoryBatchRespVO toHistoryRespVO(WorkspaceImageGenerationHistoryBatch batch) {

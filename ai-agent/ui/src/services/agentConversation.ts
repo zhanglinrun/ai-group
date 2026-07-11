@@ -63,6 +63,12 @@ export interface ConversationHistoryRunDetail {
   finalSummaryText?: string;
   startedAt?: string;
   finishedAt?: string;
+  /** 本轮实际使用的模型名（账本回放）。 */
+  modelName?: string;
+  /** 本轮总 token 用量（账本聚合）。 */
+  totalTokens?: number;
+  /** 本轮耗时（毫秒，账本聚合）。 */
+  durationMs?: number;
   replayFrames: ConversationReplayFrame[];
 }
 

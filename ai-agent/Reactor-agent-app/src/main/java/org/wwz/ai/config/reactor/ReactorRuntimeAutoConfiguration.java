@@ -6,6 +6,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.Environment;
 import org.springframework.scheduling.TaskScheduler;
 import org.wwz.ai.domain.agent.adapter.port.FileArtifactPort;
+import org.wwz.ai.domain.agent.adapter.port.ModelCatalogPort;
 import org.wwz.ai.domain.agent.adapter.port.RemoteHttpPort;
 import org.wwz.ai.domain.agent.adapter.port.RemoteStreamPort;
 import org.wwz.ai.domain.agent.runtime.llm.DomainMessageConverter;
@@ -54,6 +55,7 @@ public class ReactorRuntimeAutoConfiguration {
                                                                  RemoteHttpPort remoteHttpPort,
                                                                  RemoteStreamPort remoteStreamPort,
                                                                  FileArtifactPort fileArtifactPort,
+                                                                 ModelCatalogPort modelCatalogPort,
                                                                  @Qualifier(AgentExecutorNames.LLM_EXECUTOR) Executor llmExecutor,
                                                                  @Qualifier(AgentExecutorNames.TASK_EXECUTOR) Executor taskExecutor,
                                                                  @Qualifier(AgentExecutorNames.TOOL_EXECUTOR) Executor toolExecutor,
@@ -67,6 +69,7 @@ public class ReactorRuntimeAutoConfiguration {
                 .remoteHttpPort(remoteHttpPort)
                 .remoteStreamPort(remoteStreamPort)
                 .fileArtifactPort(fileArtifactPort)
+                .modelCatalogPort(modelCatalogPort)
                 .llmExecutor(llmExecutor)
                 .taskExecutor(taskExecutor)
                 .toolExecutor(toolExecutor)

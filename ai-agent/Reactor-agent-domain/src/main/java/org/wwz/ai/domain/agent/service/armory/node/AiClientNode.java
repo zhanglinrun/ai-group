@@ -1,10 +1,13 @@
 package org.wwz.ai.domain.agent.service.armory.node;
 
+import org.wwz.ai.domain.agent.adapter.port.ModelCatalogPort;
 import org.wwz.ai.domain.agent.model.entity.ArmoryCommandEntity;
 import org.wwz.ai.domain.agent.model.valobj.enums.AiAgentEnumVO;
+import org.wwz.ai.domain.agent.model.valobj.AiClientModelVO;
 import org.wwz.ai.domain.agent.model.valobj.AiClientSystemPromptVO;
 import org.wwz.ai.domain.agent.model.valobj.AiClientVO;
 import org.wwz.ai.domain.agent.runtime.tool.mcp.runtime.McpRegistry;
+import org.wwz.ai.domain.agent.service.runtime.AiClientRuntimeRegistry;
 import org.wwz.ai.domain.agent.service.armory.node.factory.DefaultArmoryStrategyFactory;
 import cn.bugstack.wrench.design.framework.tree.StrategyHandler;
 import com.alibaba.fastjson.JSON;
@@ -30,6 +33,9 @@ public class AiClientNode extends AbstractArmorySupport {
 
     @Resource
     private McpRegistry mcpRegistry;
+
+    @Resource
+    private ModelCatalogPort modelCatalogPort;
 
     @Override
     protected String doApply(ArmoryCommandEntity requestParameter, DefaultArmoryStrategyFactory.DynamicContext dynamicContext) throws Exception {
@@ -83,9 +89,57 @@ public class AiClientNode extends AbstractArmorySupport {
             ChatClient chatClient = chatClientBuilder.build();
 
             aiClientRuntimeRegistry.registerChatClient(aiClientVO.getClientId(), chatClient);
+
+            // 组合客户端：为 chat/workflow 模式支持"用户请求级换模型"，
+            // 复用同一 client 的系统提示 / advisor / 工具，仅替换底层模型，按 clientId::modelId 注册。
+            // 仅对已装配 ChatModel 的启用模型生成组合；未装配的模型在请求期由 FlowAgentExecuteStrategy 安全回退默认模型。
+            registerModelCombos(aiClientVO, chatClient, defaultSystem.toString(), advisorArray, toolCallbacks);
         }
 
         return router(requestParameter, dynamicContext);
+    }
+
+    /**
+     * 为该 client 的每个"已装配 ChatModel 的启用模型"注册组合对话客户端（clientId::modelId）。
+     * 主模型自身也登记组合键，便于选择主模型时命中同一实例。
+     */
+    private void registerModelCombos(AiClientVO aiClientVO,
+                                     ChatClient primaryChatClient,
+                                     String defaultSystem,
+                                     Advisor[] advisorArray,
+                                     List<ToolCallback> toolCallbacks) {
+        String clientId = aiClientVO.getClientId();
+        String primaryModelId = aiClientVO.getModelId();
+        // 主模型组合键指向已构建好的主客户端
+        aiClientRuntimeRegistry.registerChatClient(
+                AiClientRuntimeRegistry.comboClientKey(clientId, primaryModelId), primaryChatClient);
+
+        if (modelCatalogPort == null) {
+            return;
+        }
+        List<AiClientModelVO> availableModels = modelCatalogPort.listAvailableModels();
+        if (availableModels == null) {
+            return;
+        }
+        for (AiClientModelVO modelVO : availableModels) {
+            String modelId = modelVO == null ? null : modelVO.getModelId();
+            if (modelId == null || modelId.equals(primaryModelId)) {
+                continue;
+            }
+            ChatModel comboModel = aiClientRuntimeRegistry.findModel(modelId);
+            if (comboModel == null) {
+                // 该模型未装配 ChatModel（未随任何 client 加载），跳过；请求期回退默认模型
+                continue;
+            }
+            ChatClient.Builder comboBuilder = ChatClient.builder(comboModel)
+                    .defaultSystem(defaultSystem)
+                    .defaultAdvisors(advisorArray);
+            if (toolCallbacks != null && !toolCallbacks.isEmpty()) {
+                comboBuilder.defaultToolCallbacks(toolCallbacks);
+            }
+            aiClientRuntimeRegistry.registerChatClient(
+                    AiClientRuntimeRegistry.comboClientKey(clientId, modelId), comboBuilder.build());
+        }
     }
 
     @Override

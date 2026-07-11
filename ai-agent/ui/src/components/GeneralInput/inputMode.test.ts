@@ -30,9 +30,19 @@ describe('inputMode', () => {
         chatRole: { agentId: 'role-1' } as CHAT.ConversationRole,
       }),
     ).toMatchObject({
-      outputStyle: 'chat',
+      outputStyle: 'html',
       deepThink: false,
-      aiAgentId: 'role-1',
     });
+  });
+
+  it('普通对话可以独立开启深度思考', () => {
+    expect(buildSubmitPayload({
+      question: '仔细分析这个问题',
+      visibleMode: 'think',
+      isDataAgent: false,
+      visibleOutputProduct: { type: 'chat' } as CHAT.Product,
+      uploadedFiles: [],
+      chatRole: { agentId: 'role-1' } as CHAT.ConversationRole,
+    })).toMatchObject({ outputStyle: 'chat', deepThink: true, aiAgentId: 'role-1' });
   });
 });

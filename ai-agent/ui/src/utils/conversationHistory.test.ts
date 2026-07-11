@@ -163,6 +163,40 @@ function createResultEvent(result: string): MESSAGE.EventData {
 }
 
 describe('conversationHistory hydrate', () => {
+  it('restores model, token and duration metrics from history runs', () => {
+    const history = hydrateConversationFromReplayFrames({
+      sessionId: 'session-metrics-001',
+      title: '指标历史',
+      status: 'SUCCESS',
+      outputStyle: 'chat',
+      deepThink: false,
+      role: null,
+      runCount: 1,
+      finishedRunCount: 1,
+      failedRunCount: 0,
+      startedAt: '2026-05-02T10:00:00',
+      lastActiveAt: '2026-05-02T10:00:01',
+      runs: [
+        {
+          requestId: 'req-metrics-001',
+          status: 'SUCCESS',
+          queryText: '展示运行指标',
+          modelName: 'qwen-max',
+          totalTokens: 128,
+          durationMs: 950,
+          replayFrames: [],
+        },
+      ],
+    });
+
+    expect(history.chatList[0].metrics).toEqual({
+      status: 'SUCCESS',
+      modelName: 'qwen-max',
+      totalTokens: 128,
+      durationMs: 950,
+    });
+  });
+
   it('rebuilds chat list from replay frames and restores conclusion', () => {
     const history = hydrateConversationFromReplayFrames({
       sessionId: 'session-history-001',

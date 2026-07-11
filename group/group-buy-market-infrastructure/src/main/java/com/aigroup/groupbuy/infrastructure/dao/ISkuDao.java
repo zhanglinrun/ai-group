@@ -19,4 +19,6 @@ public interface ISkuDao {
     /** 运营端：更新商品名称/原价（拼团价 = 原价 - 折扣） */
     int updateSkuGoods(Sku skuReq);
 
+    int insertSku(Sku skuReq);
+
 }

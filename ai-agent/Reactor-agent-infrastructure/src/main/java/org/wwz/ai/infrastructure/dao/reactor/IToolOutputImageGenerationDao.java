@@ -21,6 +21,17 @@ public interface IToolOutputImageGenerationDao {
 
     int countByRequestSource(@Param("requestSource") String requestSource);
 
+    int countByOwnerAndRequestSource(@Param("ownerId") Long ownerId,
+                                     @Param("requestSource") String requestSource);
+
+    List<Map<String, Object>> queryPageByOwnerAndRequestSource(@Param("ownerId") Long ownerId,
+                                                                @Param("requestSource") String requestSource,
+                                                                @Param("offset") int offset,
+                                                                @Param("limit") int limit);
+
+    int softDeleteByOwnerAndRequestId(@Param("ownerId") Long ownerId,
+                                      @Param("requestId") String requestId);
+
     List<Map<String, Object>> queryPageByRequestSource(@Param("requestSource") String requestSource,
                                                        @Param("offset") int offset,
                                                        @Param("limit") int limit);

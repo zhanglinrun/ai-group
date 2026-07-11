@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
 import org.wwz.ai.application.agent.dispatch.IAgentDispatchService;
+import org.wwz.ai.application.agent.model.IModelCatalogQueryService;
 import org.wwz.ai.application.agent.quota.AgentRunSettlementService;
 import org.wwz.ai.application.agent.quota.MemberQuotaBillingService;
 import org.wwz.ai.application.agent.stream.AgentSessionStream;
@@ -25,6 +26,7 @@ public class GptQueryIngressService {
     private final ConversationSessionOwnershipApplicationService conversationSessionOwnershipApplicationService;
     private final ReactorConfig reactorConfig;
     private final AgentRunSettlementService agentRunSettlementService;
+    private final IModelCatalogQueryService modelCatalogQueryService;
 
     /**
      * 同步执行入口：冻结配额 → dispatch → 按账本终态结算。
@@ -42,6 +44,7 @@ public class GptQueryIngressService {
     public PreparedGptQuery prepare(GptQueryReq params, AgentSessionStream stream) {
         Long ownerId = OwnerRequestContext.requireOwnerId();
         params.setTraceId(ChateiUtils.getRequestId(params));
+        validateModelSelection(params.getModelId());
         AgentRequest agentRequest = buildAgentRequest(params, ownerId);
         conversationSessionOwnershipApplicationService.ensureSessionAccessible(
                 String.valueOf(ownerId),
@@ -91,6 +94,19 @@ public class GptQueryIngressService {
                                    String freezeId) {
     }
 
+    /**
+     * 用户显式选择模型时做白名单校验：非法/不可用直接拒绝（与配额拒绝同路径，Servlet 线程内快速失败）。
+     * 未选择模型（空）时放行，走默认模型逻辑。
+     */
+    private void validateModelSelection(String modelId) {
+        if (StringUtils.isBlank(modelId)) {
+            return;
+        }
+        if (!modelCatalogQueryService.isModelAvailable(modelId)) {
+            throw new IllegalArgumentException("所选模型不可用或不存在: " + modelId);
+        }
+    }
+
     private AgentRequest buildAgentRequest(GptQueryReq req, Long ownerId) {
         AgentRequest request = new AgentRequest();
         request.setRequestId(req.getTraceId());
@@ -98,6 +114,7 @@ public class GptQueryIngressService {
         request.setOwnerId(String.valueOf(ownerId));
         request.setQuery(req.getQuery());
         request.setSessionFiles(req.getSessionFiles());
+        request.setModelId(req.getModelId());
         request.setIsStream(true);
         request.setOutputStyle(req.getOutputStyle());
         if ("chat".equalsIgnoreCase(req.getOutputStyle())) {

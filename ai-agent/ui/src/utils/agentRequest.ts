@@ -20,6 +20,8 @@ type BuildAgentStreamRequestInput = {
   files?: CHAT.TFile[];
   aiAgentId?: string;
   fallbackRoleAgentId?: string;
+  /** 用户在输入框选择的模型 ID；为空则由后端走默认模型逻辑。 */
+  modelId?: string;
 };
 
 const resolvePreviewUrl = (file: CHAT.TFile) =>
@@ -62,6 +64,7 @@ export const buildAgentStreamRequest = ({
   files,
   aiAgentId,
   fallbackRoleAgentId,
+  modelId,
 }: BuildAgentStreamRequestInput) => {
   const sessionFiles = mapSessionFiles(files);
   const resolvedAgentId = aiAgentId || fallbackRoleAgentId;
@@ -74,5 +77,6 @@ export const buildAgentStreamRequest = ({
     outputStyle,
     ...(sessionFiles.length ? { sessionFiles } : {}),
     ...(outputStyle === 'chat' && resolvedAgentId ? { aiAgentId: resolvedAgentId } : {}),
+    ...(modelId ? { modelId } : {}),
   };
 };

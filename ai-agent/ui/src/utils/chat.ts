@@ -51,6 +51,33 @@ export function normalizeEventData(eventData: unknown): MESSAGE.EventData | unde
   }
 }
 
+/**
+ * 从最终帧（result）的 resultMap 中提取展示级 run 元数据（模型 / tokens / 耗时）。
+ * 缺失或非法字段一律忽略，返回 undefined 表示无可展示元数据。
+ */
+export function extractRunMetrics(
+  raw: unknown,
+): { modelName?: string; totalTokens?: number; durationMs?: number } | undefined {
+  if (!isRecord(raw)) {
+    return undefined;
+  }
+  const metrics = raw.metrics;
+  if (!isRecord(metrics)) {
+    return undefined;
+  }
+  const result: { modelName?: string; totalTokens?: number; durationMs?: number } = {};
+  if (typeof metrics.modelName === 'string' && metrics.modelName.trim()) {
+    result.modelName = metrics.modelName.trim();
+  }
+  if (typeof metrics.totalTokens === 'number' && metrics.totalTokens > 0) {
+    result.totalTokens = metrics.totalTokens;
+  }
+  if (typeof metrics.durationMs === 'number' && metrics.durationMs >= 0) {
+    result.durationMs = metrics.durationMs;
+  }
+  return Object.keys(result).length ? result : undefined;
+}
+
 export const combineData = (eventData: MESSAGE.EventData, currentChat: CHAT.ChatItem) => {
   switch (eventData.messageType) {
     case 'plan': {

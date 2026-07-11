@@ -24,6 +24,8 @@ public class ImageGenerationGatewayRequest {
     private String fileDescription;
     private String model;
     private String size;
+    private String quality;
+    private String outputFormat;
     private Integer n;
     private Integer timeoutSeconds;
     private Boolean stream;

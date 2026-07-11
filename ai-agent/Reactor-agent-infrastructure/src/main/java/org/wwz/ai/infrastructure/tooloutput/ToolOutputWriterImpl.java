@@ -193,6 +193,7 @@ public class ToolOutputWriterImpl implements ToolOutputWriter {
         row.put("runId", command.getRunId());
         row.put("requestId", command.getRequestId());
         row.put("requestSource", StringUtils.defaultIfBlank(command.getRequestSource(), ExecutionLedgerConstants.REQUEST_SOURCE_AGENT));
+        row.put("ownerId", command.getOwnerId());
         row.put("sessionId", command.getSessionId());
         row.put("toolCallId", command.getToolCallId());
         row.put("status", command.getStatus());

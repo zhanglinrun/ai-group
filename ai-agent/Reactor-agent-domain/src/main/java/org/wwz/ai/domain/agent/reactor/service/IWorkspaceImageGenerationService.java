@@ -17,5 +17,7 @@ public interface IWorkspaceImageGenerationService {
     /**
      * 分页查询工作台生图历史。
      */
-    WorkspaceImageGenerationHistoryPage queryHistory(int pageNo, int pageSize);
+    WorkspaceImageGenerationHistoryPage queryHistory(Long ownerId, int pageNo, int pageSize);
+
+    boolean deleteHistory(Long ownerId, String requestId);
 }

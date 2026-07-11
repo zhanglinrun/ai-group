@@ -77,7 +77,8 @@ public class ExecutorAgent extends ReActAgent {
             executorMaxSteps = reactorConfig.getPlannerMaxSteps();
         }
         setMaxSteps(executorMaxSteps != null ? executorMaxSteps : 40);
-        setLlm(new LLM(reactorConfig.getExecutorModelName(), "", runtimeDependencies));
+        // 用户选择模型时优先按 modelId 覆盖，否则回退 executor 配置模型
+        setLlm(new LLM(runtimeDependencies.resolveEffectiveLlmSettings(context.getModelIdOverride(), reactorConfig.getExecutorModelName()), "", runtimeDependencies));
 
         setContext(context);
         setMaxObserve(Integer.parseInt(reactorConfig.getMaxObserve()));

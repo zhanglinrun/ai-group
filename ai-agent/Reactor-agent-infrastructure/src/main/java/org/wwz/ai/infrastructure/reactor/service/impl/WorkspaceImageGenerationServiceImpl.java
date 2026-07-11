@@ -79,6 +79,8 @@ public class WorkspaceImageGenerationServiceImpl implements IWorkspaceImageGener
                 .fileDescription(resolveFileDescription(command.getFileDescription(), command.getPrompt()))
                 .model(StringUtils.trimToNull(command.getModel()))
                 .size(resolveSize(command.getSize()))
+                .quality(StringUtils.trimToNull(command.getQuality()))
+                .outputFormat(StringUtils.trimToNull(command.getOutputFormat()))
                 .n(normalizeBatchSize(command.getN()))
                 .timeoutSeconds(DEFAULT_TIMEOUT_SECONDS)
                 .build());
@@ -86,7 +88,7 @@ public class WorkspaceImageGenerationServiceImpl implements IWorkspaceImageGener
             throw new IllegalStateException("上游未返回可识别的图片结果");
         }
 
-        imageGenerationBatchPersistenceService.persistWorkspaceBatch(requestId, result);
+        imageGenerationBatchPersistenceService.persistWorkspaceBatch(requestId, command.getOwnerId(), result);
         log.info("生图工作台生成成功 requestId={}, fileCount={}", requestId, result.getFiles().size());
 
         return WorkspaceImageGenerationResult.builder()
@@ -100,10 +102,11 @@ public class WorkspaceImageGenerationServiceImpl implements IWorkspaceImageGener
     }
 
     @Override
-    public WorkspaceImageGenerationHistoryPage queryHistory(int pageNo, int pageSize) {
+    public WorkspaceImageGenerationHistoryPage queryHistory(Long ownerId, int pageNo, int pageSize) {
+        if (ownerId == null) throw new IllegalArgumentException("ownerId不能为空");
         int safePageNo = Math.max(pageNo, 1);
         int safePageSize = Math.min(pageSize > 0 ? pageSize : DEFAULT_BATCH_SIZE, MAX_BATCH_SIZE);
-        int total = toolOutputImageGenerationDao.countByRequestSource(ExecutionLedgerConstants.REQUEST_SOURCE_WORKSPACE);
+        int total = toolOutputImageGenerationDao.countByOwnerAndRequestSource(ownerId, ExecutionLedgerConstants.REQUEST_SOURCE_WORKSPACE);
         if (total <= 0) {
             return WorkspaceImageGenerationHistoryPage.builder()
                     .total(0)
@@ -111,8 +114,8 @@ public class WorkspaceImageGenerationServiceImpl implements IWorkspaceImageGener
                     .build();
         }
         int offset = (safePageNo - 1) * safePageSize;
-        List<Map<String, Object>> rows = toolOutputImageGenerationDao.queryPageByRequestSource(
-                ExecutionLedgerConstants.REQUEST_SOURCE_WORKSPACE, offset, safePageSize);
+        List<Map<String, Object>> rows = toolOutputImageGenerationDao.queryPageByOwnerAndRequestSource(
+                ownerId, ExecutionLedgerConstants.REQUEST_SOURCE_WORKSPACE, offset, safePageSize);
         if (CollectionUtils.isEmpty(rows)) {
             return WorkspaceImageGenerationHistoryPage.builder()
                     .total(total)
@@ -131,12 +134,23 @@ public class WorkspaceImageGenerationServiceImpl implements IWorkspaceImageGener
                 .build();
     }
 
+    @Override
+    public boolean deleteHistory(Long ownerId, String requestId) {
+        if (ownerId == null || StringUtils.isBlank(requestId)) {
+            throw new IllegalArgumentException("ownerId和requestId不能为空");
+        }
+        return toolOutputImageGenerationDao.softDeleteByOwnerAndRequestId(ownerId, requestId.trim()) > 0;
+    }
+
     private void validateGenerateRequest(WorkspaceImageGenerationCommand command) {
         if (command == null) {
             throw new IllegalArgumentException("请求体不能为空");
         }
         if (!org.springframework.util.StringUtils.hasText(command.getPrompt())) {
             throw new IllegalArgumentException("prompt不能为空");
+        }
+        if (command.getOwnerId() == null) {
+            throw new IllegalArgumentException("ownerId不能为空");
         }
     }
 

@@ -21,6 +21,9 @@ spring:
       host: ${REDIS_HOST:127.0.0.1}
       port: ${REDIS_PORT:16379}
       database: 0
+  http:
+    codecs:
+      max-in-memory-size: 32MB
 
 server:
   port: 8080

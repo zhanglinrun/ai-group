@@ -22,7 +22,7 @@ export interface AdminGroupActivity {
   activityName?: string;
   discountId?: string;
   discountName?: string;
-  marketPlan?: string;
+  marketPlan?: 'ZJ' | 'MJ' | 'ZK' | 'N';
   marketExpr?: string;
   takeLimitCount?: number;
   target?: number;
@@ -32,6 +32,18 @@ export interface AdminGroupActivity {
   goodsName?: string;
   originalPrice?: number;
   groupPayPrice?: number;
+  activityType?: number;
+  tiers?: AdminGroupTier[];
+}
+
+export interface AdminGroupTier {
+  id?: number;
+  activityId?: number;
+  tierNo: number;
+  tierName: string;
+  targetCount: number;
+  bonusQuota: number;
+  status: number;
 }
 
 export interface AdminGroupActivityUpdate {
@@ -41,8 +53,21 @@ export interface AdminGroupActivityUpdate {
   validTime?: number;
   status?: number;
   marketExpr?: string;
+  marketPlan?: 'ZJ' | 'MJ' | 'ZK' | 'N';
   goodsName?: string;
   originalPrice?: number;
+  activityType?: number;
+}
+
+export interface AdminGroupActivityCreate extends AdminGroupActivityUpdate {
+  activityId: number;
+  activityName: string;
+  goodsId: string;
+  goodsName: string;
+  discountId: string;
+  originalPrice: number;
+  marketExpr: string;
+  marketPlan: 'ZJ' | 'MJ' | 'ZK' | 'N';
 }
 
 /** 模型 API 配置（agent_db.ai_client_api，api_key 读时已脱敏） */
@@ -61,6 +86,7 @@ export interface AdminClientModel {
   modelId: string;
   modelName: string;
   modelType?: string;
+  modelUsage?: string;
   apiId?: string;
   status?: number;
 }
@@ -76,6 +102,14 @@ export const adminApi = {
   updateSku: (code: string, body: Partial<AdminSku>) =>
     api.put<AdminSku>(`/api/member/admin/skus/${code}`, body) as unknown as Promise<AdminSku>,
 
+  createSku: (body: Partial<AdminSku>) =>
+    api.post<AdminSku>('/api/member/admin/skus', body) as unknown as Promise<AdminSku>,
+
+  deleteSku: (code: string) =>
+    api.delete<void>(
+      `/api/member/admin/skus/${encodeURIComponent(code)}`,
+    ) as unknown as Promise<void>,
+
   // ---- 拼团活动 / 折扣 / 商品（group 服务） ----
   listGroupActivities: () =>
     api.get<AdminGroupActivity[]>('/api/group/admin/activities') as unknown as Promise<
@@ -86,6 +120,15 @@ export const adminApi = {
     api.put<boolean>(
       `/api/group/admin/activities/${activityId}`,
       body,
+    ) as unknown as Promise<boolean>,
+
+  createGroupActivity: (body: AdminGroupActivityCreate) =>
+    api.post<boolean>('/api/group/admin/activities', body) as unknown as Promise<boolean>,
+
+  replaceGroupActivityTiers: (activityId: number, tiers: AdminGroupTier[]) =>
+    api.put<boolean>(
+      `/api/group/admin/activities/${activityId}/tiers`,
+      tiers,
     ) as unknown as Promise<boolean>,
 
   // ---- 模型 Key（ai-agent 管理接口，经网关 /api/v1/admin/**） ----
@@ -100,8 +143,30 @@ export const adminApi = {
       body,
     ) as unknown as Promise<boolean>,
 
+  createClientApi: (body: Partial<AdminClientApi>) =>
+    api.post<boolean>('/api/v1/admin/ai-client-api/create', body) as unknown as Promise<boolean>,
+
+  deleteClientApi: (apiId: string) =>
+    api.delete<boolean>(
+      `/api/v1/admin/ai-client-api/delete-by-api-id/${encodeURIComponent(apiId)}`,
+    ) as unknown as Promise<boolean>,
+
   listClientModels: () =>
     api.get<AdminClientModel[]>('/api/v1/admin/ai-client-model/query-all') as unknown as Promise<
       AdminClientModel[]
     >,
+
+  createClientModel: (body: Partial<AdminClientModel>) =>
+    api.post<boolean>('/api/v1/admin/ai-client-model/create', body) as unknown as Promise<boolean>,
+
+  updateClientModel: (body: Partial<AdminClientModel>) =>
+    api.put<boolean>(
+      '/api/v1/admin/ai-client-model/update-by-model-id',
+      body,
+    ) as unknown as Promise<boolean>,
+
+  deleteClientModel: (modelId: string) =>
+    api.delete<boolean>(
+      `/api/v1/admin/ai-client-model/delete-by-model-id/${encodeURIComponent(modelId)}`,
+    ) as unknown as Promise<boolean>,
 };

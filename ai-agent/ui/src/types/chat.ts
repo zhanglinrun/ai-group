@@ -20,10 +20,16 @@ declare global {
         taskStatus?: MESSAGE.MsgItem['taskStatus'];
         planList?: PlanItem[];
         timeline?: TimelineEntry[];
-        metrics?: {
-          event_count?: number;
-          status?: string;
-        };
+      metrics?: {
+        event_count?: number;
+        status?: string;
+        /** 本轮实际使用的模型名（用户可选模型 / 默认模型解析结果）。 */
+        modelName?: string;
+        /** 本轮总 token 用量（流式下可能缺失）。 */
+        totalTokens?: number;
+        /** 本轮耗时（毫秒）。 */
+        durationMs?: number;
+      };
         startedAt?: string;
         finishedAt?: string;
       }
@@ -69,6 +75,8 @@ declare global {
       outputStyle?: string;
       deepThink: boolean;
       aiAgentId?: string;
+      /** 用户在输入框选择的模型 ID；为空则由后端走默认模型逻辑。 */
+      modelId?: string;
     };
 
     export type TAbortController = {

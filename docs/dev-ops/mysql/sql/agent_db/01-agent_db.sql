@@ -504,6 +504,8 @@ create table if not exists tool_output_image_generation (
   run_id bigint default null comment '运行ID',
   request_id varchar(128) default null comment '请求ID',
   request_source varchar(32) default null comment '请求来源',
+  owner_id bigint default null comment '所属用户ID',
+  deleted tinyint(1) not null default 0 comment '逻辑删除',
   session_id varchar(128) default null comment '会话ID',
   tool_call_id varchar(128) default null comment '工具调用标识',
   status int default null comment '状态',
@@ -523,6 +525,27 @@ create table if not exists tool_output_image_generation (
   key idx_tool_invocation_id (tool_invocation_id),
   key idx_request_source (request_source)
 ) engine=InnoDB default charset=utf8mb4 comment='image_generation工具产出表';
+
+drop procedure if exists migrate_image_history_owner;
+delimiter //
+create procedure migrate_image_history_owner()
+begin
+  if not exists (
+    select 1 from information_schema.columns
+    where table_schema = database() and table_name = 'tool_output_image_generation' and column_name = 'owner_id'
+  ) then
+    alter table tool_output_image_generation add column owner_id bigint default null comment '所属用户ID';
+  end if;
+  if not exists (
+    select 1 from information_schema.columns
+    where table_schema = database() and table_name = 'tool_output_image_generation' and column_name = 'deleted'
+  ) then
+    alter table tool_output_image_generation add column deleted tinyint(1) not null default 0 comment '逻辑删除';
+  end if;
+end//
+delimiter ;
+call migrate_image_history_owner();
+drop procedure migrate_image_history_owner;
 
 create table if not exists tool_output_script_runner (
   id bigint not null auto_increment comment '主键ID',

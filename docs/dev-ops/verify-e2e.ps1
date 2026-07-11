@@ -4,7 +4,8 @@ param(
     [string]$PayInternalCallback = "/api/v1/alipay/group_buy_notify",
     [string]$Username = "e2e_user_$(Get-Random -Maximum 99999)",
     [string]$Password = "Smoke@123456",
-    [string]$SkuCode = "PRO_MONTH"
+    [string]$SkuCode = "PRO_MONTH",
+    [string]$MysqlContainer = "ai-group-mysql"
 )
 
 $ErrorActionPreference = "Stop"
@@ -54,6 +55,19 @@ if (-not $items -or $items.Count -lt 1) { throw "no orders returned after create
 $orderId = $items[$items.Count - 1].orderId
 if (-not $orderId) { throw "orderId not found in bff orders" }
 Write-Host "OrderId=$orderId"
+
+# The automated local E2E cannot complete an interactive Alipay sandbox QR payment.
+# Advance only this newly-created fixture to the state produced by a verified Alipay
+# callback. The following group callback must still enforce PAY_SUCCESS -> MARKET,
+# so an unpaid order cannot receive benefits.
+$mysqlPassword = $env:MYSQL_ROOT_PASSWORD
+if (-not $mysqlPassword) { throw "MYSQL_ROOT_PASSWORD env var not set" }
+Write-Host "==> Simulate verified Alipay payment state (local fixture only)"
+$sql = "update s_pay_mall_ddd_market.pay_order set status='PAY_SUCCESS', pay_time=now() where order_id='$orderId' and status='PAY_WAIT'; select row_count();"
+$updated = (& docker exec $MysqlContainer mysql -uroot "-p$mysqlPassword" -N -e $sql 2>$null | Select-Object -Last 1).Trim()
+if ($LASTEXITCODE -ne 0 -or $updated -ne "1") {
+    throw "failed to advance local payment fixture to PAY_SUCCESS (updated=$updated)"
+}
 
 Write-Host "==> Trigger group settlement notify (internal callback)"
 $internal = $env:AI_GROUP_INTERNAL_TOKEN
