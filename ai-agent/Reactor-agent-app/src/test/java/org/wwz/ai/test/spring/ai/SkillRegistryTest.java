@@ -69,6 +69,20 @@ public class SkillRegistryTest {
         skillRegistry.refresh();
     }
 
+    @Test
+    public void shouldLoadNineRepositorySkillsWithProgressiveDescriptions() {
+        Path repositorySkills = findRepositorySkills();
+        DefaultSkillRegistry skillRegistry = createRegistry(true, repositorySkills.toString());
+
+        skillRegistry.refresh();
+
+        Assert.assertEquals(9, skillRegistry.listSkills().size());
+        String lightweightDescription = skillRegistry.buildSkillDescription();
+        Assert.assertTrue(lightweightDescription.contains("github-deep-research"));
+        Assert.assertFalse(lightweightDescription.contains("## Workflow"));
+        Assert.assertTrue(skillRegistry.getRequiredSkill("github-deep-research").getContent().length() > 100);
+    }
+
     private DefaultSkillRegistry createRegistry(boolean enabled, String... directories) {
         SkillPathGuard skillPathGuard = new SkillPathGuard();
         return new DefaultSkillRegistry(
@@ -84,6 +98,22 @@ public class SkillRegistryTest {
 
     private Path fixtureSkillsRoot() throws Exception {
         return new ClassPathResource("skills").getFile().toPath();
+    }
+
+    private Path findRepositorySkills() {
+        Path current = Path.of(System.getProperty("user.dir", ".")).toAbsolutePath().normalize();
+        while (current != null) {
+            Path direct = current.resolve("runtime").resolve("skills");
+            if (Files.isDirectory(direct)) {
+                return direct;
+            }
+            Path nested = current.resolve("ai-agent").resolve("runtime").resolve("skills");
+            if (Files.isDirectory(nested)) {
+                return nested;
+            }
+            current = current.getParent();
+        }
+        throw new IllegalStateException("repository runtime/skills directory not found");
     }
 
     private void createSkillDirectory(Path skillDirectory, String skillName, String description) throws Exception {

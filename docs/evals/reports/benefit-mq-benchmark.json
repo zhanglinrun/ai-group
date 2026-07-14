@@ -1,0 +1,32 @@
+{
+  "schemaVersion" : 1,
+  "generatedAt" : "2026-07-13T10:29:55.150048400Z",
+  "benchmarkType" : "local-rabbitmq-mysql-integration",
+  "environment" : {
+    "os" : "Windows 11 10.0",
+    "architecture" : "amd64",
+    "java" : "21.0.11",
+    "processors" : 12,
+    "database" : "MySQL 8.0.32",
+    "broker" : "RabbitMQ 3.12.14"
+  },
+  "dataset" : {
+    "configuredMaxAttempts" : 4,
+    "uniqueBenefitEvents" : 50,
+    "poisonMessageFaults" : 1,
+    "consumerConcurrency" : 4,
+    "duplicateDeliveries" : 50
+  },
+  "results" : {
+    "benefitDeliverySuccessRatePct" : 100.0,
+    "benefitDeliveryLatencyP50Ms" : 618,
+    "benefitDeliveryLatencyP95Ms" : 983,
+    "benefitDeliveryLatencyP99Ms" : 1016,
+    "grantEventRows" : 50,
+    "grantLedgerRows" : 50,
+    "duplicateGrantEffects" : 0,
+    "poisonMessageDeadLettered" : true,
+    "finalBenefitStateConsistent" : true
+  },
+  "methodology" : "Publishes 50 unique completed-benefit events and one immediate duplicate for every event through an isolated RabbitMQ exchange/queue with four consumers. Polls an isolated MySQL schema until production consumer transactions become visible, then verifies one grant/event per order. One unsupported event verifies four configured listener attempts followed by DLQ routing. Retry intervals are shortened to 25 ms for the fault test."
+}

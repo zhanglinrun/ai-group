@@ -1,0 +1,105 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-07-13T14:19:14.3900834Z",
+  "benchmarkType": "live-llm-gateway-sse",
+  "environment": {
+    "os": "Microsoft Windows NT 10.0.26100.0",
+    "powershell": "7.6.3",
+    "processors": 12,
+    "gateway": "http://127.0.0.1:8080",
+    "modelNames": [
+      "qwen-plus"
+    ]
+  },
+  "dataset": {
+    "casesFile": "cases-tools-plan-basic.jsonl",
+    "totalCases": 1,
+    "deterministicCases": 0,
+    "toolCases": 1,
+    "planSolveCases": 1,
+    "llmJudgeEnabled": false,
+    "evaluationQuota": 2000
+  },
+  "results": {
+    "keywordAndToolAssertionPassRatePct": 100.0,
+    "assertionPassed": 1,
+    "endToEndTaskSuccessRatePct": 100.0,
+    "endToEndPassed": 1,
+    "ledgerTerminalSuccessRatePct": 100.0,
+    "ledgerSuccessfulRuns": 1,
+    "ledgerObservedRuns": 1,
+    "averageLlmCalls": 24.0,
+    "averageProviderReportedTokens": 85040.0,
+    "providerUsageObservedRuns": 1,
+    "latencyP50Ms": 379819,
+    "latencyP95Ms": 379819,
+    "toolUsedRuns": 1,
+    "evaluationRuns": 1,
+    "evaluationFrames": 7,
+    "evaluatorFinalAcceptanceRatePct": 100.0,
+    "replannedRuns": 1,
+    "averageTargetedReplanRounds": 1.0,
+    "averageFinalQualityScore": 100.0,
+    "averageReflectionTokensEstimate": 4650.0,
+    "averageLlmJudgeScore": null,
+    "failureBreakdown": []
+  },
+  "metricSemantics": {
+    "assertions": "Declared any/all keyword policy plus tool trajectory/count checks; this is a deterministic correctness proxy, not human semantic grading.",
+    "endToEndSuccess": "Assertions pass and, for ReAct/Plan-Solve cases, dialogue_run reaches STATUS_SUCCESS.",
+    "tokens": "Provider-reported usage persisted from Spring AI response metadata; runs without provider usage are excluded, never replaced by TokenCounter.countText().",
+    "reflectionTokens": "Conservative evaluator/replan estimate used for the run budget; not provider-reported billing usage.",
+    "latency": "Client wall-clock time from Gateway request start through the terminal SSE frame."
+  },
+  "cases": [
+    {
+      "id": "plan-1",
+      "suite": "tool",
+      "mode": "text",
+      "deepThink": 1,
+      "query": "制定一个用 Java 实现命令行待办清单的分步计划，并按计划给出最小实现建议。",
+      "expected": [
+        "计划",
+        "步骤",
+        "Java"
+      ],
+      "expectedAll": [],
+      "answer": "以下是为 Java 命令行待办清单（CLI Todo List）制定的**最小可行产品（MVP）分步计划及最小实现建议**，严格基于已验证的执行过程与产物，无任何臆测或未出现的信息：\n\n---\n\n### ✅ 一、MVP 功能范围与约束（明确限定）\n- **支持的功能**：添加（`add <desc>`）、列出（`list`）、标记完成（`done <id>`）、删除（`delete <id>`）、退出（`quit`）；\n- **明确不支持**：优先级、截止日期、子任务、分类标签、同步、搜索、编辑、多用户、Web/网络功能；\n- **核心技术约束**：\n  - 单文件持久化（`todos.txt`，纯文本格式 `id|description|done`）；\n  - 完全内存运行，零外部依赖（仅 JDK 17+ 标准库）；\n  - 启动时间 < 100ms（无初始化开销，无反射/动态加载）；\n  - 线程安全（适用于单线程 CLI 场景，`ConcurrentHashMap` + `AtomicLong` 已满足）。\n\n> ✅ 依据：来自内网文档 `JavaCLItodolistMVPfeaturesminimalviableproduct的搜索结果.md` 的摘要确认（artifactKey: `call_1e3cd40783894b25b5148d::JavaCLItodolistMVPfeaturesminimalviableproduct的搜索结果.md`），明确指出“MVP 不支持优先级/截止日期/子任务”。\n\n---\n\n### ✅ 二、最小实现分步计划（可直接落地）\n\n| 步骤 | 交付物 | 关键说明 |\n|------|--------|----------|\n| **1. 定义核心数据模型** | `Task` record + `TodoList` 类 | `public record Task(long id, String description, boolean done)`；`TodoList` 使用 `ConcurrentHashMap<Long, Task>` + `AtomicLong` ID 生成器，提供 `add()`/`list()`/`markDone()`/`delete()` 四个方法，全部 O(1) 时间复杂度。 |\n| **2. 实现文件持久化** | `TodoPersistence` 工具类 | 读写 `todos.txt`，格式为 `id|description|done`（如 `1|Walk dog|false`），UTF-8 编码，使用 `Files.readAllLines()` / `Files.write()`，无 JSON 依赖，完全 JDK 内置。 |\n| **3. 构建命令行解析器** | `CliParser` 类 | 基于 `Scanner`，支持空格分割命令，健壮处理缺失参数（如 `done` 无 ID）、未知命令；输出清晰提示（`✅ Added: [1] ...` / `✓ [1] ...`）。 |\n| **4. 整合主程序** | 单文件 `TodoApp.java` | 包含全部组件：启动时 `loadFromFile` → 运行 `CliParser.start()` → `quit` 时 `saveToFile`；入口 `public static void main`，可直接 `javac TodoApp.java && java TodoApp` 运行。 |\n| **5. 验证端到端流程** | 人工可验证行为序列 | 启动 → `add A` → `add B` → `list`（显示两项未完成）→ `done 1` → `list`（第一项带 ✓）→ `quit` → 再次运行 `java TodoApp` → `list`（两项仍在，第一项仍为 ✓）。该流程逻辑自洽，文件格式人类可读，重启必然复现。 |\n\n---\n\n### ✅ 三、最小实现建议（开箱即用）\n- **推荐 JDK 版本**：17+（支持 `record` 和 `ConcurrentHashMap` 增强）；\n- **文件位置**：当前工作目录下 `todos.txt`，无需配置；\n- **编译运行命令**：\n  ```bash\n  javac TodoApp.java && java TodoApp\n  ```\n- **首运行体验**：无初始化延迟，首次运行自动创建空 `todos.txt`，后续启动立即加载；\n- **错误防御**：`Task` 构造器校验 description 非空；CLI 解析器捕获 `NumberFormatException` 并友好提示；文件 I/O 异常打印警告但不崩溃（继续内存操作）。\n\n---\n\n所有设计均满足 MVP “最小但可靠”原则：**代码总量约 200 行，无第三方依赖，单文件部署，启动毫秒级，功能边界清晰，持久化可验证**。\n\n$$$  \ncall_1e3cd40783894b25b5148d::JavaCLItodolistMVPfeaturesminimalviableproduct的搜索结果.md",
+      "finalFrameSeen": true,
+      "assertionPassed": true,
+      "ledgerSucceeded": true,
+      "endToEndPassed": true,
+      "pass": true,
+      "failReason": null,
+      "runId": "eval-plan-1-c9d94d27:req-c3c3118862424f339e850196d84916c5",
+      "entryAgent": "plan_solve",
+      "modelNames": "qwen-plus",
+      "llmCalls": 24,
+      "evaluatorLlmCalls": 2,
+      "toolCalls": 13,
+      "artifactCount": 2,
+      "promptTokens": 77256,
+      "completionTokens": 7784,
+      "providerReportedTokens": 85040,
+      "providerUsageCalls": 16,
+      "ledgerStatus": 1,
+      "ledgerErrorCode": "",
+      "latencyMs": 379819,
+      "ledgerDurationMs": 380036,
+      "tools": [
+        "code_interpreter",
+        "deep_search",
+        "planning",
+        "read_tool",
+        "report_tool",
+        "web_fetch"
+      ],
+      "evaluationCount": 7,
+      "replanCount": 1,
+      "reflectionTokensEstimate": 4650,
+      "qualityScore": 100,
+      "evaluatorAccepted": true,
+      "judgeScore": null
+    }
+  ]
+}

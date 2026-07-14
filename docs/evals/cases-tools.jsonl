@@ -1,3 +1,10 @@
-{"id":"tool-search-1","mode":"html","deepThink":0,"query":"请使用联网搜索工具查一下并告诉我：Spring AI 项目当前的稳定大版本号大概是多少？","expect":["1.","Spring"],"expectTools":["deep_search","web_fetch"],"minToolCalls":1}
-{"id":"tool-search-2","mode":"html","deepThink":0,"query":"请联网搜索并总结：什么是 Model Context Protocol (MCP)？","expect":["MCP","协议","上下文","context"],"expectTools":["deep_search","web_fetch"],"minToolCalls":1}
-{"id":"plan-1","mode":"html","deepThink":1,"query":"制定一个用 Java 实现一个简单待办清单命令行程序的分步计划，并按计划推进。","expect":["计划","步骤","第一","任务"],"minToolCalls":1}
+{"id":"tool-search-1","suite":"tool","mode":"text","deepThink":0,"query":"请使用联网搜索工具查证 Spring AI 当前稳定大版本，并给出来源。","expect":["Spring AI","1."],"expectTools":["deep_search","web_fetch"],"minToolCalls":1}
+{"id":"tool-search-2","suite":"tool","mode":"text","deepThink":0,"query":"请联网搜索并简要说明 Model Context Protocol（MCP）的用途，并给出来源。","expect":["MCP","Model Context Protocol","上下文协议"],"expectTools":["deep_search","web_fetch"],"minToolCalls":1}
+{"id":"tool-fetch-1","suite":"tool","mode":"text","deepThink":0,"query":"请调用网页抓取工具读取 https://docs.spring.io/spring-ai/reference/ ，说明该页面是什么文档。","expect":["Spring AI","Reference"],"expectTools":["web_fetch"],"minToolCalls":1}
+{"id":"tool-code-1","suite":"tool","mode":"text","deepThink":0,"query":"必须调用代码执行工具计算 12、18、24、30、36 的平均值，只需报告结果。","expect":["24"],"expectTools":["code_interpreter"],"minToolCalls":1}
+{"id":"tool-code-2","suite":"tool","mode":"text","deepThink":0,"query":"必须调用代码执行工具计算 1²+2²+3²+4²+5²，并解释一行。","expect":["55"],"expectTools":["code_interpreter"],"minToolCalls":1}
+{"id":"tool-report-1","suite":"tool","mode":"docs","deepThink":0,"query":"生成一份很短的 Redis 分布式锁检查清单，必须调用报告工具产出 Markdown 文件。","expect":["Redis","分布式锁"],"expectTools":["report_tool"],"minToolCalls":1}
+{"id":"tool-file-1","suite":"tool","mode":"text","deepThink":0,"query":"必须调用文件工具创建 eval_note.md，内容为 evaluation artifact ready，然后告诉我文件名。","expect":["eval_note.md","eval_note"],"expectTools":["file_tool"],"minToolCalls":1}
+{"id":"tool-skill-1","suite":"tool","mode":"text","deepThink":0,"query":"请加载 chart-visualization Skill，并用一句话概括它适合什么任务。","expect":["chart-visualization","图表","可视化"],"expectTools":["skill_tool"],"minToolCalls":1}
+{"id":"plan-1","suite":"tool","mode":"text","deepThink":1,"query":"制定一个用 Java 实现命令行待办清单的分步计划，并按计划给出最小实现建议。","expect":["计划","步骤","Java"],"expectTools":["planning"],"minToolCalls":1}
+{"id":"plan-search-1","suite":"tool","mode":"text","deepThink":1,"query":"先规划，再联网查证 Qdrant 是否支持混合检索，并用两点总结结论和来源。","expect":["Qdrant","混合","hybrid"],"expectToolsAll":["planning","deep_search"],"minToolCalls":2}

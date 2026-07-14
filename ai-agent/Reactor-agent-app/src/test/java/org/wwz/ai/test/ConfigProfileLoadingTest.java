@@ -25,6 +25,12 @@ public class ConfigProfileLoadingTest {
             Assert.assertEquals("com.mysql.cj.jdbc.Driver",
                     context.getEnvironment().getProperty("spring.datasource.mysql.driver-class-name"));
             Assert.assertNotNull(context.getEnvironment().getProperty("spring.datasource.mysql.url"));
+            Assert.assertEquals("true",
+                    context.getEnvironment().getProperty("autobots.autoagent.skill.enabled"));
+            Assert.assertEquals("runtime/skills",
+                    context.getEnvironment().getProperty("autobots.autoagent.skill.directories[0]"));
+            Assert.assertEquals("75",
+                    context.getEnvironment().getProperty("autobots.autoagent.evaluator.score_threshold"));
         }
     }
 

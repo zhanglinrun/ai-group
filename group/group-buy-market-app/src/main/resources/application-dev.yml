@@ -148,3 +148,4 @@ logging:
 ai-group:
   internal:
     token: ${AI_GROUP_INTERNAL_TOKEN:ai-group-dev-internal-token-change-in-prod}
+    auth-enabled: ${AI_GROUP_INTERNAL_AUTH_ENABLED:true}

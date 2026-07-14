@@ -9,9 +9,6 @@ from fastapi import APIRouter, UploadFile, File, HTTPException, BackgroundTasks
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from reactor_tool.db.file_table_op import FileInfoOp, get_file_download_url, get_file_preview_url
-from reactor_tool.model.protocal import get_file_id
-
 from ...document import DocumentProcessor
 from ...enums.source_type_enums import SourceTypeEnum
 from ...enums.task_status_enums import TaskStatusEnum
@@ -21,7 +18,7 @@ from ...storage.models.kb_model import KBModel
 from ...storage.store_factory import get_kb_doc_store, get_kb_store, get_kb_file_store
 from ...utils import download_utils
 from ...utils.logger_utils import logger
-from ...utils.oss_utils import upload_oss
+from ...utils.minio_utils import is_minio_configured, upload_minio
 
 router = APIRouter(prefix="/documents", tags=["文档处理"])
 
@@ -71,37 +68,6 @@ def _resolve_file_extension(file: UploadFile) -> str:
         status_code=400,
         detail=f"不支持的文件类型: {content_type or file_extension or 'unknown'}。支持的类型: {_get_supported_extensions()}"
     )
-
-
-def _is_s3_configured() -> bool:
-    return all(
-        os.getenv(env_name, "").strip()
-        for env_name in ("S3_BUCKET_NAME", "S3_ACCESS_KEY", "S3_SECRET_KEY", "S3_ENDPOINT")
-    )
-
-
-async def _upload_to_local_file_storage(file: UploadFile, document_id: str, safe_filename: str):
-    """
-    直接复用本地文件服务的底层落盘逻辑，避免通过 HTTP 回调自身导致阻塞。
-    """
-    request_id = document_id
-    stored_filename = f"{document_id}_{safe_filename}"
-    original_filename = file.filename
-
-    await file.seek(0)
-    file.filename = stored_filename
-    try:
-        file_info = await FileInfoOp.add_by_file(
-            file=file,
-            file_id=get_file_id(request_id, stored_filename),
-            request_id=request_id
-        )
-    finally:
-        file.filename = original_filename
-
-    download_url = get_file_download_url(file_id=file_info.request_id, file_name=file_info.filename)
-    preview_url = get_file_preview_url(file_id=file_info.request_id, file_name=file_info.filename)
-    return download_url, preview_url, file_info.filename
 
 
 def _normalize_source_type(raw_source_type: Optional[str], title: Optional[str], file_url: Optional[str]) -> str:
@@ -206,85 +172,60 @@ async def upload_document(file: UploadFile = File(...)):
 
         upload_date = datetime.now()
 
-        if _is_s3_configured():
-            # 创建临时文件
-            with tempfile.NamedTemporaryFile(delete=False, suffix=file_extension) as temp_file:
-                temp_file.write(file_content)
-                temp_file_path = temp_file.name
+        if not is_minio_configured():
+            raise HTTPException(
+                status_code=500,
+                detail="MinIO 未配置：请设置 MINIO_ENDPOINT / MINIO_ACCESS_KEY / MINIO_SECRET_KEY",
+            )
 
-            logger.info(f"文件暂存到: {temp_file_path}")
-            try:
-                # 上传到OSS
-                # 使用日期作为目录结构: documents/YYYY/MM/DD/
-                oss_dir = f"documents/{upload_date.year:04d}/{upload_date.month:02d}/{upload_date.day:02d}"
+        with tempfile.NamedTemporaryFile(delete=False, suffix=file_extension) as temp_file:
+            temp_file.write(file_content)
+            temp_file_path = temp_file.name
 
-                logger.info(f"开始上传文档到OSS: {safe_filename}, 大小: {file_size} bytes")
+        logger.info(f"文件暂存到: {temp_file_path}")
+        try:
+            date_prefix = (
+                f"documents/{upload_date.year:04d}/{upload_date.month:02d}/{upload_date.day:02d}"
+            )
+            object_key = f"{date_prefix}/{document_id}/{safe_filename}"
 
-                success, permanent_url, presigned_url = upload_oss(
-                    file_path=temp_file_path,
-                    dir_=oss_dir,
-                    is_delete=False
-                )
+            logger.info(f"开始上传文档到 MinIO: {object_key}, 大小: {file_size} bytes")
 
-                if not success:
-                    raise HTTPException(status_code=500, detail="文件上传到OSS失败")
+            success, permanent_url, presigned_url, stored_object_key = upload_minio(
+                file_path=temp_file_path,
+                object_key=object_key,
+                is_delete=False,
+            )
 
-                logger.info(f"文档上传成功: {document_id}, 永久链接: {permanent_url}")
+            if not success or not stored_object_key:
+                raise HTTPException(status_code=500, detail="文件上传到 MinIO 失败")
 
-                return JSONResponse(
-                    status_code=200,
-                    content={
-                        "success": True,
-                        "message": "文档上传成功",
-                        "data": {
-                            "document_id": document_id,
-                            "filename": safe_filename,
-                            "original_filename": original_filename,
-                            "file_size": file_size,
-                            "content_type": file.content_type,
-                            "upload_time": upload_date.isoformat(),
-                            "permanent_url": permanent_url,
-                            "presigned_url": presigned_url,
-                            "preview_url": permanent_url,
-                            "storage_type": "s3",
-                            "oss_path": f"{oss_dir}/{safe_filename}"
-                        }
-                    }
-                )
-            finally:
-                if os.path.exists(temp_file_path):
-                    os.remove(temp_file_path)
+            logger.info(f"文档上传成功: {document_id}, 永久链接: {permanent_url}")
 
-        logger.info(f"S3 未配置，改用本地文件服务保存文档: {safe_filename}")
-        permanent_url, preview_url, stored_filename = await _upload_to_local_file_storage(
-            file=file,
-            document_id=document_id,
-            safe_filename=safe_filename
-        )
-
-        logger.info(f"文档上传成功: {document_id}, 本地访问链接: {permanent_url}")
-
-        return JSONResponse(
-            status_code=200,
-            content={
-                "success": True,
-                "message": "文档上传成功",
-                "data": {
-                    "document_id": document_id,
-                    "filename": safe_filename,
-                    "original_filename": original_filename,
-                    "stored_filename": stored_filename,
-                    "file_size": file_size,
-                    "content_type": file.content_type,
-                    "upload_time": upload_date.isoformat(),
-                    "permanent_url": permanent_url,
-                    "presigned_url": permanent_url,
-                    "preview_url": preview_url,
-                    "storage_type": "local",
-                    "oss_path": stored_filename
-                }
-            }
-        )
+            return JSONResponse(
+                status_code=200,
+                content={
+                    "success": True,
+                    "message": "文档上传成功",
+                    "data": {
+                        "document_id": document_id,
+                        "filename": safe_filename,
+                        "original_filename": original_filename,
+                        "file_size": file_size,
+                        "content_type": file.content_type,
+                        "upload_time": upload_date.isoformat(),
+                        "permanent_url": permanent_url,
+                        "presigned_url": presigned_url,
+                        "preview_url": permanent_url,
+                        "storage_type": "minio",
+                        "object_key": stored_object_key,
+                        "oss_path": stored_object_key,
+                    },
+                },
+            )
+        finally:
+            if os.path.exists(temp_file_path):
+                os.remove(temp_file_path)
 
     except HTTPException:
         raise

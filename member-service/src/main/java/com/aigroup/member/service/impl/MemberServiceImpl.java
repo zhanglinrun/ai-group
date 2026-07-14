@@ -139,7 +139,7 @@ public class MemberServiceImpl implements MemberService {
     @Transactional(rollbackFor = Exception.class)
     public Map<String, String> freeze(Long userId, String abilityCode, int multiplier, String requestId) {
         // 幂等：同一 requestId（agent 请求ID）重复预扣直接返回既有 freezeId，避免网络重试重复冻结导致配额泄漏。
-        // 顺序重试由此 SELECT 命中；极少数并发同 requestId 由 uk_user_request 唯一键 + 事务回滚兜底（不产生泄漏）。
+        // 顺序重试由此 SELECT 命中；并发同 requestId 在账户行锁后通过当前读再次检查。
         if (StringUtils.hasText(requestId)) {
             QuotaFreeze existing = quotaFreezeMapper.selectByUserIdAndRequestId(userId, requestId);
             if (existing != null) {
@@ -150,6 +150,15 @@ public class MemberServiceImpl implements MemberService {
         QuotaAccount locked = quotaAccountMapper.selectForUpdateByUserId(userId);
         if (locked == null) {
             throw new BusinessException(ErrorCodeEnum.MEMBER_NOT_FOUND);
+        }
+        if (StringUtils.hasText(requestId)) {
+            // MySQL 默认 REPEATABLE READ 下普通 SELECT 可能仍使用事务快照；这里必须用锁定当前读，
+            // 才能看见等待账户行锁期间由前一个事务提交的冻结记录并稳定复用 freezeId。
+            QuotaFreeze concurrentExisting = quotaFreezeMapper
+                    .selectForUpdateByUserIdAndRequestId(userId, requestId);
+            if (concurrentExisting != null) {
+                return Map.of("freezeId", concurrentExisting.getFreezeId());
+            }
         }
         int available = locked.getPeriodQuotaBalance() + locked.getTopupQuotaBalance() - locked.getFrozenBalance();
         if (available < cost) {

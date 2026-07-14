@@ -11,6 +11,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * run 级运行态上下文。
@@ -41,6 +42,26 @@ public class AgentRunState {
     @Builder.Default
     @ToString.Exclude
     private AtomicBoolean runFailedFlag = new AtomicBoolean(false);
+
+    /** Number of Plan-Solve quality gates executed for this run. */
+    @Builder.Default
+    @ToString.Exclude
+    private AtomicInteger evaluationCount = new AtomicInteger();
+
+    /** Number of evaluator-directed replans, excluding normal plan progression. */
+    @Builder.Default
+    @ToString.Exclude
+    private AtomicInteger targetedReplanCount = new AtomicInteger();
+
+    /** Conservative token estimate consumed by evaluation and replan feedback. */
+    @Builder.Default
+    @ToString.Exclude
+    private AtomicInteger reflectionTokenEstimate = new AtomicInteger();
+
+    /** Most recent quality score emitted by the evaluator. */
+    @Builder.Default
+    @ToString.Exclude
+    private AtomicReference<Integer> latestQualityScore = new AtomicReference<>();
 
     @Builder.Default
     @ToString.Exclude
@@ -73,6 +94,37 @@ public class AgentRunState {
      */
     public boolean isRunFailed() {
         return runFailedFlag.get();
+    }
+
+    public int recordEvaluation(int qualityScore, int reflectionTokens) {
+        latestQualityScore.set(Math.max(0, Math.min(100, qualityScore)));
+        if (reflectionTokens > 0) {
+            reflectionTokenEstimate.addAndGet(reflectionTokens);
+        }
+        return evaluationCount.incrementAndGet();
+    }
+
+    public int recordTargetedReplan(int reflectionTokens) {
+        if (reflectionTokens > 0) {
+            reflectionTokenEstimate.addAndGet(reflectionTokens);
+        }
+        return targetedReplanCount.incrementAndGet();
+    }
+
+    public int getEvaluationCountValue() {
+        return evaluationCount.get();
+    }
+
+    public int getTargetedReplanCountValue() {
+        return targetedReplanCount.get();
+    }
+
+    public int getReflectionTokenEstimateValue() {
+        return reflectionTokenEstimate.get();
+    }
+
+    public Integer getLatestQualityScoreValue() {
+        return latestQualityScore.get();
     }
 
     /**

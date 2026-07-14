@@ -5,6 +5,7 @@ import com.alibaba.fastjson.JSON;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
 import org.wwz.ai.domain.agent.runtime.dto.Message;
 import org.wwz.ai.domain.agent.runtime.dto.tool.ToolCall;
 import org.wwz.ai.domain.agent.runtime.dto.tool.ToolChoice;
@@ -29,10 +30,26 @@ import java.util.concurrent.CompletableFuture;
 @EqualsAndHashCode(callSuper = true)
 public class ExecutorAgent extends ReActAgent {
 
+    private static final String REQUIRED_TOOL_RETRY_PROMPT = """
+            Your previous response described a tool action in plain text but did not emit a Function Call.
+            Invoke one appropriate available tool now through the structured Function Calling protocol.
+            Do not simulate a tool call or observation in text.
+            """;
+    private static final String AUTO_TOOL_RETRY_PROMPT = """
+            Your previous response narrated a tool action without emitting a Function Call, so it produced no result.
+            Complete the current task now. No explicit tool use was requested: prefer a concrete final answer for
+            routine design, planning, or programming work. If external evidence is genuinely necessary, emit one
+            structured Function Call. Do not simulate a tool call or observation in text.
+            """;
+
     private List<ToolCall> toolCalls;
     private Integer maxObserve;
     private String systemPromptSnapshot;
     private String nextStepPromptSnapshot;
+    private List<Message> lastRunEvaluationMessages = new ArrayList<>();
+    private int evaluationMemoryStart;
+    private boolean explicitToolRequirementSatisfied;
+    private boolean currentRunExplicitToolRequirementSatisfied;
 
     private Integer taskId;
 
@@ -108,16 +125,21 @@ public class ExecutorAgent extends ReActAgent {
         try {
             // 获取带工具选项的响应
             log.info("{} executor ask tool {}", context.getRequestId(), JSON.toJSONString(availableTools));
+            ToolChoice toolChoice = resolveExecutorToolChoice();
             CompletableFuture<LLM.ToolCallResponse> future = getLlm().askTool(
                     context,
                     getMemory().getMessages(),
                     Message.systemMessage(getSystemPrompt(), null),
                     availableTools,
-                    ToolChoice.AUTO, null, false, 300
+                    toolChoice, null, false, 300
             );
 
-            LLM.ToolCallResponse response = future.get();
-            setToolCalls(response.getToolCalls());
+            LLM.ToolCallResponse response = retryUnexecutedToolIntent(future.get());
+            setToolCalls(response.getToolCalls() == null ? List.of() : response.getToolCalls());
+            if (!toolCalls.isEmpty()) {
+                explicitToolRequirementSatisfied = true;
+                currentRunExplicitToolRequirementSatisfied = true;
+            }
 
             // 记录响应信息
             if (response.getContent() != null && !response.getContent().trim().isEmpty()) {
@@ -155,20 +177,81 @@ public class ExecutorAgent extends ReActAgent {
         return true;
     }
 
+    private LLM.ToolCallResponse retryUnexecutedToolIntent(LLM.ToolCallResponse response) throws Exception {
+        if (!hasUnexecutedToolIntent(response) || toolUseIsProhibited()) {
+            return response;
+        }
+
+        List<Message> retryMessages = new ArrayList<>(getMemory().getMessages());
+        ToolChoice retryChoice = resolveTextualToolRetryChoice();
+        retryMessages.add(Message.assistantMessage(response.getContent(), null));
+        retryMessages.add(Message.userMessage(
+                retryChoice == ToolChoice.REQUIRED ? REQUIRED_TOOL_RETRY_PROMPT : AUTO_TOOL_RETRY_PROMPT,
+                null));
+        log.info("{} executor detected an unexecuted textual tool action; retrying once with tool choice {}",
+                context.getRequestId(), retryChoice);
+        LLM.ToolCallResponse retry = getLlm().askTool(
+                context,
+                retryMessages,
+                Message.systemMessage(getSystemPrompt(), null),
+                availableTools,
+                retryChoice,
+                null,
+                false,
+                300
+        ).get();
+        if (retry == null) {
+            return response;
+        }
+        boolean retryHasContent = StringUtils.isNotBlank(retry.getContent());
+        boolean retryHasTools = retry.getToolCalls() != null && !retry.getToolCalls().isEmpty();
+        return retryHasContent || retryHasTools ? retry : response;
+    }
+
+    private ToolChoice resolveTextualToolRetryChoice() {
+        String originalQuery = context == null ? "" : StringUtils.defaultString(context.getQuery());
+        String currentTask = context == null ? "" : StringUtils.defaultString(context.getTask());
+        return ExplicitToolChoicePolicy.resolve(originalQuery + "\n" + currentTask, 1);
+    }
+
+    private boolean hasUnexecutedToolIntent(LLM.ToolCallResponse response) {
+        if (response == null || response.getToolCalls() != null && !response.getToolCalls().isEmpty()
+                || StringUtils.isBlank(response.getContent()) || availableTools == null
+                || availableTools.getToolMap() == null || availableTools.getToolMap().isEmpty()) {
+            return false;
+        }
+        String normalized = response.getContent().toLowerCase(Locale.ROOT);
+        boolean hasAction = normalized.contains("行动：") || normalized.contains("行动:")
+                || normalized.contains("action:");
+        boolean finishes = normalized.contains("finish[") || normalized.contains("finish [");
+        boolean bracketedAction = normalized.contains("[") && normalized.contains("]");
+        return hasAction && bracketedAction && !finishes;
+    }
+
+    private boolean toolUseIsProhibited() {
+        String originalQuery = context == null ? "" : StringUtils.defaultString(context.getQuery());
+        String currentTask = context == null ? "" : StringUtils.defaultString(context.getTask());
+        return ExplicitToolChoicePolicy.prohibitsToolUse(originalQuery + "\n" + currentTask);
+    }
+
     @Override
     public String act() {
         if (toolCalls.isEmpty()) {
             ReactorConfig reactorConfig = requireRuntimeDependencies(context).requireReactorConfig();
             setState(AgentState.FINISHED);
+            Message lastMessage = getMemory().getLastMessage();
+            String executorResult = lastMessage == null ? "" : StringUtils.trimToEmpty(lastMessage.getContent());
+            captureEvaluationMessages();
             // 删除工具结果
             if ("1".equals(reactorConfig.getClearToolMessage())) {
                 getMemory().clearToolContext();
             }
-            // 返回固定话术
-            if (!reactorConfig.getTaskCompleteDesc().isEmpty()) {
-                return reactorConfig.getTaskCompleteDesc();
+            // 完成标记只用于提示 Planner 推进，不能覆盖 Executor 的真实步骤产物。
+            String completionMarker = StringUtils.trimToEmpty(reactorConfig.getTaskCompleteDesc());
+            if (StringUtils.isNotBlank(executorResult) && StringUtils.isNotBlank(completionMarker)) {
+                return executorResult + "\n\n" + completionMarker;
             }
-            return getMemory().getLastMessage().getContent();
+            return StringUtils.defaultIfBlank(executorResult, completionMarker);
         }
 
         Map<String, ToolExecutionOutcome> toolOutcomes = executeToolOutcomes(toolCalls);
@@ -208,7 +291,37 @@ public class ExecutorAgent extends ReActAgent {
         ReactorConfig reactorConfig = requireRuntimeDependencies(context).requireReactorConfig();
         request = reactorConfig.getTaskPrePrompt() + request;
         context.setTask(request);
-        return super.run(request);
+        evaluationMemoryStart = getMemory().size();
+        lastRunEvaluationMessages = new ArrayList<>();
+        currentRunExplicitToolRequirementSatisfied = false;
+        try {
+            return super.run(request);
+        } finally {
+            if (lastRunEvaluationMessages.isEmpty()) {
+                captureEvaluationMessages();
+            }
+        }
+    }
+
+    private void captureEvaluationMessages() {
+        List<Message> messages = getMemory().getMessages();
+        int start = Math.max(0, Math.min(evaluationMemoryStart, messages.size()));
+        lastRunEvaluationMessages = new ArrayList<>(messages.subList(start, messages.size()));
+    }
+
+    protected ToolChoice resolveExecutorToolChoice() {
+        if (currentRunExplicitToolRequirementSatisfied) {
+            return ToolChoice.AUTO;
+        }
+        String originalQuery = context == null ? "" : StringUtils.defaultString(context.getQuery());
+        String currentTask = context == null ? "" : StringUtils.defaultString(context.getTask());
+        ToolChoice currentTaskChoice = ExplicitToolChoicePolicy.resolve(currentTask, 1);
+        if (currentTaskChoice == ToolChoice.REQUIRED) {
+            return ExplicitToolChoicePolicy.resolve(originalQuery + "\n" + currentTask, 1);
+        }
+        return explicitToolRequirementSatisfied
+                ? ToolChoice.AUTO
+                : ExplicitToolChoicePolicy.resolve(originalQuery + "\n" + currentTask, 1);
     }
 
     @Override

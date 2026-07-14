@@ -1,0 +1,33 @@
+{
+  "schemaVersion" : 1,
+  "generatedAt" : "2026-07-13T10:03:14.093562500Z",
+  "benchmarkType" : "local-mysql-integration",
+  "environment" : {
+    "os" : "Windows 11 10.0",
+    "architecture" : "amd64",
+    "java" : "21.0.11",
+    "processors" : 12,
+    "database" : "MySQL 8.0.32"
+  },
+  "dataset" : {
+    "concurrentDuplicateFreezeRequests" : 100,
+    "abandonedFreezeFaults" : 50,
+    "concurrentUniqueFreezeRequests" : 100,
+    "concurrentDuplicateConfirmRequests" : 100
+  },
+  "results" : {
+    "uniqueFreezeSuccessRatePct" : 100.0,
+    "uniqueFreezeLatencyP99Ms" : 1949,
+    "duplicateFreezeSuccessRatePct" : 100.0,
+    "duplicateFreezeLatencyP99Ms" : 59,
+    "duplicateConfirmSuccessRatePct" : 100.0,
+    "duplicateConfirmLatencyP99Ms" : 94,
+    "distinctFreezeIdsForDuplicateRequest" : 1,
+    "confirmLedgerRows" : 1,
+    "duplicateDeductions" : 0,
+    "expiredFreezeReleaseSuccessRatePct" : 100.0,
+    "expiredFreezeRecoveryDurationMs" : 873,
+    "finalFrozenBalance" : 0
+  },
+  "methodology" : "Calls the transactional MemberService proxy against an isolated MySQL schema. Concurrent phases share one account to exercise row locks and the (user_id, request_id) unique guard. The production ExpiredFreezeReleaseJob is invoked after aging abandoned rows."
+}

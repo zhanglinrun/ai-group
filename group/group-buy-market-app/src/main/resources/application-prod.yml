@@ -144,3 +144,8 @@ logging:
   level:
     root: info
   config: classpath:logback-spring.xml
+
+ai-group:
+  internal:
+    token: ${AI_GROUP_INTERNAL_TOKEN}
+    auth-enabled: ${AI_GROUP_INTERNAL_AUTH_ENABLED:true}

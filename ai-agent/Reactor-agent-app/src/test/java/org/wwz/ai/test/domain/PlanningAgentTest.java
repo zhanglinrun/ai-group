@@ -191,6 +191,39 @@ public class PlanningAgentTest {
     }
 
     @Test
+    public void shouldRetryRejectedCompatibilityStepWithoutAdvancingPlan() {
+        RecordingPrinter printer = new RecordingPrinter();
+        PlanningAgent agent = newPlanningAgent("1", printer);
+        agent.setToolCalls(List.of());
+        PlanningTool tool = agent.getPlanningTool();
+
+        tool.execute(command(
+                "command", "create",
+                "title", "定向重规划",
+                "steps", List.of("核验当前步骤", "执行下一步骤")
+        ));
+        Assert.assertEquals("核验当前步骤", agent.act());
+
+        String retryTask = agent.retryCurrentTask(
+                "[EVALUATOR_REPLAN]\nFailed dimensions: 缺少工具证据\nRequired correction: 补充官方来源");
+
+        Assert.assertTrue(retryTask.contains("核验当前步骤"));
+        Assert.assertTrue(retryTask.contains("补充官方来源"));
+        Assert.assertEquals("核验当前步骤", tool.getPlan().getCurrentStep());
+        Assert.assertEquals(List.of("in_progress", "not_started"), tool.getPlan().getStepStatus());
+        Assert.assertTrue(tool.getPlan().getNotes().get(0).contains("缺少工具证据"));
+        Assert.assertEquals("retry_step", tool.getLastStructuredOutput().getCommand());
+
+        List<String> taskEvents = printer.events.stream()
+                .filter(event -> "task".equals(event.messageType))
+                .map(event -> String.valueOf(event.message))
+                .toList();
+        Assert.assertEquals(2, taskEvents.size());
+        Assert.assertEquals("核验当前步骤", taskEvents.get(0));
+        Assert.assertTrue(taskEvents.get(1).contains("补充官方来源"));
+    }
+
+    @Test
     public void shouldNotRedispatchCurrentTaskWhenPlanningToolCallFails() {
         RecordingPrinter printer = new RecordingPrinter();
         PlanningAgent agent = newPlanningAgent("0", printer);

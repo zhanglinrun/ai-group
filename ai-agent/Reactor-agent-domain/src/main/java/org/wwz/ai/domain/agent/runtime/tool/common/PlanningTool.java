@@ -251,6 +251,31 @@ public class PlanningTool implements BaseTool {
         return lastStructuredOutput;
     }
 
+    /**
+     * 记录 Evaluator 驱动的当前步骤重试，但不把失败步骤标记为完成或推进计划。
+     */
+    public PlanningToolOutput retryCurrentStepAndCapture(String correctionNote) {
+        if (plan == null) {
+            throw new IllegalStateException("No plan exists. Create a plan first.");
+        }
+        Integer currentStepIndex = plan.getCurrentStepIndex();
+        if (currentStepIndex == null) {
+            throw new IllegalStateException("No in-progress step is available for targeted retry.");
+        }
+
+        Plan beforePlan = snapshot(plan);
+        plan.updateStepStatus(currentStepIndex, "in_progress", correctionNote);
+        PlanLifecycleResult result = PlanLifecycleResult.builder()
+                .plan(plan)
+                .currentStep(plan.getCurrentStep())
+                .currentStepIndex(currentStepIndex)
+                .autoAdvanced(Boolean.FALSE)
+                .autoFinished(Boolean.FALSE)
+                .build();
+        lastStructuredOutput = buildStructuredOutput("retry_step", beforePlan, result);
+        return lastStructuredOutput;
+    }
+
 
     public String getFormatPlan() {
         if (plan == null) {
@@ -329,5 +354,4 @@ public class PlanningTool implements BaseTool {
         return agentContext.getRuntimeDependencies().requireReactorConfig();
     }
 }
-
 

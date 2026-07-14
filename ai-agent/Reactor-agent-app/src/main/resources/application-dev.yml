@@ -81,6 +81,17 @@ autobots:
   autoagent:
     planner:
       model_name: ${AGENT_GROUP_LLM_CHAT_MODEL:qwen-plus}
+    evaluator:
+      enabled: ${AGENT_EVALUATOR_ENABLED:true}
+      llm_judge_enabled: ${AGENT_EVALUATOR_LLM_JUDGE_ENABLED:true}
+      model_name: ${AGENT_EVALUATOR_MODEL:${AGENT_GROUP_LLM_CHAT_MODEL:qwen-plus}}
+      score_threshold: ${AGENT_EVALUATOR_SCORE_THRESHOLD:75}
+      max_replan_rounds: ${AGENT_EVALUATOR_MAX_REPLAN_ROUNDS:2}
+      reflection_token_budget: ${AGENT_EVALUATOR_REFLECTION_TOKEN_BUDGET:6000}
+      judge_timeout_seconds: ${AGENT_EVALUATOR_TIMEOUT_SECONDS:60}
+      max_input_chars: ${AGENT_EVALUATOR_MAX_INPUT_CHARS:12000}
+      max_judge_response_tokens: ${AGENT_EVALUATOR_MAX_RESPONSE_TOKENS:600}
+      temperature: ${AGENT_EVALUATOR_TEMPERATURE:0.0}
     executor:
       model_name: ${AGENT_GROUP_LLM_CHAT_MODEL:qwen-plus}
     react:
@@ -112,7 +123,19 @@ autobots:
         score-threshold: ${AGENT_MEMORY_LONGTERM_SCORE_THRESHOLD:0.6}
         # 召回时间衰减半衰期（天），越久的记忆得分权重越低（遗忘机制）
         decay-half-life-days: ${AGENT_MEMORY_LONGTERM_DECAY_HALF_LIFE_DAYS:30}
+    skill:
+      enabled: ${AGENT_SKILLS_ENABLED:true}
+      directories:
+        - ${AGENT_SKILLS_DIRECTORY:runtime/skills}
+      react-enabled: ${AGENT_SKILLS_REACT_ENABLED:true}
+      plan-solve-enabled: ${AGENT_SKILLS_PLAN_SOLVE_ENABLED:true}
+      max-read-chars: ${AGENT_SKILLS_MAX_READ_CHARS:12000}
+      max-list-entries: ${AGENT_SKILLS_MAX_LIST_ENTRIES:200}
+      max-glob-results: ${AGENT_SKILLS_MAX_GLOB_RESULTS:100}
+      max-grep-matches: ${AGENT_SKILLS_MAX_GREP_MATCHES:100}
+      default-script-timeout-seconds: ${AGENT_SKILLS_SCRIPT_TIMEOUT_SECONDS:120}
     dispatch_url: ${AGENT_GROUP_AGENT_DISPATCH_URL:http://127.0.0.1:8090/AutoAgent}
+    knowledge_url: ${AGENT_GROUP_REACTOR_TOOL_BASE_URL:http://127.0.0.1:1601}
     code_interpreter_url: ${AGENT_GROUP_REACTOR_TOOL_BASE_URL:http://127.0.0.1:1601}
     deep_search_url: ${AGENT_GROUP_REACTOR_TOOL_BASE_URL:http://127.0.0.1:1601}
     web_fetch_url: ${AGENT_GROUP_REACTOR_TOOL_BASE_URL:http://127.0.0.1:1601}
@@ -132,11 +155,6 @@ agent:
   group:
     rabbit:
       enabled: ${AGENT_GROUP_RABBIT_ENABLED:false}
-    minio:
-      endpoint: ${S3_ENDPOINT:http://127.0.0.1:9000}
-      access-key: ${S3_ACCESS_KEY:minioadmin}
-      secret-key: ${S3_SECRET_KEY:minioadmin}
-      bucket-name: ${S3_BUCKET_NAME:mrag}
     reactor-tool:
       enabled: ${AGENT_GROUP_REACTOR_TOOL_ENABLED:true}
       base-url: ${AGENT_GROUP_REACTOR_TOOL_BASE_URL:http://127.0.0.1:1601}
@@ -150,10 +168,6 @@ mineru:
 grsai:
   nanobanana:
     api-key: ${GRSAI_NANOBANANA_API_KEY:}
-
-skills:
-  directory: runtime/skills
-  output-directory: outputs
 
 mybatis-plus:
   mapper-locations: classpath*:/mybatis/mapper/*.xml

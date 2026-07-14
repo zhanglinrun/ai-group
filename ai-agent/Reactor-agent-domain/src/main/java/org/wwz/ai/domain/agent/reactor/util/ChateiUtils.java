@@ -7,9 +7,15 @@ import org.wwz.ai.domain.agent.reactor.model.dto.AutoBotsResult;
 import org.wwz.ai.domain.agent.reactor.model.req.AgentRequest;
 import org.wwz.ai.domain.agent.reactor.model.req.GptQueryReq;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
+
 public class ChateiUtils {
     public static final String SOURCE_MOBILE = "mobile";
     public static final String SOURCE_PC = "pc";
+    private static final int MAX_REQUEST_ID_LENGTH = 64;
     private static final String NO_ANSWER = "哎呀，超出我的知识领域了，换个问题试试吧";
 
     public static String getRequestId(GptQueryReq request) {
@@ -17,11 +23,24 @@ public class ChateiUtils {
     }
 
     public static String getRequestId(String erp, String traceId, String reqId) {
-        erp = StringUtils.isNotEmpty(erp) ? erp.toLowerCase() : erp;
+        erp = StringUtils.defaultString(erp).toLowerCase();
+        traceId = StringUtils.defaultString(traceId);
+        reqId = StringUtils.defaultString(reqId);
+        String requestId;
         if (ChineseCharacterCounter.hasChineseCharacters(erp)) {
-            return traceId + ":" + reqId;
+            requestId = traceId + ":" + reqId;
         } else {
-            return erp + traceId + ":" + reqId;
+            requestId = erp + traceId + ":" + reqId;
+        }
+        return requestId.length() <= MAX_REQUEST_ID_LENGTH ? requestId : sha256(requestId);
+    }
+
+    private static String sha256(String value) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            return HexFormat.of().formatHex(digest.digest(value.getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 is unavailable", e);
         }
     }
     public static AutoBotsResult toAutoBotsResult(AgentRequest request, String status) {

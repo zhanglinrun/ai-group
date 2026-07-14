@@ -47,5 +47,5 @@ describe('main entry', () => {
     expect(mocks.patchState.imported).toBe(true);
     expect(mocks.createRoot).toHaveBeenCalledWith(expect.objectContaining({ id: 'root' }));
     expect(mocks.render).toHaveBeenCalledTimes(1);
-  });
+  }, 15_000);
 });

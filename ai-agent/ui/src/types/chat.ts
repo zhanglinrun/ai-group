@@ -29,6 +29,14 @@ declare global {
         totalTokens?: number;
         /** 本轮耗时（毫秒）。 */
         durationMs?: number;
+        /** Plan-Solve 质量门执行次数。 */
+        evaluationCount?: number;
+        /** Evaluator 定向重规划次数，不包含普通计划推进。 */
+        replanCount?: number;
+        /** 质量评估与反馈消耗的保守 token 估算。 */
+        reflectionTokens?: number;
+        /** 最近一轮质量评估分数（0-100）。 */
+        qualityScore?: number;
       };
         startedAt?: string;
         finishedAt?: string;

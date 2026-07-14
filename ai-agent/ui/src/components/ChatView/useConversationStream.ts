@@ -678,6 +678,7 @@ export function useConversationStream(
       }
 
       const isPlanThoughtEvent = eventData.messageType === 'plan_thought';
+      const isEvaluationEvent = eventData.resultMap?.messageType === 'evaluation';
       const isPlanThoughtFinal = Boolean(eventData.resultMap?.isFinal || finished);
       currentChat = combineData(eventData, currentChat);
       // 实时收到最终 result 时，优先用结构化结果覆盖掉临时 agent_stream 结论，
@@ -692,7 +693,7 @@ export function useConversationStream(
         const latestThought = currentChat.thought || currentChat.multiAgent.plan_thought || '';
         scheduleStreamingThought(currentChat.requestId, latestThought, isPlanThoughtFinal);
       }
-      if (!isPlanThoughtEvent) {
+      if (!isPlanThoughtEvent && !isEvaluationEvent) {
         taskDataDirty = true;
       }
       if (finished) {

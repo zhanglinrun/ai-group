@@ -1,61 +1,51 @@
 package org.wwz.ai.trigger.job;
 
-import org.wwz.ai.domain.agent.model.entity.ExecuteCommandEntity;
-import org.wwz.ai.domain.agent.model.valobj.AiAgentTaskScheduleVO;
-import org.wwz.ai.application.agent.dispatch.IAgentDispatchService;
-import org.wwz.ai.application.agent.task.ITaskService;
-import org.wwz.ai.types.job.model.TaskScheduleVO;
-import org.wwz.ai.types.job.provider.ITaskDataProvider;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import org.springframework.web.servlet.mvc.method.annotation.ResponseBodyEmitter;
+import org.wwz.ai.application.agent.task.ITaskService;
+import org.wwz.ai.application.agent.task.ScheduledAgentTaskExecutor;
+import org.wwz.ai.domain.agent.model.valobj.AiAgentTaskScheduleVO;
+import org.wwz.ai.types.job.model.TaskScheduleVO;
+import org.wwz.ai.types.job.provider.ITaskDataProvider;
 
-import javax.annotation.Resource;
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 智能体任务
-
- * 2025/9/13 15:52
+ * 智能体定时任务数据提供者：把有效调度绑定到可执行逻辑。
  */
 @Slf4j
 @Service
+@RequiredArgsConstructor
 public class AgentTaskJob implements ITaskDataProvider {
 
-    @Resource
-    private ITaskService taskService;
-
-    @Resource
-    private IAgentDispatchService dispatchService;
+    private final ITaskService taskService;
+    private final ScheduledAgentTaskExecutor scheduledAgentTaskExecutor;
 
     @Override
     public List<TaskScheduleVO> queryAllValidTaskSchedule() {
-        List<AiAgentTaskScheduleVO> aiAgentTaskScheduleVOS = taskService.queryAllValidTaskSchedule();
+        List<AiAgentTaskScheduleVO> schedules = taskService.queryAllValidTaskSchedule();
         List<TaskScheduleVO> result = new ArrayList<>();
-        for (AiAgentTaskScheduleVO aiAgentTaskScheduleVO : aiAgentTaskScheduleVOS) {
+        if (schedules == null || schedules.isEmpty()) {
+            return result;
+        }
+        for (AiAgentTaskScheduleVO schedule : schedules) {
+            if (!scheduledAgentTaskExecutor.isSchedulable(schedule)) {
+                log.warn("跳过非法定时任务配置 id={} agentId={} cron={} taskParamBlank={}",
+                        schedule == null ? null : schedule.getId(),
+                        schedule == null ? null : schedule.getAgentId(),
+                        schedule == null ? null : schedule.getCronExpression(),
+                        schedule == null || schedule.getTaskParam() == null || schedule.getTaskParam().isBlank());
+                continue;
+            }
             TaskScheduleVO taskScheduleVO = new TaskScheduleVO();
-            taskScheduleVO.setId(aiAgentTaskScheduleVO.getId());
-            taskScheduleVO.setDescription(aiAgentTaskScheduleVO.getDescription());
-            taskScheduleVO.setCronExpression(aiAgentTaskScheduleVO.getCronExpression());
-            taskScheduleVO.setTaskParam(aiAgentTaskScheduleVO.getTaskParam());
-
-            //TODO分发逻辑改变导致的
-
-//            taskScheduleVO.setTaskLogic(() -> {
-//                try {
-//                    dispatchService.dispatch(
-//                            ExecuteCommandEntity.builder()
-//                                    .aiAgentId(aiAgentTaskScheduleVO.getAgentId())
-//                                    .sessionId(String.valueOf(System.nanoTime()))
-//                                    .maxStep(1)
-//                                    .build(), new ResponseBodyEmitter());
-//                } catch (Exception e) {
-//                    log.error("任务执行失败", e);
-//                }
-//
-//            });
-
+            taskScheduleVO.setId(schedule.getId());
+            taskScheduleVO.setDescription(schedule.getDescription());
+            taskScheduleVO.setCronExpression(schedule.getCronExpression());
+            taskScheduleVO.setTaskParam(schedule.getTaskParam());
+            taskScheduleVO.setTaskLogic((taskId, taskParam) ->
+                    scheduledAgentTaskExecutor.execute(schedule, taskParam));
             result.add(taskScheduleVO);
         }
         return result;
@@ -65,5 +55,4 @@ public class AgentTaskJob implements ITaskDataProvider {
     public List<Long> queryAllInvalidTaskScheduleIds() {
         return taskService.queryAllInvalidTaskScheduleIds();
     }
-
 }

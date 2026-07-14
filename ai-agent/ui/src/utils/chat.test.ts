@@ -4,6 +4,7 @@ import {
   buildAction,
   buildConversationTaskData,
   combineData,
+  extractRunMetrics,
   getStableTaskIdentity,
   handleTaskData,
 } from './chat';
@@ -11,6 +12,30 @@ import { buildDeepSearchPreviewModel, shouldRenderDeepSearchWorkspace } from './
 import { getPrimaryTaskFile } from './taskArtifacts';
 
 type DeepSearchStage = 'extend' | 'search' | 'report';
+
+describe('run metrics', () => {
+  it('extracts evaluator metrics from the final result frame', () => {
+    expect(
+      extractRunMetrics({
+        metrics: {
+          modelName: 'gpt-test',
+          durationMs: 1234,
+          evaluationCount: 2,
+          replanCount: 1,
+          reflectionTokens: 860,
+          qualityScore: 92,
+        },
+      }),
+    ).toEqual({
+      modelName: 'gpt-test',
+      durationMs: 1234,
+      evaluationCount: 2,
+      replanCount: 1,
+      reflectionTokens: 860,
+      qualityScore: 92,
+    });
+  });
+});
 
 function createDoc(link: string, title: string, content: string): MESSAGE.Doc {
   return {

@@ -241,6 +241,9 @@ public class BaseAgentResponseHandler {
                     if (agentResponse.getResultMap().containsKey("fileList")) {
                         payload.put("fileList", agentResponse.getResultMap().get("fileList"));
                     }
+                    if (agentResponse.getResultMap().containsKey("metrics")) {
+                        payload.put("metrics", agentResponse.getResultMap().get("metrics"));
+                    }
                 }
                 break;
             default:

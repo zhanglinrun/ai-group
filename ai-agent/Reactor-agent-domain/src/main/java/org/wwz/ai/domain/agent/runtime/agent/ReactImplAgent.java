@@ -165,7 +165,7 @@ public class ReactImplAgent extends ReActAgent {
                     getMemory().getMessages(),// 对话历史（记忆中的所有消息）
                     Message.systemMessage(getSystemPrompt(), null), // 系统提示词消息
                     availableTools,           // 可用工具集合（供大模型选择）
-                    ToolChoice.AUTO,          // 工具选择策略：自动（由大模型决策是否调用工具）
+                    ExplicitToolChoicePolicy.resolve(context.getQuery(), getCurrentStep()),
                     null,                     // 自定义温度系数（使用LLM实例默认值）
                     context.getIsStream(),    // 是否流式响应（true=流式，false=非流式）
                     300                       // 超时时间（300秒）

@@ -9,6 +9,7 @@ package org.wwz.ai.domain.agent.runtime.agent;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
 import org.wwz.ai.domain.agent.ledger.model.ExecutionLedgerConstants;
 import org.wwz.ai.domain.agent.ledger.model.LlmInvocationFinishRecord;
 import org.wwz.ai.domain.agent.ledger.model.LlmInvocationStartRecord;
@@ -110,6 +111,8 @@ public class PlanningAgent extends ReActAgent {
      * planner 单次 askTool 超时（秒），来自配置，避免此前硬编码 3000 秒占用线程近一小时。
      */
     private int askToolTimeoutSeconds = 300;
+
+    private static final int TARGETED_REPLAN_NOTE_MAX_LEN = 1200;
 
     /**
      * 构造方法：初始化计划智能体的核心配置
@@ -381,6 +384,34 @@ public class PlanningAgent extends ReActAgent {
         }
         // 调用父类ReActAgent的run方法：触发think()→act()的循环执行
         return super.run(request);
+    }
+
+    /**
+     * Evaluator 拒绝当前步骤后原地重做。该入口只补充纠错要求，不完成当前步骤，
+     * 避免 close_update 兼容顺推把失败步骤错误推进到下一步。
+     */
+    public String retryCurrentTask(String correction) {
+        if (planningTool.getPlan() == null || planningTool.getPlan().getCurrentStepIndex() == null) {
+            throw new IllegalStateException("targeted replan requires an in-progress plan step");
+        }
+        String normalizedCorrection = StringUtils.abbreviate(
+                StringUtils.trimToEmpty(correction), TARGETED_REPLAN_NOTE_MAX_LEN);
+        if (normalizedCorrection.isEmpty()) {
+            throw new IllegalArgumentException("targeted replan correction cannot be blank");
+        }
+
+        String currentTask = planningTool.getPlan().getCurrentStep();
+        planningTool.retryCurrentStepAndCapture(normalizedCorrection);
+        String correctedTasks = Arrays.stream(currentTask.split("<sep>"))
+                .map(task -> task + "\n\n" + normalizedCorrection)
+                .collect(java.util.stream.Collectors.joining("<sep>"));
+
+        setState(AgentState.FINISHED);
+        printer.sendWithResultMap("plan", planningTool.getPlan(), buildPlannerRoundResultMap());
+        Arrays.stream(correctedTasks.split("<sep>"))
+                .forEach(task -> printer.send("task", task));
+        lastDispatchedTask = currentTask;
+        return correctedTasks;
     }
 
     /**

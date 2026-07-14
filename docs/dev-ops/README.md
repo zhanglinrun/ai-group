@@ -101,7 +101,7 @@ cd docs/dev-ops
 `smoke-benefit-event.ps1`：模拟成团 MQ 事件 → 验证 Pro 开通与配额发放（无需支付宝沙箱）。  
 `smoke-benefit-revoke.ps1`：模拟成团 → 退款撤销 MQ → 验证降级 FREE + 20 点。
 
-Gateway 统一入口（含 SSE `/web/**`）；本地可用 `application-local.yml` 关闭 Nacos 并使用固定端口。内部服务调用需 `AI_GROUP_INTERNAL_TOKEN`（与 `ai-group.internal.token` 一致）。
+Gateway 统一入口（含 SSE `/web/**`）；本地可用 `application-local.yml` 关闭 Nacos 并使用固定端口。内部服务调用需 `AI_GROUP_INTERNAL_TOKEN`（与 `ai-group.internal.token` 一致）。group 的 `/api/v1/gbm/trade/**` 默认开启内部鉴权（`AI_GROUP_INTERNAL_AUTH_ENABLED=true`），仅接受正式 pay→group 调用；旧静态演示页匿名直连不再受支持。临时回滚可设 `AI_GROUP_INTERNAL_AUTH_ENABLED=false`。
 
 ### 内部回调拓扑（group → pay 成团通知）
 

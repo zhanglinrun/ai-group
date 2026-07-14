@@ -1,0 +1,275 @@
+{
+  "schemaVersion" : 1,
+  "generatedAt" : "2026-07-13T10:25:36.933878200Z",
+  "benchmarkType" : "offline-deterministic",
+  "environment" : {
+    "os" : "Windows 11 10.0",
+    "architecture" : "amd64",
+    "java" : "21.0.11",
+    "processors" : 12
+  },
+  "tokenMetric" : {
+    "providerReportedUsage" : false,
+    "kind" : "estimator",
+    "encoding" : "o200k_base",
+    "note" : "Used only for same-dataset prompt-size comparison; production usage comes from llm_invocation."
+  },
+  "memory" : {
+    "dataset" : {
+      "keyFacts" : 30,
+      "recentRunsKeptVerbatim" : 3,
+      "productionCharacterBudget" : 12000,
+      "continuousConversationTurns" : 30
+    },
+    "hardTruncationBaseline" : {
+      "averageKeyFactRecallRatePct" : 65.0,
+      "averageEstimatedInputTokens" : 1785
+    },
+    "rollingSummaryStrategy" : {
+      "averageKeyFactRecallRatePct" : 100.0,
+      "averageEstimatedInputTokens" : 1143
+    },
+    "delta" : {
+      "recallRatePercentagePoints" : 35.0,
+      "estimatedInputTokenReductionPct" : 36.0
+    },
+    "samples" : [ {
+      "rollingEstimatedTokens" : 235,
+      "rollingRecallRatePct" : 100.0,
+      "pastTurns" : 1,
+      "baselineEstimatedTokens" : 235,
+      "baselineRecallRatePct" : 100.0
+    }, {
+      "rollingEstimatedTokens" : 463,
+      "rollingRecallRatePct" : 100.0,
+      "pastTurns" : 2,
+      "baselineEstimatedTokens" : 463,
+      "baselineRecallRatePct" : 100.0
+    }, {
+      "rollingEstimatedTokens" : 691,
+      "rollingRecallRatePct" : 100.0,
+      "pastTurns" : 3,
+      "baselineEstimatedTokens" : 691,
+      "baselineRecallRatePct" : 100.0
+    }, {
+      "rollingEstimatedTokens" : 738,
+      "rollingRecallRatePct" : 100.0,
+      "pastTurns" : 4,
+      "baselineEstimatedTokens" : 919,
+      "baselineRecallRatePct" : 100.0
+    }, {
+      "rollingEstimatedTokens" : 775,
+      "rollingRecallRatePct" : 100.0,
+      "pastTurns" : 5,
+      "baselineEstimatedTokens" : 1147,
+      "baselineRecallRatePct" : 100.0
+    }, {
+      "rollingEstimatedTokens" : 812,
+      "rollingRecallRatePct" : 100.0,
+      "pastTurns" : 6,
+      "baselineEstimatedTokens" : 1375,
+      "baselineRecallRatePct" : 100.0
+    }, {
+      "rollingEstimatedTokens" : 849,
+      "rollingRecallRatePct" : 100.0,
+      "pastTurns" : 7,
+      "baselineEstimatedTokens" : 1603,
+      "baselineRecallRatePct" : 100.0
+    }, {
+      "rollingEstimatedTokens" : 886,
+      "rollingRecallRatePct" : 100.0,
+      "pastTurns" : 8,
+      "baselineEstimatedTokens" : 1831,
+      "baselineRecallRatePct" : 100.0
+    }, {
+      "rollingEstimatedTokens" : 923,
+      "rollingRecallRatePct" : 100.0,
+      "pastTurns" : 9,
+      "baselineEstimatedTokens" : 2059,
+      "baselineRecallRatePct" : 100.0
+    }, {
+      "rollingEstimatedTokens" : 960,
+      "rollingRecallRatePct" : 100.0,
+      "pastTurns" : 10,
+      "baselineEstimatedTokens" : 2059,
+      "baselineRecallRatePct" : 90.0
+    }, {
+      "rollingEstimatedTokens" : 997,
+      "rollingRecallRatePct" : 100.0,
+      "pastTurns" : 11,
+      "baselineEstimatedTokens" : 2059,
+      "baselineRecallRatePct" : 81.8
+    }, {
+      "rollingEstimatedTokens" : 1034,
+      "rollingRecallRatePct" : 100.0,
+      "pastTurns" : 12,
+      "baselineEstimatedTokens" : 2059,
+      "baselineRecallRatePct" : 75.0
+    }, {
+      "rollingEstimatedTokens" : 1071,
+      "rollingRecallRatePct" : 100.0,
+      "pastTurns" : 13,
+      "baselineEstimatedTokens" : 2059,
+      "baselineRecallRatePct" : 69.2
+    }, {
+      "rollingEstimatedTokens" : 1108,
+      "rollingRecallRatePct" : 100.0,
+      "pastTurns" : 14,
+      "baselineEstimatedTokens" : 2059,
+      "baselineRecallRatePct" : 64.3
+    }, {
+      "rollingEstimatedTokens" : 1145,
+      "rollingRecallRatePct" : 100.0,
+      "pastTurns" : 15,
+      "baselineEstimatedTokens" : 2059,
+      "baselineRecallRatePct" : 60.0
+    }, {
+      "rollingEstimatedTokens" : 1182,
+      "rollingRecallRatePct" : 100.0,
+      "pastTurns" : 16,
+      "baselineEstimatedTokens" : 2059,
+      "baselineRecallRatePct" : 56.3
+    }, {
+      "rollingEstimatedTokens" : 1219,
+      "rollingRecallRatePct" : 100.0,
+      "pastTurns" : 17,
+      "baselineEstimatedTokens" : 2059,
+      "baselineRecallRatePct" : 52.9
+    }, {
+      "rollingEstimatedTokens" : 1256,
+      "rollingRecallRatePct" : 100.0,
+      "pastTurns" : 18,
+      "baselineEstimatedTokens" : 2059,
+      "baselineRecallRatePct" : 50.0
+    }, {
+      "rollingEstimatedTokens" : 1293,
+      "rollingRecallRatePct" : 100.0,
+      "pastTurns" : 19,
+      "baselineEstimatedTokens" : 2059,
+      "baselineRecallRatePct" : 47.4
+    }, {
+      "rollingEstimatedTokens" : 1330,
+      "rollingRecallRatePct" : 100.0,
+      "pastTurns" : 20,
+      "baselineEstimatedTokens" : 2059,
+      "baselineRecallRatePct" : 45.0
+    }, {
+      "rollingEstimatedTokens" : 1367,
+      "rollingRecallRatePct" : 100.0,
+      "pastTurns" : 21,
+      "baselineEstimatedTokens" : 2059,
+      "baselineRecallRatePct" : 42.9
+    }, {
+      "rollingEstimatedTokens" : 1404,
+      "rollingRecallRatePct" : 100.0,
+      "pastTurns" : 22,
+      "baselineEstimatedTokens" : 2059,
+      "baselineRecallRatePct" : 40.9
+    }, {
+      "rollingEstimatedTokens" : 1441,
+      "rollingRecallRatePct" : 100.0,
+      "pastTurns" : 23,
+      "baselineEstimatedTokens" : 2059,
+      "baselineRecallRatePct" : 39.1
+    }, {
+      "rollingEstimatedTokens" : 1478,
+      "rollingRecallRatePct" : 100.0,
+      "pastTurns" : 24,
+      "baselineEstimatedTokens" : 2059,
+      "baselineRecallRatePct" : 37.5
+    }, {
+      "rollingEstimatedTokens" : 1515,
+      "rollingRecallRatePct" : 100.0,
+      "pastTurns" : 25,
+      "baselineEstimatedTokens" : 2059,
+      "baselineRecallRatePct" : 36.0
+    }, {
+      "rollingEstimatedTokens" : 1552,
+      "rollingRecallRatePct" : 100.0,
+      "pastTurns" : 26,
+      "baselineEstimatedTokens" : 2059,
+      "baselineRecallRatePct" : 34.6
+    }, {
+      "rollingEstimatedTokens" : 1589,
+      "rollingRecallRatePct" : 100.0,
+      "pastTurns" : 27,
+      "baselineEstimatedTokens" : 2059,
+      "baselineRecallRatePct" : 33.3
+    }, {
+      "rollingEstimatedTokens" : 1626,
+      "rollingRecallRatePct" : 100.0,
+      "pastTurns" : 28,
+      "baselineEstimatedTokens" : 2059,
+      "baselineRecallRatePct" : 32.1
+    }, {
+      "rollingEstimatedTokens" : 1663,
+      "rollingRecallRatePct" : 100.0,
+      "pastTurns" : 29,
+      "baselineEstimatedTokens" : 2059,
+      "baselineRecallRatePct" : 31.0
+    }, {
+      "rollingEstimatedTokens" : 1700,
+      "rollingRecallRatePct" : 100.0,
+      "pastTurns" : 30,
+      "baselineEstimatedTokens" : 2059,
+      "baselineRecallRatePct" : 30.0
+    } ],
+    "methodology" : "Each turn carries one unique anchor. Recall is exact anchor presence in the actual assembled history block. The baseline and rolling-summary strategy use the same production character budget."
+  },
+  "skills" : {
+    "registeredSkills" : 9,
+    "loadChecksPassed" : 9,
+    "loadSuccessRatePct" : 100.0,
+    "descriptorOnlyEstimatedTokens" : 754,
+    "fullInjectionEstimatedTokens" : 24853,
+    "averageProgressiveEstimatedTokens" : 3432,
+    "estimatedInputTokenReductionPct" : 86.2,
+    "taskChecks" : [ {
+      "skill" : "chart-visualization",
+      "discoveredScripts" : 1,
+      "loaded" : true,
+      "progressiveEstimatedTokens" : 1466
+    }, {
+      "skill" : "csdn-blog-publisher",
+      "discoveredScripts" : 0,
+      "loaded" : true,
+      "progressiveEstimatedTokens" : 2237
+    }, {
+      "skill" : "data-analysis",
+      "discoveredScripts" : 1,
+      "loaded" : true,
+      "progressiveEstimatedTokens" : 2779
+    }, {
+      "skill" : "frontend-design",
+      "discoveredScripts" : 0,
+      "loaded" : true,
+      "progressiveEstimatedTokens" : 2171
+    }, {
+      "skill" : "github-deep-research",
+      "discoveredScripts" : 1,
+      "loaded" : true,
+      "progressiveEstimatedTokens" : 1938
+    }, {
+      "skill" : "gpt-image-2-style-library",
+      "discoveredScripts" : 0,
+      "loaded" : true,
+      "progressiveEstimatedTokens" : 1208
+    }, {
+      "skill" : "huchenfeng-perspective",
+      "discoveredScripts" : 2,
+      "loaded" : true,
+      "progressiveEstimatedTokens" : 10385
+    }, {
+      "skill" : "ppt-generation",
+      "discoveredScripts" : 1,
+      "loaded" : true,
+      "progressiveEstimatedTokens" : 7216
+    }, {
+      "skill" : "vercel-deploy",
+      "discoveredScripts" : 1,
+      "loaded" : true,
+      "progressiveEstimatedTokens" : 1490
+    } ],
+    "methodology" : "For each repository skill, compare all nine SKILL.md bodies injected together against descriptors plus only the selected SKILL.md body."
+  }
+}

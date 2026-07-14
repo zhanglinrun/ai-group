@@ -1,0 +1,36 @@
+[
+  {
+    "at": "2026-07-13T19:16:21.2595380Z",
+    "appProcessCpuPct": 0.0001650426302843038,
+    "systemCpuPct": 0.25680962788151396,
+    "appWorkingSetBytes": 372383744,
+    "appThreadCount": 169,
+    "hikariActive": 0.0,
+    "hikariPending": 0.0,
+    "hikariTimeoutCount": 0.0,
+    "tomcatBusyThreads": 1.0,
+    "gcPauseCount": 6598.0,
+    "gcPauseSeconds": 7.183,
+    "mysqlCpuPct": 97.84,
+    "mysqlMemoryBytes": 1690069631,
+    "redisCpuPct": 2.7,
+    "redisMemoryBytes": 10800333
+  },
+  {
+    "at": "2026-07-13T19:29:00.8989009Z",
+    "appProcessCpuPct": 0.09243121433663261,
+    "systemCpuPct": 0.9238377161524315,
+    "appWorkingSetBytes": 391684096,
+    "appThreadCount": 171,
+    "hikariActive": 0.0,
+    "hikariPending": 0.0,
+    "hikariTimeoutCount": 0.0,
+    "tomcatBusyThreads": 1.0,
+    "gcPauseCount": 7107.0,
+    "gcPauseSeconds": 7.743,
+    "mysqlCpuPct": 0.53,
+    "mysqlMemoryBytes": 1695438340,
+    "redisCpuPct": 0.1,
+    "redisMemoryBytes": 9453961
+  }
+]

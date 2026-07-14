@@ -33,7 +33,12 @@ public class SopRecallService {
      */
     public SopRecallResponse sopRecall(String requestId, String query) {
         try {
-            String SOP_RECALL_URL = reactorConfig.getAutoBotsKnowledgeUrl() + "/v1/tool/sopRecall";
+            String knowledgeBaseUrl = StringUtils.trimToEmpty(reactorConfig.getAutoBotsKnowledgeUrl());
+            if (knowledgeBaseUrl.isEmpty()) {
+                log.debug("{} SOP召回未配置 knowledge_url，按 Fail-open 跳过", requestId);
+                return null;
+            }
+            String sopRecallUrl = StringUtils.removeEnd(knowledgeBaseUrl, "/") + "/v1/tool/sopRecall";
 
             // 构建请求参数
             SopRecallRequest request = SopRecallRequest.builder()
@@ -43,10 +48,10 @@ public class SopRecallService {
             
             // 发送HTTP请求
             String requestBody = JSON.toJSONString(request);
-            log.info("{} 发送SOP召回请求：url={}, body={}", requestId, SOP_RECALL_URL, requestBody);
+            log.info("{} 发送SOP召回请求：url={}, body={}", requestId, sopRecallUrl, requestBody);
             String responseBody = remoteHttpPort.execute(RemoteHttpRequest.builder()
                     .method("POST")
-                    .url(SOP_RECALL_URL)
+                    .url(sopRecallUrl)
                     .headers(java.util.Map.of("Content-Type", "application/json"))
                     .body(requestBody)
                     .build());

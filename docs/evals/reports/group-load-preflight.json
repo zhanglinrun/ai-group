@@ -1,0 +1,148 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-13T16:39:16.6271304Z",
+  "benchmarkType": "local-k6-steady-successful-new-team-lock",
+  "environment": {
+    "os": "Microsoft Windows NT 10.0.26100.0",
+    "processorModel": "AMD Ryzen 5 9600X 6-Core Processor",
+    "logicalProcessors": 12,
+    "totalPhysicalMemoryBytes": 50574209024,
+    "groupServicePid": 31340,
+    "groupServiceCommand": "E:\\java\\java21\\bin\\java.exe -XX:TieredStopAtLevel=1 -cp @C:\\Users\\zlr\\AppData\\Local\\Temp\\spring-boot-15340851649218586518.argfile com.aigroup.groupbuy.Application",
+    "groupServiceInstances": 1,
+    "groupBase": "http://127.0.0.1:8091",
+    "mysql": "MySQL 8.0.32",
+    "redis": "redis_version:7.2.14",
+    "mysqlContainerLimits": "no explicit CPU or memory limit",
+    "redisContainerLimits": "no explicit CPU or memory limit",
+    "loadGenerator": "grafana/k6:latest in Docker Desktop on the same physical host",
+    "loggingDuringLoad": "com.aigroup.groupbuy=WARN"
+  },
+  "profile": {
+    "endpoint": "/api/v1/gbm/trade/lock_market_pay_order",
+    "workload": "Every request creates a new team and must return HTTP 200, business code 0000, and teamId. No capacity-rejection responses are counted as successful throughput.",
+    "loadModel": "closed-loop constant virtual users",
+    "concurrencyLevels": [
+      5
+    ],
+    "repeatsPerLevel": 1,
+    "warmupSecondsPerRun": 5,
+    "steadySecondsPerRun": 20,
+    "resourceSampleIntervalSeconds": 5,
+    "dedicatedActivityId": 199901,
+    "totalSteadySuccessfulLocks": 3519
+  },
+  "results": [
+    {
+      "concurrency": 5,
+      "repeats": 1,
+      "steadySuccessfulLocks": 3519,
+      "qpsAverage": 175.95,
+      "qpsMin": 175.95,
+      "qpsMax": 175.95,
+      "qpsStdDev": 0.0,
+      "qpsCoefficientOfVariationPct": 0.0,
+      "p95AverageMs": 40.62,
+      "p95WorstMs": 40.62,
+      "p99AverageMs": 59.56,
+      "p99WorstMs": 59.56,
+      "businessSuccessRateMinPct": 100.0,
+      "transportFailureRateMaxPct": 0.0,
+      "appCpuAveragePct": 3.81,
+      "appCpuPeakPct": 6.16,
+      "mysqlCpuAveragePct": 36.7,
+      "mysqlCpuPeakPct": 53.32,
+      "hikariActivePeak": 5.0,
+      "hikariPendingPeak": 0.0,
+      "tomcatBusyThreadsPeak": 6.0,
+      "gcPauseCount": 0,
+      "gcPauseTimeMs": 0.0,
+      "rowLockWaits": 0,
+      "databaseUniqueStateAllRuns": true
+    }
+  ],
+  "runs": [
+    {
+      "runId": "0519c9",
+      "concurrency": 5,
+      "repeat": 1,
+      "startedAt": "2026-07-13T16:38:34.4611767Z",
+      "finishedAt": "2026-07-13T16:39:10.5044197Z",
+      "wallClockSeconds": 36.0,
+      "warmupSeconds": 5,
+      "steadySeconds": 20,
+      "k6ExitCode": 0,
+      "warmupSuccessfulLocks": 825,
+      "steadySuccessfulLocks": 3519,
+      "steadySuccessfulLockQps": 175.95,
+      "steadyBusinessSuccessRatePct": 100.0,
+      "steadyBusinessFailureRatePct": 0.0,
+      "steadyTransportFailureRatePct": 0.0,
+      "latencyMs": {
+        "average": 31.08,
+        "p50": 26.22,
+        "p90": 36.74,
+        "p95": 40.62,
+        "p99": 59.56,
+        "max": 1333.08
+      },
+      "database": {
+        "rows": 4344,
+        "distinctTeams": 4344,
+        "distinctOrders": 4344,
+        "distinctTrades": 4344,
+        "uniqueState": true,
+        "questions": 52415.0,
+        "commits": 4379.0,
+        "rollbacks": 0.0,
+        "threadsCreated": 3.0,
+        "abortedConnects": 0.0,
+        "rowLockWaits": 0.0,
+        "rowLockTimeMs": 0.0
+      },
+      "redis": {
+        "commands": 8726.0,
+        "rejectedConnections": 0.0,
+        "keyspaceHits": 8689.0,
+        "keyspaceMisses": 9.0
+      },
+      "resources": {
+        "samples": 5,
+        "appCpuAveragePct": 3.81,
+        "appCpuMaxPct": 6.16,
+        "systemCpuAveragePct": 55.7,
+        "systemCpuMaxPct": 76.59,
+        "appWorkingSetMaxBytes": 322777088,
+        "appThreadCountMax": 122,
+        "hikariActiveMax": 5.0,
+        "hikariPendingMax": 0.0,
+        "tomcatBusyThreadsMax": 6.0,
+        "mysqlCpuAveragePct": 36.7,
+        "mysqlCpuMaxPct": 53.32,
+        "mysqlMemoryMaxBytes": 541379789,
+        "redisCpuAveragePct": 1.83,
+        "redisCpuMaxPct": 2.76,
+        "redisMemoryMaxBytes": 11303649,
+        "gcPauseCount": 16,
+        "gcPauseTimeMs": 33.0
+      },
+      "artifacts": {
+        "k6Summary": "group-load-k6-c5-r1-0519c9.json",
+        "resourceSamples": "group-load-resources-c5-r1-0519c9.json",
+        "stdout": "group-load-k6-c5-r1-0519c9.stdout.log",
+        "stderr": "group-load-k6-c5-r1-0519c9.stderr.log"
+      }
+    }
+  ],
+  "metricSemantics": {
+    "qps": "Steady-phase responses with HTTP 200, business code 0000, and non-empty teamId divided by configured steady seconds.",
+    "latency": "k6 client wall-clock duration for successful steady-phase lock requests only.",
+    "error": "Transport failures and non-0000 business responses are reported separately and excluded from successful-lock QPS.",
+    "resources": "10-second samples from Spring Boot Prometheus metrics and Docker stats; averages are sampled averages, peaks are observed sample maxima."
+  },
+  "limitations": [
+    "The k6 container, group-service, MySQL, and Redis share one physical Windows host, so this is a local single-host benchmark rather than a production capacity test.",
+    "The workload measures successful new-team lock transactions; hot-team join contention and the complete payment-to-benefit workflow are separate tests.",
+    "Closed-loop virtual users apply coordinated omission; use an independent fixed-arrival-rate test for an external capacity/SLO claim."
+  ]
+}

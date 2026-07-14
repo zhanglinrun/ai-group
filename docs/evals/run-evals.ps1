@@ -1,216 +1,520 @@
-# AI-Group 最小 Agent 评测集运行器
-# 经 Gateway 跑 SSE 对话，断言最终结果命中关键词 / 工具轨迹，并从 agent_db.dialogue_run 统计
-# 通过率、任务成功率(账本终态)、平均步数/token、p50/p95 时延、工具使用率与失败原因分类。
-#
-# 用法：
-#   pwsh docs/evals/run-evals.ps1                # 跑全部用例
-#   pwsh docs/evals/run-evals.ps1 -Limit 3       # 只跑前 3 条（快速冒烟）
-#   pwsh docs/evals/run-evals.ps1 -Judge         # 额外启用 LLM-as-judge 打分（需可用 LLM）
+#Requires -Version 7.0
+# Live Agent evaluation through Gateway SSE. This runner keeps keyword/tool
+# assertions, ledger terminal state, evaluator telemetry, and provider-reported
+# token usage as separate metrics so the report cannot overstate quality.
 param(
     [string]$Gateway = "http://127.0.0.1:8080",
     [int]$Limit = 0,
-    [int]$TimeoutSec = 120,
+    [int]$TimeoutSec = 180,
     [switch]$Judge,
-    # 用例文件（默认确定性核心集；跑工具轨迹集：-CasesFile cases-tools.jsonl）
-    [string]$CasesFile = "cases.jsonl"
+    [string]$CasesFile = "cases.jsonl",
+    [int]$EvaluationQuota = 2000,
+    [string]$MysqlContainer = "ai-group-mysql",
+    [string]$MysqlPassword = $(if ($env:MYSQL_ROOT_PASSWORD) { $env:MYSQL_ROOT_PASSWORD } else { "123456" }),
+    [string]$ReportName = ""
 )
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $casesPath = if ([System.IO.Path]::IsPathRooted($CasesFile)) { $CasesFile } else { Join-Path $PSScriptRoot $CasesFile }
+$reports = Join-Path $PSScriptRoot "reports"
+if (-not $ReportName) {
+    $ReportName = "agent-$([System.IO.Path]::GetFileNameWithoutExtension($casesPath))-benchmark.json"
+}
+$reportPath = Join-Path $reports $ReportName
+
+function Get-PropertyValue($Object, [string]$Name, $Default = $null) {
+    if ($null -ne $Object -and $Object.PSObject.Properties.Name -contains $Name) {
+        return $Object.$Name
+    }
+    return $Default
+}
+
+function Escape-Sql([string]$Value) {
+    return $Value.Replace("'", "''")
+}
+
+function Invoke-Mysql([string]$Sql) {
+    $output = $Sql | docker exec -i -e "MYSQL_PWD=$MysqlPassword" $MysqlContainer mysql -uroot -N -B
+    if ($LASTEXITCODE -ne 0) {
+        throw "mysql statement failed with exit code $LASTEXITCODE"
+    }
+    return @($output)
+}
 
 function Invoke-Json($Method, $Path, $Body, $Token) {
     $headers = @{ "Content-Type" = "application/json" }
     if ($Token) { $headers["Authorization"] = "Bearer $Token" }
-    return Invoke-RestMethod -Method $Method -Uri "$Gateway$Path" -Headers $headers -Body ($Body | ConvertTo-Json -Depth 6)
+    $parameters = @{
+        Method = $Method
+        Uri = "$Gateway$Path"
+        Headers = $headers
+    }
+    if ($null -ne $Body) {
+        $parameters.Body = $Body | ConvertTo-Json -Depth 8 -Compress
+    }
+    return Invoke-RestMethod @parameters
 }
 
-# 收集一次 SSE 对话的全部文本（agent_stream 增量 + 最终 result）
 function Invoke-AgentSse($Token, $Query, $Mode, $SessionId, $RequestId, $DeepThink) {
-    $body = @{ query = $Query; sessionId = $SessionId; requestId = $RequestId; deepThink = $DeepThink; outputStyle = $Mode } | ConvertTo-Json
-    $req = [System.Net.Http.HttpRequestMessage]::new([System.Net.Http.HttpMethod]::Post, "$Gateway/web/api/v1/gpt/queryAgentStreamIncr")
-    $req.Headers.Add("Authorization", "Bearer $Token")
-    $req.Headers.Add("Accept", "text/event-stream")
-    $req.Content = [System.Net.Http.StringContent]::new($body, [System.Text.Encoding]::UTF8, "application/json")
+    $body = @{
+        query = $Query
+        sessionId = $SessionId
+        requestId = $RequestId
+        deepThink = $DeepThink
+        outputStyle = $Mode
+    } | ConvertTo-Json -Depth 8 -Compress
+    $request = [System.Net.Http.HttpRequestMessage]::new(
+        [System.Net.Http.HttpMethod]::Post,
+        "$Gateway/web/api/v1/gpt/queryAgentStreamIncr"
+    )
+    $request.Headers.Add("Authorization", "Bearer $Token")
+    $request.Headers.Add("Accept", "text/event-stream")
+    $request.Content = [System.Net.Http.StringContent]::new(
+        $body,
+        [System.Text.Encoding]::UTF8,
+        "application/json"
+    )
     $client = [System.Net.Http.HttpClient]::new()
     $client.Timeout = [TimeSpan]::FromSeconds($TimeoutSec)
-    $sb = [System.Text.StringBuilder]::new()
+    $answer = [System.Text.StringBuilder]::new()
+    $evaluations = [System.Collections.Generic.List[object]]::new()
+    $finalMetrics = $null
+    $finalSeen = $false
+    $response = $null
+    $reader = $null
     try {
-        $resp = $client.Send($req, [System.Net.Http.HttpCompletionOption]::ResponseHeadersRead)
-        $reader = [System.IO.StreamReader]::new($resp.Content.ReadAsStream())
-        $deadline = (Get-Date).AddSeconds($TimeoutSec)
-        while (-not $reader.EndOfStream -and (Get-Date) -lt $deadline) {
+        $response = $client.Send($request, [System.Net.Http.HttpCompletionOption]::ResponseHeadersRead)
+        if (-not $response.IsSuccessStatusCode) {
+            $errorBody = $response.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+            throw "SSE request failed: HTTP $([int]$response.StatusCode) $errorBody"
+        }
+        $reader = [System.IO.StreamReader]::new($response.Content.ReadAsStream())
+        while (-not $reader.EndOfStream) {
             $line = $reader.ReadLine()
             if (-not $line -or -not $line.StartsWith("data:")) { continue }
-            $json = $line.Substring(5)
+            $json = $line.Substring(5).Trim()
+            if (-not $json -or $json -eq "[DONE]" -or $json.StartsWith("heartbeat")) { continue }
             try {
-                $evt = $json | ConvertFrom-Json
-                if ($evt.result) { [void]$sb.Append([string]$evt.result) }
-                if ($evt.toolThought) { [void]$sb.Append([string]$evt.toolThought) }
-            } catch { }
+                $event = $json | ConvertFrom-Json
+            } catch {
+                continue
+            }
+
+            # Gateway currently forwards AgentSessionEvent directly. Keep the
+            # legacy eventData envelope readable so old deployments remain
+            # benchmarkable with the same runner.
+            $payload = $event
+            if ($event.resultMap -and $event.resultMap.eventData) {
+                $payload = $event.resultMap.eventData
+                if ($payload.resultMap -and (Get-PropertyValue $payload.resultMap "messageType")) {
+                    $payload = $payload.resultMap
+                }
+            }
+            $logicalType = Get-PropertyValue $payload "messageType" ""
+            $innerResult = Get-PropertyValue $payload "result" ""
+            $logicalResultMap = Get-PropertyValue $payload "resultMap"
+
+            if ($logicalType -eq "agent_stream" -and $innerResult) {
+                [void]$answer.Append([string]$innerResult)
+            } elseif ($logicalType -eq "result" -and $innerResult -and $answer.Length -eq 0) {
+                # The terminal result is the complete answer, not another
+                # stream delta. Use it only when no incremental frame arrived.
+                [void]$answer.Append([string]$innerResult)
+            } elseif ($event.response) {
+                [void]$answer.Append([string]$event.response)
+            }
+
+            if ($logicalType -eq "evaluation") {
+                $evaluationPayload = $logicalResultMap
+                if ($evaluationPayload) {
+                    $evaluations.Add($evaluationPayload)
+                }
+            }
+            if ($logicalType -eq "result") {
+                $finalSeen = $true
+                $candidateMetrics = Get-PropertyValue $payload "metrics"
+                if (-not $candidateMetrics) {
+                    $candidateMetrics = Get-PropertyValue $logicalResultMap "metrics"
+                }
+                if ($candidateMetrics) {
+                    $finalMetrics = $candidateMetrics
+                }
+            }
+            if ([bool](Get-PropertyValue $payload "finish" $false) -or
+                [bool](Get-PropertyValue $event "finished" $false)) {
+                break
+            }
         }
-        $reader.Close()
-    } finally { $client.Dispose() }
-    return $sb.ToString()
+    } finally {
+        if ($reader) { $reader.Dispose() }
+        if ($response) { $response.Dispose() }
+        $request.Dispose()
+        $client.Dispose()
+    }
+    return [pscustomobject]@{
+        text = $answer.ToString()
+        evaluations = @($evaluations)
+        finalMetrics = $finalMetrics
+        finalSeen = $finalSeen
+    }
 }
 
-# 读取该 session 最近一次 run 的账本指标（步数/工具数/token/终态/耗时）
-function Get-RunMetrics($SessionId) {
-    $q = "SELECT llm_call_count, tool_call_count, total_tokens_total, status, IFNULL(duration_ms,0) FROM agent_db.dialogue_run WHERE session_id = '$SessionId' ORDER BY id DESC LIMIT 1;"
-    $out = $q | docker exec -i -e MYSQL_PWD=123456 ai-group-mysql mysql -uroot -N -B 2>$null
-    if (-not $out) { return $null }
-    $cols = ($out | Select-Object -Last 1).ToString().Split("`t")
-    if ($cols.Length -lt 5) { return $null }
-    return [pscustomobject]@{ llm = [int]$cols[0]; tool = [int]$cols[1]; tokens = [int]$cols[2]; status = [int]$cols[3]; durationMs = [int]$cols[4] }
+function Get-RunMetrics([string]$SessionId) {
+    $safeSessionId = Escape-Sql $SessionId
+    $query = @"
+SELECT r.id,
+       IFNULL(r.run_uid,''),
+       IFNULL(r.entry_agent,''),
+       r.llm_call_count,
+       r.tool_call_count,
+       r.artifact_count,
+       r.prompt_tokens_total,
+       r.completion_tokens_total,
+       r.total_tokens_total,
+       r.status,
+       IFNULL(r.duration_ms,0),
+       IFNULL(r.error_code,''),
+       IFNULL((SELECT GROUP_CONCAT(DISTINCT l.model_name ORDER BY l.model_name SEPARATOR ',')
+               FROM agent_db.llm_invocation l WHERE l.run_id = r.id),''),
+       (SELECT COUNT(*) FROM agent_db.llm_invocation l
+        WHERE l.run_id = r.id AND l.call_kind = 'evaluate'),
+       (SELECT COUNT(*) FROM agent_db.llm_invocation l
+        WHERE l.run_id = r.id AND l.total_tokens > 0)
+FROM agent_db.dialogue_run r
+WHERE r.session_id = '$safeSessionId'
+ORDER BY r.id DESC
+LIMIT 1;
+"@
+    $output = @(Invoke-Mysql $query)
+    if ($output.Count -eq 0 -or -not $output[0]) { return $null }
+    $columns = $output[0].ToString().Split("`t")
+    if ($columns.Length -lt 15) { return $null }
+    return [pscustomobject]@{
+        id = [long]$columns[0]
+        runUid = $columns[1]
+        entryAgent = $columns[2]
+        llm = [int]$columns[3]
+        tool = [int]$columns[4]
+        artifact = [int]$columns[5]
+        promptTokens = [int]$columns[6]
+        completionTokens = [int]$columns[7]
+        tokens = [int]$columns[8]
+        status = [int]$columns[9]
+        durationMs = [long]$columns[10]
+        errorCode = $columns[11]
+        modelNames = $columns[12]
+        evaluatorLlmCalls = [int]$columns[13]
+        providerUsageCalls = [int]$columns[14]
+    }
 }
 
-# 读取该 session 最近一次 run 使用过的工具名集合（工具轨迹断言）
-function Get-RunToolNames($SessionId) {
-    $q = "SELECT DISTINCT t.tool_name FROM agent_db.tool_invocation t JOIN agent_db.dialogue_run r ON t.run_id = r.id WHERE r.session_id = '$SessionId' ORDER BY r.id DESC;"
-    $out = $q | docker exec -i -e MYSQL_PWD=123456 ai-group-mysql mysql -uroot -N -B 2>$null
-    if (-not $out) { return @() }
-    return @($out | Where-Object { $_.Trim() })
+function Wait-RunMetrics([string]$SessionId) {
+    $metrics = $null
+    for ($attempt = 0; $attempt -lt 24; $attempt++) {
+        $metrics = Get-RunMetrics $SessionId
+        if ($metrics -and $metrics.status -ne 0) { return $metrics }
+        Start-Sleep -Milliseconds 250
+    }
+    return $metrics
 }
 
-function Get-Percentile($values, $p) {
-    $sorted = @($values | Where-Object { $_ -ne $null } | Sort-Object)
-    if ($sorted.Count -eq 0) { return 0 }
-    $rank = [math]::Ceiling($p / 100.0 * $sorted.Count) - 1
-    if ($rank -lt 0) { $rank = 0 }
-    if ($rank -ge $sorted.Count) { $rank = $sorted.Count - 1 }
-    return $sorted[$rank]
+function Get-RunToolNames($RunId) {
+    if (-not $RunId) { return @() }
+    $query = "SELECT DISTINCT tool_name FROM agent_db.tool_invocation WHERE run_id = $RunId ORDER BY tool_name;"
+    return @(Invoke-Mysql $query | Where-Object { $_ -and $_.Trim() })
 }
 
-# LLM-as-judge：让模型对答复相对预期做 0-5 忠实度/相关性打分（可选）
+function Get-Percentile($Values, [int]$Percentile) {
+    $sorted = @($Values | Where-Object { $null -ne $_ } | Sort-Object)
+    if ($sorted.Count -eq 0) { return $null }
+    $index = [Math]::Ceiling($Percentile / 100.0 * $sorted.Count) - 1
+    return $sorted[[Math]::Max(0, [Math]::Min($index, $sorted.Count - 1))]
+}
+
+function Get-Average($Values, [int]$Digits = 1) {
+    $items = @($Values | Where-Object { $null -ne $_ })
+    if ($items.Count -eq 0) { return $null }
+    return [Math]::Round(($items | Measure-Object -Average).Average, $Digits)
+}
+
 function Invoke-Judge($Token, $Query, $Answer, $Expect) {
-    $prompt = "你是严格的评测员。请根据【问题】和【参考要点】，对【答复】的正确性与相关性打分，" +
-        "只输出 0 到 5 的一个整数（5=完全正确且相关，0=完全错误或无关）。`n" +
-        "【问题】$Query`n【参考要点】$($Expect -join '、')`n【答复】$Answer`n只输出一个整数分数："
-    $sid = "eval-judge-$(Get-Random)"
-    $rid = "req-judge-$(Get-Random)"
+    $prompt = "你是严格的评测员。根据问题和参考要点，对答复的正确性与相关性打分。" +
+        "只输出 0 到 5 的一个整数。`n问题：$Query`n参考要点：$($Expect -join '、')" +
+        "`n答复：$Answer`n分数："
     try {
-        $text = Invoke-AgentSse $Token $prompt "chat" $sid $rid 0
-        $m = [regex]::Match($text, '[0-5]')
-        if ($m.Success) { return [int]$m.Value }
-    } catch { }
+        $judgeSse = Invoke-AgentSse $Token $prompt "chat" "eval-judge-$([guid]::NewGuid().ToString('N'))" `
+            "req-judge-$([guid]::NewGuid().ToString('N'))" 0
+        $match = [regex]::Match($judgeSse.text, '(?<!\d)[0-5](?!\d)')
+        if ($match.Success) { return [int]$match.Value }
+    } catch {
+        Write-Warning "LLM judge unavailable: $($_.Exception.Message)"
+    }
     return $null
 }
 
-$user = "eval_user_$(Get-Random -Maximum 99999)"
-$pass = "Eval@123456"
-Invoke-Json POST "/api/auth/register" @{ username = $user; password = $pass; email = "$user@test.local" } $null | Out-Null
-$login = Invoke-Json POST "/api/auth/login" @{ username = $user; password = $pass } $null
-$token = $login.data.accessToken
-if (-not $token) { throw "login failed" }
-Write-Host "eval user: $user"
-
-$cases = Get-Content $casesPath | Where-Object { $_.Trim() } | ForEach-Object { $_ | ConvertFrom-Json }
-if ($Limit -gt 0) { $cases = $cases | Select-Object -First $Limit }
-
-$results = @()
-$pass = 0
-$latencies = @()
-$judgeScores = @()
-foreach ($c in $cases) {
-    $sid = "eval-$($c.id)-$(Get-Random)"
-    $rid = "req-$(Get-Random)"
-    $deepThink = if ($c.PSObject.Properties.Name -contains 'deepThink') { [int]$c.deepThink } else { 0 }
-    $text = ""
-    $ok = $false
-    $failReason = $null
-    $sw = [System.Diagnostics.Stopwatch]::StartNew()
-    try {
-        $text = Invoke-AgentSse $token $c.query $c.mode $sid $rid $deepThink
-        if ($c.expect) {
-            foreach ($kw in $c.expect) { if ($text -match [regex]::Escape($kw)) { $ok = $true; break } }
-            if (-not $ok) { $failReason = "keyword-miss" }
-        } else {
-            $ok = -not [string]::IsNullOrWhiteSpace($text)
-            if (-not $ok) { $failReason = "empty-answer" }
-        }
-    } catch {
-        $failReason = "error"
-        Write-Host "  [$($c.id)] ERROR: $($_.Exception.Message)"
-    }
-    $sw.Stop()
-    $latencyMs = [int]$sw.ElapsedMilliseconds
-    $latencies += $latencyMs
-
-    Start-Sleep -Milliseconds 300
-    $m = Get-RunMetrics $sid
-
-    # 工具轨迹断言：用例声明 expectTools / minToolCalls 时校验实际工具使用
-    $toolNames = @()
-    if (($c.PSObject.Properties.Name -contains 'expectTools') -or ($c.PSObject.Properties.Name -contains 'minToolCalls')) {
-        $toolNames = Get-RunToolNames $sid
-        if ($c.expectTools) {
-            $hit = $false
-            foreach ($t in $c.expectTools) { if ($toolNames -contains $t) { $hit = $true; break } }
-            if (-not $hit) { $ok = $false; if (-not $failReason) { $failReason = "tool-trajectory-miss" } }
-        }
-        if ($c.minToolCalls -and $m -and $m.tool -lt [int]$c.minToolCalls) {
-            $ok = $false; if (-not $failReason) { $failReason = "tool-count-miss" }
-        }
-    }
-
-    $judge = $null
-    if ($Judge -and $c.mode -ne 'chat') {
-        $judge = Invoke-Judge $token $c.query $text $c.expect
-        if ($judge -ne $null) { $judgeScores += $judge }
-    }
-
-    if ($ok) { $pass++ }
-    $results += [pscustomobject]@{
-        id = $c.id; mode = $c.mode; pass = $ok; failReason = $failReason
-        llmCalls = if ($m) { $m.llm } else { $null }
-        toolCalls = if ($m) { $m.tool } else { $null }
-        tokens = if ($m) { $m.tokens } else { $null }
-        status = if ($m) { $m.status } else { $null }
-        latencyMs = $latencyMs
-        tools = $toolNames
-        judge = $judge
-    }
-    $tag = if ($ok) { "PASS" } else { "FAIL" }
-    Write-Host ("  [{0}] {1} mode={2} tokens={3} latencyMs={4}" -f $c.id, $tag, $c.mode, ($(if ($m) { $m.tokens } else { "-" })), $latencyMs)
+if (-not (Test-Path $casesPath)) {
+    throw "cases file not found: $casesPath"
+}
+try {
+    $health = Invoke-RestMethod -Method GET -Uri "$Gateway/actuator/health" -TimeoutSec 5
+    if ($health.status -ne "UP") { throw "status=$($health.status)" }
+} catch {
+    throw "Gateway is not ready at $Gateway`: $($_.Exception.Message)"
 }
 
-$total = $cases.Count
-$withMetrics = $results | Where-Object { $_.tokens -ne $null }
-$avgTokens = if ($withMetrics) { [math]::Round(($withMetrics | Measure-Object -Property tokens -Average).Average, 0) } else { 0 }
-$avgLlm = if ($withMetrics) { [math]::Round(($withMetrics | Measure-Object -Property llmCalls -Average).Average, 2) } else { 0 }
-# 任务成功率：账本终态为成功(1) 的占比
-$successRuns = @($withMetrics | Where-Object { $_.status -eq 1 }).Count
-$taskSuccessRate = if ($withMetrics.Count -gt 0) { [math]::Round(100.0 * $successRuns / $withMetrics.Count, 1) } else { 0 }
-$p50 = Get-Percentile $latencies 50
-$p95 = Get-Percentile $latencies 95
-$toolUsedRuns = @($withMetrics | Where-Object { $_.toolCalls -gt 0 }).Count
-$avgJudge = if ($judgeScores.Count -gt 0) { [math]::Round(($judgeScores | Measure-Object -Average).Average, 2) } else { $null }
-$failBreakdown = $results | Where-Object { -not $_.pass -and $_.failReason } | Group-Object failReason | ForEach-Object { "$($_.Name)=$($_.Count)" }
+$username = "eval_user_$([guid]::NewGuid().ToString('N').Substring(0, 10))"
+$password = "Eval@123456"
+Invoke-Json POST "/api/auth/register" @{
+    username = $username
+    password = $password
+    email = "$username@test.local"
+} $null | Out-Null
+$login = Invoke-Json POST "/api/auth/login" @{ username = $username; password = $password } $null
+$token = $login.data.accessToken
+$userId = [long]$login.data.user.id
+if (-not $token -or $userId -le 0) { throw "evaluation login failed" }
+
+$quotaRows = @(Invoke-Mysql "SELECT COUNT(*) FROM member_db.quota_account WHERE user_id = $userId;")
+if ($quotaRows.Count -ne 1 -or [int]$quotaRows[0] -ne 1) {
+    throw "evaluation member quota account was not initialized for userId=$userId"
+}
+Invoke-Mysql "UPDATE member_db.quota_account SET period_quota_balance = GREATEST(period_quota_balance, $EvaluationQuota), topup_quota_balance = GREATEST(topup_quota_balance, $EvaluationQuota), frozen_balance = 0 WHERE user_id = $userId;" | Out-Null
+Write-Host "Evaluation user: $username (userId=$userId, isolated quota=$EvaluationQuota)"
+
+$cases = @(Get-Content -LiteralPath $casesPath | Where-Object { $_.Trim() } | ForEach-Object { $_ | ConvertFrom-Json })
+if ($Limit -gt 0) { $cases = @($cases | Select-Object -First $Limit) }
+if ($cases.Count -eq 0) { throw "no evaluation cases selected" }
+
+$results = @()
+$latencies = @()
+$judgeScores = @()
+foreach ($case in $cases) {
+    $sessionId = "eval-$($case.id)-$([guid]::NewGuid().ToString('N').Substring(0, 8))"
+    $requestId = "req-$([guid]::NewGuid().ToString('N'))"
+    $deepThink = [int](Get-PropertyValue $case "deepThink" 0)
+    $suite = [string](Get-PropertyValue $case "suite" $(if ($casesPath -like '*tools*') { "tool" } else { "deterministic" }))
+    $text = ""
+    $sse = $null
+    $assertionPassed = $false
+    $failReason = $null
+    $watch = [System.Diagnostics.Stopwatch]::StartNew()
+    try {
+        $sse = Invoke-AgentSse $token $case.query $case.mode $sessionId $requestId $deepThink
+        $text = $sse.text
+        $expected = @(Get-PropertyValue $case "expect" @())
+        $expectedAll = @(Get-PropertyValue $case "expectAll" @())
+        if ($expectedAll.Count -gt 0) {
+            $missingKeywords = @($expectedAll | Where-Object {
+                    $text -notmatch [regex]::Escape([string]$_)
+                })
+            $assertionPassed = $missingKeywords.Count -eq 0
+            if (-not $assertionPassed) { $failReason = "keyword-all-miss" }
+        } elseif ($expected.Count -gt 0) {
+            foreach ($keyword in $expected) {
+                if ($text -match [regex]::Escape([string]$keyword)) {
+                    $assertionPassed = $true
+                    break
+                }
+            }
+            if (-not $assertionPassed) { $failReason = "keyword-miss" }
+        } else {
+            $assertionPassed = -not [string]::IsNullOrWhiteSpace($text)
+            if (-not $assertionPassed) { $failReason = "empty-answer" }
+        }
+    } catch {
+        $failReason = "transport-error"
+        Write-Host "  [$($case.id)] ERROR: $($_.Exception.Message)"
+    }
+    $watch.Stop()
+    $latencyMs = [long]$watch.ElapsedMilliseconds
+    $latencies += $latencyMs
+
+    $runMetrics = if ($case.mode -ne "chat") { Wait-RunMetrics $sessionId } else { $null }
+    $toolNames = if ($runMetrics) { @(Get-RunToolNames $runMetrics.id) } else { @() }
+    $expectTools = @(Get-PropertyValue $case "expectTools" @())
+    if ($expectTools.Count -gt 0) {
+        $toolHit = $false
+        foreach ($tool in $expectTools) {
+            if ($toolNames -contains [string]$tool) { $toolHit = $true; break }
+        }
+        if (-not $toolHit) {
+            $assertionPassed = $false
+            if (-not $failReason) { $failReason = "tool-trajectory-miss" }
+        }
+    }
+    $expectToolsAll = @(Get-PropertyValue $case "expectToolsAll" @())
+    if ($expectToolsAll.Count -gt 0) {
+        $missingTools = @($expectToolsAll | Where-Object { $toolNames -notcontains [string]$_ })
+        if ($missingTools.Count -gt 0) {
+            $assertionPassed = $false
+            if (-not $failReason) { $failReason = "tool-trajectory-miss" }
+        }
+    }
+    $minimumToolCalls = [int](Get-PropertyValue $case "minToolCalls" 0)
+    if ($minimumToolCalls -gt 0 -and (-not $runMetrics -or $runMetrics.tool -lt $minimumToolCalls)) {
+        $assertionPassed = $false
+        if (-not $failReason) { $failReason = "tool-count-miss" }
+    }
+
+    $ledgerSucceeded = if ($case.mode -eq "chat") { $null } else { [bool]($runMetrics -and $runMetrics.status -eq 1) }
+    if ($case.mode -ne "chat" -and -not $runMetrics -and -not $failReason) { $failReason = "ledger-missing" }
+    if ($runMetrics -and $runMetrics.status -ne 1 -and -not $failReason) { $failReason = "ledger-non-success" }
+    $endToEndPassed = $assertionPassed -and ($case.mode -eq "chat" -or $ledgerSucceeded)
+
+    $evaluationFrames = if ($sse) { @($sse.evaluations) } else { @() }
+    $finalMetrics = if ($sse) { $sse.finalMetrics } else { $null }
+    $evaluationCount = [int](Get-PropertyValue $finalMetrics "evaluationCount" $evaluationFrames.Count)
+    $replanCountValue = Get-PropertyValue $finalMetrics "replanCount"
+    if ($null -eq $replanCountValue) {
+        $rounds = @($evaluationFrames | ForEach-Object { Get-PropertyValue $_ "replanRound" 0 })
+        $replanCountValue = if ($rounds.Count -gt 0) { ($rounds | Measure-Object -Maximum).Maximum } else { 0 }
+    }
+    $replanCount = [int]$replanCountValue
+    $reflectionTokens = Get-PropertyValue $finalMetrics "reflectionTokens"
+    if ($null -eq $reflectionTokens -and $evaluationFrames.Count -gt 0) {
+        $reflectionTokens = Get-PropertyValue $evaluationFrames[-1] "reflectionTokens" 0
+    }
+    $qualityScore = Get-PropertyValue $finalMetrics "qualityScore"
+    if ($null -eq $qualityScore -and $evaluationFrames.Count -gt 0) {
+        $qualityScore = Get-PropertyValue $evaluationFrames[-1] "overallScore"
+    }
+    $evaluatorAccepted = if ($evaluationFrames.Count -gt 0) {
+        [bool](Get-PropertyValue $evaluationFrames[-1] "accepted" $false)
+    } else { $null }
+
+    $judgeScore = $null
+    if ($Judge) {
+        $judgeScore = Invoke-Judge $token $case.query $text @(Get-PropertyValue $case "expect" @())
+        if ($null -ne $judgeScore) { $judgeScores += $judgeScore }
+    }
+
+    $results += [pscustomobject]@{
+        id = $case.id
+        suite = $suite
+        mode = $case.mode
+        deepThink = $deepThink
+        query = $case.query
+        expected = @(Get-PropertyValue $case "expect" @())
+        expectedAll = @(Get-PropertyValue $case "expectAll" @())
+        answer = $text
+        finalFrameSeen = [bool]($sse -and $sse.finalSeen)
+        assertionPassed = $assertionPassed
+        ledgerSucceeded = $ledgerSucceeded
+        endToEndPassed = $endToEndPassed
+        pass = $endToEndPassed
+        failReason = $failReason
+        runId = if ($runMetrics) { $runMetrics.runUid } else { $null }
+        entryAgent = if ($runMetrics) { $runMetrics.entryAgent } else { $null }
+        modelNames = if ($runMetrics) { $runMetrics.modelNames } else { Get-PropertyValue $finalMetrics "modelName" }
+        llmCalls = if ($runMetrics) { $runMetrics.llm } else { $null }
+        evaluatorLlmCalls = if ($runMetrics) { $runMetrics.evaluatorLlmCalls } else { $null }
+        toolCalls = if ($runMetrics) { $runMetrics.tool } else { $null }
+        artifactCount = if ($runMetrics) { $runMetrics.artifact } else { $null }
+        promptTokens = if ($runMetrics -and $runMetrics.providerUsageCalls -gt 0) { $runMetrics.promptTokens } else { $null }
+        completionTokens = if ($runMetrics -and $runMetrics.providerUsageCalls -gt 0) { $runMetrics.completionTokens } else { $null }
+        providerReportedTokens = if ($runMetrics -and $runMetrics.providerUsageCalls -gt 0) { $runMetrics.tokens } else { $null }
+        providerUsageCalls = if ($runMetrics) { $runMetrics.providerUsageCalls } else { 0 }
+        ledgerStatus = if ($runMetrics) { $runMetrics.status } else { $null }
+        ledgerErrorCode = if ($runMetrics) { $runMetrics.errorCode } else { $null }
+        latencyMs = $latencyMs
+        ledgerDurationMs = if ($runMetrics) { $runMetrics.durationMs } else { $null }
+        tools = $toolNames
+        evaluationCount = $evaluationCount
+        replanCount = $replanCount
+        reflectionTokensEstimate = $reflectionTokens
+        qualityScore = $qualityScore
+        evaluatorAccepted = $evaluatorAccepted
+        judgeScore = $judgeScore
+    }
+    $tag = if ($endToEndPassed) { "PASS" } else { "FAIL" }
+    $tokenText = if ($runMetrics -and $runMetrics.providerUsageCalls -gt 0) { $runMetrics.tokens } else { "n/a" }
+    Write-Host ("  [{0}] {1} suite={2} status={3} tools={4} tokens={5} latencyMs={6}" -f `
+            $case.id, $tag, $suite, $(if ($runMetrics) { $runMetrics.status } else { "-" }),
+            $toolNames.Count, $tokenText, $latencyMs)
+}
+
+$total = $results.Count
+$assertionPassed = @($results | Where-Object assertionPassed).Count
+$endToEndPassed = @($results | Where-Object endToEndPassed).Count
+$withLedger = @($results | Where-Object { $null -ne $_.ledgerStatus })
+$ledgerSuccesses = @($withLedger | Where-Object { $_.ledgerStatus -eq 1 }).Count
+$providerUsageRuns = @($results | Where-Object { $null -ne $_.providerReportedTokens })
+$toolRuns = @($results | Where-Object { $_.toolCalls -gt 0 }).Count
+$evaluationRuns = @($results | Where-Object { $_.evaluationCount -gt 0 })
+$evaluationFramesTotal = ($evaluationRuns | Measure-Object -Property evaluationCount -Sum).Sum
+$acceptedEvaluations = @($evaluationRuns | Where-Object { $_.evaluatorAccepted -eq $true }).Count
+$replannedRuns = @($evaluationRuns | Where-Object { $_.replanCount -gt 0 }).Count
+$failureBreakdown = @($results | Where-Object { -not $_.endToEndPassed -and $_.failReason } |
+    Group-Object failReason | ForEach-Object { [ordered]@{ reason = $_.Name; count = $_.Count } })
+$modelNames = @($results.modelNames | Where-Object { $_ } | ForEach-Object { $_ -split ',' } |
+    ForEach-Object { $_.Trim() } | Where-Object { $_ } | Sort-Object -Unique)
+
+$report = [ordered]@{
+    schemaVersion = 2
+    generatedAt = (Get-Date).ToUniversalTime().ToString("o")
+    benchmarkType = "live-llm-gateway-sse"
+    environment = [ordered]@{
+        os = [System.Environment]::OSVersion.VersionString
+        powershell = $PSVersionTable.PSVersion.ToString()
+        processors = [System.Environment]::ProcessorCount
+        gateway = $Gateway
+        modelNames = $modelNames
+    }
+    dataset = [ordered]@{
+        casesFile = [System.IO.Path]::GetFileName($casesPath)
+        totalCases = $total
+        deterministicCases = @($results | Where-Object { $_.suite -eq "deterministic" }).Count
+        toolCases = @($results | Where-Object { $_.suite -eq "tool" }).Count
+        planSolveCases = @($results | Where-Object { $_.deepThink -eq 1 }).Count
+        llmJudgeEnabled = [bool]$Judge
+        evaluationQuota = $EvaluationQuota
+    }
+    results = [ordered]@{
+        keywordAndToolAssertionPassRatePct = [Math]::Round(100.0 * $assertionPassed / $total, 1)
+        assertionPassed = $assertionPassed
+        endToEndTaskSuccessRatePct = [Math]::Round(100.0 * $endToEndPassed / $total, 1)
+        endToEndPassed = $endToEndPassed
+        ledgerTerminalSuccessRatePct = if ($withLedger.Count -gt 0) { [Math]::Round(100.0 * $ledgerSuccesses / $withLedger.Count, 1) } else { $null }
+        ledgerSuccessfulRuns = $ledgerSuccesses
+        ledgerObservedRuns = $withLedger.Count
+        averageLlmCalls = Get-Average @($withLedger.llmCalls) 2
+        averageProviderReportedTokens = Get-Average @($providerUsageRuns.providerReportedTokens) 0
+        providerUsageObservedRuns = $providerUsageRuns.Count
+        latencyP50Ms = Get-Percentile $latencies 50
+        latencyP95Ms = Get-Percentile $latencies 95
+        toolUsedRuns = $toolRuns
+        evaluationRuns = $evaluationRuns.Count
+        evaluationFrames = if ($null -eq $evaluationFramesTotal) { 0 } else { [int]$evaluationFramesTotal }
+        evaluatorFinalAcceptanceRatePct = if ($evaluationRuns.Count -gt 0) { [Math]::Round(100.0 * $acceptedEvaluations / $evaluationRuns.Count, 1) } else { $null }
+        replannedRuns = $replannedRuns
+        averageTargetedReplanRounds = Get-Average @($evaluationRuns.replanCount) 2
+        averageFinalQualityScore = Get-Average @($evaluationRuns.qualityScore) 1
+        averageReflectionTokensEstimate = Get-Average @($evaluationRuns.reflectionTokensEstimate) 0
+        averageLlmJudgeScore = Get-Average $judgeScores 2
+        failureBreakdown = $failureBreakdown
+    }
+    metricSemantics = [ordered]@{
+        assertions = "Declared any/all keyword policy plus tool trajectory/count checks; this is a deterministic correctness proxy, not human semantic grading."
+        endToEndSuccess = "Assertions pass and, for ReAct/Plan-Solve cases, dialogue_run reaches STATUS_SUCCESS."
+        tokens = "Provider-reported usage persisted from Spring AI response metadata; runs without provider usage are excluded, never replaced by TokenCounter.countText()."
+        reflectionTokens = "Conservative evaluator/replan estimate used for the run budget; not provider-reported billing usage."
+        latency = "Client wall-clock time from Gateway request start through the terminal SSE frame."
+    }
+    cases = $results
+}
+New-Item -ItemType Directory -Path $reports -Force | Out-Null
+$report | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $reportPath -Encoding utf8
 
 Write-Host ""
 Write-Host "==================== EVAL SUMMARY ===================="
-Write-Host ("keyword pass rate : {0}/{1} ({2}%)" -f $pass, $total, [math]::Round(100.0 * $pass / $total, 1))
-Write-Host ("task success rate (ledger): {0}% ({1}/{2})" -f $taskSuccessRate, $successRuns, $withMetrics.Count)
-Write-Host ("avg LLM calls / tokens    : {0} / {1}" -f $avgLlm, $avgTokens)
-Write-Host ("latency p50 / p95 (ms)    : {0} / {1}" -f $p50, $p95)
-Write-Host ("tool-used runs            : {0}/{1}" -f $toolUsedRuns, $withMetrics.Count)
-if ($avgJudge -ne $null) { Write-Host ("avg LLM-as-judge (0-5)    : {0}" -f $avgJudge) }
-if ($failBreakdown) { Write-Host ("failure breakdown         : {0}" -f ($failBreakdown -join ', ')) }
-Write-Host "====================================================="
-
-$report = [pscustomobject]@{
-    timestamp = (Get-Date).ToString("s")
-    total = $total; passed = $pass
-    passRate = [math]::Round(100.0 * $pass / $total, 1)
-    taskSuccessRate = $taskSuccessRate
-    avgLlmCalls = $avgLlm; avgTokens = $avgTokens
-    latencyP50Ms = $p50; latencyP95Ms = $p95
-    toolUsedRuns = $toolUsedRuns
-    avgJudgeScore = $avgJudge
-    failureBreakdown = ($failBreakdown -join ', ')
-    cases = $results
-}
-$reportPath = Join-Path $PSScriptRoot "last-report.json"
-$report | ConvertTo-Json -Depth 6 | Set-Content -Path $reportPath -Encoding UTF8
+Write-Host ("assertion pass rate       : {0}/{1} ({2}%)" -f $assertionPassed, $total, $report.results.keywordAndToolAssertionPassRatePct)
+Write-Host ("end-to-end success        : {0}/{1} ({2}%)" -f $endToEndPassed, $total, $report.results.endToEndTaskSuccessRatePct)
+Write-Host ("ledger terminal success   : {0}/{1} ({2}%)" -f $ledgerSuccesses, $withLedger.Count, $report.results.ledgerTerminalSuccessRatePct)
+Write-Host ("provider token samples     : {0}/{1}; average={2}" -f $providerUsageRuns.Count, $total, $report.results.averageProviderReportedTokens)
+Write-Host ("latency p50 / p95 (ms)     : {0} / {1}" -f $report.results.latencyP50Ms, $report.results.latencyP95Ms)
+Write-Host ("evaluator runs / replanned : {0} / {1}; avg rounds={2}" -f $evaluationRuns.Count, $replannedRuns, $report.results.averageTargetedReplanRounds)
 Write-Host "report written: $reportPath"
-if ($pass -lt $total) { exit 1 }
+Write-Host "======================================================"
+
+if ($endToEndPassed -lt $total) { exit 1 }

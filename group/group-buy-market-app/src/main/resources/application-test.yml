@@ -39,3 +39,8 @@ logging:
   level:
     root: info
   config: classpath:logback-spring.xml
+
+ai-group:
+  internal:
+    token: test-internal-token
+    auth-enabled: true

@@ -1,0 +1,75 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-13T10:31:16.3735826Z",
+  "benchmarkType": "offline-mocked-fault-regression",
+  "environment": {
+    "os": "Microsoft Windows NT 10.0.26100.0",
+    "powershell": "7.6.3",
+    "java": "openjdk version \"21.0.11\" 2026-04-21 LTS",
+    "mavenModule": "s-pay-mall-ddd-app"
+  },
+  "dataset": {
+    "testClasses": 6,
+    "regressionScenarios": 20,
+    "infrastructure": "Mockito stubs; no live Alipay, MySQL, RabbitMQ, or HTTP"
+  },
+  "results": {
+    "passed": 20,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "regressionPassRatePct": 100.0,
+    "wallClockDurationMs": 2990,
+    "categories": {
+      "timeoutCloseReconciliation": {
+        "scenarios": 4,
+        "passed": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "durationSec": 0.043
+      },
+      "refundMqRetryAndAck": {
+        "scenarios": 3,
+        "passed": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "durationSec": 0.118
+      },
+      "unpaidOrderBenefitGuard": {
+        "scenarios": 2,
+        "passed": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "durationSec": 0.003
+      },
+      "createOrderRecovery": {
+        "scenarios": 2,
+        "passed": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "durationSec": 0.663
+      },
+      "benefitOutboxAndRepublish": {
+        "scenarios": 3,
+        "passed": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "durationSec": 0.041
+      },
+      "refundStateMachine": {
+        "scenarios": 6,
+        "passed": 6,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "durationSec": 0.157
+      }
+    }
+  },
+  "methodology": "Runs 20 deterministic unit-level fault and state-guard scenarios against production domain/job/listener classes. Assertions cover reconciliation-before-close, unknown-state fail-safe behavior, refund retry/ack semantics, unpaid-order benefit prevention, group lock recovery, benefit outbox republish, and refund state transitions. This is not a live payment-provider or broker chaos test."
+}

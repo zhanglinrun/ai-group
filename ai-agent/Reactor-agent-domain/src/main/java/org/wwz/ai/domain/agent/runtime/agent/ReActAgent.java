@@ -100,6 +100,13 @@ public abstract class ReActAgent extends BaseAgent {
             return;
         }
 
+        // currentTask 是工具展示与并发隔离所需的任务态，不应依赖可选的数字员工命名是否成功。
+        context.getToolCollection().setCurrentTask(task);
+        if (StringUtils.isBlank(getDigitalEmployeePrompt())) {
+            log.debug("requestId: {} digital employee prompt is blank, skip optional generation", context.getRequestId());
+            return;
+        }
+
         try {
             // 2. 构建格式化的系统提示词（提取为独立方法，提高可维护性）
             String formattedPrompt = formatSystemPrompt(task);
@@ -128,9 +135,7 @@ public abstract class ReActAgent extends BaseAgent {
                 log.info("requestId:{} generateDigitalEmployee 解析后配置: {}", context.getRequestId(), jsonObject);
 
                 context.getToolCollection().updateDigitalEmployee(jsonObject);
-                // 8. 记录当前任务，关联数字员工
-                context.getToolCollection().setCurrentTask(task);
-                // 9. 同步更新智能体的可用工具集（使新生成的数字员工工具生效）
+                // 8. 同步更新智能体的可用工具集（使新生成的数字员工工具生效）
                 availableTools = context.getToolCollection();
             } else {
                 // 解析失败：记录错误日志

@@ -1,0 +1,75 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-07-13T16:21:37.0687067Z",
+  "benchmarkType": "local-single-host-concurrency-correctness-smoke",
+  "environment": {
+    "os": "Microsoft Windows NT 10.0.26100.0",
+    "powershell": "7.6.3",
+    "processorModel": "AMD Ryzen 5 9600X 6-Core Processor",
+    "logicalProcessors": 12,
+    "totalPhysicalMemoryBytes": 50574209024,
+    "mysql": "MySQL 8.0.32",
+    "redis": "redis_version:7.2.14",
+    "groupBase": "http://127.0.0.1:8091",
+    "loadGeneratorPlacement": "same host as group-service",
+    "serviceTopology": "single group-service process with local Docker MySQL and Redis"
+  },
+  "dataset": {
+    "activityId": 100201,
+    "targetCount": 10,
+    "joinRequests": 100,
+    "concurrency": 20,
+    "loadModel": "closed-loop bounded-concurrency finite burst",
+    "warmupSeconds": 0,
+    "steadyStateSeconds": 0,
+    "repeatCount": 1,
+    "settlementRequests": 20,
+    "duplicateSettlementAttemptsPerOrder": 2
+  },
+  "results": {
+    "lockTransportSuccessRatePct": 100.0,
+    "lockTransportErrorRatePct": 0.0,
+    "successfulJoinResponses": 9,
+    "businessRejectedResponses": 91,
+    "businessJoinSuccessRatePct": 9.0,
+    "businessCodeDistribution": [
+      {
+        "code": "0000",
+        "count": 9
+      },
+      {
+        "code": "E0006",
+        "count": 70
+      },
+      {
+        "code": "E0008",
+        "count": 21
+      }
+    ],
+    "lockAttemptDurationMs": 808,
+    "lockAttemptThroughputQps": 123.8,
+    "lockLatencyP50Ms": 9,
+    "lockLatencyP95Ms": 201,
+    "lockLatencyP99Ms": 278,
+    "databaseLockCount": 10,
+    "oversoldUnits": 0,
+    "distinctOrderRows": 10,
+    "distinctOutTradeNos": 10,
+    "duplicateTeamRows": 0,
+    "settlementTransportSuccessRatePct": 100.0,
+    "settlementLatencyP99Ms": 90,
+    "finalCompleteCount": 10,
+    "completedOrderRows": 10,
+    "duplicateSettlementEffects": 0,
+    "finalStateConsistent": true,
+    "terminalConsistencyRatePct": 100.0
+  },
+  "methodology": "Create one finite-capacity team, issue one same-host bounded-concurrency burst with unique users/trade numbers, then submit every settlement twice concurrently. Verify Redis-gated lock capacity and MySQL team/order invariants. Attempt throughput and latency include business rejections after the team is full.",
+  "claimBoundary": "Concurrency-correctness smoke only. Use oversell, uniqueness, idempotency, and terminal-consistency results; do not present attempt QPS or latency as service capacity or production performance.",
+  "measurementLimitations": [
+    "Only successfulJoinResponses requests execute the successful lock path; remaining transport-success responses are business rejections.",
+    "The load generator, service, MySQL, and Redis share one machine.",
+    "There is no warmup, steady-state measurement window, independent load generator, repeated trial, or fixed-arrival-rate phase.",
+    "CPU, GC, connection-pool, MySQL, and Redis utilization are not sampled."
+  ]
+}

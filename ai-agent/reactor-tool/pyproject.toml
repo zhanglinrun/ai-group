@@ -8,7 +8,6 @@ dependencies = [
     "aiosqlite>=0.21.0",
     "asyncio>=4.0.0",
     "beautifulsoup4>=4.13.4",
-    "boto3>=1.41.2",
     "crawl4ai>=0.7.7",
     "ddgs>=9.10.0",
     "elasticsearch==7.17.12",
@@ -53,6 +52,7 @@ dependencies = [
     "uvicorn>=0.35.0",
     "fastembed>=0.8.0",
     "numpy>=2.3.1",
+    "minio>=7.2.20",
 ]
 
 [dependency-groups]

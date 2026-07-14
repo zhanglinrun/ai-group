@@ -1,0 +1,1 @@
+{"id":"plan-1","suite":"tool","mode":"text","deepThink":1,"query":"制定一个用 Java 实现命令行待办清单的分步计划，并按计划给出最小实现建议。","expect":["计划","步骤","Java"],"expectTools":["planning"],"minToolCalls":1}

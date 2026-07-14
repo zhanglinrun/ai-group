@@ -21,11 +21,13 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDateTime;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -85,6 +87,34 @@ class MemberServiceImplBenefitTest {
         when(quotaAccountMapper.releaseFrozenBalance(1001L, 5)).thenReturn(0);
 
         assertThrows(BusinessException.class, () -> memberService.release("freeze-1"));
+    }
+
+    @Test
+    void freeze_reusesConcurrentFreezeAfterAccountLock() {
+        QuotaAccount account = new QuotaAccount();
+        account.setUserId(1001L);
+        account.setPeriodQuotaBalance(20);
+        account.setTopupQuotaBalance(0);
+        account.setFrozenBalance(3);
+        QuotaFreeze existing = new QuotaFreeze();
+        existing.setFreezeId("freeze-existing");
+        existing.setUserId(1001L);
+        existing.setRequestId("request-duplicate");
+        existing.setAmount(3);
+        existing.setStatus("PENDING");
+
+        when(quotaFreezeMapper.selectByUserIdAndRequestId(1001L, "request-duplicate")).thenReturn(null);
+        when(quotaAbilityProperties.resolveCost("plan_solve", 1)).thenReturn(3);
+        when(quotaAccountMapper.selectForUpdateByUserId(1001L)).thenReturn(account);
+        when(quotaFreezeMapper.selectForUpdateByUserIdAndRequestId(1001L, "request-duplicate"))
+                .thenReturn(existing);
+
+        Map<String, String> result = memberService.freeze(1001L, "plan_solve", 1, "request-duplicate");
+
+        assertEquals("freeze-existing", result.get("freezeId"));
+        verify(quotaAccountMapper, never()).freezeBalanceIfAvailable(any(), any(Integer.class));
+        verify(quotaFreezeMapper, never()).insert(any());
+        verify(quotaLedgerMapper, never()).insert(any());
     }
 
     @Test

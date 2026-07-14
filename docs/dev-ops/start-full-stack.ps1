@@ -22,6 +22,7 @@ function Import-DotEnv($path) {
 Import-DotEnv $envFile
 $env:JWT_SECRET = if ($env:JWT_SECRET) { $env:JWT_SECRET } else { "ai-group-dev-jwt-secret-2026-k8m3p9x2v7n4q1w6-change-in-prod" }
 $env:AI_GROUP_INTERNAL_TOKEN = if ($env:AI_GROUP_INTERNAL_TOKEN) { $env:AI_GROUP_INTERNAL_TOKEN } else { "ai-group-dev-internal-token-change-in-prod" }
+$env:AI_GROUP_INTERNAL_AUTH_ENABLED = if ($env:AI_GROUP_INTERNAL_AUTH_ENABLED) { $env:AI_GROUP_INTERNAL_AUTH_ENABLED } else { "true" }
 $env:AGENT_GROUP_LLM_API_KEY = if ($env:AGENT_GROUP_LLM_API_KEY) { $env:AGENT_GROUP_LLM_API_KEY } else { $env:DASHSCOPE_API_KEY }
 $env:AGENT_GROUP_LLM_BASE_URL = if ($env:AGENT_GROUP_LLM_BASE_URL) { $env:AGENT_GROUP_LLM_BASE_URL } else { "https://dashscope.aliyuncs.com/compatible-mode/v1" }
 $env:AGENT_GROUP_LLM_CHAT_MODEL = if ($env:AGENT_GROUP_LLM_CHAT_MODEL) { $env:AGENT_GROUP_LLM_CHAT_MODEL } else { "qwen-plus" }
@@ -52,6 +53,7 @@ function Start-ServiceWindow($name, $path, $port, $extraEnv = @{}) {
         "Remove-Item Env:SERVER_PORT -ErrorAction SilentlyContinue",
         "`$env:JWT_SECRET='$env:JWT_SECRET'",
         "`$env:AI_GROUP_INTERNAL_TOKEN='$($env:AI_GROUP_INTERNAL_TOKEN)'",
+        "`$env:AI_GROUP_INTERNAL_AUTH_ENABLED='$($env:AI_GROUP_INTERNAL_AUTH_ENABLED)'",
         "`$env:SPRING_PROFILES_ACTIVE='dev'"
     )
     foreach ($key in $extraEnv.Keys) {
@@ -85,11 +87,12 @@ function Sync-ReactorToolEnv() {
         "TEXT_EMBEDDING_DIMENSION=$($env:AGENT_GROUP_VECTOR_DIMENSION)",
         "DASHSCOPE_API_KEY=$($env:DASHSCOPE_API_KEY)",
         "DASHSCOPE_API_BASE=$($env:AGENT_GROUP_LLM_BASE_URL)",
-        "S3_ENDPOINT=$($env:S3_ENDPOINT)",
-        "S3_ACCESS_KEY=$($env:S3_ACCESS_KEY)",
-        "S3_SECRET_KEY=$($env:S3_SECRET_KEY)",
-        "S3_BUCKET_NAME=$($env:S3_BUCKET_NAME)",
-        "OSS_SERVER_BASE_URL=$($env:OSS_SERVER_BASE_URL)",
+        "MINIO_ENDPOINT=$($env:MINIO_ENDPOINT)",
+        "MINIO_ACCESS_KEY=$($env:MINIO_ACCESS_KEY)",
+        "MINIO_SECRET_KEY=$($env:MINIO_SECRET_KEY)",
+        "MINIO_BUCKET_NAME=$($env:MINIO_BUCKET_NAME)",
+        "REACTOR_TOOL_PUBLIC_BASE_URL=$($env:REACTOR_TOOL_PUBLIC_BASE_URL)",
+        "MINIO_PUBLIC_ENDPOINT=$($env:MINIO_PUBLIC_ENDPOINT)",
         "VECTOR_STORE_TYPE=$($env:VECTOR_STORE_TYPE)",
         "QDRANT_URL=$($env:QDRANT_URL)",
         "QDRANT_PORT=$($env:QDRANT_PORT)",
@@ -187,10 +190,6 @@ Start-ServiceWindow "ai-agent" "$root/ai-agent/Reactor-agent-app" 8090 @{
     REACTOR_AGENT_AUTO_CONFIG_ENABLED = "true"
     TAVILY_API_KEY                = $env:TAVILY_API_KEY
     MINERU_API_KEY                = $env:MINERU_API_KEY
-    S3_ENDPOINT                   = $env:S3_ENDPOINT
-    S3_ACCESS_KEY                 = $env:S3_ACCESS_KEY
-    S3_SECRET_KEY                 = $env:S3_SECRET_KEY
-    S3_BUCKET_NAME                = $env:S3_BUCKET_NAME
     QDRANT_URL                    = $env:QDRANT_URL
     QDRANT_PORT                   = if ($env:QDRANT_PORT) { $env:QDRANT_PORT } else { "6334" }
     QDRANT_PREFER_GRPC           = if ($env:QDRANT_PREFER_GRPC) { $env:QDRANT_PREFER_GRPC } else { "false" }

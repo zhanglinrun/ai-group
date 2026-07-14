@@ -121,6 +121,37 @@ public class AgentResponseHandlerReplayContractTest {
     }
 
     @Test
+    public void shouldKeepRealtimeRunMetricsOnResultEvent() {
+        Map<String, Object> metrics = Map.of(
+                "modelName", "qwen-plus",
+                "durationMs", 1200L,
+                "evaluationCount", 2,
+                "replanCount", 1,
+                "qualityScore", 91
+        );
+        GptProcessResult result = handler.build(
+                AgentRequest.builder().requestId("req-handler-003-metrics").build(),
+                new EventResult(),
+                AgentResponse.builder()
+                        .requestId("req-handler-003-metrics")
+                        .messageId("msg-result-metrics-1")
+                        .messageType("result")
+                        .messageTime("1714630002600")
+                        .result("最终结论")
+                        .isFinal(true)
+                        .finish(true)
+                        .resultMap(Map.of(
+                                "agentType", 5,
+                                "taskSummary", "最终结论",
+                                "metrics", metrics
+                        ))
+                        .build()
+        );
+
+        Assert.assertEquals(metrics, frameResultMap(result).get("metrics"));
+    }
+
+    @Test
     public void shouldReuseSamePlannerRoundIdForPlanThoughtAndTaskWrappedPlan() {
         EventResult eventResult = new EventResult();
         eventResult.getResultMap().put("plannerRoundId", "planner-round-002");

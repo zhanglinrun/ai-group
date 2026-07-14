@@ -139,8 +139,14 @@ public class TaskJobService implements ITaskJobService, DisposableBean {
         try {
             log.info("开始执行任务（函数式），ID: {}, 描述: {}", task.getId(), task.getDescription());
 
+            if (task.getTaskExecutor() == null) {
+                throw new IllegalStateException("任务缺少执行器，ID: " + task.getId());
+            }
             // 获取并执行任务
             Runnable taskRunnable = task.getTaskExecutor().get();
+            if (taskRunnable == null) {
+                throw new IllegalStateException("任务执行器返回空 Runnable，ID: " + task.getId());
+            }
             taskRunnable.run();
 
             log.info("任务执行完成（函数式），ID: {}", task.getId());

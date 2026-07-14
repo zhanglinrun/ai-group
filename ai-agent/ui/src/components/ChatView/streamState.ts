@@ -29,6 +29,10 @@ export function shouldRefreshWorkspaceTask(eventData?: MESSAGE.EventData) {
     return false;
   }
 
+  if (eventData.messageType === 'task' && eventData.resultMap?.messageType === 'evaluation') {
+    return false;
+  }
+
   if (
     eventData.messageType === 'task' &&
     ['agent_stream', 'tool_thought'].includes(eventData.resultMap?.messageType || '')

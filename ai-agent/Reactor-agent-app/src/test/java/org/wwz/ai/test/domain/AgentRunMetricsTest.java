@@ -42,4 +42,21 @@ public class AgentRunMetricsTest {
         Assert.assertTrue((Long) metrics.get(AgentRunMetrics.DURATION_MS) >= 0L);
         Mockito.verify(catalog).resolveLlmSettings("model-1");
     }
+
+    @Test
+    public void shouldExposeEvaluationAndReplanMetrics() {
+        AgentContext context = AgentContext.builder()
+                .runStartedAtMillis(System.currentTimeMillis())
+                .build();
+        context.getAgentRunState().recordEvaluation(68, 900);
+        context.getAgentRunState().recordTargetedReplan(120);
+        context.getAgentRunState().recordEvaluation(91, 700);
+
+        Map<String, Object> metrics = AgentRunMetrics.fromContext(context, "qwen-plus");
+
+        Assert.assertEquals(2, metrics.get(AgentRunMetrics.EVALUATION_COUNT));
+        Assert.assertEquals(1, metrics.get(AgentRunMetrics.REPLAN_COUNT));
+        Assert.assertEquals(1720, metrics.get(AgentRunMetrics.REFLECTION_TOKENS));
+        Assert.assertEquals(91, metrics.get(AgentRunMetrics.QUALITY_SCORE));
+    }
 }

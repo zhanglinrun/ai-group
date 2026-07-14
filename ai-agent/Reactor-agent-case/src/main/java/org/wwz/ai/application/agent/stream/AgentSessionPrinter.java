@@ -114,6 +114,7 @@ public class AgentSessionPrinter implements Printer {
                 case "knowledge":
                 case "deep_search":
                 case "data_analysis":
+                case "evaluation":
                     response.setResultMap(JSON.parseObject(JSON.toJSONString(message)));
                     response.getResultMap().put("agentType", agentType);
                     break;

@@ -52,4 +52,33 @@ try {
     Write-Host "OK: unsigned group notify rejected"
 }
 
-Write-Host "Security smoke checks passed."
+Write-Host "3) Direct group trade without/wrong internal token should be forbidden"
+$GroupBase = if ($env:GROUP_BASE) { $env:GROUP_BASE } else { "http://127.0.0.1:8091" }
+$tradeBody = '{"userId":"1","source":"s01","channel":"c01","goodsId":"9890001","activityId":10001,"outTradeNo":"smoke-security-out"}'
+try {
+    $null = Invoke-HttpPost -Uri "$GroupBase/api/v1/gbm/trade/lock_market_pay_order" -Body $tradeBody
+    throw "expected group trade without token to return HTTP 403"
+} catch {
+    if ($_.Exception.Response -and [int]$_.Exception.Response.StatusCode -eq 403) {
+        Write-Host "OK: group trade without token rejected with 403"
+    } elseif ($_.Exception.Message -match "403") {
+        Write-Host "OK: group trade without token rejected with 403"
+    } else {
+        throw
+    }
+}
+$wrongHeaders = @{ "X-Internal-Token" = "wrong-token" }
+try {
+    $null = Invoke-HttpPost -Uri "$GroupBase/api/v1/gbm/trade/lock_market_pay_order" -Body $tradeBody -Headers $wrongHeaders
+    throw "expected group trade with wrong token to return HTTP 403"
+} catch {
+    if ($_.Exception.Response -and [int]$_.Exception.Response.StatusCode -eq 403) {
+        Write-Host "OK: group trade with wrong token rejected with 403"
+    } elseif ($_.Exception.Message -match "403") {
+        Write-Host "OK: group trade with wrong token rejected with 403"
+    } else {
+        throw
+    }
+}
+Write-Host "Note: formal pay->group lock remains covered by verify-e2e / create_pay_order through gateway."
+Write-Host "All security smoke checks passed."

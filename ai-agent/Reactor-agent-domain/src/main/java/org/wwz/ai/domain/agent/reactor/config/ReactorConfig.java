@@ -237,6 +237,37 @@ public class ReactorConfig {
     @Value("${autobots.autoagent.planner.ask_tool_timeout_seconds:300}")
     private Integer plannerAskToolTimeoutSeconds;
 
+    // ===== Plan-Solve evaluation and targeted replanning =====
+    @Value("${autobots.autoagent.evaluator.enabled:true}")
+    private Boolean evaluatorEnabled;
+
+    @Value("${autobots.autoagent.evaluator.llm_judge_enabled:true}")
+    private Boolean evaluatorLlmJudgeEnabled;
+
+    @Value("${autobots.autoagent.evaluator.model_name:}")
+    private String evaluatorModelName;
+
+    @Value("${autobots.autoagent.evaluator.score_threshold:75}")
+    private Integer evaluatorScoreThreshold;
+
+    @Value("${autobots.autoagent.evaluator.max_replan_rounds:2}")
+    private Integer evaluatorMaxReplanRounds;
+
+    @Value("${autobots.autoagent.evaluator.reflection_token_budget:6000}")
+    private Integer evaluatorReflectionTokenBudget;
+
+    @Value("${autobots.autoagent.evaluator.judge_timeout_seconds:60}")
+    private Integer evaluatorJudgeTimeoutSeconds;
+
+    @Value("${autobots.autoagent.evaluator.max_input_chars:12000}")
+    private Integer evaluatorMaxInputChars;
+
+    @Value("${autobots.autoagent.evaluator.max_judge_response_tokens:600}")
+    private Integer evaluatorMaxJudgeResponseTokens;
+
+    @Value("${autobots.autoagent.evaluator.temperature:0.0}")
+    private Double evaluatorTemperature;
+
     @Value("${autobots.autoagent.executor.max_steps:40}")
     private Integer executorMaxSteps;
 

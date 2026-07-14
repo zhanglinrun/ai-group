@@ -18,6 +18,10 @@ public final class AgentRunMetrics {
     public static final String MODEL_NAME = "modelName";
     public static final String TOTAL_TOKENS = "totalTokens";
     public static final String DURATION_MS = "durationMs";
+    public static final String EVALUATION_COUNT = "evaluationCount";
+    public static final String REPLAN_COUNT = "replanCount";
+    public static final String REFLECTION_TOKENS = "reflectionTokens";
+    public static final String QUALITY_SCORE = "qualityScore";
 
     private AgentRunMetrics() {
     }
@@ -63,6 +67,25 @@ public final class AgentRunMetrics {
                 // 模型名解析失败不影响主流程，退回 fallback
             }
         }
-        return of(modelName, null, durationMs);
+        Map<String, Object> metrics = of(modelName, null, durationMs);
+        if (context != null && context.getAgentRunState() != null) {
+            int evaluationCount = context.getAgentRunState().getEvaluationCountValue();
+            int replanCount = context.getAgentRunState().getTargetedReplanCountValue();
+            int reflectionTokens = context.getAgentRunState().getReflectionTokenEstimateValue();
+            Integer qualityScore = context.getAgentRunState().getLatestQualityScoreValue();
+            if (evaluationCount > 0) {
+                metrics.put(EVALUATION_COUNT, evaluationCount);
+            }
+            if (replanCount > 0) {
+                metrics.put(REPLAN_COUNT, replanCount);
+            }
+            if (reflectionTokens > 0) {
+                metrics.put(REFLECTION_TOKENS, reflectionTokens);
+            }
+            if (qualityScore != null) {
+                metrics.put(QUALITY_SCORE, qualityScore);
+            }
+        }
+        return metrics;
     }
 }

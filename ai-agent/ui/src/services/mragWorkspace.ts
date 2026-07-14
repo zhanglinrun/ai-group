@@ -314,6 +314,12 @@ export function resolveUploadedFileUrl(upload: UploadDocumentResult): string {
   if (upload.storageType === 'local' && upload.previewUrl) {
     return normalizeFileUrlForBrowser(upload.previewUrl);
   }
+  // MinIO / historical S3 uploads prefer the stable reactor-tool proxy URL over short-lived presigns.
+  if (upload.storageType === 'minio' || upload.storageType === 's3') {
+    return normalizeFileUrlForBrowser(
+      upload.permanentUrl || upload.previewUrl || upload.presignedUrl || '',
+    );
+  }
   return normalizeFileUrlForBrowser(
     upload.previewUrl || upload.permanentUrl || upload.presignedUrl || '',
   );

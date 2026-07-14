@@ -99,6 +99,40 @@ describe('mragWorkspace service utils', () => {
     ).toBe('http://127.0.0.1:1601/preview/req/demo.pdf');
   });
 
+  it('MinIO 与历史 S3 上传优先稳定代理 URL', () => {
+    expect(
+      resolveUploadedFileUrl({
+        documentId: 'doc-2',
+        filename: 'demo.pdf',
+        originalFilename: 'demo.pdf',
+        previewUrl: 'http://minio:9000/presigned-preview',
+        permanentUrl: 'http://127.0.0.1:1601/v1/storage/download/ai-group/documents/demo.pdf/token',
+        presignedUrl: 'http://minio:9000/presigned',
+        storageType: 'minio',
+        contentType: 'application/pdf',
+        fileSize: 1024,
+        uploadTime: '2026-07-12T10:00:00',
+        raw: {},
+      }),
+    ).toBe('http://127.0.0.1:1601/v1/storage/download/ai-group/documents/demo.pdf/token');
+
+    expect(
+      resolveUploadedFileUrl({
+        documentId: 'doc-3',
+        filename: 'legacy.pdf',
+        originalFilename: 'legacy.pdf',
+        previewUrl: 'http://minio:9000/old-preview',
+        permanentUrl: 'http://127.0.0.1:1601/v1/storage/download/mrag/legacy.pdf/token',
+        presignedUrl: 'http://minio:9000/old-presigned',
+        storageType: 's3',
+        contentType: 'application/pdf',
+        fileSize: 2048,
+        uploadTime: '2026-07-12T10:00:00',
+        raw: {},
+      }),
+    ).toBe('http://127.0.0.1:1601/v1/storage/download/mrag/legacy.pdf/token');
+  });
+
   it('识别处理中状态并解析 OpenAI 兼容 chunk', () => {
     expect(
       hasProcessingFiles([

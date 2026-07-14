@@ -11,7 +11,7 @@ import java.util.List;
 
 /**
  * 并发子任务最小执行结果。
- * 只承载父执行器回流所需的文本结果、memory 增量和 child 状态。
+ * 只承载父执行器回流所需的文本结果、memory 增量、评估证据和 child 状态。
  */
 @Data
 @Builder
@@ -39,4 +39,10 @@ public class SubTaskExecutionResult {
      */
     @Builder.Default
     private List<Message> memoryIncrementMessages = new ArrayList<>();
+
+    /**
+     * 工具上下文清理前保存的本轮消息，仅用于质量评估。
+     */
+    @Builder.Default
+    private List<Message> evaluationMessages = new ArrayList<>();
 }

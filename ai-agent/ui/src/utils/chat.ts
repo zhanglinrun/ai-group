@@ -52,12 +52,12 @@ export function normalizeEventData(eventData: unknown): MESSAGE.EventData | unde
 }
 
 /**
- * 从最终帧（result）的 resultMap 中提取展示级 run 元数据（模型 / tokens / 耗时）。
+ * 从最终帧（result）的 resultMap 中提取展示级 run 元数据。
  * 缺失或非法字段一律忽略，返回 undefined 表示无可展示元数据。
  */
 export function extractRunMetrics(
   raw: unknown,
-): { modelName?: string; totalTokens?: number; durationMs?: number } | undefined {
+): CHAT.ChatItem['metrics'] | undefined {
   if (!isRecord(raw)) {
     return undefined;
   }
@@ -65,7 +65,7 @@ export function extractRunMetrics(
   if (!isRecord(metrics)) {
     return undefined;
   }
-  const result: { modelName?: string; totalTokens?: number; durationMs?: number } = {};
+  const result: NonNullable<CHAT.ChatItem['metrics']> = {};
   if (typeof metrics.modelName === 'string' && metrics.modelName.trim()) {
     result.modelName = metrics.modelName.trim();
   }
@@ -74,6 +74,22 @@ export function extractRunMetrics(
   }
   if (typeof metrics.durationMs === 'number' && metrics.durationMs >= 0) {
     result.durationMs = metrics.durationMs;
+  }
+  if (typeof metrics.evaluationCount === 'number' && metrics.evaluationCount > 0) {
+    result.evaluationCount = metrics.evaluationCount;
+  }
+  if (typeof metrics.replanCount === 'number' && metrics.replanCount > 0) {
+    result.replanCount = metrics.replanCount;
+  }
+  if (typeof metrics.reflectionTokens === 'number' && metrics.reflectionTokens > 0) {
+    result.reflectionTokens = metrics.reflectionTokens;
+  }
+  if (
+    typeof metrics.qualityScore === 'number' &&
+    metrics.qualityScore >= 0 &&
+    metrics.qualityScore <= 100
+  ) {
+    result.qualityScore = metrics.qualityScore;
   }
   return Object.keys(result).length ? result : undefined;
 }
@@ -217,6 +233,8 @@ function handleTaskMessageByType(
       break;
     case 'tool_call':
       handleToolCallMessage(eventData, currentChat, taskIndex, toolIndex);
+      break;
+    case 'evaluation':
       break;
     default:
       handleNonStreamingMessage(eventData, currentChat, taskIndex);
