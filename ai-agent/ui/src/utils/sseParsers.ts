@@ -63,6 +63,16 @@ function buildAgentResponsePayload(raw: RecordValue): RecordValue {
     finish: Boolean(raw.finish),
   };
 
+  // 兼容直接下发 AgentResponse 的入口：终态字段不能在 envelope 转换时丢失，
+  // 否则 FAILED/STOPPED 会再次被 finish=true 误写成 success。
+  const passthroughFields = ['runStatus', 'status', 'errorCode', 'errorMessage', 'errorMsg'];
+  passthroughFields.forEach((field) => {
+    const value = resultMap[field] ?? raw[field];
+    if (value !== undefined && value !== null && value !== '') {
+      payload[field] = value;
+    }
+  });
+
   if (raw.digitalEmployee) {
     payload.digitalEmployee = raw.digitalEmployee;
   }
@@ -140,10 +150,20 @@ function normalizeAgentResponseFrame(raw: unknown): unknown {
   };
 
   return {
-    status: finished ? 'success' : 'running',
+    status:
+      typeof raw.status === 'string' && raw.status.trim()
+        ? raw.status
+        : finished
+          ? 'success'
+          : 'running',
     packageType: 'result',
     finished,
-    errorMsg: '',
+    errorMsg:
+      typeof raw.errorMsg === 'string'
+        ? raw.errorMsg
+        : typeof raw.errorMessage === 'string'
+          ? raw.errorMessage
+          : '',
     resultMap: {
       agentType: isRecord(raw.resultMap) ? raw.resultMap.agentType : undefined,
       eventData,

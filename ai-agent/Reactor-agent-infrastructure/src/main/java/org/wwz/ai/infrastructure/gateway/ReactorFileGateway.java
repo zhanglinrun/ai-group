@@ -8,6 +8,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 import org.wwz.ai.domain.agent.reactor.config.ReactorConfig;
+import org.wwz.ai.domain.agent.reactor.config.ReactorToolRequestHeaders;
 import org.wwz.ai.infrastructure.gateway.dto.ConversationUploadFileDTO;
 import okio.BufferedSink;
 
@@ -27,7 +28,7 @@ import java.util.concurrent.TimeUnit;
 @Component
 public class ReactorFileGateway {
 
-    private static final MediaType DEFAULT_MEDIA_TYPE = MediaType.parse("application/octet-stream");
+    private static final MediaType DEFAULT_MEDIA_TYPE = MediaType.get("application/octet-stream");
     private static final int STREAM_BUFFER_SIZE = 8 * 1024;
 
     private final OkHttpClient uploadClient = new OkHttpClient.Builder()
@@ -63,7 +64,7 @@ public class ReactorFileGateway {
 
         try {
             MediaType parsedMediaType = StringUtils.hasText(file.getContentType())
-                    ? MediaType.parse(file.getContentType())
+                    ? MediaType.get(file.getContentType())
                     : DEFAULT_MEDIA_TYPE;
             MediaType mediaType = parsedMediaType == null ? DEFAULT_MEDIA_TYPE : parsedMediaType;
             StreamingMultipartFileRequestBody fileBody = new StreamingMultipartFileRequestBody(file, mediaType);
@@ -76,14 +77,17 @@ public class ReactorFileGateway {
 
             Request request = new Request.Builder()
                     .url(uploadUrl)
+                    .headers(Headers.of(ReactorToolRequestHeaders.withToken(
+                            reactorConfig.getReactorToolToken(), java.util.Map.of())))
                     .post(requestBody)
                     .build();
 
             try (Response response = uploadClient.newCall(request).execute()) {
                 String responseText = response.body() == null ? null : response.body().string();
                 if (!response.isSuccessful()) {
-                    log.error("对话附件上传失败 sessionId={}, fileName={}, code={}, body={}",
-                            sessionId, originalFileName, response.code(), responseText);
+                    log.error("对话附件上传失败 sessionId={}, fileName={}, code={}, responseChars={}",
+                            sessionId, originalFileName, response.code(),
+                            responseText == null ? 0 : responseText.length());
                     throw new IllegalStateException(resolveUploadFailureMessage(response.code()));
                 }
                 if (!StringUtils.hasText(responseText)) {

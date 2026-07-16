@@ -33,6 +33,7 @@ CREATE TABLE `pay_order` (
   `product_id` varchar(16) NOT NULL COMMENT '商品ID',
   `product_code` varchar(64) DEFAULT NULL COMMENT 'member SKU code',
   `product_name` varchar(64) NOT NULL COMMENT '商品名称',
+  `base_quota_snapshot` bigint NOT NULL DEFAULT 0 COMMENT '下单时基础额度快照（整额度点）',
   `order_id` varchar(16) NOT NULL COMMENT '订单ID',
   `order_time` datetime NOT NULL COMMENT '下单时间',
   `total_amount` decimal(8,2) unsigned DEFAULT NULL COMMENT '订单金额',

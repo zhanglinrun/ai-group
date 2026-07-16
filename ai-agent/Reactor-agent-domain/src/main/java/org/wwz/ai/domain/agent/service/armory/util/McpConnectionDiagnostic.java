@@ -5,6 +5,7 @@ import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.net.HttpURLConnection;
+import java.net.URI;
 import java.net.URL;
 import java.net.URLConnection;
 
@@ -42,10 +43,10 @@ public class McpConnectionDiagnostic {
             fullUrl = buildFullUrl(baseUri, sseEndpoint);
             result.setFullUrl(fullUrl);
 
-            log.info("检查 SSE MCP 服务连接: {}", fullUrl);
+            log.info("MCP connection check started transport=SSE timeoutMs={}", timeoutMs);
 
             // 尝试连接
-            URL url = new URL(fullUrl);
+            URL url = URI.create(fullUrl).toURL();
             URLConnection connection = url.openConnection();
             connection.setConnectTimeout(timeoutMs);
             connection.setReadTimeout(timeoutMs);
@@ -62,11 +63,11 @@ public class McpConnectionDiagnostic {
 
                     if (responseCode >= 200 && responseCode < 300) {
                         result.setStatus("✅ 服务可访问");
-                        log.info("SSE MCP 服务连接检查成功: {}, 响应码: {}", fullUrl, responseCode);
+                        log.info("MCP connection check succeeded transport=SSE responseCode={}", responseCode);
                     } else {
                         result.setStatus("⚠️ 服务响应异常");
                         result.setErrorMessage("HTTP响应码: " + responseCode);
-                        log.warn("SSE MCP 服务响应异常: {}, 响应码: {}", fullUrl, responseCode);
+                        log.warn("MCP connection check returned non-success transport=SSE responseCode={}", responseCode);
                     }
                 } finally {
                     httpConnection.disconnect();
@@ -76,7 +77,7 @@ public class McpConnectionDiagnostic {
                 connection.connect();
                 result.setAccessible(true);
                 result.setStatus("✅ 服务可访问（非HTTP协议）");
-                log.info("SSE MCP 服务连接检查成功: {}", fullUrl);
+                log.info("MCP connection check succeeded transport=SSE protocolType=non-http");
             }
 
         } catch (java.net.ConnectException e) {
@@ -84,39 +85,39 @@ public class McpConnectionDiagnostic {
             result.setStatus("❌ 连接失败");
             result.setErrorMessage("无法连接到服务: " + e.getMessage());
             result.setSuggestion("请检查：1) 服务是否已启动 2) 地址和端口是否正确 3) 防火墙设置");
-            log.error("SSE MCP 服务连接失败: baseUri={}, sseEndpoint={}, fullUrl={}", 
-                    baseUri, sseEndpoint, fullUrl != null ? fullUrl : "N/A", e);
+            log.error("MCP connection check failed transport=SSE errorType={}",
+                    e.getClass().getSimpleName());
 
         } catch (java.net.SocketTimeoutException e) {
             result.setAccessible(false);
             result.setStatus("❌ 连接超时");
             result.setErrorMessage("连接超时: " + e.getMessage());
             result.setSuggestion("请检查：1) 服务是否正常运行 2) 网络是否稳定 3) 超时时间是否足够");
-            log.error("SSE MCP 服务连接超时: baseUri={}, sseEndpoint={}, fullUrl={}", 
-                    baseUri, sseEndpoint, fullUrl != null ? fullUrl : "N/A", e);
+            log.error("MCP connection check timed out transport=SSE timeoutMs={} errorType={}",
+                    timeoutMs, e.getClass().getSimpleName());
 
         } catch (java.net.UnknownHostException e) {
             result.setAccessible(false);
             result.setStatus("❌ 主机不可达");
             result.setErrorMessage("无法解析主机名: " + e.getMessage());
             result.setSuggestion("请检查：1) 主机名是否正确 2) DNS配置 3) 网络连接");
-            log.error("SSE MCP 服务主机不可达: baseUri={}, sseEndpoint={}, fullUrl={}", 
-                    baseUri, sseEndpoint, fullUrl != null ? fullUrl : "N/A", e);
+            log.error("MCP connection check host unresolved transport=SSE errorType={}",
+                    e.getClass().getSimpleName());
 
         } catch (IOException e) {
             result.setAccessible(false);
             result.setStatus("❌ IO异常");
             result.setErrorMessage("IO错误: " + e.getMessage());
             result.setSuggestion("请检查：1) 服务状态 2) 网络连接 3) 服务配置");
-            log.error("SSE MCP 服务IO异常: baseUri={}, sseEndpoint={}, fullUrl={}", 
-                    baseUri, sseEndpoint, fullUrl != null ? fullUrl : "N/A", e);
+            log.error("MCP connection check IO failure transport=SSE errorType={}",
+                    e.getClass().getSimpleName());
 
         } catch (Exception e) {
             result.setAccessible(false);
             result.setStatus("❌ 未知错误");
             result.setErrorMessage("错误: " + e.getMessage());
-            log.error("SSE MCP 服务连接检查异常: baseUri={}, sseEndpoint={}, fullUrl={}", 
-                    baseUri, sseEndpoint, fullUrl != null ? fullUrl : "N/A", e);
+            log.error("MCP connection check failed transport=SSE errorType={}",
+                    e.getClass().getSimpleName());
         }
         
         // 如果 fullUrl 未设置，尝试设置一个默认值

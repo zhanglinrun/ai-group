@@ -15,9 +15,32 @@ public interface LongTermMemoryService {
     void save(MemoryTurn turn);
 
     /**
+     * 保存显式结构化记忆。默认实现保持第三方/测试替身的向后兼容。
+     */
+    default void save(LongTermMemoryEntry entry) {
+        // compatibility no-op
+    }
+
+    /**
      * 按用户与当前问题语义召回历史片段（已按时间衰减重排、并排除当前会话近轮）。
      *
      * @return 召回的文本片段，若未启用/无命中/异常则返回空列表
      */
     List<String> recall(String ownerId, String currentSessionId, String query);
+
+    /**
+     * 召回带类型、来源、置信度、版本和 TTL 的结构化条目。
+     */
+    default List<LongTermMemoryEntry> recallEntries(String ownerId,
+                                                    String currentSessionId,
+                                                    String query) {
+        return List.of();
+    }
+
+    /**
+     * 按 owner 边界删除一条结构化记忆。
+     */
+    default boolean delete(String ownerId, String memoryId) {
+        return false;
+    }
 }

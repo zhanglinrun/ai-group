@@ -1,3 +1,12 @@
+$ErrorActionPreference = "Stop"
+
+function Get-MysqlRootPassword {
+    if ($env:MYSQL_ROOT_PASSWORD) {
+        return $env:MYSQL_ROOT_PASSWORD
+    }
+    return "123456"
+}
+
 function Wait-RedisReady {
     param([int]$TimeoutSec = 60)
     $deadline = (Get-Date).AddSeconds($TimeoutSec)
@@ -17,13 +26,21 @@ function Wait-RedisReady {
 
 function Wait-MysqlReady {
     param([int]$TimeoutSec = 120)
+    $mysqlRootPassword = Get-MysqlRootPassword
     $deadline = (Get-Date).AddSeconds($TimeoutSec)
     while ((Get-Date) -lt $deadline) {
         $prev = $ErrorActionPreference
+        $hadMysqlPwd = Test-Path Env:MYSQL_PWD
+        $previousMysqlPwd = $env:MYSQL_PWD
         $ErrorActionPreference = "Continue"
-        docker exec -e MYSQL_PWD=123456 ai-group-mysql mysqladmin ping -uroot -h 127.0.0.1 2>&1 | Out-Null
-        $pingExit = $LASTEXITCODE
-        $ErrorActionPreference = $prev
+        $env:MYSQL_PWD = $mysqlRootPassword
+        try {
+            docker exec -e MYSQL_PWD ai-group-mysql mysqladmin ping -uroot -h 127.0.0.1 2>&1 | Out-Null
+            $pingExit = $LASTEXITCODE
+        } finally {
+            if ($hadMysqlPwd) { $env:MYSQL_PWD = $previousMysqlPwd } else { Remove-Item Env:MYSQL_PWD -ErrorAction SilentlyContinue }
+            $ErrorActionPreference = $prev
+        }
         if ($pingExit -eq 0) {
             Write-Host "MySQL is ready"
             return
@@ -40,16 +57,21 @@ function Invoke-MysqlPipe {
         [int]$MaxAttempts = 3
     )
 
+    $mysqlRootPassword = Get-MysqlRootPassword
     $lastExit = 1
     $lastDetail = ""
 
     for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
         $prev = $ErrorActionPreference
+        $hadMysqlPwd = Test-Path Env:MYSQL_PWD
+        $previousMysqlPwd = $env:MYSQL_PWD
         $ErrorActionPreference = "Continue"
+        $env:MYSQL_PWD = $mysqlRootPassword
         try {
-            $output = $InputText | docker exec -i -e MYSQL_PWD=123456 ai-group-mysql mysql -uroot --default-character-set=utf8mb4 2>&1
+            $output = $InputText | docker exec -i -e MYSQL_PWD ai-group-mysql mysql -uroot --default-character-set=utf8mb4 2>&1
             $lastExit = $LASTEXITCODE
         } finally {
+            if ($hadMysqlPwd) { $env:MYSQL_PWD = $previousMysqlPwd } else { Remove-Item Env:MYSQL_PWD -ErrorAction SilentlyContinue }
             $ErrorActionPreference = $prev
         }
 
@@ -109,11 +131,19 @@ function Test-MysqlSchemaInitialized {
         [Parameter(Mandatory = $true)][string]$Schema,
         [Parameter(Mandatory = $true)][string]$Table
     )
+    $mysqlRootPassword = Get-MysqlRootPassword
     $query = "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = '$Schema' AND table_name = '$Table';"
     $prev = $ErrorActionPreference
+    $hadMysqlPwd = Test-Path Env:MYSQL_PWD
+    $previousMysqlPwd = $env:MYSQL_PWD
     $ErrorActionPreference = "Continue"
-    $output = $query | docker exec -i -e MYSQL_PWD=123456 ai-group-mysql mysql -uroot -N -B 2>$null
-    $ErrorActionPreference = $prev
+    $env:MYSQL_PWD = $mysqlRootPassword
+    try {
+        $output = $query | docker exec -i -e MYSQL_PWD ai-group-mysql mysql -uroot -N -B 2>$null
+    } finally {
+        if ($hadMysqlPwd) { $env:MYSQL_PWD = $previousMysqlPwd } else { Remove-Item Env:MYSQL_PWD -ErrorAction SilentlyContinue }
+        $ErrorActionPreference = $prev
+    }
     $count = 0
     if ($output) {
         $line = ($output | Select-Object -Last 1).ToString().Trim()

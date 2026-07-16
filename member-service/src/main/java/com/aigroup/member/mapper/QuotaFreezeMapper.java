@@ -22,6 +22,14 @@ public interface QuotaFreezeMapper extends BaseMapper<QuotaFreeze> {
     QuotaFreeze selectForUpdateByUserIdAndRequestId(@Param("userId") Long userId,
                                                     @Param("requestId") String requestId);
 
+    @Select("SELECT COALESCE(SUM(free_amount), 0) FROM quota_freeze "
+            + "WHERE user_id = #{userId} AND status = 'PENDING' FOR UPDATE")
+    long sumPendingFreeAmount(@Param("userId") Long userId);
+
+    @Select("SELECT COALESCE(SUM(paid_amount), 0) FROM quota_freeze "
+            + "WHERE user_id = #{userId} AND status = 'PENDING' FOR UPDATE")
+    long sumPendingPaidAmount(@Param("userId") Long userId);
+
     /**
      * 扫描超时仍处于 PENDING 的冻结（进程崩溃/发布重启导致 confirm/release 丢失的僵尸冻结），供兜底释放。
      */

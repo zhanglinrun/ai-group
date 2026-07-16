@@ -10,6 +10,7 @@ export type QrPayment = {
   qrCode?: string | null;
   title: string;
   amount?: number;
+  demoCompletionEnabled?: boolean;
 };
 
 type PaymentQrDialogProps = {
@@ -32,7 +33,9 @@ const PaymentQrDialog = memo(({ payment, onClose, onPaid }: PaymentQrDialogProps
   const [qrImage, setQrImage] = useState<string>('');
   const [remaining, setRemaining] = useState(PAY_WINDOW_SECONDS);
   const [checking, setChecking] = useState(false);
+  const [demoCompleting, setDemoCompleting] = useState(false);
   const settledRef = useRef(false);
+  const statusRequestRef = useRef(false);
 
   const orderId = payment?.orderId;
   const qrCode = payment?.qrCode;
@@ -64,7 +67,8 @@ const PaymentQrDialog = memo(({ payment, onClose, onPaid }: PaymentQrDialogProps
 
   const checkStatus = useCallback(
     async (silent: boolean) => {
-      if (!orderId || settledRef.current) return;
+      if (!orderId || settledRef.current || statusRequestRef.current) return;
+      statusRequestRef.current = true;
       if (!silent) setChecking(true);
       try {
         const result = await payApi.syncSettle(orderId);
@@ -76,18 +80,47 @@ const PaymentQrDialog = memo(({ payment, onClose, onPaid }: PaymentQrDialogProps
           message.info('尚未检测到支付，请扫码完成后再刷新');
         }
       } catch (error) {
-        console.error('查询支付状态失败', error);
-        if (!silent) message.error('支付状态查询失败，请稍后重试');
+        if (!silent) {
+          console.error('查询支付状态失败', error);
+          message.error('支付状态查询失败，请稍后重试');
+        }
       } finally {
+        statusRequestRef.current = false;
         if (!silent) setChecking(false);
       }
     },
     [orderId, onPaid],
   );
 
+  const completeDemoPayment = useCallback(async () => {
+    if (!orderId || settledRef.current || statusRequestRef.current) return;
+    statusRequestRef.current = true;
+    setDemoCompleting(true);
+    try {
+      const result = await payApi.completeDemoPayment(orderId);
+      if (result !== 'SETTLED' && result !== 'GROUP_FINALIZED') {
+        throw new Error('unexpected demo payment result');
+      }
+      settledRef.current = true;
+      message.success(
+        result === 'GROUP_FINALIZED' ? '本地演示支付完成，拼团权益发放中' : '本地演示支付完成',
+      );
+      // team_success -> pay -> member 由 MQ 最终一致，给消费者一个很短的收敛窗口。
+      await new Promise((resolve) => window.setTimeout(resolve, 1200));
+      onPaid();
+    } catch (error) {
+      console.error('本地演示支付失败', error);
+      message.error('本地演示支付失败，请稍后重试');
+    } finally {
+      statusRequestRef.current = false;
+      setDemoCompleting(false);
+    }
+  }, [orderId, onPaid]);
+
   // 轮询支付状态 + 本地倒计时
   useEffect(() => {
-    if (!orderId) return;
+    // Pure local-demo orders have no Alipay QR and should not hammer the sandbox status API.
+    if (!orderId || (payment?.demoCompletionEnabled && !qrCode)) return;
     const poll = setInterval(() => {
       if (settledRef.current) return;
       void checkStatus(true);
@@ -106,7 +139,7 @@ const PaymentQrDialog = memo(({ payment, onClose, onPaid }: PaymentQrDialogProps
       clearInterval(poll);
       clearInterval(tick);
     };
-  }, [orderId, checkStatus]);
+  }, [orderId, qrCode, payment?.demoCompletionEnabled, checkStatus]);
 
   if (!payment) return null;
 
@@ -135,20 +168,32 @@ const PaymentQrDialog = memo(({ payment, onClose, onPaid }: PaymentQrDialogProps
                 {qrCode ? (
                   <Loader2 className="h-6 w-6 animate-spin" />
                 ) : (
-                  <span className="px-4">支付暂不可用，请稍后重试或到订单记录使用「去支付」</span>
+                  <span className="px-4">
+                    {payment.demoCompletionEnabled
+                      ? '支付宝已关闭，请使用下方本地演示按钮推进完整业务闭环'
+                      : '支付暂不可用，请稍后重试或到订单记录使用「去支付」'}
+                  </span>
                 )}
               </div>
             )}
           </div>
 
-          <div className="mt-3 text-sm text-[var(--chat-text-soft)]">请使用支付宝扫码支付</div>
+          <div className="mt-3 text-sm text-[var(--chat-text-soft)]">
+            {payment.demoCompletionEnabled && !qrCode
+              ? '本地演示支付（不会调用支付宝）'
+              : '请使用支付宝扫码支付'}
+          </div>
           {payment.amount != null ? (
             <div className="mt-1 text-2xl font-semibold text-[var(--chat-text)]">
               {formatPrice(payment.amount)}
             </div>
           ) : null}
-          <div className={`mt-1 text-xs ${expired ? 'text-red-600' : 'text-[var(--chat-text-soft)]'}`}>
-            {expired ? '二维码已过期，请关闭后重新下单' : `剩余支付时间 ${formatCountdown(remaining)}`}
+          <div
+            className={`mt-1 text-xs ${expired ? 'text-red-600' : 'text-[var(--chat-text-soft)]'}`}
+          >
+            {expired
+              ? '二维码已过期，请关闭后重新下单'
+              : `剩余支付时间 ${formatCountdown(remaining)}`}
           </div>
         </div>
 
@@ -167,7 +212,9 @@ const PaymentQrDialog = memo(({ payment, onClose, onPaid }: PaymentQrDialogProps
           </div>
           <div className="flex justify-between">
             <span className="text-[var(--chat-text-soft)]">支付方式</span>
-            <span className="font-medium">支付宝</span>
+            <span className="font-medium">
+              {payment.demoCompletionEnabled && !qrCode ? '本地演示' : '支付宝'}
+            </span>
           </div>
         </div>
 
@@ -185,10 +232,31 @@ const PaymentQrDialog = memo(({ payment, onClose, onPaid }: PaymentQrDialogProps
             disabled={checking || expired}
             className="inline-flex flex-1 items-center justify-center gap-2 rounded-full bg-[var(--chat-text)] px-4 py-2.5 text-sm font-medium text-white disabled:opacity-60"
           >
-            {checking ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+            {checking ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <RefreshCw className="h-4 w-4" />
+            )}
             刷新状态
           </button>
         </div>
+        {payment.demoCompletionEnabled ? (
+          <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-amber-900">
+            <div className="text-xs font-medium">本地演示模式</div>
+            <div className="mt-1 text-[11px] leading-5">
+              以下按钮模拟付款；拼团仍由真实 group 结算并通过 MQ 发放权益，不会调用支付宝。
+            </div>
+            <button
+              type="button"
+              onClick={() => void completeDemoPayment()}
+              disabled={checking || demoCompleting || expired}
+              className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-full bg-amber-700 px-4 py-2.5 text-sm font-medium text-white disabled:opacity-60"
+            >
+              {demoCompleting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              模拟完成支付{payment.title ? '并推进业务闭环' : ''}
+            </button>
+          </div>
+        ) : null}
       </div>
     </div>
   );

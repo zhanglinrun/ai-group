@@ -55,6 +55,9 @@ public class AgentContext {
      */
     String sessionId;
 
+    /** Authenticated user id used by the per-call quota adapter. */
+    Long ownerId;
+
     /**
      * 用户原始查询语句
      * 用途：智能体的核心输入，是所有任务拆解、工具调用的源头；
@@ -342,6 +345,7 @@ public class AgentContext {
         return AgentContext.builder()
                 .requestId(requestId)
                 .sessionId(sessionId)
+                .ownerId(ownerId)
                 .query(query)
                 .task(parallelTask)
                 .printer(printer)

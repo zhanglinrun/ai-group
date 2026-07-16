@@ -21,6 +21,7 @@ import reactor.core.publisher.Flux;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * StreamResponseHandler 测试
@@ -87,9 +88,57 @@ public class StreamResponseHandlerTest {
         Assert.assertEquals("先思考", response.getContent());
         Assert.assertEquals("tool_calls", response.getFinishReason());
         Assert.assertEquals(Integer.valueOf(28), response.getTotalTokens());
+        Assert.assertEquals(Integer.valueOf(10), response.getPromptTokens());
+        Assert.assertEquals(Integer.valueOf(18), response.getCompletionTokens());
         Assert.assertEquals(1, response.getToolCalls().size());
         Assert.assertEquals("{\"query\":\"spring ai\"}", response.getToolCalls().get(0).getFunction().getArguments());
         Assert.assertTrue(printer.messages.stream().anyMatch(message -> "先思考".equals(message.message) && message.isFinal));
+    }
+
+    @Test
+    public void test_partialObserverKeepsOutputWhenStreamFails() throws Exception {
+        StreamResponseHandler handler = new StreamResponseHandler();
+        ReactorConfig reactorConfig = new ReactorConfig();
+        reactorConfig.setMessageInterval("{\"llm\":\"1,2\"}");
+        ReflectionTestUtils.setField(handler, "reactorConfig", reactorConfig);
+        ReflectionTestUtils.setField(handler, "chatResponseMapper", new LlmChatResponseMapper());
+        AtomicReference<String> partial = new AtomicReference<>("");
+
+        var future = handler.handleStringStreamResponse(
+                AgentContext.builder().requestId("req-partial").isStream(false).build(),
+                Flux.concat(Flux.just(textChunk("已经输出")), Flux.error(new RuntimeException("broken"))),
+                null, false, false, partial::set);
+
+        try {
+            future.get(5, java.util.concurrent.TimeUnit.SECONDS);
+            Assert.fail("stream should fail");
+        } catch (java.util.concurrent.ExecutionException expected) {
+            Assert.assertEquals("已经输出", partial.get());
+        }
+    }
+
+    @Test
+    public void test_partialObserverKeepsOutputWhenCallerTimesOut() throws Exception {
+        StreamResponseHandler handler = new StreamResponseHandler();
+        ReactorConfig reactorConfig = new ReactorConfig();
+        reactorConfig.setMessageInterval("{\"llm\":\"1,2\"}");
+        ReflectionTestUtils.setField(handler, "reactorConfig", reactorConfig);
+        ReflectionTestUtils.setField(handler, "chatResponseMapper", new LlmChatResponseMapper());
+        AtomicReference<String> partial = new AtomicReference<>("");
+
+        var future = handler.handleStringStreamResponse(
+                        AgentContext.builder().requestId("req-timeout").isStream(false).build(),
+                        Flux.concat(Flux.just(textChunk("超时前已输出")), Flux.never()),
+                        null, false, false, partial::set)
+                .orTimeout(200, java.util.concurrent.TimeUnit.MILLISECONDS);
+
+        try {
+            future.get(2, java.util.concurrent.TimeUnit.SECONDS);
+            Assert.fail("stream should time out");
+        } catch (java.util.concurrent.ExecutionException expected) {
+            Assert.assertTrue(expected.getCause() instanceof java.util.concurrent.TimeoutException);
+            Assert.assertEquals("超时前已输出", partial.get());
+        }
     }
 
     @Test

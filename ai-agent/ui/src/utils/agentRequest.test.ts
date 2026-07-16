@@ -67,4 +67,41 @@ describe('agentRequest', () => {
     });
     expect(request).not.toHaveProperty('aiAgentId');
   });
+
+  it('检查点恢复会强制进入 Plan-Solve 并默认使用 SAFE_ONLY', () => {
+    const request = buildAgentStreamRequest({
+      sessionId: 'session-1',
+      requestId: 'req-resume-1',
+      message: '继续原任务',
+      deepThink: false,
+      outputStyle: 'html',
+      resumeCheckpointId: 'checkpoint-001',
+    });
+
+    expect(request).toMatchObject({
+      deepThink: 1,
+      resumeCheckpointId: 'checkpoint-001',
+      resumeDecision: 'SAFE_ONLY',
+    });
+    expect(request).not.toHaveProperty('token');
+    expect(request).not.toHaveProperty('internalToken');
+  });
+
+  it('仅在显式传入时发送 RESTART_FROM_CHECKPOINT', () => {
+    const request = buildAgentStreamRequest({
+      sessionId: 'session-1',
+      requestId: 'req-resume-2',
+      message: '从检查点强制重启',
+      deepThink: true,
+      outputStyle: 'html',
+      resumeCheckpointId: 'checkpoint-002',
+      resumeDecision: 'RESTART_FROM_CHECKPOINT',
+    });
+
+    expect(request).toMatchObject({
+      deepThink: 1,
+      resumeCheckpointId: 'checkpoint-002',
+      resumeDecision: 'RESTART_FROM_CHECKPOINT',
+    });
+  });
 });

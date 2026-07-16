@@ -1,7 +1,7 @@
 import { memo } from 'react';
 import { Monitor, Moon, Sun } from 'lucide-react';
 import classNames from 'classnames';
-import { useTheme } from './ThemeProvider';
+import { useTheme } from './themeRuntime';
 import { FONT_SCALES, MODES, PALETTES, type ThemeMode } from './palettes';
 
 const MODE_ICONS: Record<ThemeMode, React.ComponentType<{ className?: string }>> = {
@@ -128,7 +128,12 @@ const AppearanceSettings = memo(({ className, hideHeading }: AppearanceSettingsP
                 )}
               >
                 <span className="text-xs">{item.label}</span>
-                <span className={classNames('font-[family-name:var(--font-display)]', FONT_SCALE_PREVIEW[item.id])}>
+                <span
+                  className={classNames(
+                    'font-[family-name:var(--font-display)]',
+                    FONT_SCALE_PREVIEW[item.id],
+                  )}
+                >
                   Aa
                 </span>
               </button>

@@ -57,6 +57,7 @@ public class AiClientAdvisorVO {
     @AllArgsConstructor
     @NoArgsConstructor
     public static class RagAnswer {
+        @Builder.Default
         private int topK = 4;
         private String filterExpression;
     }

@@ -20,8 +20,10 @@ public class BenefitEventEntity {
     private String orderId;
     private String productCode;
     private Boolean eventPublished;
+    /** 下单时基础额度快照（整额度点） */
+    private Long baseQuota;
     /** 阶梯拼团加赠额度（随成团结算透传，用于 member 在基础额度上叠加发放） */
-    private Integer bonusQuota;
+    private Long bonusQuota;
     private Date createTime;
     private Date updateTime;
 

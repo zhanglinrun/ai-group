@@ -20,7 +20,8 @@ public class BenefitEvent {
     private String orderId;
     private String productCode;
     private Boolean eventPublished;
-    private Integer bonusQuota;
+    private Long baseQuota;
+    private Long bonusQuota;
     private Date createTime;
     private Date updateTime;
 

@@ -5,7 +5,6 @@ import org.wwz.ai.domain.agent.model.valobj.enums.AiAgentEnumVO;
 import org.wwz.ai.domain.agent.model.valobj.AiClientModelVO;
 import org.wwz.ai.domain.agent.service.armory.node.factory.DefaultArmoryStrategyFactory;
 import cn.bugstack.wrench.design.framework.tree.StrategyHandler;
-import com.alibaba.fastjson.JSON;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.openai.OpenAiChatOptions;
@@ -28,7 +27,10 @@ public class AiClientModelNode extends AbstractArmorySupport {
 
     @Override
     protected String doApply(ArmoryCommandEntity requestParameter, DefaultArmoryStrategyFactory.DynamicContext dynamicContext) throws Exception {
-        log.info("Ai Agent 构建节点，Mode 对话模型{}", JSON.toJSONString(requestParameter));
+        log.info("armory node start node=model commandType={} commandIdCount={}",
+                requestParameter == null ? null : requestParameter.getCommandType(),
+                requestParameter == null || requestParameter.getCommandIdList() == null
+                        ? 0 : requestParameter.getCommandIdList().size());
 
         List<AiClientModelVO> aiClientModelList = dynamicContext.getValue(dataName());
 

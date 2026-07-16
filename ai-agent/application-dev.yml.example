@@ -106,7 +106,7 @@ autobots:
       compress:
         enabled: ${AGENT_MEMORY_COMPRESS_ENABLED:true}
       longterm:
-        # 长期记忆依赖 Qdrant，默认关闭；开启需 autobots.data-agent.qdrant-config.enable=true
+        # 长期记忆使用下方 Qdrant 连接，但与 DataAgent/问数的 enable 开关相互独立
         enabled: ${AGENT_MEMORY_LONGTERM_ENABLED:false}
         collection: ${AGENT_MEMORY_LONGTERM_COLLECTION:agent_conversation_memory}
         top-k: ${AGENT_MEMORY_LONGTERM_TOP_K:5}
@@ -126,6 +126,7 @@ autobots:
     dispatch_url: ${AGENT_GROUP_AGENT_DISPATCH_URL:http://127.0.0.1:8090/AutoAgent}
     knowledge_url: ${AGENT_GROUP_REACTOR_TOOL_BASE_URL:http://127.0.0.1:1601}
     code_interpreter_url: ${AGENT_GROUP_REACTOR_TOOL_BASE_URL:http://127.0.0.1:1601}
+    reactor_tool_token: ${AGENT_GROUP_REACTOR_TOOL_TOKEN:${AI_GROUP_INTERNAL_TOKEN:${ai-group.internal.token:}}}
     deep_search_url: ${AGENT_GROUP_REACTOR_TOOL_BASE_URL:http://127.0.0.1:1601}
     web_fetch_url: ${AGENT_GROUP_REACTOR_TOOL_BASE_URL:http://127.0.0.1:1601}
     image_generation_url: ${AGENT_GROUP_REACTOR_TOOL_BASE_URL:http://127.0.0.1:1601}

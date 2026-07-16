@@ -15,18 +15,17 @@ import {
 type GroupTeamCardProps = {
   team: GroupBuyTeam;
   sku?: SkuItem | null;
-  groupPrice?: number;
   buyingKey: string;
   onJoin: (teamId: string) => void;
 };
 
-const GroupTeamCard = memo(({ team, sku, groupPrice, buyingKey, onJoin }: GroupTeamCardProps) => {
+const GroupTeamCard = memo(({ team, sku, buyingKey, onJoin }: GroupTeamCardProps) => {
   const teamId = team.teamId || '';
   const { target, complete, remaining, percent } = teamProgress(team);
   const tierView = teamTierView(team, sku);
   const tiered = tierView.isTiered;
-  const theme = skuTheme(sku?.code || 'PRO_MONTH');
-  const price = groupPrice ?? sku?.price;
+  const theme = skuTheme(sku?.code || 'QUOTA_STANDARD');
+  const price = sku?.price;
   const joining = buyingKey === `${sku?.code || ''}-group-${teamId}`;
   const countdown = useCountdown(team.validEndTime, team.validTimeCountdown);
   const ended = countdown === COUNTDOWN_ENDED;
@@ -39,7 +38,7 @@ const GroupTeamCard = memo(({ team, sku, groupPrice, buyingKey, onJoin }: GroupT
           <div>
             <div className="flex items-center gap-2">
               <span className="text-base font-semibold">
-                {sku ? skuDisplayName(sku) : 'Pro 会员拼团'}
+                {sku ? skuDisplayName(sku) : '额度包拼团'}
               </span>
               <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
                 进行中
@@ -101,11 +100,11 @@ const GroupTeamCard = memo(({ team, sku, groupPrice, buyingKey, onJoin }: GroupT
               </div>
             </div>
           </div>
-        ) : sku?.periodQuota != null ? (
+        ) : sku?.baseQuota != null ? (
           <div className="mt-4 grid grid-cols-3 gap-2 text-center text-xs">
             <div className="rounded-xl bg-[var(--chat-surface-soft)] px-2 py-2">
               <div className="text-[var(--chat-text-soft)]">基础配额</div>
-              <div className="mt-1 font-medium">{formatQuota(sku.periodQuota)}</div>
+              <div className="mt-1 font-medium">{formatQuota(sku.baseQuota)}</div>
             </div>
             <div className="rounded-xl bg-[var(--chat-surface-soft)] px-2 py-2">
               <div className="text-[var(--chat-text-soft)]">拼团价</div>
@@ -113,7 +112,7 @@ const GroupTeamCard = memo(({ team, sku, groupPrice, buyingKey, onJoin }: GroupT
             </div>
             <div className="rounded-xl bg-[var(--chat-surface-soft)] px-2 py-2">
               <div className="text-[var(--chat-text-soft)]">成团后</div>
-              <div className="mt-1 font-medium">自动开通</div>
+              <div className="mt-1 font-medium">额度到账</div>
             </div>
           </div>
         ) : null}

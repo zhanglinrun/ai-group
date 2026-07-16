@@ -25,9 +25,9 @@ thread:
 # 数据库配置；启动时配置数据库资源信息
 spring:
   datasource:
-    username: root
-    password: 123456
-    url: jdbc:mysql://127.0.0.1:13306/group_buy_market?useUnicode=true&characterEncoding=utf8&autoReconnect=true&zeroDateTimeBehavior=convertToNull&serverTimezone=Asia/Shanghai&useSSL=false&sessionVariables=sql_mode='NO_ENGINE_SUBSTITUTION,STRICT_TRANS_TABLES'
+    username: ${MYSQL_USER:root}
+    password: ${MYSQL_ROOT_PASSWORD:123456}
+    url: jdbc:mysql://${MYSQL_HOST:127.0.0.1}:${MYSQL_PORT:13306}/group_buy_market?useUnicode=true&characterEncoding=utf8&autoReconnect=true&zeroDateTimeBehavior=convertToNull&serverTimezone=Asia/Shanghai&useSSL=false&sessionVariables=sql_mode='NO_ENGINE_SUBSTITUTION,STRICT_TRANS_TABLES'
     driver-class-name: com.mysql.cj.jdbc.Driver
     type: com.zaxxer.hikari.HikariDataSource
     hikari:
@@ -41,10 +41,10 @@ spring:
       connection-test-query: SELECT 1
   # RabbitMQ
   rabbitmq:
-    addresses: 127.0.0.1
-    port: 5672
-    username: admin
-    password: admin
+    addresses: ${RABBITMQ_HOST:127.0.0.1}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USER:admin}
+    password: ${RABBITMQ_PASSWORD:admin}
     # B4: broker-side publish confirm; EventPublisher does not register a confirm
     # callback yet, this only enables the channel so failures surface in logs.
     publisher-confirm-type: correlated
@@ -99,8 +99,8 @@ mybatis:
 redis:
   sdk:
     config:
-      host: 127.0.0.1
-      port: 16379
+      host: ${REDIS_HOST:127.0.0.1}
+      port: ${REDIS_PORT:16379}
       pool-size: 10
       min-idle-size: 5
       idle-timeout: 30000
@@ -116,8 +116,8 @@ xfg:
     config:
       system: group-buy-market
       register:
-        host: 127.0.0.1
-        port: 16379
+        host: ${REDIS_HOST:127.0.0.1}
+        port: ${REDIS_PORT:16379}
 
 # 日志；logstash部署的服务器IP
 logstash:
@@ -147,5 +147,8 @@ logging:
 
 ai-group:
   internal:
-    token: ${AI_GROUP_INTERNAL_TOKEN:ai-group-dev-internal-token-change-in-prod}
+    token: ${AI_GROUP_INTERNAL_TOKEN:change-me-to-a-long-random-internal-token}
     auth-enabled: ${AI_GROUP_INTERNAL_AUTH_ENABLED:true}
+  group:
+    # 仅供 dev-only 本地演示支付编排；端点仍需 X-Internal-Token。
+    demo-finalize-enabled: ${AI_GROUP_DEMO_PAYMENT_ENABLED:false}

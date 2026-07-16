@@ -201,6 +201,13 @@ declare global {
       toolParam?: Record<string, unknown>;
       artifactRefs?: ArtifactReference[];
       plannerRoundId?: string;
+      checkpointId?: string;
+      phase?: string;
+      sequence?: number;
+      nextStepIndex?: number;
+      resumable?: boolean;
+      sourceRequestId?: string;
+      resumeDecision?: CHAT.CheckpointResumeDecision;
       refList?: {
         name: string;
         pageContent: string;

@@ -1,4 +1,4 @@
-[根目录](../CLAUDE.md) > **ai-agent-station-study-app**
+[Agent 项目说明](../README.md) > **Reactor-agent-app**
 
 # ai-agent-station-study-app 模块
 

@@ -35,7 +35,7 @@ public class AiClientToolMcpAdminController implements IAiClientToolMcpAdminServ
     @PostMapping("/create")
     public Response<Boolean> createAiClientToolMcp(@RequestBody AiClientToolMcpRequestDTO request) {
         try {
-            log.info("创建MCP客户端配置请求：{}", request);
+            log.info("创建MCP客户端配置请求");
 
             // DTO转PO
             AiClientToolMcp aiClientToolMcp = convertToAiClientToolMcp(request);
@@ -63,7 +63,7 @@ public class AiClientToolMcpAdminController implements IAiClientToolMcpAdminServ
     @PutMapping("/update-by-id")
     public Response<Boolean> updateAiClientToolMcpById(@RequestBody AiClientToolMcpRequestDTO request) {
         try {
-            log.info("根据ID更新MCP客户端配置请求：{}", request);
+            log.info("根据ID更新MCP客户端配置请求");
 
             if (request.getId() == null) {
                 return Response.<Boolean>builder()
@@ -98,7 +98,7 @@ public class AiClientToolMcpAdminController implements IAiClientToolMcpAdminServ
     @PutMapping("/update-by-mcp-id")
     public Response<Boolean> updateAiClientToolMcpByMcpId(@RequestBody AiClientToolMcpRequestDTO request) {
         try {
-            log.info("根据MCP ID更新MCP客户端配置请求：{}", request);
+            log.info("根据MCP ID更新MCP客户端配置请求");
 
             if (!StringUtils.hasText(request.getMcpId())) {
                 return Response.<Boolean>builder()
@@ -353,7 +353,7 @@ public class AiClientToolMcpAdminController implements IAiClientToolMcpAdminServ
     @PostMapping("/query-list")
     public Response<List<AiClientToolMcpResponseDTO>> queryAiClientToolMcpList(@RequestBody AiClientToolMcpQueryRequestDTO request) {
         try {
-            log.info("根据查询条件查询MCP客户端配置列表：{}", request);
+            log.info("根据查询条件查询MCP客户端配置列表");
 
             // 根据查询条件调用不同的DAO方法
             List<AiClientToolMcp> aiClientToolMcps;

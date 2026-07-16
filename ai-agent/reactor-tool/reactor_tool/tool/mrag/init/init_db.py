@@ -11,6 +11,11 @@ dotenv.load_dotenv()
 base_url = "http://127.0.0.1:1601"
 
 
+def _internal_headers() -> dict[str, str]:
+    token = (os.getenv("REACTOR_TOOL_TOKEN") or os.getenv("AI_GROUP_INTERNAL_TOKEN") or "").strip()
+    return {"X-Tool-Token": token} if token else {}
+
+
 def create_knowledge_base(kb_id: str):
     """
     创建知识库
@@ -24,7 +29,12 @@ def create_knowledge_base(kb_id: str):
         "kb_desc": "本地多模态知识库"
     }
 
-    response = requests.post(f"{base_url}/v1/documents/create_knowledge_base", json=body, timeout=300)
+    response = requests.post(
+        f"{base_url}/v1/documents/create_knowledge_base",
+        json=body,
+        headers=_internal_headers(),
+        timeout=300,
+    )
     if response.status_code == 200:
         print("创建知识库成功")
     else:
@@ -39,7 +49,12 @@ def delete_knowledge_base(kb_id: str):
         "kb_id": kb_id
     }
 
-    response = requests.post(f"{base_url}/v1/documents/delete_knowledge_base", json=body, timeout=300)
+    response = requests.post(
+        f"{base_url}/v1/documents/delete_knowledge_base",
+        json=body,
+        headers=_internal_headers(),
+        timeout=300,
+    )
     if response.status_code == 200:
         print("删除知识库成功")
     else:
@@ -55,7 +70,12 @@ def submit_add_file_task(file_url: str, file_name: str, kb_id: str = None):
         }]
     }
 
-    response = requests.post(f"{base_url}/v1/documents/add_files", json=body, timeout=300)
+    response = requests.post(
+        f"{base_url}/v1/documents/add_files",
+        json=body,
+        headers=_internal_headers(),
+        timeout=300,
+    )
     if response.status_code == 200:
         print("提交文件成功")
     else:

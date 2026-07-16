@@ -3,11 +3,14 @@ package org.wwz.ai.application.agent.execute.workflow;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.stereotype.Service;
 import org.wwz.ai.application.agent.execute.IExecuteStrategy;
 import org.wwz.ai.application.agent.stream.AgentSessionPrinter;
 import org.wwz.ai.application.agent.stream.AgentSessionStream;
 import org.wwz.ai.domain.agent.adapter.repository.IAgentRepository;
+import org.wwz.ai.domain.agent.adapter.port.ModelCatalogPort;
+import org.wwz.ai.domain.agent.adapter.port.QuotaBillingPort;
 import org.wwz.ai.domain.agent.memory.ConversationMemoryManager;
 import org.wwz.ai.domain.agent.memory.MemoryQuery;
 import org.wwz.ai.domain.agent.memory.MemoryTurn;
@@ -18,7 +21,19 @@ import org.wwz.ai.domain.agent.reactor.config.ReactorConfig;
 import org.wwz.ai.domain.agent.reactor.model.req.AgentRequest;
 import org.wwz.ai.domain.agent.model.valobj.AiAgentClientFlowConfigVO;
 import org.wwz.ai.domain.agent.runtime.metrics.AgentRunMetrics;
+import org.wwz.ai.domain.agent.runtime.llm.LLMSettings;
+import org.wwz.ai.domain.agent.runtime.llm.TokenCounter;
+import org.wwz.ai.domain.agent.runtime.llm.LlmQuotaCalculator;
+import org.wwz.ai.domain.agent.runtime.llm.LlmUsageSettlement;
+import org.wwz.ai.domain.agent.runtime.ReactorRuntimeDependencies;
+import org.wwz.ai.domain.agent.runtime.tool.mcp.runtime.WorkflowToolTraceContext;
+import org.wwz.ai.domain.agent.ledger.AgentExecutionRecorder;
+import org.wwz.ai.domain.agent.ledger.ExecutionLedgerRunSupport;
+import org.wwz.ai.domain.agent.ledger.model.ExecutionLedgerConstants;
+import org.wwz.ai.domain.agent.ledger.model.LlmInvocationStartRecord;
+import org.wwz.ai.domain.agent.ledger.model.LlmInvocationFinishRecord;
 import org.wwz.ai.domain.agent.service.runtime.AiClientRuntimeRegistry;
+import org.wwz.ai.application.agent.quota.MemberQuotaBillingService;
 import org.springframework.ai.chat.metadata.ChatResponseMetadata;
 import org.springframework.ai.chat.metadata.Usage;
 import reactor.core.publisher.Flux;
@@ -53,14 +68,31 @@ public class FlowAgentExecuteStrategy implements IExecuteStrategy {
     @Resource
     private ConversationMemoryManager conversationMemoryManager;
 
+    @Resource
+    private ModelCatalogPort modelCatalogPort;
+
+    @Resource
+    private MemberQuotaBillingService memberQuotaBillingService;
+
+    @Resource
+    private AgentExecutionRecorder agentExecutionRecorder;
+
+    @Resource
+    private ReactorRuntimeDependencies reactorRuntimeDependencies;
+
+    private final TokenCounter tokenCounter = new TokenCounter();
+
     @Override
     public void execute(AgentRequest request, AgentSessionStream stream) throws Exception {
-        log.info("{} fixed agent request: {}", request.getRequestId(), request);
+        log.info("{} workflow agent request accepted agentType={} stream={} fileCount={}",
+                request.getRequestId(), request.getAgentType(), request.getIsStream(),
+                request.getSessionFiles() == null ? 0 : request.getSessionFiles().size());
 
         Printer printer = new AgentSessionPrinter(stream, request, request.getAgentType());
         AgentContext agentContext = AgentContext.builder()
                 .requestId(request.getRequestId())
                 .sessionId(request.getSessionId())
+                .ownerId(Long.valueOf(request.getOwnerId()))
                 .printer(printer)
                 .query(request.getQuery())
                 .task("")
@@ -72,6 +104,8 @@ public class FlowAgentExecuteStrategy implements IExecuteStrategy {
                 .agentType(request.getAgentType())
                 .isStream(Objects.nonNull(request.getIsStream()) ? request.getIsStream() : false)
                 .templateType("dataAgent".equals(request.getOutputStyle()) ? "fix" : "empty")
+                .executionRecorder(agentExecutionRecorder)
+                .runtimeDependencies(reactorRuntimeDependencies)
                 .build();
 
         if (request.getAiAgentId() == null || request.getAiAgentId().isBlank()) {
@@ -83,6 +117,8 @@ public class FlowAgentExecuteStrategy implements IExecuteStrategy {
         if (aiAgentClientList == null || aiAgentClientList.isEmpty()) {
             throw new IllegalStateException("当前角色未配置可执行的 Fix 流程");
         }
+        ExecutionLedgerRunSupport.initializeRun(
+                agentExecutionRecorder, agentContext, request, ExecutionLedgerConstants.ENTRY_AGENT_WORKFLOW);
 
         String content = "";
         final String sessionId = request.getSessionId();
@@ -95,17 +131,72 @@ public class FlowAgentExecuteStrategy implements IExecuteStrategy {
         final String[] modelHolder = {null};
         final long[] totalTokenHolder = {0L};
 
+        int flowIndex = 0;
         for (AiAgentClientFlowConfigVO config : aiAgentClientList) {
+            flowIndex++;
             ChatClient chatClient = resolveChatClient(config.getClientId(), request.getModelId());
             StringBuilder fullText = new StringBuilder();
+            String userPrompt = request.getQuery() + "，" + content;
+            String systemPrompt = buildSystemPrompt(memoryBlock, config.getStepPrompt());
+            LLMSettings billingSettings = modelCatalogPort.resolveLlmSettings(request.getModelId());
+            long inputRate = billingSettings == null ? 5L : Math.max(1L, billingSettings.getInputCreditsPerMillion());
+            long outputRate = billingSettings == null ? 30L : Math.max(1L, billingSettings.getOutputCreditsPerMillion());
+            int requestedMaxOutput = Math.max(LlmQuotaCalculator.MIN_OUTPUT_TOKENS,
+                    billingSettings == null ? 16384 : billingSettings.getMaxTokens());
+            int estimatedInput = tokenCounter.countText(userPrompt) + tokenCounter.countText(systemPrompt) + 8;
+            int invocationSeq = agentContext.getAgentRunState().nextInvocationSeq();
+            Long invocationId = agentExecutionRecorder.createLlmInvocation(LlmInvocationStartRecord.builder()
+                    .runId(agentContext.getAgentRunState().getRunId())
+                    .requestId(request.getRequestId())
+                    .invocationSeq(invocationSeq)
+                    .agentName("workflow")
+                    .stepNo(flowIndex)
+                    .callKind(ExecutionLedgerConstants.CALL_KIND_ASK)
+                    .streaming(true)
+                    .modelName(billingSettings == null ? request.getModelId() : billingSettings.getModel())
+                    .inputRateSnapshot(inputRate)
+                    .outputRateSnapshot(outputRate)
+                    .startedAt(LocalDateTime.now())
+                    .build());
+            WorkflowToolTraceContext toolTrace = new WorkflowToolTraceContext(
+                    agentExecutionRecorder,
+                    agentContext.getAgentRunState().getRunId(),
+                    request.getRequestId(),
+                    request.getSessionId(),
+                    invocationId,
+                    "workflow",
+                    flowIndex
+            );
+            LlmQuotaCalculator.ReservationAmounts amounts = LlmQuotaCalculator.reservation(
+                    estimatedInput, requestedMaxOutput, inputRate, outputRate);
+            QuotaBillingPort.Reservation reservation;
+            try {
+                reservation = memberQuotaBillingService.reserve(
+                        request.getOwnerId() == null ? null : Long.valueOf(request.getOwnerId()),
+                        amounts.requestedMicrocredits(),
+                        amounts.minimumMicrocredits(),
+                        request.getRequestId() + ":workflow:" + flowIndex);
+            } catch (RuntimeException e) {
+                recordWorkflowInvocation(agentContext, invocationId, ExecutionLedgerConstants.STATUS_FAILED,
+                        estimatedInput, 0, "ESTIMATED", 0L, null, 0, e.getMessage());
+                ExecutionLedgerRunSupport.finishRun(agentContext, ExecutionLedgerConstants.STATUS_FAILED,
+                        null, "QUOTA_INSUFFICIENT", e.getMessage());
+                throw e;
+            }
+            int affordableMaxOutput = LlmQuotaCalculator.affordableOutputTokens(
+                    reservation.reservedMicrocredits(), estimatedInput, requestedMaxOutput, inputRate, outputRate);
+            Integer[] promptTokens = new Integer[1];
+            Integer[] completionTokens = new Integer[1];
             try {
                 Flux<org.springframework.ai.chat.model.ChatResponse> flux = chatClient
-                        .prompt(request.getQuery() + "，" + content)
-                        .system(buildSystemPrompt(memoryBlock, config.getStepPrompt()))
+                        .prompt(userPrompt)
+                        .system(systemPrompt)
+                        .options(OpenAiChatOptions.builder().maxTokens(affordableMaxOutput).build())
                         .advisors(a -> a
                                 .param(CHAT_MEMORY_CONVERSATION_ID_KEY, sessionId)
                                 .param(CHAT_MEMORY_RETRIEVE_SIZE_KEY, 100)
                         )
+                        .toolContext(Map.of(WorkflowToolTraceContext.CONTEXT_KEY, toolTrace))
                         .stream().chatResponse();
 
                 // 不再 doOnError 吞异常：错误从 blockLast() 抛出，由下方 catch 捕获并显式上抛
@@ -117,22 +208,44 @@ public class FlowAgentExecuteStrategy implements IExecuteStrategy {
                             agentContext.getPrinter().send("agent_stream", text);
                         }
                     }
-                    captureResponseMetrics(cr, modelHolder, totalTokenHolder);
+                    captureResponseMetrics(cr, modelHolder, totalTokenHolder, promptTokens, completionTokens);
                 }).blockLast();
             } catch (Exception e) {
-                log.error("流式调用 LLM 异常 clientId:{} : {}", config.getClientId(), e.getMessage(), e);
+                log.error("流式调用 LLM 异常 clientId={} errorType={}",
+                        config.getClientId(), e.getClass().getSimpleName());
                 streamError = e;
                 content = fullText.toString();
+                try {
+                    settleWorkflowCall(agentContext, invocationId, reservation, inputRate, outputRate, estimatedInput,
+                            fullText.toString(), promptTokens[0], completionTokens[0],
+                            ExecutionLedgerConstants.resolveFailureStatus(e), toolTrace.getCallCount(), e.getMessage());
+                } catch (RuntimeException settlementFailure) {
+                    ExecutionLedgerRunSupport.finishRun(agentContext, ExecutionLedgerConstants.STATUS_FAILED,
+                            null, "BILLING_SETTLEMENT_FAILED", settlementFailure.getMessage());
+                    throw settlementFailure;
+                }
                 break;
             }
 
             content = fullText.toString();
+            try {
+                settleWorkflowCall(agentContext, invocationId, reservation, inputRate, outputRate, estimatedInput,
+                        content, promptTokens[0], completionTokens[0], ExecutionLedgerConstants.STATUS_SUCCESS,
+                        toolTrace.getCallCount(), null);
+            } catch (RuntimeException settlementFailure) {
+                ExecutionLedgerRunSupport.finishRun(agentContext, ExecutionLedgerConstants.STATUS_FAILED,
+                        null, "BILLING_SETTLEMENT_FAILED", settlementFailure.getMessage());
+                throw settlementFailure;
+            }
             log.info("固定智能体对话进行，客户端ID {}", config.getClientId());
         }
 
         // 失败可见：LLM 调用异常且无任何产出时显式上抛，让 dispatch 层 completeWithError
-        // （前端看到错误、配额释放），不再静默 send("result", "") 让用户停留在空回复。
+        // （前端看到错误、后续执行停止；已发生的 LLM 调用按调用级 usage 结算），
+        // 不再静默 send("result", "") 让用户停留在空回复。
         if (streamError != null && content.isEmpty()) {
+            ExecutionLedgerRunSupport.finishRun(agentContext, ExecutionLedgerConstants.STATUS_FAILED,
+                    null, "LLM_FAILED", streamError.getMessage());
             throw new RuntimeException("chat 模式对话生成失败: " + streamError.getMessage(), streamError);
         }
 
@@ -145,7 +258,11 @@ public class FlowAgentExecuteStrategy implements IExecuteStrategy {
         } else {
             agentContext.getPrinter().sendWithResultMap("result", content, Map.of(AgentRunMetrics.KEY, metrics));
         }
-        // chat 无执行账本 run，answerSummary 直接用最终答复内容落长期记忆
+        ExecutionLedgerRunSupport.finishRun(agentContext,
+                streamError == null ? ExecutionLedgerConstants.STATUS_SUCCESS : ExecutionLedgerConstants.STATUS_FAILED,
+                streamError == null ? content : null,
+                streamError == null ? null : "LLM_FAILED",
+                streamError == null ? null : streamError.getMessage());
         persistTurn(request, content);
     }
 
@@ -154,7 +271,9 @@ public class FlowAgentExecuteStrategy implements IExecuteStrategy {
      */
     private void captureResponseMetrics(org.springframework.ai.chat.model.ChatResponse cr,
                                         String[] modelHolder,
-                                        long[] totalTokenHolder) {
+                                        long[] totalTokenHolder,
+                                        Integer[] promptTokenHolder,
+                                        Integer[] completionTokenHolder) {
         if (cr == null) {
             return;
         }
@@ -171,9 +290,74 @@ public class FlowAgentExecuteStrategy implements IExecuteStrategy {
             if (usage != null && usage.getTotalTokens() != null) {
                 totalTokenHolder[0] = usage.getTotalTokens().longValue();
             }
+            if (usage != null && usage.getPromptTokens() != null) {
+                promptTokenHolder[0] = usage.getPromptTokens();
+            }
+            if (usage != null && usage.getCompletionTokens() != null) {
+                completionTokenHolder[0] = usage.getCompletionTokens();
+            }
         } catch (Exception ignore) {
             // 元数据采集失败不影响主流程
         }
+    }
+
+    private void settleWorkflowCall(AgentContext context,
+                                    Long invocationId,
+                                    QuotaBillingPort.Reservation reservation,
+                                    long inputRate,
+                                    long outputRate,
+                                    int estimatedInput,
+                                    String output,
+                                    Integer providerInput,
+                                    Integer providerOutput,
+                                    int status,
+                                    int toolCallCount,
+                                    String errorMsg) {
+        LlmUsageSettlement.Result usage = LlmUsageSettlement.resolve(
+                providerInput, providerOutput, estimatedInput, tokenCounter.countText(output), inputRate, outputRate);
+        try {
+            LlmQuotaCalculator.requireWithinReservation(
+                    usage.chargedMicrocredits(), reservation.reservedMicrocredits(), "workflow");
+            memberQuotaBillingService.settle(reservation.freezeId(), usage.chargedMicrocredits());
+        } catch (RuntimeException settlementFailure) {
+            try {
+                memberQuotaBillingService.release(reservation.freezeId());
+            } catch (RuntimeException releaseFailure) {
+                settlementFailure.addSuppressed(releaseFailure);
+            }
+            recordWorkflowInvocation(context, invocationId, ExecutionLedgerConstants.STATUS_FAILED,
+                    usage.inputTokens(), usage.outputTokens(), usage.usageSource(), 0L, output, toolCallCount,
+                    settlementFailure.getMessage());
+            throw settlementFailure;
+        }
+        recordWorkflowInvocation(context, invocationId, status, usage.inputTokens(), usage.outputTokens(),
+                usage.usageSource(), usage.chargedMicrocredits(), output, toolCallCount, errorMsg);
+    }
+
+    private void recordWorkflowInvocation(AgentContext context,
+                                          Long invocationId,
+                                          int status,
+                                          int inputTokens,
+                                          int outputTokens,
+                                          String usageSource,
+                                          long chargedMicrocredits,
+                                          String output,
+                                          int toolCallCount,
+                                          String errorMsg) {
+        agentExecutionRecorder.finishLlmInvocation(LlmInvocationFinishRecord.builder()
+                .llmInvocationId(invocationId)
+                .requestId(context.getRequestId())
+                .status(status)
+                .responseText(output)
+                .toolCallCount(Math.max(0, toolCallCount))
+                .promptTokens(inputTokens)
+                .completionTokens(outputTokens)
+                .totalTokens(inputTokens + outputTokens)
+                .usageSource(usageSource)
+                .chargedMicrocredits(chargedMicrocredits)
+                .errorMsg(errorMsg)
+                .finishedAt(LocalDateTime.now())
+                .build());
     }
 
     /**

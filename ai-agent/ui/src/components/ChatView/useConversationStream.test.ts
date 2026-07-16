@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { applyGuardError } from './useConversationStream';
+import {
+  applyGuardError,
+  applyTerminalRunError,
+  resolveTerminalRunState,
+} from './useConversationStream';
 import { resolveActionPanelVisibility } from './streamState';
 import { parseAgentAnswer } from '@/utils/sseParsers';
 
@@ -17,7 +21,42 @@ describe('useConversationStream helpers', () => {
 
     expect(next.loading).toBe(false);
     expect(next.metrics?.status).toBe('FAILED');
-    expect(next.conclusion?.messageType).toBe('task_summary');
+    expect(next.conclusion?.messageType).toBe('result');
+  });
+
+  it('事件内 FAILED 应覆盖旧后端顶层 success', () => {
+    const state = resolveTerminalRunState(
+      { status: 'success', finished: true, errorMsg: '' },
+      {
+        resultMap: {
+          messageType: 'result',
+          finish: true,
+          resultMap: {
+            runStatus: 'FAILED',
+            errorMsg: '质量评估未通过',
+          },
+        },
+      } as unknown as MESSAGE.EventData,
+    );
+
+    expect(state).toEqual({ status: 'FAILED', message: '质量评估未通过' });
+  });
+
+  it('STOPPED 终态应保留停止语义且生成非成功 conclusion', () => {
+    const next = applyTerminalRunError(
+      {
+        requestId: 'req-stop-1',
+        loading: true,
+        multiAgent: { tasks: [] },
+        metrics: {},
+      } as unknown as CHAT.ChatItem,
+      'STOPPED',
+      '',
+    );
+
+    expect(next.forceStop).toBe(true);
+    expect(next.metrics?.status).toBe('STOPPED');
+    expect(next.conclusion?.result).toContain('任务已停止');
   });
 
   it('存在 plan 但没有 renderable task 时仍应打开右侧工作区', () => {
@@ -100,5 +139,58 @@ describe('useConversationStream helpers', () => {
     expect(result.resultMap.eventData?.messageType).toBe('task');
     expect(result.resultMap.eventData?.resultMap.messageType).toBe('agent_stream');
     expect(result.resultMap.eventData?.resultMap.result).toBe('你好');
+  });
+
+  it('直接 AgentResponse 的失败终态不能在转换时被重写成 success', () => {
+    const result = parseAgentAnswer({
+      requestId: 'req-failed-1',
+      messageId: 'msg-failed-1',
+      messageType: 'result',
+      messageTime: '1783418076172',
+      result: '',
+      finish: true,
+      isFinal: true,
+      status: 'FAILED',
+      errorCode: 'PLAN_EVALUATION_REPLAN_EXHAUSTED',
+      errorMessage: '质量评估未通过，已达到最大定向重规划轮次。',
+      resultMap: {
+        runStatus: 'FAILED',
+        taskSummary: '质量评估未通过，已达到最大定向重规划轮次。',
+      },
+    });
+
+    expect(result.status).toBe('FAILED');
+    expect(result.errorMsg).toContain('质量评估未通过');
+    expect(result.resultMap.eventData?.resultMap).toMatchObject({
+      runStatus: 'FAILED',
+      status: 'FAILED',
+      errorCode: 'PLAN_EVALUATION_REPLAN_EXHAUSTED',
+    });
+  });
+
+  it('checkpoint AgentResponse 帧应保留后端控制字段', () => {
+    const result = parseAgentAnswer({
+      requestId: 'req-1',
+      messageId: 'checkpoint-message-1',
+      messageType: 'checkpoint',
+      messageTime: '1783418076172',
+      finish: false,
+      isFinal: true,
+      resultMap: {
+        agentType: 3,
+        checkpointId: 'checkpoint-001',
+        phase: 'READY_FOR_STEP',
+        sequence: 2,
+        nextStepIndex: 1,
+        resumable: true,
+      },
+    });
+
+    expect(result.resultMap.eventData?.resultMap.messageType).toBe('checkpoint');
+    expect(result.resultMap.eventData?.resultMap.resultMap).toMatchObject({
+      checkpointId: 'checkpoint-001',
+      phase: 'READY_FOR_STEP',
+      resumable: true,
+    });
   });
 });

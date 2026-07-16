@@ -4,9 +4,8 @@ import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
-import org.wwz.ai.domain.agent.ledger.ExecutionLedgerQueryService;
-import org.wwz.ai.domain.agent.ledger.model.DialogueRunView;
 import org.wwz.ai.domain.agent.reactor.config.ReactorConfig;
+import org.wwz.ai.domain.agent.runtime.context.ContextTrustBoundary;
 import org.wwz.ai.types.agent.config.AgentExecutorNames;
 
 import java.util.List;
@@ -25,7 +24,6 @@ public class ConversationMemoryManagerImpl implements ConversationMemoryManager 
 
     private final SessionContextMemoryService sessionContextMemoryService;
     private final LongTermMemoryService longTermMemoryService;
-    private final ExecutionLedgerQueryService executionLedgerQueryService;
     private final ReactorConfig reactorConfig;
 
     @Resource(name = AgentExecutorNames.TASK_EXECUTOR)
@@ -33,11 +31,9 @@ public class ConversationMemoryManagerImpl implements ConversationMemoryManager 
 
     public ConversationMemoryManagerImpl(SessionContextMemoryService sessionContextMemoryService,
                                          LongTermMemoryService longTermMemoryService,
-                                         ExecutionLedgerQueryService executionLedgerQueryService,
                                          ReactorConfig reactorConfig) {
         this.sessionContextMemoryService = sessionContextMemoryService;
         this.longTermMemoryService = longTermMemoryService;
-        this.executionLedgerQueryService = executionLedgerQueryService;
         this.reactorConfig = reactorConfig;
     }
 
@@ -48,11 +44,11 @@ public class ConversationMemoryManagerImpl implements ConversationMemoryManager 
         }
         String medium = safeBuildMedium(query.sessionId(), query.currentRequestId());
         if (!isMemoryEnabled()) {
-            return StringUtils.defaultString(medium);
+            return wrapMemoryBlock(medium);
         }
-        List<String> longTerm = safeRecall(query);
+        List<String> longTerm = safeRecallStructuredFirst(query);
         if (longTerm.isEmpty()) {
-            return StringUtils.defaultString(medium);
+            return wrapMemoryBlock(medium);
         }
         StringBuilder builder = new StringBuilder(LONG_TERM_HEADER).append('\n');
         int index = 0;
@@ -65,7 +61,7 @@ public class ConversationMemoryManagerImpl implements ConversationMemoryManager 
         if (StringUtils.isNotBlank(medium)) {
             builder.append('\n').append(medium);
         }
-        return builder.toString().trim();
+        return wrapMemoryBlock(builder.toString());
     }
 
     @Override
@@ -75,7 +71,9 @@ public class ConversationMemoryManagerImpl implements ConversationMemoryManager 
         }
         Runnable task = () -> {
             try {
-                longTermMemoryService.save(resolveAnswerSummary(turn));
+                // Only explicit user statements may become durable memory. Never promote a
+                // model-generated final summary to a user fact implicitly.
+                longTermMemoryService.save(turn);
             } catch (Exception e) {
                 log.warn("persist turn to long-term memory failed, ownerId={}, sessionId={}",
                         turn.ownerId(), turn.sessionId(), e);
@@ -86,28 +84,6 @@ public class ConversationMemoryManagerImpl implements ConversationMemoryManager 
         } catch (RejectedExecutionException rex) {
             log.warn("long-term memory persist rejected by executor, skip. ownerId={}", turn.ownerId());
         }
-    }
-
-    private MemoryTurn resolveAnswerSummary(MemoryTurn turn) {
-        if (StringUtils.isNotBlank(turn.answerSummary())
-                || StringUtils.isBlank(turn.requestId())
-                || StringUtils.isBlank(turn.sessionId())) {
-            return turn;
-        }
-        try {
-            String summary = executionLedgerQueryService.querySessionRuns(turn.sessionId()).stream()
-                    .filter(run -> run != null && StringUtils.equals(run.getRequestId(), turn.requestId()))
-                    .map(DialogueRunView::getFinalSummaryText)
-                    .filter(StringUtils::isNotBlank)
-                    .findFirst()
-                    .orElse(null);
-            if (StringUtils.isNotBlank(summary)) {
-                return new MemoryTurn(turn.ownerId(), turn.sessionId(), turn.requestId(), turn.query(), summary);
-            }
-        } catch (Exception e) {
-            log.warn("resolve final summary for long-term memory failed, requestId={}", turn.requestId(), e);
-        }
-        return turn;
     }
 
     private String safeBuildMedium(String sessionId, String currentRequestId) {
@@ -126,6 +102,26 @@ public class ConversationMemoryManagerImpl implements ConversationMemoryManager 
             log.warn("recall long-term memory failed, ownerId={}", query.ownerId(), e);
             return List.of();
         }
+    }
+
+    private List<String> safeRecallStructuredFirst(MemoryQuery query) {
+        try {
+            List<LongTermMemoryEntry> entries = longTermMemoryService.recallEntries(
+                    query.ownerId(), query.sessionId(), query.query());
+            if (entries != null && !entries.isEmpty()) {
+                return entries.stream().map(LongTermMemoryEntry::toPromptSnippet).toList();
+            }
+        } catch (Exception e) {
+            log.warn("recall structured long-term memory failed, ownerId={}", query.ownerId(), e);
+        }
+        return safeRecall(query);
+    }
+
+    private String wrapMemoryBlock(String block) {
+        if (StringUtils.isBlank(block)) {
+            return "";
+        }
+        return ContextTrustBoundary.wrap("retrieved-conversation-memory", block.trim());
     }
 
     private boolean isMemoryEnabled() {

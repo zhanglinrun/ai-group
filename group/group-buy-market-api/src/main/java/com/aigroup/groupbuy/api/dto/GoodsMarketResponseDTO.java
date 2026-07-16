@@ -104,6 +104,8 @@ public class GoodsMarketResponseDTO {
         private Integer nextTierTargetCount;
         // 阶梯额度拼团：最高档位人数（用于展示 X/最高档 进度）
         private Integer maxTierTargetCount;
+        // 创建团队时的档位快照；已有团队展示必须优先使用它而不是活动实时档位
+        private List<Tier> tiers;
 
         public static String differenceDateTime2Str(Date validStartTime, Date validEndTime) {
             if (validStartTime == null || validEndTime == null) {

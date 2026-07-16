@@ -5,6 +5,12 @@
 `Reactor-agent` 是一个面向复杂任务自动化与AI应用工程化落地的 **多智能体协同应用平台**。  
 它不是只做“单轮对话 + 单次工具调用”的 Demo，而是能把复杂任务拆解、多 Agent 协作、MCP/本地集成工具编排、RAG 检索增强、会话记忆、执行事实持久化与历史回放串成一条可运行、可追踪、可复用的完整执行链路。
 
+> 项目定位是秋招作品集与 Agent 工程学习，不宣称是 Claude Code 的替代品；已实现的 Plan-Solve
+> 节点级 checkpoint/resume 也不等同于分布式 durable execution 或 exactly-once。
+
+- [秋招项目交付、启动、演示与简历指南](project-docs/AUTUMN-RECRUITMENT-GUIDE.md)
+- [为什么不迁移 Spring AI Alibaba Runtime](project-docs/adr/0001-retain-custom-agent-harness.md)
+
 ## 解决的痛点
 
 - 传统单 Agent / 单轮对话难以承接复杂任务，缺少任务拆解、**分工协作**与**结果汇总**能力
@@ -118,7 +124,7 @@ User Query
 
 ## 技术栈
 
-- 后端：Java 17、Spring Boot 3、Spring AI、MyBatis 、OkHttp SSE
+- 后端：Java 21、Spring Boot 3.5、Spring AI 1.1、MyBatis、OkHttp SSE
 - 数据层：MySQL、Qdrant
 - 多模态智能检索：RAG、**多路混合**召回、Rerank、多轮检索
 - 前端：React 19、TypeScript、Vite、Ant Design
@@ -151,7 +157,7 @@ flowchart LR
 
 ### 1. 多智能体协同与混合模式执行
 
-- 设计并实现 `Plan Execute + ReAct` **混合执行**模式，并结合**动态replan机制**显著提升复杂任务的容错性 可拆解性与最终结果的准确性
+- 设计并实现 `Plan Execute + ReAct` **混合执行**模式，并结合 evaluator 与动态 replan 约束复杂任务的执行偏差
 - 支持将复杂任务拆解为多个**可并发**子任务，提升复杂场景下的可拆解性、执行效率与协同能力
 - 支持**多策略** Agent 动态调度，按业务场景组织不同角色、不同能力的智能体协作完成目标
 
@@ -180,13 +186,40 @@ flowchart LR
 ### 6. MCP管理
 
 - 在运行时构建 `McpRegistry + McpToolExecutor` 统一管理 MCP 服务，启动后可对全局启用或指定客户端绑定的 MCP 做预热、工具发现与缓存，减少每次请求都重新建连和重复 `listTools` 的开销
-- 支持三种MCP传输协议 `SSE`、`STDIO` 与 `Streamable HTTP` 
+- 支持三种 MCP 传输协议：`SSE`、`STDIO` 与 `Streamable HTTP`
+- 开发 seed 默认启用两个仓库内置、无第三方密钥的只读 STDIO Server：`project-knowledge` 提供项目知识/流程查询，`agent-utility` 提供与 Java 额度结算一致的整数微额度计算，共 4 个带命名空间的工具
+- Python 与 Java 测试均真实覆盖 `initialize -> tools/list -> tools/call`；当前业务运行时消费的是 MCP Tools 能力，不宣称已经接入 Resources、Prompts、Sampling 等全部协议能力
+- 内置 Server 主要用于可复现地展示跨语言协议协商、动态工具发现和安全边界；不默认执行第三方 `npx/uvx` 服务，避免未经审计的子进程继承 Agent 模型密钥
 
 ### 7. 执行事实持久化与历史回放
 
 - 统一记录对话过程产生的执行事实，覆盖对话运行、LLM 调用、工具调用、工具输出、文件产物等关键节点
 - 支持复杂任务链路的审计、问题定位与历史回放，提升 Agent 系统的可观测性与可维护性
 - 通过结构化工具输出与 artifact 引用，支持前端按历史记录稳定恢复结果展示
+
+### 8. 上下文工程与结构化记忆
+
+- ReAct / Plan-Solve 使用统一 `ContextManager`，将消息、系统提示、记忆、工具 schema 和安全余量纳入同一 token 预算
+- 普通 WORKFLOW 使用有界 Spring AI MessageWindow，并额外注入会话摘要/长期记忆块；当前没有与 ReAct / Plan-Solve 共用同一个预算器
+- 将网页、工具输出和召回内容标记为不可信数据，大型 observation 压缩为摘要与 artifact/evidence 引用
+- 将长期记忆收敛为 `PREFERENCE / FACT / PROCEDURE`，带 owner、source、confidence、version、TTL、稳定 upsert key 与删除边界
+- 自动写入采用显式准入：普通问答不进入长期记忆；只有用户明确声明的偏好、事实或流程才写入，回答语言/风格使用稳定语义槽位覆盖更新
+- 本地作品集环境默认开启跨会话长期记忆；首次保存按真实 embedding 维度幂等创建 Qdrant 集合，并为 owner/记忆/会话过滤字段创建 keyword 索引。它与 `AGENT_GROUP_QDRANT_ENABLED` 控制的 DataAgent 问数能力相互独立
+
+### 9. 可复现 Agent Eval
+
+- Resume benchmark 在同一 12K `o200k_base` 预算下比较硬截断与滚动摘要，不再混用 token/字符单位
+- 离线 Harness eval 覆盖偏好变化、冲突/无关记忆、Prompt Injection 与工具失败，并输出 `pass@k`、`pass^k`、memory precision/recall 和 token cost
+- Plan-Solve 支持规则门禁、可选 LLM Judge 与反思预算；主链路自动验证当前轮工具登记的可见 artifact，
+  测试/引用 outcome 通过结构化 adapter 扩展，不从自然语言猜测 required outcome
+
+### 10. Plan-Solve 安全恢复点
+
+- 在 `READY_FOR_STEP` 与 `BEFORE_SUMMARY` 节点保存受限、脱敏的最小快照，并通过 SSE 下发 `checkpoint` 事件
+- 恢复时校验 owner/session 和 SHA-256 快照哈希，以数据库条件更新原子认领，避免不同请求并发消费同一恢复点
+- 默认 `SAFE_ONLY`：checkpoint 后存在未知副作用工具时 fail-closed；仅在用户明确确认后允许
+  `RESTART_FROM_CHECKPOINT`
+- 这是节点级恢复，不是 instruction-level continuation 或 exactly-once；副作用工具仍需幂等、去重或提交状态查询
 
 ## 执行链路图
 
@@ -385,4 +418,5 @@ Reactor-agent/
 - 更智能的多 Agent 协作策略与角色编排
 - 更完善的管理后台、配置中心与可观测性能力
 - 更丰富的工具组合
-- 构建长期记忆，记录用户偏好与使用习惯，形成稳定用户画像，让智能体在持续交互中更懂用户
+- 在现有 Plan-Solve 节点级 checkpoint/resume 上继续探索 durable execution、工具幂等协议与 HITL
+- 持续扩充 outcome-based eval，避免只依赖单次演示或 LLM 自评判断 Agent 质量

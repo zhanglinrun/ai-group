@@ -93,6 +93,39 @@ public class AgentResponseHandlerReplayContractTest {
     }
 
     @Test
+    public void shouldPreserveFailedTerminalStatusInsteadOfInferringSuccessFromFinish() {
+        GptProcessResult result = handler.build(
+                AgentRequest.builder().requestId("req-handler-failed").build(),
+                new EventResult(),
+                AgentResponse.builder()
+                        .requestId("req-handler-failed")
+                        .messageId("msg-result-failed")
+                        .messageType("result")
+                        .messageTime("1714630002300")
+                        .result("质量评估未通过")
+                        .isFinal(true)
+                        .finish(true)
+                        .status("FAILED")
+                        .errorCode("PLAN_EVALUATION_REPLAN_EXHAUSTED")
+                        .errorMessage("质量评估未通过，已达到最大定向重规划轮次。")
+                        .errorMsg("质量评估未通过，已达到最大定向重规划轮次。")
+                        .resultMap(Map.of(
+                                "agentType", 5,
+                                "taskSummary", "质量评估未通过",
+                                "runStatus", "FAILED"
+                        ))
+                        .build()
+        );
+
+        Assert.assertTrue(result.isFinished());
+        Assert.assertEquals("FAILED", result.getStatus());
+        Assert.assertEquals("PLAN_EVALUATION_REPLAN_EXHAUSTED", result.getErrorCode());
+        Assert.assertEquals("质量评估未通过，已达到最大定向重规划轮次。", result.getErrorMessage());
+        Assert.assertEquals("FAILED", frameResultMap(result).get("status"));
+        Assert.assertEquals("PLAN_EVALUATION_REPLAN_EXHAUSTED", frameResultMap(result).get("errorCode"));
+    }
+
+    @Test
     public void shouldKeepRealtimeSummaryFileListOnResultEvent() {
         List<Map<String, Object>> fileList = List.of(Map.of(
                 "fileName", "summary.md",

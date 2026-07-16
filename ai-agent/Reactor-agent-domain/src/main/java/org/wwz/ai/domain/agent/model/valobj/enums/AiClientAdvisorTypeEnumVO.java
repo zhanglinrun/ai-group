@@ -4,7 +4,7 @@ import org.wwz.ai.domain.agent.model.valobj.AiClientAdvisorVO;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
-import org.springframework.ai.chat.client.advisor.PromptChatMemoryAdvisor;
+import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
 import org.springframework.ai.chat.client.advisor.api.Advisor;
 import org.springframework.ai.chat.memory.MessageWindowChatMemory;
 import org.wwz.ai.domain.agent.reactor.service.VectorService;
@@ -25,7 +25,7 @@ public enum AiClientAdvisorTypeEnumVO {
         @Override
         public Advisor createAdvisor(AiClientAdvisorVO aiClientAdvisorVO, VectorService vectorService) {
             AiClientAdvisorVO.ChatMemory chatMemory = aiClientAdvisorVO.getChatMemory();
-            return PromptChatMemoryAdvisor.builder(
+            return MessageChatMemoryAdvisor.builder(
                     MessageWindowChatMemory.builder()
                             .maxMessages(chatMemory.getMaxMessages())
                             .build()

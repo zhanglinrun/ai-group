@@ -2,8 +2,7 @@ from datetime import datetime
 from typing import List
 
 from sqlalchemy import Column, Integer, String, DATETIME
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, Session
+from sqlalchemy.orm import Session, declarative_base, sessionmaker
 from typing_extensions import override
 
 from .kb_store import KBStore

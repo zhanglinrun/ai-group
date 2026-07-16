@@ -35,6 +35,11 @@ public class AgentRunState {
     @ToString.Exclude
     private ConcurrentMap<String, Long> toolInvocationIdByToolCallId = new ConcurrentHashMap<>();
 
+    /** Explicitly named tools whose run-level single-use budget has already been consumed. */
+    @Builder.Default
+    @ToString.Exclude
+    private ConcurrentMap<String, Boolean> satisfiedSingleUseToolNames = new ConcurrentHashMap<>();
+
     /**
      * run 级失败标记。
      * agent 失败分支通常吞掉异常后降级返回（不向上抛），该标记让 run 收口时能写入真实终态。
@@ -62,6 +67,16 @@ public class AgentRunState {
     @Builder.Default
     @ToString.Exclude
     private AtomicReference<Integer> latestQualityScore = new AtomicReference<>();
+
+    /** Monotonic checkpoint sequence within one run. */
+    @Builder.Default
+    @ToString.Exclude
+    private AtomicInteger nextCheckpointSeq = new AtomicInteger(1);
+
+    /** Latest public recovery handle emitted for this run. */
+    @Builder.Default
+    @ToString.Exclude
+    private AtomicReference<String> latestCheckpointIdRef = new AtomicReference<>();
 
     @Builder.Default
     @ToString.Exclude
@@ -127,6 +142,24 @@ public class AgentRunState {
         return latestQualityScore.get();
     }
 
+    public int nextCheckpointSequence() {
+        return nextCheckpointSeq.getAndIncrement();
+    }
+
+    public String getLatestCheckpointId() {
+        return latestCheckpointIdRef.get();
+    }
+
+    public void setLatestCheckpointId(String checkpointId) {
+        latestCheckpointIdRef.set(checkpointId);
+    }
+
+    /** Restore bounded evaluator counters from a trusted checkpoint snapshot. */
+    public void restoreCheckpointMetrics(int targetedReplans, int reflectionTokens) {
+        targetedReplanCount.set(Math.max(0, targetedReplans));
+        reflectionTokenEstimate.set(Math.max(0, reflectionTokens));
+    }
+
     /**
      * 标记当前线程的执行位置。
      */
@@ -164,6 +197,16 @@ public class AgentRunState {
      */
     public Long resolveToolInvocationId(String toolCallId) {
         return toolCallId == null ? null : toolInvocationIdByToolCallId.get(toolCallId);
+    }
+
+    public void markSingleUseToolSatisfied(String toolName) {
+        if (toolName != null && !toolName.isBlank()) {
+            satisfiedSingleUseToolNames.put(toolName, Boolean.TRUE);
+        }
+    }
+
+    public boolean isSingleUseToolSatisfied(String toolName) {
+        return toolName != null && Boolean.TRUE.equals(satisfiedSingleUseToolNames.get(toolName));
     }
 
     public String getCurrentAgentName() {

@@ -10,6 +10,8 @@ app:
       notify-url: ${GROUP_BUY_NOTIFY_URL:http://127.0.0.1:8070/api/v1/alipay/group_buy_notify}
       source: ${GROUP_BUY_SOURCE:s01}
       chanel: ${GROUP_BUY_CHANNEL:c01}
+    member-service:
+      api-url: ${MEMBER_SERVICE_URL:http://127.0.0.1:8082}
 
 thread:
   pool:
@@ -46,7 +48,7 @@ weixin:
   enabled: false
 
 alipay:
-  enabled: ${ALIPAY_ENABLED:true}
+  enabled: ${ALIPAY_ENABLED:false}
   app_id: ${ALIPAY_APP_ID}
   merchant_private_key: ${ALIPAY_MERCHANT_PRIVATE_KEY}
   alipay_public_key: ${ALIPAY_PUBLIC_KEY}
@@ -68,11 +70,23 @@ logging:
 
 ai-group:
   pay:
-    goods-sku-bindings:
-      # Fail-closed remains: keep explicit production binding here (or override via config center/env).
-      "9890001":
-        - ${PAY_SKU_BIND_9890001_1:PRO_MONTH}
-        - ${PAY_SKU_BIND_9890001_2:PRO_YEAR}
-        - ${PAY_SKU_BIND_9890001_3:TOPUP_200}
+    catalog:
+      fallback-enabled: false
+      products:
+        "9890002":
+          name: ${PAY_QUOTA_LIGHT_NAME:轻量额度包（60）}
+          price: ${PAY_QUOTA_LIGHT_PRICE:12.00}
+          product-code: QUOTA_LIGHT
+          base-quota: 60
+        "9890003":
+          name: ${PAY_QUOTA_STANDARD_NAME:标准额度包（300）}
+          price: ${PAY_QUOTA_STANDARD_PRICE:60.00}
+          product-code: QUOTA_STANDARD
+          base-quota: 300
+        "9890004":
+          name: ${PAY_QUOTA_LARGE_NAME:大额额度包（700）}
+          price: ${PAY_QUOTA_LARGE_PRICE:140.00}
+          product-code: QUOTA_LARGE
+          base-quota: 700
   internal:
     token: ${AI_GROUP_INTERNAL_TOKEN}

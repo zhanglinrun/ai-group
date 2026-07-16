@@ -18,6 +18,7 @@ import org.wwz.ai.domain.agent.runtime.tool.BaseTool;
 import org.wwz.ai.domain.agent.runtime.tool.ToolResultPayload;
 import org.wwz.ai.domain.agent.runtime.util.StringUtil;
 import org.wwz.ai.domain.agent.reactor.config.ReactorConfig;
+import org.wwz.ai.domain.agent.reactor.config.ReactorToolRequestHeaders;
 import org.wwz.ai.domain.agent.ledger.model.tooloutput.DataAnalysisToolOutput;
 import org.wwz.ai.domain.agent.reactor.model.response.AgentResponse;
 import org.wwz.ai.domain.agent.ledger.model.tooloutput.ToolFileRefMapper;
@@ -90,7 +91,8 @@ public class DataAnalysisTool implements BaseTool {
             Future<ToolResultPayload> future = callAutoAnalysisStream(request, artifactSource);
             return future.get();
         } catch (Exception e) {
-            log.error("{} auto_analysis agent error", agentContext.getRequestId(), e);
+            log.error("{} auto_analysis execute failed errorType={}",
+                    agentContext.getRequestId(), e.getClass().getSimpleName());
             String message = "data_analysis 执行失败：" + StringUtils.defaultIfBlank(e.getMessage(), "未知异常");
             agentContext.getPrinter().send("tool_result", AgentResponse.ToolResult.builder()
                     .toolName("数据分析智能体")
@@ -110,7 +112,10 @@ public class DataAnalysisTool implements BaseTool {
         try {
             ReactorConfig duccConfig = requireReactorConfig();
             String url = duccConfig.getDataAnalysisUrl() + "/v1/tool/auto_analysis";
-            log.info("{} auto_analysis request {}", agentContext.getRequestId(), JSONObject.toJSONString(analysisRequest));
+            log.info("{} auto_analysis request started modelCount={} maxSteps={} stream={}",
+                    agentContext.getRequestId(),
+                    analysisRequest.getModelCodeList() == null ? 0 : analysisRequest.getModelCodeList().size(),
+                    analysisRequest.getMax_steps(), analysisRequest.getStream());
             String digitalEmployee = agentContext.getToolCollection().getDigitalEmployee(getName());
             String messageId = StringUtil.getUUID();
             String toolCallId = artifactSource == null ? null : artifactSource.getToolCallId();
@@ -120,7 +125,7 @@ public class DataAnalysisTool implements BaseTool {
             requireRemoteStreamPort().openStream(RemoteStreamRequest.builder()
                     .method("POST")
                     .url(url)
-                    .headers(Map.of("Content-Type", "application/json"))
+                    .headers(ReactorToolRequestHeaders.json(duccConfig))
                     .body(JSONObject.toJSONString(analysisRequest))
                     .connectTimeoutSeconds(60000L)
                     .readTimeoutSeconds(30000L)
@@ -141,7 +146,8 @@ public class DataAnalysisTool implements BaseTool {
                     if ("[DONE]".equals(data) || "heartbeat".equals(data)) {
                         return;
                     }
-                    log.info("{} auto_analysis recv data: {}", agentContext.getRequestId(), data);
+                    log.debug("{} auto_analysis event received payloadChars={}",
+                            agentContext.getRequestId(), data.length());
                     try {
                         DataAnalysisResponse analysisResponse = JSONObject.parseObject(data, DataAnalysisResponse.class);
                         if (analysisResponse == null) {
@@ -180,7 +186,8 @@ public class DataAnalysisTool implements BaseTool {
                                     analysisResponse, digitalEmployee, false);
                         }
                     } catch (Exception parseException) {
-                        log.warn("{} auto_analysis parse response error: {}", agentContext.getRequestId(), parseException.getMessage());
+                        log.warn("{} auto_analysis parse response failed errorType={}",
+                                agentContext.getRequestId(), parseException.getClass().getSimpleName());
                     }
                 }
 
@@ -193,8 +200,10 @@ public class DataAnalysisTool implements BaseTool {
 
                 @Override
                 public void onFailure(Throwable throwable, Integer statusCode, String responseBody) {
-                    log.error("{} auto_analysis request error, code={}, body={}",
-                            agentContext.getRequestId(), statusCode, responseBody, throwable);
+                    log.error("{} auto_analysis upstream failed statusCode={} responseChars={} errorType={}",
+                            agentContext.getRequestId(), statusCode,
+                            responseBody == null ? 0 : responseBody.length(),
+                            throwable == null ? "unknown" : throwable.getClass().getSimpleName());
                     if (!future.isDone()) {
                         if (statusCode != null) {
                             future.complete(buildFailurePayload("data_analysis 执行失败：上游服务返回异常状态 " + statusCode + "。"));
@@ -205,7 +214,8 @@ public class DataAnalysisTool implements BaseTool {
                 }
             });
         } catch (Exception e) {
-            log.error("{} auto_analysis request error", agentContext.getRequestId(), e);
+            log.error("{} auto_analysis request failed errorType={}",
+                    agentContext.getRequestId(), e.getClass().getSimpleName());
             future.complete(buildFailurePayload("data_analysis 执行失败：" + e.getMessage()));
         }
 

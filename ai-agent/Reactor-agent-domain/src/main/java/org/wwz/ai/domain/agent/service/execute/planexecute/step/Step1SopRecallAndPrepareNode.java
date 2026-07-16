@@ -56,6 +56,7 @@ public class Step1SopRecallAndPrepareNode extends AbstractExecuteSupport {
         AgentContext agentContext = AgentContext.builder()
                 .requestId(request.getRequestId())
                 .sessionId(request.getSessionId())
+                .ownerId(Long.valueOf(request.getOwnerId()))
                 .printer(printer)
                 .query(request.getQuery())
                 .task("")

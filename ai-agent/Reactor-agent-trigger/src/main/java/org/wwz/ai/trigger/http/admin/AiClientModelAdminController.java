@@ -46,7 +46,7 @@ public class AiClientModelAdminController implements IAiClientModelAdminService 
     @PostMapping("/create")
     public Response<Boolean> createAiClientModel(@RequestBody AiClientModelRequestDTO request) {
         try {
-            log.info("创建AI客户端模型配置请求：{}", request);
+            log.info("创建AI客户端模型配置请求");
 
             // DTO转PO
             AiClientModel aiClientModel = convertToAiClientModel(request);
@@ -75,7 +75,7 @@ public class AiClientModelAdminController implements IAiClientModelAdminService 
     @PutMapping("/update-by-id")
     public Response<Boolean> updateAiClientModelById(@RequestBody AiClientModelRequestDTO request) {
         try {
-            log.info("根据ID更新AI客户端模型配置请求：{}", request);
+            log.info("根据ID更新AI客户端模型配置请求");
 
             if (request.getId() == null) {
                 return Response.<Boolean>builder()
@@ -111,7 +111,7 @@ public class AiClientModelAdminController implements IAiClientModelAdminService 
     @PutMapping("/update-by-model-id")
     public Response<Boolean> updateAiClientModelByModelId(@RequestBody AiClientModelRequestDTO request) {
         try {
-            log.info("根据模型ID更新AI客户端模型配置请求：{}", request);
+            log.info("根据模型ID更新AI客户端模型配置请求");
 
             if (!StringUtils.hasText(request.getModelId())) {
                 return Response.<Boolean>builder()
@@ -347,7 +347,7 @@ public class AiClientModelAdminController implements IAiClientModelAdminService 
     @PostMapping("/query-list")
     public Response<List<AiClientModelResponseDTO>> queryAiClientModelList(@RequestBody AiClientModelQueryRequestDTO request) {
         try {
-            log.info("根据条件查询AI客户端模型配置列表请求：{}", request);
+            log.info("根据条件查询AI客户端模型配置列表请求");
 
             List<AiClientModel> aiClientModels;
 
@@ -421,6 +421,10 @@ public class AiClientModelAdminController implements IAiClientModelAdminService 
      * DTO转PO对象
      */
     private AiClientModel convertToAiClientModel(AiClientModelRequestDTO requestDTO) {
+        if (requestDTO.getInputCreditsPerMillion() != null && requestDTO.getInputCreditsPerMillion() <= 0
+                || requestDTO.getOutputCreditsPerMillion() != null && requestDTO.getOutputCreditsPerMillion() <= 0) {
+            throw new IllegalArgumentException("模型输入/输出费率必须大于0");
+        }
         AiClientModel aiClientModel = new AiClientModel();
         BeanUtils.copyProperties(requestDTO, aiClientModel);
         return aiClientModel;

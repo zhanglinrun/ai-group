@@ -33,7 +33,7 @@ public class BenefitEventService implements IBenefitEventService {
     }
 
     @Override
-    public void publishGroupBuyCompletedEvents(List<String> orderIds, Integer bonusQuota) {
+    public void publishGroupBuyCompletedEvents(List<String> orderIds, Long bonusQuota) {
         publishEvents(orderIds, BenefitEventType.GROUP_BUY_COMPLETED.name(), false, bonusQuota);
     }
 
@@ -56,7 +56,7 @@ public class BenefitEventService implements IBenefitEventService {
         return benefitEventRepository.queryPendingGrants(BenefitEventType.GROUP_BUY_COMPLETED.name(), since, lastId, size);
     }
 
-    private void publishEvents(List<String> orderIds, String eventType, boolean requireCompletedPublished, Integer bonusQuota) {
+    private void publishEvents(List<String> orderIds, String eventType, boolean requireCompletedPublished, Long bonusQuota) {
         if (orderIds == null || orderIds.isEmpty()) {
             return;
         }
@@ -83,13 +83,13 @@ public class BenefitEventService implements IBenefitEventService {
         return count;
     }
 
-    private void publishEvent(String orderId, String eventType, boolean requireCompletedPublished, Integer bonusQuota) {
+    private void publishEvent(String orderId, String eventType, boolean requireCompletedPublished, Long bonusQuota) {
         OrderEntity order = orderRepository.queryOrderByOrderId(orderId);
         if (order == null) {
             log.warn("skip benefit event, order not found orderId={}", orderId);
             return;
         }
-        // 拼团单与直购单均发放权益：原实现只放行拼团单，导致「直接购买」支付成功后永远不开通会员。
+        // 拼团单与直购单均发放额度：直购支付成功即发放，拼团在结算完成后发放。
         // 事件类型沿用既有常量（member 侧按 GROUP_BUY_COMPLETED/REVOKED 消费），语义为"交易完成/撤销"。
         if (!MarketTypeVO.GROUP_BUY_MARKET.getCode().equals(order.getMarketType())) {
             log.info("publish benefit event for direct purchase orderId={} marketType={}", orderId, order.getMarketType());
@@ -124,7 +124,7 @@ public class BenefitEventService implements IBenefitEventService {
         tryPublish(entity);
     }
 
-    private BenefitEventEntity createBenefitEvent(OrderEntity order, String eventType, Integer bonusQuota) {
+    private BenefitEventEntity createBenefitEvent(OrderEntity order, String eventType, Long bonusQuota) {
         String productCode = StringUtils.isNotBlank(order.getProductCode())
                 ? order.getProductCode()
                 : order.getProductId();
@@ -135,6 +135,7 @@ public class BenefitEventService implements IBenefitEventService {
                 .orderId(order.getOrderId())
                 .productCode(productCode)
                 .eventPublished(false)
+                .baseQuota(order.getBaseQuotaSnapshot())
                 .bonusQuota(bonusQuota)
                 .build();
         benefitEventRepository.insert(entity);
@@ -151,6 +152,7 @@ public class BenefitEventService implements IBenefitEventService {
                 .userId(entity.getUserId())
                 .orderId(entity.getOrderId())
                 .productCode(entity.getProductCode())
+                .baseQuota(entity.getBaseQuota())
                 .bonusQuota(entity.getBonusQuota())
                 .build();
         try {

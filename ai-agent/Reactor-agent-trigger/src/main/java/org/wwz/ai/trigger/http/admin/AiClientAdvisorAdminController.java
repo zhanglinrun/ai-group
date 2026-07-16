@@ -35,7 +35,7 @@ public class AiClientAdvisorAdminController implements IAiClientAdvisorAdminServ
     @PostMapping("/create")
     public Response<Boolean> createAiClientAdvisor(@RequestBody AiClientAdvisorRequestDTO request) {
         try {
-            log.info("创建顾问配置请求：{}", request);
+            log.info("创建顾问配置请求");
 
             // DTO转PO
             AiClientAdvisor aiClientAdvisor = convertToAiClientAdvisor(request);
@@ -63,7 +63,7 @@ public class AiClientAdvisorAdminController implements IAiClientAdvisorAdminServ
     @PutMapping("/update-by-id")
     public Response<Boolean> updateAiClientAdvisorById(@RequestBody AiClientAdvisorRequestDTO request) {
         try {
-            log.info("根据ID更新顾问配置请求：{}", request);
+            log.info("根据ID更新顾问配置请求");
 
             if (request.getId() == null) {
                 return Response.<Boolean>builder()
@@ -98,7 +98,7 @@ public class AiClientAdvisorAdminController implements IAiClientAdvisorAdminServ
     @PutMapping("/update-by-advisor-id")
     public Response<Boolean> updateAiClientAdvisorByAdvisorId(@RequestBody AiClientAdvisorRequestDTO request) {
         try {
-            log.info("根据顾问ID更新顾问配置请求：{}", request);
+            log.info("根据顾问ID更新顾问配置请求");
 
             if (!StringUtils.hasText(request.getAdvisorId())) {
                 return Response.<Boolean>builder()
@@ -326,7 +326,7 @@ public class AiClientAdvisorAdminController implements IAiClientAdvisorAdminServ
     @PostMapping("/query-list")
     public Response<List<AiClientAdvisorResponseDTO>> queryAiClientAdvisorList(@RequestBody AiClientAdvisorQueryRequestDTO request) {
         try {
-            log.info("根据条件查询顾问配置列表请求：{}", request);
+            log.info("根据条件查询顾问配置列表请求");
 
             // 根据查询条件获取数据
             List<AiClientAdvisor> aiClientAdvisors;

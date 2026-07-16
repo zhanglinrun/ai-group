@@ -50,7 +50,10 @@ public class AgentSessionPrinter implements Printer {
                 messageId = StringUtil.getUUID();
             }
 
-            log.info("{} stream send {} {} {}", request.getRequestId(), messageType, message, digitalEmployee);
+            log.debug("{} stream send type={}, messageClass={}, hasDigitalEmployee={}",
+                    request.getRequestId(), messageType,
+                    message == null ? "null" : message.getClass().getSimpleName(),
+                    StringUtils.isNotBlank(digitalEmployee));
 
             boolean finish = "result".equals(messageType);
             Map<String, Object> resultMap = new HashMap<>();
@@ -105,6 +108,8 @@ public class AgentSessionPrinter implements Printer {
                     response.setToolResult((AgentResponse.ToolResult) message);
                     break;
                 case "tool_call":
+                case "checkpoint":
+                case "resume":
                 case "browser":
                 case "code":
                 case "html":
@@ -141,9 +146,15 @@ public class AgentSessionPrinter implements Printer {
                     break;
             }
 
+            if (finish) {
+                applyTerminalMetadata(response, response.getResultMap());
+            }
+
             stream.send(response);
         } catch (Exception e) {
-            log.error("stream send error", e);
+            log.error("{} stream send failed messageType={} errorType={}",
+                    request == null ? null : request.getRequestId(), messageType,
+                    e.getClass().getSimpleName());
         }
     }
 
@@ -189,5 +200,31 @@ public class AgentSessionPrinter implements Printer {
     @Override
     public boolean isAborted() {
         return stream != null && stream.isAborted();
+    }
+
+    private void applyTerminalMetadata(AgentResponse response, Map<String, Object> resultMap) {
+        String status = firstNonBlank(resultMap, "runStatus", "status");
+        if (StringUtils.isBlank(status)) {
+            status = "SUCCESS";
+        }
+        String errorCode = firstNonBlank(resultMap, "errorCode");
+        String errorMessage = firstNonBlank(resultMap, "errorMessage", "errorMsg");
+        response.setStatus(status);
+        response.setErrorCode(errorCode);
+        response.setErrorMessage(errorMessage);
+        response.setErrorMsg(errorMessage);
+    }
+
+    private String firstNonBlank(Map<String, Object> source, String... keys) {
+        if (source == null || keys == null) {
+            return null;
+        }
+        for (String key : keys) {
+            Object value = source.get(key);
+            if (value != null && StringUtils.isNotBlank(String.valueOf(value))) {
+                return String.valueOf(value);
+            }
+        }
+        return null;
     }
 }

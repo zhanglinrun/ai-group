@@ -8,6 +8,9 @@ import org.springframework.stereotype.Service;
 import org.wwz.ai.application.agent.execute.IExecuteStrategy;
 import org.wwz.ai.application.agent.stream.AgentSessionPrinter;
 import org.wwz.ai.application.agent.stream.AgentSessionStream;
+import org.wwz.ai.domain.agent.checkpoint.PlanCheckpointCoordinator;
+import org.wwz.ai.domain.agent.checkpoint.PlanCheckpointState;
+import org.wwz.ai.domain.agent.checkpoint.PlanExecutionCheckpoint;
 import org.wwz.ai.domain.agent.ledger.model.ExecutionLedgerConstants;
 import org.wwz.ai.domain.agent.reactor.config.ReactorConfig;
 import org.wwz.ai.domain.agent.reactor.model.req.AgentRequest;
@@ -18,6 +21,8 @@ import org.wwz.ai.domain.agent.memory.MemoryTurn;
 import org.wwz.ai.domain.agent.service.execute.planexecute.step.factory.DefaultPlanSolveAgentExecuteStrategyFactory;
 
 import java.util.Map;
+import java.util.LinkedHashMap;
+import java.util.regex.Pattern;
 
 /**
  * PlanSolve 应用层执行策略。
@@ -25,6 +30,14 @@ import java.util.Map;
 @Slf4j
 @Service("planSolveAgentExecuteStrategy")
 public class PlanSolveAgentExecuteStrategy implements IExecuteStrategy {
+
+    private static final Pattern EXPLICIT_NO_TOOLS = Pattern.compile(
+            "(?:不要|请勿|禁止|无需|不需要)\\s*(?:调用|使用)\\s*(?:任何|任意|外部)?\\s*工具"
+                    + "|(?i:\\b(?:no\\s+(?:external\\s+)?tools?"
+                    + "|(?:do\\s+not|don't|dont|never)\\s+(?:call|use|invoke)\\s+"
+                    + "(?:any\\s+|external\\s+)?tools?"
+                    + "|without\\s+(?:calling|using|invoking)\\s+(?:any\\s+|external\\s+)?tools?)\\b)"
+    );
 
     @Resource
     private DefaultPlanSolveAgentExecuteStrategyFactory defaultPlanSolveAgentExecuteStrategyFactory;
@@ -35,31 +48,72 @@ public class PlanSolveAgentExecuteStrategy implements IExecuteStrategy {
     @Resource
     private ConversationMemoryManager conversationMemoryManager;
 
+    @Resource
+    private PlanCheckpointCoordinator planCheckpointCoordinator;
+
     @Override
     public void execute(AgentRequest request, AgentSessionStream stream) throws Exception {
-        String originalQuery = request == null ? null : request.getQuery();
-        enrichHistoryDialogue(request);
-        applyOutputStyle(request);
-        StrategyHandler<AgentRequest, DefaultPlanSolveAgentExecuteStrategyFactory.DynamicContext, String> executeHandler
-                = defaultPlanSolveAgentExecuteStrategyFactory.armoryStrategyHandler();
+        AgentSessionPrinter printer = new AgentSessionPrinter(stream, request,
+                request == null ? null : request.getAgentType());
         DefaultPlanSolveAgentExecuteStrategyFactory.DynamicContext dynamicContext =
                 DefaultPlanSolveAgentExecuteStrategyFactory.DynamicContext.builder()
-                        .printer(new AgentSessionPrinter(stream, request, request.getAgentType()))
+                        .printer(printer)
                         .build();
         try {
+            prepareResumeRequest(request);
+            String originalQuery = request == null ? null : request.getQuery();
+            if (request != null) {
+                request.setOriginalQuery(originalQuery);
+            }
+            enrichHistoryDialogue(request);
+            applyOutputStyle(request);
+            StrategyHandler<AgentRequest, DefaultPlanSolveAgentExecuteStrategyFactory.DynamicContext, String> executeHandler
+                    = defaultPlanSolveAgentExecuteStrategyFactory.armoryStrategyHandler();
             String result = executeHandler.apply(request, dynamicContext);
-            log.info("PlanSolveAgent execute result: {}", result);
+            log.info("{} PlanSolveAgent execution finished resultChars={}",
+                    request == null ? null : request.getRequestId(), result == null ? 0 : result.length());
+            persistTurn(request, originalQuery);
         } catch (Exception e) {
+            String errorCode = "PLAN_SOLVE_EXECUTE_ERROR";
+            String errorMessage = StringUtils.abbreviate(
+                    StringUtils.defaultIfBlank(e.getMessage(), "Plan-Solve 执行失败"), 500);
             ExecutionLedgerRunSupport.finishRun(
                     dynamicContext.getAgentContext(),
                     ExecutionLedgerConstants.STATUS_FAILED,
                     null,
-                    "PLAN_SOLVE_EXECUTE_ERROR",
-                    e == null ? null : e.getMessage()
+                    errorCode,
+                    errorMessage
             );
-            throw e;
+            Map<String, Object> terminal = new LinkedHashMap<>();
+            terminal.put("taskSummary", errorMessage);
+            terminal.put("status", "FAILED");
+            terminal.put("runStatus", "FAILED");
+            terminal.put("errorCode", errorCode);
+            terminal.put("errorMessage", errorMessage);
+            terminal.put("errorMsg", errorMessage);
+            printer.send("result", terminal);
+            log.error("{} PlanSolveAgent execution failed errorCode={} errorType={}",
+                    request == null ? null : request.getRequestId(), errorCode, e.getClass().getSimpleName());
         }
-        persistTurn(request, originalQuery);
+    }
+
+    private void prepareResumeRequest(AgentRequest request) {
+        if (request == null || StringUtils.isBlank(request.getResumeCheckpointId())) {
+            return;
+        }
+        PlanExecutionCheckpoint checkpoint = planCheckpointCoordinator.inspectForResume(
+                request.getResumeCheckpointId(), request.getOwnerId(), request.getSessionId());
+        if (checkpoint.getResumedByRequestId() != null
+                && !request.getRequestId().equals(checkpoint.getResumedByRequestId())) {
+            throw new IllegalStateException("Checkpoint has already been consumed by another request");
+        }
+        PlanCheckpointState state = checkpoint.getState();
+        if (state == null || StringUtils.isBlank(state.getOriginalQuery())) {
+            throw new IllegalStateException("Checkpoint has no reproducible request snapshot");
+        }
+        request.setQuery(state.getOriginalQuery());
+        request.setModelId(state.getModelId());
+        request.setOutputStyle(state.getOutputStyle());
     }
 
     /**
@@ -68,6 +122,12 @@ public class PlanSolveAgentExecuteStrategy implements IExecuteStrategy {
      */
     private void applyOutputStyle(AgentRequest request) {
         if (request == null || StringUtils.isEmpty(request.getOutputStyle())) {
+            return;
+        }
+        String userQuery = StringUtils.defaultIfBlank(request.getOriginalQuery(), request.getQuery());
+        if (StringUtils.isNotBlank(userQuery) && EXPLICIT_NO_TOOLS.matcher(userQuery).find()) {
+            log.info("{} skip output-style tool instruction because user explicitly disabled tools",
+                    request.getRequestId());
             return;
         }
         Map<String, String> outputStyleMap = reactorConfig.getOutputStylePrompts();

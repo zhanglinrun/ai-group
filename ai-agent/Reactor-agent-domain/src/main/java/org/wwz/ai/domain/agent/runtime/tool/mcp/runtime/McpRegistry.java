@@ -1,6 +1,7 @@
 package org.wwz.ai.domain.agent.runtime.tool.mcp.runtime;
 
 import com.alibaba.fastjson.JSON;
+import com.alibaba.fastjson.JSONValidator;
 import com.alibaba.fastjson.JSONObject;
 import com.alibaba.fastjson.TypeReference;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -526,12 +527,23 @@ public class McpRegistry {
             return JSON.parseObject(jsonObject.toJSONString(), new TypeReference<Map<String, Object>>() {
             });
         }
-        if (args instanceof String str && JSON.isValidObject(str)) {
+        if (args instanceof String str && isValidJsonObject(str)) {
             return JSON.parseObject(str, new TypeReference<Map<String, Object>>() {
             });
         }
         return JSON.parseObject(JSON.toJSONString(args), new TypeReference<Map<String, Object>>() {
         });
+    }
+
+    /**
+     * 使用 Fastjson 当前的流式校验器判断字符串是否为 JSON 对象。
+     */
+    private boolean isValidJsonObject(String value) {
+        try (JSONValidator validator = JSONValidator.from(value)) {
+            return validator.validate() && validator.getType() == JSONValidator.Type.Object;
+        } catch (Exception ignored) {
+            return false;
+        }
     }
 
     /**

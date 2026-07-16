@@ -6,11 +6,14 @@ import org.mockito.Mockito;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.wwz.ai.domain.agent.ledger.ExecutionLedgerQueryService;
 import org.wwz.ai.domain.agent.memory.ConversationMemoryManagerImpl;
+import org.wwz.ai.domain.agent.memory.LongTermMemoryEntry;
 import org.wwz.ai.domain.agent.memory.LongTermMemoryService;
+import org.wwz.ai.domain.agent.memory.LongTermMemoryType;
 import org.wwz.ai.domain.agent.memory.MemoryQuery;
 import org.wwz.ai.domain.agent.memory.MemoryTurn;
 import org.wwz.ai.domain.agent.memory.SessionContextMemoryService;
 import org.wwz.ai.domain.agent.reactor.config.ReactorConfig;
+import org.wwz.ai.domain.agent.runtime.context.ContextTrustBoundary;
 
 import java.util.List;
 import java.util.concurrent.Executor;
@@ -31,7 +34,7 @@ public class ConversationMemoryManagerTest {
                                                   LongTermMemoryService longTerm,
                                                   ExecutionLedgerQueryService query,
                                                   ReactorConfig cfg) {
-        ConversationMemoryManagerImpl mgr = new ConversationMemoryManagerImpl(medium, longTerm, query, cfg);
+        ConversationMemoryManagerImpl mgr = new ConversationMemoryManagerImpl(medium, longTerm, cfg);
         // 同步执行器，便于断言异步落库效果
         ReflectionTestUtils.setField(mgr, "memoryExecutor", (Executor) Runnable::run);
         return mgr;
@@ -53,6 +56,7 @@ public class ConversationMemoryManagerTest {
         Assert.assertTrue(block.contains("你上次说喜欢 Java"));
         Assert.assertTrue(block.contains("## 单会话历史记忆"));
         Assert.assertTrue(block.indexOf("长期记忆") < block.indexOf("单会话历史记忆"));
+        Assert.assertTrue(block.startsWith(ContextTrustBoundary.START_PREFIX));
     }
 
     @Test
@@ -71,6 +75,33 @@ public class ConversationMemoryManagerTest {
     }
 
     @Test
+    public void shouldRenderStructuredMemoryMetadataInsideUntrustedBoundary() {
+        SessionContextMemoryService medium = Mockito.mock(SessionContextMemoryService.class);
+        LongTermMemoryService longTerm = Mockito.mock(LongTermMemoryService.class);
+        Mockito.when(longTerm.recallEntries("u1", "s1", "q")).thenReturn(List.of(
+                LongTermMemoryEntry.builder()
+                        .id("memory-1")
+                        .ownerId("u1")
+                        .type(LongTermMemoryType.PREFERENCE)
+                        .memoryKey("answer-style")
+                        .content("用户偏好简洁回答")
+                        .source("explicit-user-statement")
+                        .confidence(0.9d)
+                        .version(2L)
+                        .build()
+        ));
+        ConversationMemoryManagerImpl mgr = manager(medium, longTerm,
+                Mockito.mock(ExecutionLedgerQueryService.class), config(true, true));
+
+        String block = mgr.assembleHistoryBlock(new MemoryQuery("u1", "s1", "r1", "q"));
+
+        Assert.assertTrue(block.startsWith(ContextTrustBoundary.START_PREFIX));
+        Assert.assertTrue(block.contains("[PREFERENCE source=explicit-user-statement confidence=0.90 version=2]"));
+        Assert.assertTrue(block.contains("用户偏好简洁回答"));
+        Mockito.verify(longTerm, Mockito.never()).recall(Mockito.any(), Mockito.any(), Mockito.any());
+    }
+
+    @Test
     public void shouldFailOpenWhenLongTermThrows() {
         SessionContextMemoryService medium = Mockito.mock(SessionContextMemoryService.class);
         Mockito.when(medium.buildHistoryDialogue("s1", "r1")).thenReturn("## 单会话历史记忆");
@@ -83,7 +114,8 @@ public class ConversationMemoryManagerTest {
 
         // 长期记忆异常时退化为中期记忆，不抛出
         String block = mgr.assembleHistoryBlock(new MemoryQuery("u1", "s1", "r1", "q"));
-        Assert.assertEquals("## 单会话历史记忆", block);
+        Assert.assertTrue(block.startsWith(ContextTrustBoundary.START_PREFIX));
+        Assert.assertTrue(block.contains("## 单会话历史记忆"));
     }
 
     @Test

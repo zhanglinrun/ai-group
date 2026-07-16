@@ -10,6 +10,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.beans.factory.annotation.Value;
+import org.wwz.ai.domain.agent.adapter.port.QuotaBillingPort;
 import org.wwz.ai.api.response.Response;
 import org.wwz.ai.application.agent.quota.MemberQuotaBillingService;
 import org.wwz.ai.application.agent.quota.QuotaInsufficientException;
@@ -42,6 +44,9 @@ public class AgentImageGenerationController {
     private final IWorkspaceImageGenerationService workspaceImageGenerationService;
     private final MemberQuotaBillingService memberQuotaBillingService;
 
+    @Value("${ai-group.billing.tools.image-generation-microcredits:1000000}")
+    private long imageGenerationMicrocredits = 1_000_000L;
+
     @PostMapping("/generate")
     public Response<WorkspaceImageGenerationRespVO> generate(@RequestBody WorkspaceImageGenerationReqVO reqVO) {
         String freezeId = null;
@@ -50,7 +55,12 @@ public class AgentImageGenerationController {
                 throw new IllegalArgumentException("请求体不能为空");
             }
             Long userId = OwnerRequestContext.requireOwnerId();
-            freezeId = memberQuotaBillingService.freezeForAbility(userId, "image_generation");
+            long surcharge = Math.max(0L, imageGenerationMicrocredits);
+            if (surcharge > 0) {
+                QuotaBillingPort.Reservation reservation = memberQuotaBillingService.reserve(
+                        userId, surcharge, surcharge, reqVO.getRequestId() + ":tool:image_generation");
+                freezeId = reservation.freezeId();
+            }
             WorkspaceImageGenerationResult result = workspaceImageGenerationService.generate(
                     WorkspaceImageGenerationCommand.builder()
                             .requestId(reqVO.getRequestId())
@@ -77,7 +87,12 @@ public class AgentImageGenerationController {
                     .usedFallback(result.getUsedFallback())
                     .rawResponse(result.getRawResponse())
                     .build();
-            memberQuotaBillingService.confirm(freezeId);
+            if (Boolean.TRUE.equals(result.getUsedFallback())) {
+                memberQuotaBillingService.release(freezeId);
+            } else {
+                memberQuotaBillingService.settle(freezeId, surcharge);
+            }
+            freezeId = null;
             return Response.<WorkspaceImageGenerationRespVO>builder()
                     .code(ResponseCode.SUCCESS.getCode())
                     .info(ResponseCode.SUCCESS.getInfo())

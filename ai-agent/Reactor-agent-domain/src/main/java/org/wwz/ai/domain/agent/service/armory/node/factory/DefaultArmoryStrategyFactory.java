@@ -34,6 +34,7 @@ public class DefaultArmoryStrategyFactory {
     @NoArgsConstructor
     public static class DynamicContext {
 
+        @Builder.Default
         private Map<String, Object> dataObjects = new HashMap<>();
 
         public <T> void setValue(String key, T value) {

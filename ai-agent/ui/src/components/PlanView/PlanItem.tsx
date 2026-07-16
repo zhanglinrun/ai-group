@@ -32,8 +32,9 @@ const PlanItem: ReactorType.FC<{
   }, [status, title, updateRunTime]);
 
   useEffect(() => {
+    const timerState = ref.current;
     return () => {
-      clearTimeout(ref.current.t);
+      clearTimeout(timerState.t);
     };
   }, []);
 

@@ -25,13 +25,14 @@ import org.apache.commons.lang3.StringUtils;
 import org.springframework.web.bind.annotation.*;
 
 import jakarta.annotation.Resource;
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
 /**
- * @author Fuzhengwei bugstack.cn @灏忓倕鍝?
- * @description 钀ラ攢浜ゆ槗鏈嶅姟
+ * @author Fuzhengwei bugstack.cn @小傅哥
+ * @description 营销交易服务
  * @create 2025-01-11 14:01
  */
 @Slf4j
@@ -50,13 +51,13 @@ public class MarketTradeController implements IMarketTradeService {
     private ITradeRefundOrderService tradeRefundOrderService;
 
     /**
-     * 鎷煎洟钀ラ攢閿佸崟
+     * 拼团营销锁单
      */
     @RequestMapping(value = "lock_market_pay_order", method = RequestMethod.POST)
     @Override
     public Response<LockMarketPayOrderResponseDTO> lockMarketPayOrder(@RequestBody LockMarketPayOrderRequestDTO requestDTO) {
         try {
-            // 鍙傛暟
+            // 参数
             String userId = requestDTO.getUserId();
             String source = requestDTO.getSource();
             String channel = requestDTO.getChannel();
@@ -66,7 +67,7 @@ public class MarketTradeController implements IMarketTradeService {
             String teamId = requestDTO.getTeamId();
             LockMarketPayOrderRequestDTO.NotifyConfigVO notifyConfigVO = requestDTO.getNotifyConfigVO();
 
-            log.info("钀ラ攢浜ゆ槗閿佸崟:{} LockMarketPayOrderRequestDTO:{}", userId, JSON.toJSONString(requestDTO));
+            log.info("营销交易锁单:{} LockMarketPayOrderRequestDTO:{}", userId, JSON.toJSONString(requestDTO));
 
             if (StringUtils.isBlank(userId) || StringUtils.isBlank(source) || StringUtils.isBlank(channel) || StringUtils.isBlank(goodsId) || null == activityId || ("HTTP".equals(notifyConfigVO.getNotifyType()) && StringUtils.isBlank(notifyConfigVO.getNotifyUrl()))) {
                 return Response.<LockMarketPayOrderResponseDTO>builder()
@@ -75,7 +76,7 @@ public class MarketTradeController implements IMarketTradeService {
                         .build();
             }
 
-            // 鏌ヨ outTradeNo 鏄惁宸茬粡瀛樺湪浜ゆ槗璁板綍
+            // 查询 outTradeNo 是否已经存在交易记录
             MarketPayOrderEntity marketPayOrderEntity = tradeOrderService.queryNoPayMarketPayOrderByOutTradeNo(userId, outTradeNo);
             if (null != marketPayOrderEntity && TradeOrderStatusEnumVO.CREATE.equals(marketPayOrderEntity.getTradeOrderStatusEnumVO())) {
                 LockMarketPayOrderResponseDTO lockMarketPayOrderResponseDTO = LockMarketPayOrderResponseDTO.builder()
@@ -86,7 +87,7 @@ public class MarketTradeController implements IMarketTradeService {
                         .tradeOrderStatus(marketPayOrderEntity.getTradeOrderStatusEnumVO().getCode())
                         .build();
 
-                log.info("浜ゆ槗閿佸崟璁板綍(瀛樺湪):{} marketPayOrderEntity:{}", userId, JSON.toJSONString(marketPayOrderEntity));
+                log.info("交易锁单记录(存在):{} marketPayOrderEntity:{}", userId, JSON.toJSONString(marketPayOrderEntity));
                 return Response.<LockMarketPayOrderResponseDTO>builder()
                         .code(ResponseCode.SUCCESS.getCode())
                         .info(ResponseCode.SUCCESS.getInfo())
@@ -94,11 +95,11 @@ public class MarketTradeController implements IMarketTradeService {
                         .build();
             }
 
-            // 鍒ゆ柇鎷煎洟閿佸崟鏄惁瀹屾垚浜嗙洰鏍?
+            // 判断拼团锁单是否完成了目标
             if (StringUtils.isNotBlank(teamId)) {
                 GroupBuyProgressVO groupBuyProgressVO = tradeOrderService.queryGroupBuyProgress(teamId);
                 if (null != groupBuyProgressVO && Objects.equals(groupBuyProgressVO.getTargetCount(), groupBuyProgressVO.getLockCount())) {
-                    log.info("浜ゆ槗閿佸崟鎷︽埅-鎷煎崟鐩爣宸茶揪鎴?{} {}", userId, teamId);
+                    log.info("交易锁单拦截-拼单目标已达成:{} {}", userId, teamId);
                     return Response.<LockMarketPayOrderResponseDTO>builder()
                             .code(ResponseCode.E0006.getCode())
                             .info(ResponseCode.E0006.getInfo())
@@ -106,7 +107,7 @@ public class MarketTradeController implements IMarketTradeService {
                 }
             }
 
-            // 钀ラ攢浼樻儬璇曠畻
+            // 营销优惠试算
             TrialBalanceEntity trialBalanceEntity = indexGroupBuyMarketService.indexMarketTrial(MarketProductEntity.builder()
                     .userId(userId)
                     .source(source)
@@ -115,7 +116,7 @@ public class MarketTradeController implements IMarketTradeService {
                     .activityId(activityId)
                     .build());
 
-            // 浜虹兢闄愬畾
+            // 人群限定
             if (!trialBalanceEntity.getIsVisible() || !trialBalanceEntity.getIsEnable()) {
                 return Response.<LockMarketPayOrderResponseDTO>builder()
                         .code(ResponseCode.E0007.getCode())
@@ -125,7 +126,26 @@ public class MarketTradeController implements IMarketTradeService {
 
             GroupBuyActivityDiscountVO groupBuyActivityDiscountVO = trialBalanceEntity.getGroupBuyActivityDiscountVO();
 
-            // 钀ラ攢浼樻儬閿佸崟
+            // 额度拼团不做现金折扣。价格由 pay 从启用的 member SKU 查询后透传，
+            // group 只负责建团和赠额；缺少可信价格时失败关闭，避免退回本地旧 SKU 价格。
+            boolean tieredQuotaActivity = Integer.valueOf(1).equals(groupBuyActivityDiscountVO.getActivityType());
+            BigDecimal originalPrice = trialBalanceEntity.getOriginalPrice();
+            BigDecimal deductionPrice = trialBalanceEntity.getDeductionPrice();
+            BigDecimal payPrice = trialBalanceEntity.getPayPrice();
+            if (tieredQuotaActivity) {
+                BigDecimal orderPrice = requestDTO.getOrderPrice();
+                if (orderPrice == null || orderPrice.signum() <= 0) {
+                    return Response.<LockMarketPayOrderResponseDTO>builder()
+                            .code(ResponseCode.ILLEGAL_PARAMETER.getCode())
+                            .info("额度拼团缺少可信订单价格")
+                            .build();
+                }
+                originalPrice = orderPrice;
+                deductionPrice = BigDecimal.ZERO;
+                payPrice = orderPrice;
+            }
+
+            // 营销优惠锁单
             marketPayOrderEntity = tradeOrderService.lockMarketPayOrder(
                     UserEntity.builder().userId(userId).build(),
                     PayActivityEntity.builder()
@@ -142,12 +162,12 @@ public class MarketTradeController implements IMarketTradeService {
                             .channel(channel)
                             .goodsId(goodsId)
                             .goodsName(trialBalanceEntity.getGoodsName())
-                            .originalPrice(trialBalanceEntity.getOriginalPrice())
-                            .deductionPrice(trialBalanceEntity.getDeductionPrice())
-                            .payPrice(trialBalanceEntity.getPayPrice())
+                            .originalPrice(originalPrice)
+                            .deductionPrice(deductionPrice)
+                            .payPrice(payPrice)
                             .outTradeNo(outTradeNo)
                             .notifyConfigVO(
-                                    // 鏋勫缓鍥炶皟閫氱煡瀵硅薄
+                                    // 构建回调通知对象
                                     NotifyConfigVO.builder()
                                             .notifyType(NotifyTypeEnumVO.valueOf(notifyConfigVO.getNotifyType()))
                                             .notifyMQ(notifyConfigVO.getNotifyMQ())
@@ -155,9 +175,9 @@ public class MarketTradeController implements IMarketTradeService {
                                             .build())
                             .build());
 
-            log.info("浜ゆ槗閿佸崟璁板綍(鏂?:{} marketPayOrderEntity:{}", userId, JSON.toJSONString(marketPayOrderEntity));
+            log.info("交易锁单记录(新):{} marketPayOrderEntity:{}", userId, JSON.toJSONString(marketPayOrderEntity));
 
-            // 杩斿洖缁撴灉
+            // 返回结果
             return Response.<LockMarketPayOrderResponseDTO>builder()
                     .code(ResponseCode.SUCCESS.getCode())
                     .info(ResponseCode.SUCCESS.getInfo())
@@ -171,13 +191,13 @@ public class MarketTradeController implements IMarketTradeService {
                             .build())
                     .build();
         } catch (AppException e) {
-            log.error("钀ラ攢浜ゆ槗閿佸崟涓氬姟寮傚父:{} LockMarketPayOrderRequestDTO:{}", requestDTO.getUserId(), JSON.toJSONString(requestDTO), e);
+            log.error("营销交易锁单业务异常:{} LockMarketPayOrderRequestDTO:{}", requestDTO.getUserId(), JSON.toJSONString(requestDTO), e);
             return Response.<LockMarketPayOrderResponseDTO>builder()
                     .code(e.getCode())
                     .info(e.getInfo())
                     .build();
         } catch (Exception e) {
-            log.error("钀ラ攢浜ゆ槗閿佸崟鏈嶅姟澶辫触:{} LockMarketPayOrderRequestDTO:{}", requestDTO.getUserId(), JSON.toJSONString(requestDTO), e);
+            log.error("营销交易锁单服务失败:{} LockMarketPayOrderRequestDTO:{}", requestDTO.getUserId(), JSON.toJSONString(requestDTO), e);
             return Response.<LockMarketPayOrderResponseDTO>builder()
                     .code(ResponseCode.UN_ERROR.getCode())
                     .info(ResponseCode.UN_ERROR.getInfo())
@@ -189,7 +209,7 @@ public class MarketTradeController implements IMarketTradeService {
     @Override
     public Response<SettlementMarketPayOrderResponseDTO> settlementMarketPayOrder(@RequestBody SettlementMarketPayOrderRequestDTO requestDTO) {
         try {
-            log.info("钀ラ攢浜ゆ槗缁勯槦缁撶畻寮?濮?{} outTradeNo:{}", requestDTO.getUserId(), requestDTO.getOutTradeNo());
+            log.info("营销交易组队结算开始:{} outTradeNo:{}", requestDTO.getUserId(), requestDTO.getOutTradeNo());
 
             if (StringUtils.isBlank(requestDTO.getUserId()) || StringUtils.isBlank(requestDTO.getSource()) || StringUtils.isBlank(requestDTO.getChannel()) || StringUtils.isBlank(requestDTO.getOutTradeNo()) || null == requestDTO.getOutTradeTime()) {
                 return Response.<SettlementMarketPayOrderResponseDTO>builder()
@@ -198,7 +218,7 @@ public class MarketTradeController implements IMarketTradeService {
                         .build();
             }
 
-            // 1. 缁撶畻鏈嶅姟
+            // 1. 结算服务
             TradePaySettlementEntity tradePaySettlementEntity = tradeSettlementOrderService.settlementMarketPayOrder(TradePaySuccessEntity.builder()
                     .source(requestDTO.getSource())
                     .channel(requestDTO.getChannel())
@@ -214,24 +234,24 @@ public class MarketTradeController implements IMarketTradeService {
                     .outTradeNo(tradePaySettlementEntity.getOutTradeNo())
                     .build();
 
-            // 杩斿洖缁撴灉
+            // 返回结果
             Response<SettlementMarketPayOrderResponseDTO> response = Response.<SettlementMarketPayOrderResponseDTO>builder()
                     .code(ResponseCode.SUCCESS.getCode())
                     .info(ResponseCode.SUCCESS.getInfo())
                     .data(responseDTO)
                     .build();
 
-            log.info("钀ラ攢浜ゆ槗缁勯槦缁撶畻瀹屾垚:{} outTradeNo:{} response:{}", requestDTO.getUserId(), requestDTO.getOutTradeNo(), JSON.toJSONString(response));
+            log.info("营销交易组队结算完成:{} outTradeNo:{} response:{}", requestDTO.getUserId(), requestDTO.getOutTradeNo(), JSON.toJSONString(response));
 
             return response;
         } catch (AppException e) {
-            log.error("钀ラ攢浜ゆ槗缁勯槦缁撶畻寮傚父:{} LockMarketPayOrderRequestDTO:{}", requestDTO.getUserId(), JSON.toJSONString(requestDTO), e);
+            log.error("营销交易组队结算异常:{} LockMarketPayOrderRequestDTO:{}", requestDTO.getUserId(), JSON.toJSONString(requestDTO), e);
             return Response.<SettlementMarketPayOrderResponseDTO>builder()
                     .code(e.getCode())
                     .info(e.getInfo())
                     .build();
         } catch (Exception e) {
-            log.error("钀ラ攢浜ゆ槗缁勯槦缁撶畻澶辫触:{} LockMarketPayOrderRequestDTO:{}", requestDTO.getUserId(), JSON.toJSONString(requestDTO), e);
+            log.error("营销交易组队结算失败:{} LockMarketPayOrderRequestDTO:{}", requestDTO.getUserId(), JSON.toJSONString(requestDTO), e);
             return Response.<SettlementMarketPayOrderResponseDTO>builder()
                     .code(ResponseCode.UN_ERROR.getCode())
                     .info(ResponseCode.UN_ERROR.getInfo())
@@ -243,7 +263,7 @@ public class MarketTradeController implements IMarketTradeService {
     @Override
     public Response<RefundMarketPayOrderResponseDTO> refundMarketPayOrder(@RequestBody RefundMarketPayOrderRequestDTO requestDTO) {
         try {
-            log.info("钀ラ攢鎷煎洟閫?鍗曞紑濮?{} outTradeNo:{}", requestDTO.getUserId(), requestDTO.getOutTradeNo());
+            log.info("营销拼团退单开始:{} outTradeNo:{}", requestDTO.getUserId(), requestDTO.getOutTradeNo());
 
             if (StringUtils.isBlank(requestDTO.getUserId()) || StringUtils.isBlank(requestDTO.getOutTradeNo()) || StringUtils.isBlank(requestDTO.getSource()) || StringUtils.isBlank(requestDTO.getChannel())) {
                 return Response.<RefundMarketPayOrderResponseDTO>builder()
@@ -252,7 +272,7 @@ public class MarketTradeController implements IMarketTradeService {
                         .build();
             }
 
-            // 1. 閫?鍗曟湇鍔?
+            // 1. 退单服务
             TradeRefundBehaviorEntity tradeRefundBehaviorEntity = tradeRefundOrderService.refundOrder(TradeRefundCommandEntity.builder()
                     .userId(requestDTO.getUserId())
                     .outTradeNo(requestDTO.getOutTradeNo())
@@ -268,24 +288,24 @@ public class MarketTradeController implements IMarketTradeService {
                     .info(tradeRefundBehaviorEntity.getTradeRefundBehaviorEnum().getInfo())
                     .build();
 
-            // 杩斿洖缁撴灉
+            // 返回结果
             Response<RefundMarketPayOrderResponseDTO> response = Response.<RefundMarketPayOrderResponseDTO>builder()
                     .code(ResponseCode.SUCCESS.getCode())
                     .info(ResponseCode.SUCCESS.getInfo())
                     .data(responseDTO)
                     .build();
 
-            log.info("钀ラ攢鎷煎洟閫?鍗曞畬鎴?{} outTradeNo:{} response:{}", requestDTO.getUserId(), requestDTO.getOutTradeNo(), JSON.toJSONString(response));
+            log.info("营销拼团退单完成:{} outTradeNo:{} response:{}", requestDTO.getUserId(), requestDTO.getOutTradeNo(), JSON.toJSONString(response));
 
             return response;
         } catch (AppException e) {
-            log.error("钀ラ攢鎷煎洟閫?鍗曞紓甯?{} RefundMarketPayOrderRequestDTO:{}", requestDTO.getUserId(), JSON.toJSONString(requestDTO), e);
+            log.error("营销拼团退单异常:{} RefundMarketPayOrderRequestDTO:{}", requestDTO.getUserId(), JSON.toJSONString(requestDTO), e);
             return Response.<RefundMarketPayOrderResponseDTO>builder()
                     .code(e.getCode())
                     .info(e.getInfo())
                     .build();
         } catch (Exception e) {
-            log.error("钀ラ攢鎷煎洟閫?鍗曞け璐?{} RefundMarketPayOrderRequestDTO:{}", requestDTO.getUserId(), JSON.toJSONString(requestDTO), e);
+            log.error("营销拼团退单失败:{} RefundMarketPayOrderRequestDTO:{}", requestDTO.getUserId(), JSON.toJSONString(requestDTO), e);
             return Response.<RefundMarketPayOrderResponseDTO>builder()
                     .code(ResponseCode.UN_ERROR.getCode())
                     .info(ResponseCode.UN_ERROR.getInfo())

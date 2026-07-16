@@ -15,5 +15,9 @@ public class ProductDTO {
     private String productDesc;
     /** 商品价格 */
     private BigDecimal price;
+    /** 服务端目录中的额度包编码 */
+    private String productCode;
+    /** 服务端目录中的基础额度（整额度点） */
+    private Long baseQuota;
 
 }

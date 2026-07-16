@@ -35,7 +35,7 @@ public class AiClientRagOrderAdminController implements IAiClientRagOrderAdminSe
     @PostMapping("/create")
     public Response<Boolean> createAiClientRagOrder(@RequestBody AiClientRagOrderRequestDTO request) {
         try {
-            log.info("创建知识库配置请求：{}", request);
+            log.info("创建知识库配置请求");
 
             // DTO转PO
             AiClientRagOrder aiClientRagOrder = convertToAiClientRagOrder(request);
@@ -63,7 +63,7 @@ public class AiClientRagOrderAdminController implements IAiClientRagOrderAdminSe
     @PutMapping("/update-by-id")
     public Response<Boolean> updateAiClientRagOrderById(@RequestBody AiClientRagOrderRequestDTO request) {
         try {
-            log.info("根据ID更新知识库配置请求：{}", request);
+            log.info("根据ID更新知识库配置请求");
 
             if (request.getId() == null) {
                 return Response.<Boolean>builder()
@@ -98,7 +98,7 @@ public class AiClientRagOrderAdminController implements IAiClientRagOrderAdminSe
     @PutMapping("/update-by-rag-id")
     public Response<Boolean> updateAiClientRagOrderByRagId(@RequestBody AiClientRagOrderRequestDTO request) {
         try {
-            log.info("根据知识库ID更新知识库配置请求：{}", request);
+            log.info("根据知识库ID更新知识库配置请求");
 
             if (!StringUtils.hasText(request.getRagId())) {
                 return Response.<Boolean>builder()
@@ -323,7 +323,7 @@ public class AiClientRagOrderAdminController implements IAiClientRagOrderAdminSe
     @PostMapping("/query-list")
     public Response<List<AiClientRagOrderResponseDTO>> queryAiClientRagOrderList(@RequestBody AiClientRagOrderQueryRequestDTO request) {
         try {
-            log.info("分页查询知识库配置列表：{}", request);
+            log.info("分页查询知识库配置列表");
 
             // 这里简化实现，实际项目中可能需要实现分页查询
             List<AiClientRagOrder> aiClientRagOrders = aiClientRagOrderDao.queryAll();

@@ -149,7 +149,7 @@ const DataChat: ReactorType.FC<{
   data?: DataChatSourceConfig;
 }> = (props) => {
   const { data } = props;
-  const chartCfg = typeof data === 'object' && data ? data : {};
+  const chartCfg = useMemo(() => (typeof data === 'object' && data ? data : {}), [data]);
   const [currentType, setCurrentType] = useState<string>(resolveChartType(chartCfg));
 
   const transConfig = useMemo(() => {

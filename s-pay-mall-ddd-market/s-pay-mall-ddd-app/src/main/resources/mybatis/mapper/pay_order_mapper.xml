@@ -8,6 +8,7 @@
         <result column="product_id" property="productId"/>
         <result column="product_code" property="productCode"/>
         <result column="product_name" property="productName"/>
+        <result column="base_quota_snapshot" property="baseQuotaSnapshot"/>
         <result column="order_id" property="orderId"/>
         <result column="order_time" property="orderTime"/>
         <result column="total_amount" property="totalAmount"/>
@@ -24,15 +25,15 @@
 
     <insert id="insert" parameterType="com.aigroup.paymall.infrastructure.dao.po.PayOrder">
         insert into pay_order(
-        user_id, product_id, product_code, product_name, order_id, order_time,
+        user_id, product_id, product_code, product_name, base_quota_snapshot, order_id, order_time,
         total_amount, status, market_type, market_deduction_amount, pay_amount, create_time, update_time)
         values(
-        #{userId}, #{productId}, #{productCode}, #{productName}, #{orderId}, #{orderTime},
+        #{userId}, #{productId}, #{productCode}, #{productName}, #{baseQuotaSnapshot}, #{orderId}, #{orderTime},
         #{totalAmount}, #{status}, #{marketType}, #{marketDeductionAmount}, #{payAmount}, now(), now())
     </insert>
 
     <select id="queryUnPayOrder" parameterType="com.aigroup.paymall.infrastructure.dao.po.PayOrder" resultMap="dataMap">
-        select product_id, product_code, product_name, order_id, order_time, total_amount, status, pay_url, market_type, market_deduction_amount, pay_amount
+        select product_id, product_code, product_name, base_quota_snapshot, order_id, order_time, total_amount, status, pay_url, market_type, market_deduction_amount, pay_amount
         from pay_order
         where user_id = #{userId} and product_id = #{productId} and product_code = #{productCode}
         order by id desc
@@ -124,7 +125,7 @@
     </select>
 
     <select id="queryOrderByOrderId" parameterType="java.lang.String" resultMap="dataMap">
-        select user_id, product_id, product_code, product_name, order_id, order_time, total_amount, status, pay_url, market_type, market_deduction_amount, pay_amount
+        select user_id, product_id, product_code, product_name, base_quota_snapshot, order_id, order_time, total_amount, status, pay_url, market_type, market_deduction_amount, pay_amount
         from pay_order
         where order_id = #{orderId}
     </select>
@@ -136,7 +137,7 @@
     </update>
 
     <select id="queryUserOrderList" resultMap="dataMap">
-        select id, user_id, product_id, product_code, product_name, order_id, order_time, total_amount, status, pay_url, pay_time, market_type, market_deduction_amount, pay_amount
+        select id, user_id, product_id, product_code, product_name, base_quota_snapshot, order_id, order_time, total_amount, status, pay_url, pay_time, market_type, market_deduction_amount, pay_amount
         from pay_order
         where user_id = #{userId}
         <if test="lastId != null">
@@ -147,7 +148,7 @@
     </select>
 
     <select id="queryOrderByUserIdAndOrderId" resultMap="dataMap">
-        select id, user_id, product_id, product_code, product_name, order_id, order_time, total_amount, status, pay_url, pay_time, market_type, market_deduction_amount, pay_amount
+        select id, user_id, product_id, product_code, product_name, base_quota_snapshot, order_id, order_time, total_amount, status, pay_url, pay_time, market_type, market_deduction_amount, pay_amount
         from pay_order
         where user_id = #{userId} and order_id = #{orderId}
     </select>

@@ -26,8 +26,15 @@ public class OpenAiChatOptionsFactory {
      * 构造纯文本调用所需的 ChatOptions。
      */
     public OpenAiChatOptions buildTextOptions(LLMSettings settings, Double overrideTemperature) {
-        OpenAiChatOptions.Builder builder = baseBuilder(settings, overrideTemperature);
+        return buildTextOptions(settings, overrideTemperature, settings.getMaxTokens());
+    }
+
+    public OpenAiChatOptions buildTextOptions(LLMSettings settings,
+                                              Double overrideTemperature,
+                                              int maxOutputTokens) {
+        OpenAiChatOptions.Builder builder = baseBuilder(settings, overrideTemperature, maxOutputTokens);
         applyExtParams(builder, settings.getExtParams());
+        builder.maxTokens(maxOutputTokens);
         return builder.build();
     }
 
@@ -38,14 +45,32 @@ public class OpenAiChatOptionsFactory {
                                               Double overrideTemperature,
                                               ToolCollection tools,
                                               ToolChoice toolChoice) {
-        OpenAiChatOptions.Builder builder = baseBuilder(settings, overrideTemperature);
+        return buildToolOptions(settings, overrideTemperature, tools, toolChoice, settings.getMaxTokens());
+    }
+
+    public OpenAiChatOptions buildToolOptions(LLMSettings settings,
+                                              Double overrideTemperature,
+                                              ToolCollection tools,
+                                              ToolChoice toolChoice,
+                                              int maxOutputTokens) {
+        return buildToolOptions(settings, overrideTemperature, tools, toolChoice, null, maxOutputTokens);
+    }
+
+    public OpenAiChatOptions buildToolOptions(LLMSettings settings,
+                                              Double overrideTemperature,
+                                              ToolCollection tools,
+                                              ToolChoice toolChoice,
+                                              String requiredToolName,
+                                              int maxOutputTokens) {
+        OpenAiChatOptions.Builder builder = baseBuilder(settings, overrideTemperature, maxOutputTokens);
         applyExtParams(builder, settings.getExtParams());
+        builder.maxTokens(maxOutputTokens);
 
         List<ToolCallback> callbacks = toolCallbackProvider.buildToolCallbacks(tools);
         if (!callbacks.isEmpty()) {
             builder.toolCallbacks(callbacks);
             if (toolChoice != null) {
-                builder.toolChoice(toolChoice.getValue());
+                builder.toolChoice(resolveProviderToolChoice(toolChoice, requiredToolName));
             }
         }
         // Spring AI 只负责产出 tool calls，执行仍由 Agent 控制。
@@ -53,10 +78,19 @@ public class OpenAiChatOptionsFactory {
         return builder.build();
     }
 
-    private OpenAiChatOptions.Builder baseBuilder(LLMSettings settings, Double overrideTemperature) {
+    static Object resolveProviderToolChoice(ToolChoice toolChoice, String requiredToolName) {
+        if (toolChoice == ToolChoice.REQUIRED && StringUtils.isNotBlank(requiredToolName)) {
+            return Map.of("type", "function", "function", Map.of("name", requiredToolName));
+        }
+        return toolChoice == null ? null : toolChoice.getValue();
+    }
+
+    private OpenAiChatOptions.Builder baseBuilder(LLMSettings settings,
+                                                  Double overrideTemperature,
+                                                  int maxOutputTokens) {
         return OpenAiChatOptions.builder()
                 .model(settings.getModel())
-                .maxTokens(settings.getMaxTokens())
+                .maxTokens(maxOutputTokens)
                 .temperature(overrideTemperature != null ? overrideTemperature : settings.getTemperature());
     }
 

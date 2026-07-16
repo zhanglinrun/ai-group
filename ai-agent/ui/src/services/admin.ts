@@ -1,16 +1,13 @@
 import api from './index';
 
-/** 会员 SKU（member_db.product_sku 全字段行） */
+/** 永久额度包（member_db.product_sku） */
 export interface AdminSku {
   id: number;
   code: string;
   name: string;
   price: number;
-  periodQuota?: number;
-  topupQuota?: number;
-  memberDays?: number;
-  tier?: string;
-  skuType?: string;
+  /** 发放额度，单位：额度点 */
+  baseQuota?: number;
   status?: number;
   groupGoodsId?: string | null;
   groupActivityId?: number | null;
@@ -88,6 +85,9 @@ export interface AdminClientModel {
   modelType?: string;
   modelUsage?: string;
   apiId?: string;
+  /** 每百万输入/输出 Token 消耗的额度点 */
+  inputCreditsPerMillion?: number;
+  outputCreditsPerMillion?: number;
   status?: number;
 }
 
@@ -96,7 +96,7 @@ export interface AdminClientModel {
  * 均由全局 axios 拦截器解包，这里直接拿业务数据。
  */
 export const adminApi = {
-  // ---- 会员套餐 / 价格（member-service） ----
+  // ---- 永久额度包 / 价格（member-service） ----
   listSkus: () => api.get<AdminSku[]>('/api/member/admin/skus') as unknown as Promise<AdminSku[]>,
 
   updateSku: (code: string, body: Partial<AdminSku>) =>

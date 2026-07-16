@@ -126,7 +126,7 @@ weixin:
 
 # 支付宝支付 - 沙箱 https://opendocs.alipay.com/common/02kkv7（密钥统一从环境变量注入，勿硬编码）
 alipay:
-  enabled: ${ALIPAY_ENABLED:true}
+  enabled: ${ALIPAY_ENABLED:false}
   app_id: ${ALIPAY_APP_ID:}
   merchant_private_key: ${ALIPAY_MERCHANT_PRIVATE_KEY:}
   alipay_public_key: ${ALIPAY_PUBLIC_KEY:}

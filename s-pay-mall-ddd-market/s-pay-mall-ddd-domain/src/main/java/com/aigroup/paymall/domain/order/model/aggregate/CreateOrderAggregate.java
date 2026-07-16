@@ -23,11 +23,12 @@ public class CreateOrderAggregate {
 
     private OrderEntity orderEntity;
 
-    public static OrderEntity buildOrderEntity(String productId, String productCode, String productName, Integer marketType){
+    public static OrderEntity buildOrderEntity(ProductEntity product, Integer marketType){
         return OrderEntity.builder()
-                .productId(productId)
-                .productCode(productCode)
-                .productName(productName)
+                .productId(product.getProductId())
+                .productCode(product.getProductCode())
+                .productName(product.getProductName())
+                .baseQuotaSnapshot(product.getBaseQuota())
                 .orderId(RandomStringUtils.randomNumeric(12))
                 .orderTime(new Date())
                 .orderStatusVO(OrderStatusVO.CREATE)

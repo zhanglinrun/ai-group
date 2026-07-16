@@ -32,5 +32,9 @@ public class LlmInvocationStartRecord {
 
     private String modelName;
 
+    private Long inputRateSnapshot;
+
+    private Long outputRateSnapshot;
+
     private LocalDateTime startedAt;
 }

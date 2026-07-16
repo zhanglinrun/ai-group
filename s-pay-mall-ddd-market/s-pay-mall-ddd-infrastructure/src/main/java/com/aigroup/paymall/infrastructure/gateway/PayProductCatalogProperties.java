@@ -11,7 +11,7 @@ import java.util.Map;
 /**
  * 支付侧商品目录（goodsId -> 名称/展示价）。
  *
- * <p>替代原 ProductRPC 写死的「MyBatisBook ¥100」桩：不同套餐（月卡/年卡/加油包）
+ * <p>替代原 ProductRPC 写死的「MyBatisBook ¥100」桩：不同额度包
  * 各自有独立商品与价格，下单主题（subject）与展示金额（total_amount）按目录解析。
  * 与 member_db.product_sku、group_buy_market.sku 的 seed 保持一致。</p>
  *
@@ -21,7 +21,7 @@ import java.util.Map;
  *   pay:
  *     catalog:
  *       products:
- *         "9890002": { name: "Pro 月卡", price: 49.00 }
+ *         "9890002": { name: "轻量额度包（60）", price: 12.00 }
  * </pre>
  */
 @Data
@@ -30,6 +30,8 @@ import java.util.Map;
 public class PayProductCatalogProperties {
 
     private Map<String, Item> products = Collections.emptyMap();
+    /** Local-development-only fallback when member-service is unavailable. */
+    private boolean fallbackEnabled;
 
     public Item find(String goodsId) {
         if (goodsId == null || products == null) {
@@ -42,5 +44,9 @@ public class PayProductCatalogProperties {
     public static class Item {
         private String name;
         private BigDecimal price;
+        /** Trusted quota SKU code; browser input never overrides this value. */
+        private String productCode;
+        /** Whole credits granted by this package. */
+        private Long baseQuota;
     }
 }

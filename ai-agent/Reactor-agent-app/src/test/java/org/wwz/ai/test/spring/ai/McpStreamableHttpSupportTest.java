@@ -22,7 +22,6 @@ import reactor.netty.http.server.HttpServer;
 import java.lang.reflect.Method;
 import java.time.LocalDateTime;
 import java.util.Collections;
-import java.util.List;
 import java.util.Map;
 
 /**
@@ -153,7 +152,10 @@ public class McpStreamableHttpSupportTest {
 
         McpSyncServer mcpServer = McpServer.sync(provider)
                 .serverInfo("test-streamable-server", "1.0.0")
-                .tool(pingTool, (exchange, arguments) -> new McpSchema.CallToolResult(List.of(new McpSchema.TextContent("pong")), false))
+                .toolCall(pingTool, (exchange, request) -> McpSchema.CallToolResult.builder()
+                        .addTextContent("pong")
+                        .isError(false)
+                        .build())
                 .build();
 
         HttpHandler httpHandler = RouterFunctions.toHttpHandler(provider.getRouterFunction());

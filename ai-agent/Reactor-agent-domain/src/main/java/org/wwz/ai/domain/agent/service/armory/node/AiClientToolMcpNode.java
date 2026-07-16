@@ -5,7 +5,6 @@ import org.wwz.ai.domain.agent.model.valobj.enums.AiAgentEnumVO;
 import org.wwz.ai.domain.agent.runtime.tool.mcp.runtime.McpRegistry;
 import org.wwz.ai.domain.agent.service.armory.node.factory.DefaultArmoryStrategyFactory;
 import cn.bugstack.wrench.design.framework.tree.StrategyHandler;
-import com.alibaba.fastjson.JSON;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -25,7 +24,10 @@ public class AiClientToolMcpNode extends AbstractArmorySupport {
 
     @Override
     protected String doApply(ArmoryCommandEntity requestParameter, DefaultArmoryStrategyFactory.DynamicContext dynamicContext) throws Exception {
-        log.info("Ai Agent 构建节点，Tool MCP 工具配置{}", JSON.toJSONString(requestParameter));
+        log.info("armory node start node=tool_mcp commandType={} commandIdCount={}",
+                requestParameter == null ? null : requestParameter.getCommandType(),
+                requestParameter == null || requestParameter.getCommandIdList() == null
+                        ? 0 : requestParameter.getCommandIdList().size());
 
         // Reactor 使用全局启用的 MCP，所以每次装配时都刷新全局预热快照。
         mcpRegistry.preloadAllEnabledMcps();

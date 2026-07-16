@@ -5,6 +5,7 @@ import com.aigroup.paymall.domain.order.adapter.repository.IOrderRepository;
 import com.aigroup.paymall.domain.order.model.entity.MarketPayDiscountEntity;
 import com.aigroup.paymall.domain.order.model.entity.OrderEntity;
 import com.aigroup.paymall.domain.order.model.entity.PayOrderEntity;
+import com.aigroup.paymall.domain.order.model.entity.ProductEntity;
 import com.aigroup.paymall.domain.order.model.entity.ShopCartEntity;
 import com.aigroup.paymall.domain.order.model.valobj.MarketTypeVO;
 import com.aigroup.paymall.domain.order.model.valobj.OrderStatusVO;
@@ -49,7 +50,7 @@ public class OrderServiceCreateRecoveryTest {
         return ShopCartEntity.builder()
                 .userId("u1")
                 .productId("P100")
-                .productCode("PRO_MONTH")
+                .productCode("QUOTA_LIGHT")
                 .teamId("team-1")
                 .activityId(1000L)
                 .marketTypeVO(MarketTypeVO.GROUP_BUY_MARKET)
@@ -59,7 +60,7 @@ public class OrderServiceCreateRecoveryTest {
     private OrderEntity createStateGroupBuyOrder(BigDecimal deduction) {
         return OrderEntity.builder()
                 .orderId("order-recover-001")
-                .productName("Pro 会员月卡")
+                .productName("标准额度包")
                 .orderStatusVO(OrderStatusVO.CREATE)
                 .marketType(MarketTypeVO.GROUP_BUY_MARKET.getCode())
                 .totalAmount(new BigDecimal("100.00"))
@@ -71,10 +72,12 @@ public class OrderServiceCreateRecoveryTest {
     @Test
     public void createOrder_createStateGroupBuyRetry_relocksInsteadOfDegradingToFullPrice() throws Exception {
         ShopCartEntity cart = groupBuyCart();
+        when(port.queryProductByProductId("P100")).thenReturn(quotaProduct());
         // 下单时 deduction 恒写 0：这正是旧 "== null" 判定失效、退化为全价的触发条件
         when(repository.queryUnPayOrder(any(ShopCartEntity.class)))
                 .thenReturn(createStateGroupBuyOrder(BigDecimal.ZERO));
-        when(port.lockMarketPayOrder(eq("u1"), eq("team-1"), eq(1000L), eq("P100"), eq("order-recover-001")))
+        when(port.lockMarketPayOrder(eq("u1"), eq("team-1"), eq(1000L), eq("P100"),
+                eq("order-recover-001"), eq(new BigDecimal("100.00"))))
                 .thenReturn(MarketPayDiscountEntity.builder()
                         .originalPrice(new BigDecimal("100.00"))
                         .deductionPrice(new BigDecimal("30.00"))
@@ -84,7 +87,8 @@ public class OrderServiceCreateRecoveryTest {
         orderService.createOrder(cart);
 
         // 关键断言：必须重新锁单
-        verify(port).lockMarketPayOrder("u1", "team-1", 1000L, "P100", "order-recover-001");
+        verify(port).lockMarketPayOrder("u1", "team-1", 1000L, "P100", "order-recover-001",
+                new BigDecimal("100.00"));
 
         // 回写的支付单必须是拼团价、拼团类型，而不是全价 NO_MARKET
         ArgumentCaptor<PayOrderEntity> captor = ArgumentCaptor.forClass(PayOrderEntity.class);
@@ -98,15 +102,26 @@ public class OrderServiceCreateRecoveryTest {
     @Test
     public void createOrder_createStateGroupBuyRetry_lockFails_abortsWithoutDegrading() {
         ShopCartEntity cart = groupBuyCart();
+        when(port.queryProductByProductId("P100")).thenReturn(quotaProduct());
         when(repository.queryUnPayOrder(any(ShopCartEntity.class)))
                 .thenReturn(createStateGroupBuyOrder(BigDecimal.ZERO));
         // 锁单失败返回 null，必须中断下单而不是继续生成全价单
-        when(port.lockMarketPayOrder(anyString(), anyString(), any(), anyString(), anyString()))
+        when(port.lockMarketPayOrder(anyString(), anyString(), any(), anyString(), anyString(), any()))
                 .thenReturn(null);
 
         Assert.assertThrows(AppException.class, () -> orderService.createOrder(cart));
 
         // 锁单失败后不得回写任何支付单（不生成全价 NO_MARKET 单）
         verify(repository, never()).updateOrderPayInfo(any(PayOrderEntity.class));
+    }
+
+    private ProductEntity quotaProduct() {
+        return ProductEntity.builder()
+                .productId("P100")
+                .productCode("QUOTA_LIGHT")
+                .productName("轻量额度包")
+                .price(new BigDecimal("12.00"))
+                .baseQuota(60L)
+                .build();
     }
 }

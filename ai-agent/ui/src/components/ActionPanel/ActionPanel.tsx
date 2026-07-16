@@ -70,6 +70,7 @@ StreamingMarkdownWrapper.displayName = 'StreamingMarkdownWrapper';
 
 const ActionPanel: ReactorType.FC<ActionPanelProps> = React.memo((props) => {
   const { taskItem, className, allowShowToolBar } = props;
+  const hasTaskItem = taskItem != null;
 
   const msgTypes = useMsgTypes(taskItem);
   const { markDownContent } = useContent(taskItem);
@@ -313,9 +314,9 @@ const ActionPanel: ReactorType.FC<ActionPanelProps> = React.memo((props) => {
   });
 
   useEffect(() => {
-    if (!taskItem || !shouldAutoFollowRef.current) return;
+    if (!hasTaskItem || !shouldAutoFollowRef.current) return;
     scrollToFollowTarget(true);
-  }, [scrollToFollowTarget, taskItem?.id, taskItem?.messageId, taskItem?.messageTime]);
+  }, [hasTaskItem, scrollToFollowTarget, taskItem?.id, taskItem?.messageId, taskItem?.messageTime]);
 
   useEffect(() => {
     return () => {

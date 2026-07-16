@@ -35,7 +35,7 @@ public class AiClientSystemPromptAdminController implements IAiClientSystemPromp
     @PostMapping("/create")
     public Response<Boolean> createAiClientSystemPrompt(@RequestBody AiClientSystemPromptRequestDTO request) {
         try {
-            log.info("创建系统提示词配置请求：{}", request);
+            log.info("创建系统提示词配置请求");
 
             // DTO转PO
             AiClientSystemPrompt aiClientSystemPrompt = convertToAiClientSystemPrompt(request);
@@ -63,7 +63,7 @@ public class AiClientSystemPromptAdminController implements IAiClientSystemPromp
     @PutMapping("/update-by-id")
     public Response<Boolean> updateAiClientSystemPromptById(@RequestBody AiClientSystemPromptRequestDTO request) {
         try {
-            log.info("根据ID更新系统提示词配置请求：{}", request);
+            log.info("根据ID更新系统提示词配置请求");
 
             if (request.getId() == null) {
                 return Response.<Boolean>builder()
@@ -98,7 +98,7 @@ public class AiClientSystemPromptAdminController implements IAiClientSystemPromp
     @PutMapping("/update-by-prompt-id")
     public Response<Boolean> updateAiClientSystemPromptByPromptId(@RequestBody AiClientSystemPromptRequestDTO request) {
         try {
-            log.info("根据提示词ID更新系统提示词配置请求：{}", request);
+            log.info("根据提示词ID更新系统提示词配置请求");
 
             if (!StringUtils.hasText(request.getPromptId())) {
                 return Response.<Boolean>builder()
@@ -326,7 +326,7 @@ public class AiClientSystemPromptAdminController implements IAiClientSystemPromp
     @PostMapping("/query-list")
     public Response<List<AiClientSystemPromptResponseDTO>> queryAiClientSystemPromptList(@RequestBody AiClientSystemPromptQueryRequestDTO request) {
         try {
-            log.info("根据条件查询系统提示词配置列表：{}", request);
+            log.info("根据条件查询系统提示词配置列表");
 
             // 根据查询条件构建查询逻辑
             List<AiClientSystemPrompt> aiClientSystemPrompts;

@@ -13,7 +13,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.chat.client.advisor.PromptChatMemoryAdvisor;
+import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
 import org.springframework.ai.chat.client.advisor.SimpleLoggerAdvisor;
 import org.springframework.ai.chat.memory.MessageWindowChatMemory;
 import org.springframework.ai.chat.model.ChatModel;
@@ -68,7 +68,7 @@ public class AutoAgentTest {
                 .openAiApi(openAiApi)
                 .defaultOptions(OpenAiChatOptions.builder()
                         .model("deepseek-v3.2")
-                        .toolCallbacks(new SyncMcpToolCallbackProvider(stdioMcpClient(), sseMcpClient()).getToolCallbacks())
+                        .toolCallbacks(SyncMcpToolCallbackProvider.builder().mcpClients(stdioMcpClient(), sseMcpClient()).build().getToolCallbacks())
                         .build())
                 .build();
 
@@ -108,7 +108,7 @@ public class AutoAgentTest {
                         今天是 {current_date}。
                         """)
                 .defaultAdvisors(
-                        PromptChatMemoryAdvisor.builder(
+                        MessageChatMemoryAdvisor.builder(
                                 MessageWindowChatMemory.builder()
                                         .maxMessages(50)
                                         .build()
@@ -148,9 +148,9 @@ public class AutoAgentTest {
                         
                         今天是 {current_date}。
                         """)
-                .defaultToolCallbacks(new SyncMcpToolCallbackProvider(stdioMcpClient(), sseMcpClient()).getToolCallbacks())
+                .defaultToolCallbacks(SyncMcpToolCallbackProvider.builder().mcpClients(stdioMcpClient(), sseMcpClient()).build().getToolCallbacks())
                 .defaultAdvisors(
-                        PromptChatMemoryAdvisor.builder(
+                        MessageChatMemoryAdvisor.builder(
                                 MessageWindowChatMemory.builder()
                                         .maxMessages(100)
                                         .build()
@@ -179,9 +179,9 @@ public class AutoAgentTest {
                         
                         今天是 {current_date}。
                         """)
-                .defaultToolCallbacks(new SyncMcpToolCallbackProvider(stdioMcpClient(), sseMcpClient()).getToolCallbacks())
+                .defaultToolCallbacks(SyncMcpToolCallbackProvider.builder().mcpClients(stdioMcpClient(), sseMcpClient()).build().getToolCallbacks())
                 .defaultAdvisors(
-                        PromptChatMemoryAdvisor.builder(
+                        MessageChatMemoryAdvisor.builder(
                                 MessageWindowChatMemory.builder()
                                         .maxMessages(20)
                                         .build()
@@ -443,7 +443,7 @@ public class AutoAgentTest {
                         **任务状态:** [CONTINUE/COMPLETED]
                         """)
                 .defaultAdvisors(
-                        PromptChatMemoryAdvisor.builder(
+                        MessageChatMemoryAdvisor.builder(
                                 MessageWindowChatMemory.builder()
                                         .maxMessages(100)
                                         .build()
@@ -489,9 +489,9 @@ public class AutoAgentTest {
                         **质量检查:**
                         [对执行结果的质量评估]
                         """)
-                .defaultToolCallbacks(new SyncMcpToolCallbackProvider(stdioMcpClient(), sseMcpClient()).getToolCallbacks())
+                .defaultToolCallbacks(SyncMcpToolCallbackProvider.builder().mcpClients(stdioMcpClient(), sseMcpClient()).build().getToolCallbacks())
                 .defaultAdvisors(
-                        PromptChatMemoryAdvisor.builder(
+                        MessageChatMemoryAdvisor.builder(
                                 MessageWindowChatMemory.builder()
                                         .maxMessages(150)
                                         .build()
@@ -538,7 +538,7 @@ public class AutoAgentTest {
                         **是否通过:** [PASS/FAIL/OPTIMIZE]
                         """)
                 .defaultAdvisors(
-                        PromptChatMemoryAdvisor.builder(
+                        MessageChatMemoryAdvisor.builder(
                                 MessageWindowChatMemory.builder()
                                         .maxMessages(80)
                                         .build()
@@ -967,7 +967,7 @@ public class AutoAgentTest {
 
 
         var mcpClient = McpClient.sync(new StdioClientTransport(stdioParams,
-                        new io.modelcontextprotocol.json.jackson.JacksonMcpJsonMapper(new com.fasterxml.jackson.databind.ObjectMapper())))
+                        new io.modelcontextprotocol.json.jackson2.JacksonMcpJsonMapper(new com.fasterxml.jackson.databind.ObjectMapper())))
                 .requestTimeout(Duration.ofMinutes(10)).build();
 
         var init = mcpClient.initialize();

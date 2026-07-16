@@ -13,6 +13,7 @@ import org.wwz.ai.domain.agent.runtime.dto.File;
 import org.wwz.ai.domain.agent.runtime.tool.BaseTool;
 import org.wwz.ai.domain.agent.runtime.tool.ToolResultPayload;
 import org.wwz.ai.domain.agent.reactor.config.ReactorConfig;
+import org.wwz.ai.domain.agent.reactor.config.ReactorToolRequestHeaders;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import org.wwz.ai.domain.agent.runtime.agent.AgentContext;
@@ -83,7 +84,8 @@ public class CodeInterpreterTool implements BaseTool {
             Future<ToolResultPayload> future = callCodeAgentStream(request, artifactSource);
             return future.get();
         } catch (Exception e) {
-            log.error("{} code agent error", agentContext.getRequestId(), e);
+            log.error("{} code_interpreter execute failed errorType={}",
+                    agentContext.getRequestId(), e.getClass().getSimpleName());
             return buildFailurePayload("code_interpreter 执行失败：" + e.getMessage());
         }
     }
@@ -97,7 +99,10 @@ public class CodeInterpreterTool implements BaseTool {
         try {
             ReactorConfig reactorConfig = requireReactorConfig();
             String url = reactorConfig.getCodeInterpreterUrl() + "/v1/tool/code_interpreter";
-            log.info("{} code_interpreter request {}", agentContext.getRequestId(), JSONObject.toJSONString(codeRequest));
+            log.info("{} code_interpreter request started fileCount={} stream={} contentStream={}",
+                    agentContext.getRequestId(),
+                    codeRequest.getFileNames() == null ? 0 : codeRequest.getFileNames().size(),
+                    codeRequest.getStream(), codeRequest.getContentStream());
             java.util.concurrent.atomic.AtomicReference<CodeInterpreterResponse> latestResponseRef =
                     new java.util.concurrent.atomic.AtomicReference<>(CodeInterpreterResponse.builder()
                             .codeOutput("code_interpreter执行失败")
@@ -106,7 +111,7 @@ public class CodeInterpreterTool implements BaseTool {
             requireRemoteStreamPort().openStream(RemoteStreamRequest.builder()
                     .method("POST")
                     .url(url)
-                    .headers(Map.of("Content-Type", "application/json"))
+                    .headers(ReactorToolRequestHeaders.json(reactorConfig))
                     .body(JSONObject.toJSONString(codeRequest))
                     .connectTimeoutSeconds(6000L)
                     .readTimeoutSeconds(300000L)
@@ -127,7 +132,8 @@ public class CodeInterpreterTool implements BaseTool {
                     if ("[DONE]".equals(data) || data.startsWith("heartbeat")) {
                         return;
                     }
-                    log.info("{} code_interpreter recv data: {}", agentContext.getRequestId(), data);
+                    log.debug("{} code_interpreter event received payloadChars={}",
+                            agentContext.getRequestId(), data.length());
                     CodeInterpreterResponse codeResponse = JSONObject.parseObject(data, CodeInterpreterResponse.class);
                     latestResponseRef.set(codeResponse);
                     if (Objects.nonNull(codeResponse.getFileInfo()) && !codeResponse.getFileInfo().isEmpty()) {
@@ -144,8 +150,9 @@ public class CodeInterpreterTool implements BaseTool {
                         }
                     }
                     String digitalEmployee = agentContext.getToolCollection().getDigitalEmployee(getName());
-                    log.info("requestId:{} task:{} toolName:{} digitalEmployee:{}", agentContext.getRequestId(),
-                            agentContext.getToolCollection().getCurrentTask(), getName(), digitalEmployee);
+                    log.debug("{} code_interpreter event projected tool={} fileCount={}",
+                            agentContext.getRequestId(), getName(),
+                            codeResponse.getFileInfo() == null ? 0 : codeResponse.getFileInfo().size());
                     agentContext.getPrinter().send("code", codeResponse, digitalEmployee);
                 }
 
@@ -166,8 +173,10 @@ public class CodeInterpreterTool implements BaseTool {
 
                 @Override
                 public void onFailure(Throwable throwable, Integer statusCode, String responseBody) {
-                    log.error("{} code_interpreter on failure, statusCode={}, body={}",
-                            agentContext.getRequestId(), statusCode, responseBody, throwable);
+                    log.error("{} code_interpreter upstream failed statusCode={} responseChars={} errorType={}",
+                            agentContext.getRequestId(), statusCode,
+                            responseBody == null ? 0 : responseBody.length(),
+                            throwable == null ? "unknown" : throwable.getClass().getSimpleName());
                     if (!future.isDone()) {
                         if (statusCode != null) {
                             future.complete(buildFailurePayload("code_interpreter 执行失败：上游服务返回异常状态 " + statusCode + "。"));
@@ -178,7 +187,8 @@ public class CodeInterpreterTool implements BaseTool {
                 }
             });
         } catch (Exception e) {
-            log.error("{} code_interpreter request error", agentContext.getRequestId(), e);
+            log.error("{} code_interpreter request failed errorType={}",
+                    agentContext.getRequestId(), e.getClass().getSimpleName());
             future.complete(buildFailurePayload("code_interpreter 执行失败：" + e.getMessage()));
         }
 

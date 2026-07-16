@@ -1,6 +1,7 @@
 import { memo } from 'react';
 import { Droplets, Lock, Wallet, Zap } from 'lucide-react';
 import type { AccountSummary } from '@/services/bff';
+import { formatMicroQuota } from '@/utils/tradeDisplay';
 
 type QuotaOverviewProps = {
   summary: AccountSummary;
@@ -16,20 +17,20 @@ const quotaItems = [
     getValue: (s: AccountSummary) => s.availableQuota ?? 0,
   },
   {
-    key: 'period',
-    label: '周期额度',
+    key: 'free',
+    label: '本月免费额度',
     icon: Wallet,
     accent: 'text-sky-600',
     soft: 'bg-sky-50',
-    getValue: (s: AccountSummary) => s.periodQuotaBalance ?? 0,
+    getValue: (s: AccountSummary) => s.freeQuotaBalance ?? 0,
   },
   {
-    key: 'topup',
-    label: '加油包余额',
+    key: 'paid',
+    label: '永久付费额度',
     icon: Droplets,
     accent: 'text-emerald-600',
     soft: 'bg-emerald-50',
-    getValue: (s: AccountSummary) => s.topupQuotaBalance ?? 0,
+    getValue: (s: AccountSummary) => s.paidQuotaBalance ?? 0,
   },
   {
     key: 'frozen',
@@ -57,7 +58,7 @@ const QuotaOverview = memo(({ summary }: QuotaOverviewProps) => (
             <div>
               <div className="text-sm text-[var(--chat-text-soft)]">{item.label}</div>
               <div className="mt-1 text-2xl font-semibold tracking-tight">
-                {item.getValue(summary)} 点
+                {formatMicroQuota(item.getValue(summary))}
               </div>
             </div>
           </div>

@@ -58,7 +58,7 @@ public class DynamicRateLimitQueryTest {
                 .openAiApi(openAiApi)
                 .defaultOptions(OpenAiChatOptions.builder()
                         .model("gpt-4o-mini")
-                        .toolCallbacks(new SyncMcpToolCallbackProvider(stdioMcpClientElasticsearch2()).getToolCallbacks())
+                        .toolCallbacks(SyncMcpToolCallbackProvider.builder().mcpClients(stdioMcpClientElasticsearch2()).build().getToolCallbacks())
                         .build())
                 .build();
     }
@@ -74,7 +74,7 @@ public class DynamicRateLimitQueryTest {
                 .build();
 
         var mcpClient = McpClient.sync(new StdioClientTransport(stdioParams,
-                        new io.modelcontextprotocol.json.jackson.JacksonMcpJsonMapper(new com.fasterxml.jackson.databind.ObjectMapper())))
+                        new io.modelcontextprotocol.json.jackson2.JacksonMcpJsonMapper(new com.fasterxml.jackson.databind.ObjectMapper())))
                 .requestTimeout(Duration.ofSeconds(100)).build();
 
         var init = mcpClient.initialize();
@@ -96,7 +96,7 @@ public class DynamicRateLimitQueryTest {
                 .build();
 
         var mcpClient = McpClient.sync(new StdioClientTransport(stdioParams,
-                        new io.modelcontextprotocol.json.jackson.JacksonMcpJsonMapper(new com.fasterxml.jackson.databind.ObjectMapper())))
+                        new io.modelcontextprotocol.json.jackson2.JacksonMcpJsonMapper(new com.fasterxml.jackson.databind.ObjectMapper())))
                 .requestTimeout(Duration.ofSeconds(100)).build();
 
         var init = mcpClient.initialize();

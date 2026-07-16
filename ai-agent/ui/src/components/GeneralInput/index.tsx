@@ -37,7 +37,7 @@ import type { ModelItem } from '@/services/models';
 import { cn } from '@/lib/utils';
 import { defaultProduct, productList } from '@/utils/constants';
 import UploadAttachmentChip from './UploadAttachmentChip';
-import { buildSubmitPayload } from './inputMode';
+import { buildSubmitPayload, resolveInputMode, type InputModeKey } from './inputMode';
 import { useAttachmentUploads } from './useAttachmentUploads';
 
 type Props = {
@@ -66,15 +66,16 @@ type Props = {
   onSelectModel?: (modelId: string) => void;
 };
 
-type InputModeKey = 'quick' | 'think' | 'research';
 const OUTPUT_TYPES = ['html', 'docs', 'ppt', 'table'];
-const OUTPUT_PRODUCTS = productList.filter((item) =>
-  item.type === 'chat' || OUTPUT_TYPES.includes(item.type),
+const OUTPUT_PRODUCTS = productList.filter(
+  (item) => item.type === 'chat' || OUTPUT_TYPES.includes(item.type),
 ) as CHAT.Product[];
 const DATA_AGENT_PRODUCT =
   (productList.find((item) => item.type === 'dataAgent') as CHAT.Product | undefined) ??
   defaultProduct;
-const DEFAULT_OUTPUT_PRODUCT = (OUTPUT_PRODUCTS[0] ?? defaultProduct) as CHAT.Product;
+const DEFAULT_STRUCTURED_OUTPUT_PRODUCT =
+  (OUTPUT_PRODUCTS.find((item) => OUTPUT_TYPES.includes(item.type)) as CHAT.Product | undefined) ??
+  defaultProduct;
 
 const MODE_OPTIONS: Array<{
   key: InputModeKey;
@@ -104,13 +105,6 @@ const MODE_OPTIONS: Array<{
 
 const VISIBLE_MODE_OPTIONS = MODE_OPTIONS;
 
-const getModeKey = (productType?: string, deepThink = false): InputModeKey => {
-  if (!deepThink) {
-    return 'quick';
-  }
-  return productType === 'chat' ? 'think' : 'research';
-};
-
 const getOutputProduct = (product?: CHAT.Product, displayOutput?: CHAT.Product) => {
   if (product && (product.type === 'chat' || OUTPUT_TYPES.includes(product.type))) {
     return product;
@@ -118,7 +112,7 @@ const getOutputProduct = (product?: CHAT.Product, displayOutput?: CHAT.Product) 
   if (displayOutput && OUTPUT_TYPES.includes(displayOutput.type)) {
     return displayOutput;
   }
-  return DEFAULT_OUTPUT_PRODUCT;
+  return DEFAULT_STRUCTURED_OUTPUT_PRODUCT;
 };
 
 const getProductLabel = (name: string) => name.replace('模式', '');
@@ -240,7 +234,7 @@ const GeneralInput: ReactorType.FC<Props> = (props) => {
     addAttachmentUploads,
   } = useAttachmentUploads(sessionId);
 
-  const currentMode = getModeKey(product?.type, deepThink);
+  const currentMode = resolveInputMode(product?.type, deepThink);
   const isDataAgent = product?.type === 'dataAgent';
   const resolvedOutputProduct = useMemo(
     () => getOutputProduct(product, displayOutput),
@@ -249,7 +243,11 @@ const GeneralInput: ReactorType.FC<Props> = (props) => {
 
   // 记住上一次标准任务模式，切到“数据分析”后仍能保持用户刚才的选择感。
   const lastStandardModeRef = useRef<InputModeKey>(currentMode === 'quick' ? 'think' : currentMode);
-  const lastOutputProductRef = useRef<CHAT.Product>(resolvedOutputProduct);
+  const lastOutputProductRef = useRef<CHAT.Product>(
+    OUTPUT_TYPES.includes(resolvedOutputProduct.type)
+      ? resolvedOutputProduct
+      : DEFAULT_STRUCTURED_OUTPUT_PRODUCT,
+  );
 
   useEffect(() => {
     if (product?.type === 'dataAgent') {
@@ -257,7 +255,9 @@ const GeneralInput: ReactorType.FC<Props> = (props) => {
     }
 
     lastStandardModeRef.current = currentMode;
-    lastOutputProductRef.current = resolvedOutputProduct;
+    if (OUTPUT_TYPES.includes(resolvedOutputProduct.type)) {
+      lastOutputProductRef.current = resolvedOutputProduct;
+    }
   }, [currentMode, product?.type, resolvedOutputProduct]);
 
   const visibleMode = isDataAgent ? lastStandardModeRef.current : currentMode;
@@ -309,13 +309,23 @@ const GeneralInput: ReactorType.FC<Props> = (props) => {
 
   const handleModeSelect = (modeKey: InputModeKey) => {
     if (modeKey === 'quick') {
-      handleSelectionChange(visibleOutputProduct, false);
+      const chatProduct =
+        (OUTPUT_PRODUCTS.find((item) => item.type === 'chat') as CHAT.Product | undefined) ??
+        defaultProduct;
+      handleSelectionChange(chatProduct, false);
       setModeMenuOpen(false);
       return;
     }
-    // 从聊天模式切回任务模式时，恢复上一次的输出格式（避免落到 chat 无格式态）。
-    const nextOutput =
-      visibleOutputProduct.type === 'chat' || OUTPUT_TYPES.includes(visibleOutputProduct.type)
+
+    if (modeKey === 'think') {
+      // 聊天 + true 与结构化输出 + false 都代表“深度思考”。
+      handleSelectionChange(visibleOutputProduct, visibleOutputProduct.type === 'chat');
+      setModeMenuOpen(false);
+      return;
+    }
+
+    // 深度研究必须使用结构化交付格式；从聊天切入时恢复最近一次结构化输出。
+    const nextOutput = OUTPUT_TYPES.includes(visibleOutputProduct.type)
       ? visibleOutputProduct
       : lastOutputProductRef.current;
     handleSelectionChange(nextOutput, true);
@@ -323,7 +333,9 @@ const GeneralInput: ReactorType.FC<Props> = (props) => {
   };
 
   const handleOutputSelect = (nextOutput: CHAT.Product) => {
-    handleSelectionChange(nextOutput, visibleMode !== 'quick');
+    const nextDeepThink =
+      visibleMode === 'research' || (visibleMode === 'think' && nextOutput.type === 'chat');
+    handleSelectionChange(nextOutput, nextDeepThink);
     setOutputMenuOpen(false);
   };
 

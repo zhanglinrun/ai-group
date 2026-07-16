@@ -26,9 +26,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * C4: refundMarketOrder must branch on marketType - paid group-buy orders park
- * in WAIT_REFUND for the team_refund callback, paid NO_MARKET orders refund
- * directly through alipay (no group record exists, the callback never comes).
+ * Paid quota orders cannot be refunded from the user-facing API after quota may
+ * have been granted. Internal failed-team refunds still use refundPayOrder.
  */
 public class OrderServiceRefundTest {
 
@@ -63,36 +62,27 @@ public class OrderServiceRefundTest {
     }
 
     @Test
-    public void refundMarketOrder_paidNoMarketOrder_refundsDirectlyThroughAlipay() throws Exception {
+    public void refundMarketOrder_paidNoMarketOrder_rejectsSelfServiceRefund() throws Exception {
         when(repository.queryOrderByUserIdAndOrderId("u1", "order-001"))
                 .thenReturn(order("u1", "order-001", OrderStatusVO.PAY_SUCCESS, MarketTypeVO.NO_MARKET));
-        AlipayTradeRefundResponse response = mock(AlipayTradeRefundResponse.class);
-        when(response.isSuccess()).thenReturn(true);
-        when(alipayClient.execute(any(AlipayTradeRefundRequest.class))).thenReturn(response);
-
         boolean result = orderService.refundMarketOrder("u1", "order-001");
 
-        Assert.assertTrue(result);
-        // direct alipay refund + local close, never parked in WAIT_REFUND
-        verify(alipayClient).execute(any(AlipayTradeRefundRequest.class));
-        verify(repository).refundOrder("u1", "order-001");
+        Assert.assertFalse(result);
+        verify(alipayClient, never()).execute(any(AlipayTradeRefundRequest.class));
+        verify(repository, never()).refundOrder("u1", "order-001");
         verify(repository, never()).refundMarketOrder("u1", "order-001");
-        // no group record for a NO_MARKET order, group must not be notified
         verify(port, never()).refundMarketPayOrder("u1", "order-001");
     }
 
     @Test
-    public void refundMarketOrder_paidGroupBuyOrder_parksInWaitRefund() throws Exception {
+    public void refundMarketOrder_paidGroupBuyOrder_rejectsSelfServiceRefund() throws Exception {
         when(repository.queryOrderByUserIdAndOrderId("u1", "order-002"))
                 .thenReturn(order("u1", "order-002", OrderStatusVO.PAY_SUCCESS, MarketTypeVO.GROUP_BUY_MARKET));
-        when(repository.refundMarketOrder("u1", "order-002")).thenReturn(true);
-
         boolean result = orderService.refundMarketOrder("u1", "order-002");
 
-        Assert.assertTrue(result);
-        verify(port).refundMarketPayOrder("u1", "order-002");
-        verify(repository).refundMarketOrder("u1", "order-002");
-        // alipay refund happens later in the team_refund callback, not here
+        Assert.assertFalse(result);
+        verify(port, never()).refundMarketPayOrder("u1", "order-002");
+        verify(repository, never()).refundMarketOrder("u1", "order-002");
         verify(alipayClient, never()).execute(any(AlipayTradeRefundRequest.class));
     }
 

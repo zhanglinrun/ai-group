@@ -1,5 +1,6 @@
 package org.wwz.ai.domain.agent.runtime.llm;
 
+import com.alibaba.fastjson.JSON;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.ai.chat.messages.AssistantMessage;
@@ -20,6 +21,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.Consumer;
 
 /**
  * 基于 Flux<ChatResponse> 的统一流式响应处理器。
@@ -58,21 +60,46 @@ public class StreamResponseHandler {
                                                         String hiddenStartMarker,
                                                         boolean emitFinalSnapshot,
                                                         boolean pushToClient) {
-        CompletableFuture<String> future = new CompletableFuture<>();
+        return handleStringStreamResponse(context, flux, hiddenStartMarker, emitFinalSnapshot, pushToClient)
+                .thenApply(StreamedTextResponse::content);
+    }
+
+    public CompletableFuture<StreamedTextResponse> handleStringStreamResponse(AgentContext context,
+                                                                               Flux<ChatResponse> flux,
+                                                                               String hiddenStartMarker,
+                                                                               boolean emitFinalSnapshot,
+                                                                               boolean pushToClient) {
+        return handleStringStreamResponse(
+                context, flux, hiddenStartMarker, emitFinalSnapshot, pushToClient, ignored -> { });
+    }
+
+    public CompletableFuture<StreamedTextResponse> handleStringStreamResponse(AgentContext context,
+                                                                               Flux<ChatResponse> flux,
+                                                                               String hiddenStartMarker,
+                                                                               boolean emitFinalSnapshot,
+                                                                               boolean pushToClient,
+                                                                               Consumer<String> partialOutputObserver) {
+        CompletableFuture<StreamedTextResponse> future = new CompletableFuture<>();
         StringBuilder allContent = new StringBuilder();
         StringBuilder streamBuffer = new StringBuilder();
         String messageId = canAllocateStreamMessageId(context) ? StringUtil.getUUID() : null;
         int[] intervals = resolveIntervals();
         int[] tokenIndex = new int[]{1};
         int[] emittedLength = new int[]{0};
+        Integer[] promptTokens = new Integer[1];
+        Integer[] completionTokens = new Integer[1];
+        Integer[] totalTokens = new Integer[1];
 
         flux.subscribe(response -> {
             try {
                 String chunkContent = extractText(response);
+                captureUsage(response != null ? response.getMetadata() : null,
+                        promptTokens, completionTokens, totalTokens);
                 if (StringUtils.isBlank(chunkContent)) {
                     return;
                 }
                 allContent.append(chunkContent);
+                partialOutputObserver.accept(allContent.toString());
                 if (pushToClient && messageId != null) {
                     String visibleContent = extractVisibleContent(allContent.toString(), hiddenStartMarker);
                     if (visibleContent.length() > emittedLength[0]) {
@@ -103,7 +130,8 @@ public class StreamResponseHandler {
                 if (finalContent.isEmpty()) {
                     future.completeExceptionally(new IllegalArgumentException("Empty response from streaming LLM"));
                 } else {
-                    future.complete(finalContent);
+                    future.complete(new StreamedTextResponse(
+                            finalContent, promptTokens[0], completionTokens[0], totalTokens[0]));
                 }
             } catch (Exception e) {
                 future.completeExceptionally(e);
@@ -129,6 +157,14 @@ public class StreamResponseHandler {
                                                                         Flux<ChatResponse> flux,
                                                                         long startTimeMs,
                                                                         boolean pushToClient) {
+        return handleToolCallStream(context, flux, startTimeMs, pushToClient, ignored -> { });
+    }
+
+    public CompletableFuture<LLM.ToolCallResponse> handleToolCallStream(AgentContext context,
+                                                                        Flux<ChatResponse> flux,
+                                                                        long startTimeMs,
+                                                                        boolean pushToClient,
+                                                                        Consumer<String> partialOutputObserver) {
         // 异步结果容器
         CompletableFuture<LLM.ToolCallResponse> future = new CompletableFuture<>();
 
@@ -147,6 +183,8 @@ public class StreamResponseHandler {
         // 元数据
         String[] finishReason = new String[1];   // 结束原因
         Integer[] totalTokens = new Integer[1];  // 总token数
+        Integer[] promptTokens = new Integer[1];
+        Integer[] completionTokens = new Integer[1];
 
         // 订阅数据流
         flux.subscribe(
@@ -179,6 +217,8 @@ public class StreamResponseHandler {
                     if (output != null && output.getToolCalls() != null) {
                         mergeToolCalls(output.getToolCalls(), toolCallAccumulators);
                     }
+                    partialOutputObserver.accept(
+                            allContent + JSON.toJSONString(buildToolCalls(toolCallAccumulators)));
 
                     // 提取结束原因
                     if (generation != null && generation.getMetadata() != null
@@ -187,10 +227,8 @@ public class StreamResponseHandler {
                     }
 
                     // 提取token用量
-                    Integer usage = resolveTotalTokens(response != null ? response.getMetadata() : null);
-                    if (usage != null) {
-                        totalTokens[0] = usage;
-                    }
+                    captureUsage(response != null ? response.getMetadata() : null,
+                            promptTokens, completionTokens, totalTokens);
 
                 } catch (Exception e) {
                     future.completeExceptionally(e);  // 异常结束
@@ -232,6 +270,8 @@ public class StreamResponseHandler {
                         .toolCalls(toolCalls)
                         .streamMessageId(messageId)
                         .finishReason(finishReason[0])
+                        .promptTokens(promptTokens[0])
+                        .completionTokens(completionTokens[0])
                         .totalTokens(totalTokens[0])
                         .duration(System.currentTimeMillis() - startTimeMs)
                         .build());
@@ -291,6 +331,31 @@ public class StreamResponseHandler {
         }
         Usage usage = metadata.getUsage();
         return usage != null ? usage.getTotalTokens() : null;
+    }
+
+    private void captureUsage(ChatResponseMetadata metadata,
+                              Integer[] promptTokens,
+                              Integer[] completionTokens,
+                              Integer[] totalTokens) {
+        if (metadata == null || metadata.getUsage() == null) {
+            return;
+        }
+        Usage usage = metadata.getUsage();
+        if (usage.getPromptTokens() != null) {
+            promptTokens[0] = usage.getPromptTokens();
+        }
+        if (usage.getCompletionTokens() != null) {
+            completionTokens[0] = usage.getCompletionTokens();
+        }
+        if (usage.getTotalTokens() != null) {
+            totalTokens[0] = usage.getTotalTokens();
+        }
+    }
+
+    public record StreamedTextResponse(String content,
+                                       Integer promptTokens,
+                                       Integer completionTokens,
+                                       Integer totalTokens) {
     }
 
     private String extractVisibleContent(String allContent, String hiddenStartMarker) {

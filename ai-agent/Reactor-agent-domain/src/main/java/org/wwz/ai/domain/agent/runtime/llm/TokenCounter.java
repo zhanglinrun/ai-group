@@ -1,6 +1,12 @@
 package org.wwz.ai.domain.agent.runtime.llm;
 
+import com.knuddels.jtokkit.Encodings;
+import com.knuddels.jtokkit.api.Encoding;
+import com.knuddels.jtokkit.api.EncodingType;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
+import org.wwz.ai.domain.agent.runtime.dto.Message;
+import org.wwz.ai.domain.agent.runtime.dto.tool.ToolCall;
 
 import java.util.List;
 import java.util.Map;
@@ -10,6 +16,8 @@ import java.util.Map;
  */
 @Slf4j
 public class TokenCounter {
+    private static final Encoding TOKEN_ENCODING = Encodings.newDefaultEncodingRegistry()
+            .getEncoding(EncodingType.O200K_BASE);
     // Token 常量
     private static final int BASE_MESSAGE_TOKENS = 4;
     private static final int FORMAT_TOKENS = 2;
@@ -28,7 +36,105 @@ public class TokenCounter {
      * 计算文本的 token 数量
      */
     public int countText(String text) {
-        return text == null ? 0 : text.length();
+        return TOKEN_ENCODING.countTokens(text == null ? "" : text);
+    }
+
+    /**
+     * 按 token 上限裁剪文本，避免把 token 数误当成 Java 字符下标。
+     */
+    public String truncateTextToTokens(String text, int maxTokens) {
+        String normalized = StringUtils.defaultString(text);
+        if (maxTokens <= 0 || normalized.isEmpty()) {
+            return "";
+        }
+        if (countText(normalized) <= maxTokens) {
+            return normalized;
+        }
+
+        String marker = "\n...[truncated]";
+        int markerTokens = countText(marker);
+        int contentBudget = Math.max(1, maxTokens - markerTokens);
+        int totalCodePoints = normalized.codePointCount(0, normalized.length());
+        int low = 0;
+        int high = totalCodePoints;
+        while (low < high) {
+            int middle = (low + high + 1) >>> 1;
+            int endIndex = normalized.offsetByCodePoints(0, middle);
+            if (countText(normalized.substring(0, endIndex)) <= contentBudget) {
+                low = middle;
+            } else {
+                high = middle - 1;
+            }
+        }
+        int endIndex = normalized.offsetByCodePoints(0, low);
+        String prefix = normalized.substring(0, endIndex).stripTrailing();
+        String result = prefix + marker;
+        if (countText(result) <= maxTokens) {
+            return result;
+        }
+        // 极小预算下 marker 本身也可能超限，退化为无 marker 的精确前缀。
+        return prefix.isEmpty() ? "" : truncateWithoutMarker(prefix, maxTokens);
+    }
+
+    private String truncateWithoutMarker(String text, int maxTokens) {
+        int totalCodePoints = text.codePointCount(0, text.length());
+        int low = 0;
+        int high = totalCodePoints;
+        while (low < high) {
+            int middle = (low + high + 1) >>> 1;
+            int endIndex = text.offsetByCodePoints(0, middle);
+            if (countText(text.substring(0, endIndex)) <= maxTokens) {
+                low = middle;
+            } else {
+                high = middle - 1;
+            }
+        }
+        return text.substring(0, text.offsetByCodePoints(0, low)).stripTrailing();
+    }
+
+    /**
+     * 计算领域消息的 token，用于发送 Spring AI 之前的统一上下文预算。
+     */
+    public int countMessageTokens(Message message) {
+        if (message == null) {
+            return 0;
+        }
+        int tokens = BASE_MESSAGE_TOKENS;
+        tokens = safeAdd(tokens, countText(message.getRole() == null ? "" : message.getRole().getValue()));
+        tokens = safeAdd(tokens, countText(message.getContent()));
+        if (StringUtils.isNotBlank(message.getBase64Image())) {
+            tokens = safeAdd(tokens, 1024);
+        }
+        if (message.getToolCalls() != null) {
+            for (ToolCall toolCall : message.getToolCalls()) {
+                if (toolCall == null) {
+                    continue;
+                }
+                tokens = safeAdd(tokens, countText(toolCall.getId()));
+                if (toolCall.getFunction() != null) {
+                    tokens = safeAdd(tokens, countText(toolCall.getFunction().getName()));
+                    tokens = safeAdd(tokens, countText(toolCall.getFunction().getArguments()));
+                }
+            }
+        }
+        tokens = safeAdd(tokens, countText(message.getToolCallId()));
+        return tokens;
+    }
+
+    public int countMessages(List<Message> messages) {
+        if (messages == null || messages.isEmpty()) {
+            return 0;
+        }
+        int tokens = FORMAT_TOKENS;
+        for (Message message : messages) {
+            tokens = safeAdd(tokens, countMessageTokens(message));
+        }
+        return tokens;
+    }
+
+    private int safeAdd(int left, int right) {
+        long sum = (long) left + right;
+        return sum >= Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) sum;
     }
 
     /**

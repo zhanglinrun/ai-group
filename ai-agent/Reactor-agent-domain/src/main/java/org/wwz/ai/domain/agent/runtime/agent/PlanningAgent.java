@@ -236,8 +236,9 @@ public class PlanningAgent extends ReActAgent {
                 printer.sendWithResultMap("plan_thought", response.getContent(), buildPlannerRoundResultMap());
             }
 
-            // 8. 日志记录：思考内容、选择的工具数量（用于监控/排查）
-            log.info("{} {}'s thoughts: {}", context.getRequestId(), getName(), response.getContent());
+            // 8. 只记录结构化元数据，避免把模型生成内容、用户数据或潜在敏感信息写入日志。
+            log.debug("{} {} public progress chars={}", context.getRequestId(), getName(),
+                    response.getContent() == null ? 0 : response.getContent().length());
             log.info("{} {} selected {} tools to use", context.getRequestId(), getName(),
                     response.getToolCalls() != null ? response.getToolCalls().size() : 0);
 

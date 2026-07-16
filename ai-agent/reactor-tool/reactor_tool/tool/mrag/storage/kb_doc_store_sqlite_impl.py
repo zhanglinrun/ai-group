@@ -2,8 +2,7 @@ from datetime import datetime
 from typing import List, Optional
 
 from sqlalchemy import Column, Integer, String, DateTime, Text
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, Session
+from sqlalchemy.orm import Session, declarative_base, sessionmaker
 
 from reactor_tool.tool.mrag.storage.kb_doc_store import KBDocStore
 from reactor_tool.tool.mrag.storage.models.kb_doc_model import (

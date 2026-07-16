@@ -48,7 +48,6 @@ import {
   Children,
   type ClipboardEventHandler,
   type ComponentProps,
-  createContext,
   type FormEvent,
   type FormEventHandler,
   Fragment,
@@ -58,13 +57,21 @@ import {
   type ReactNode,
   type RefObject,
   useCallback,
-  useContext,
   useEffect,
   useMemo,
   useRef,
   useState,
 } from 'react';
 import { convertBlobUrlToDataUrl } from './attachments';
+import {
+  type AttachmentsContext,
+  LocalAttachmentsContext,
+  PromptInputController,
+  type PromptInputControllerProps,
+  ProviderAttachmentsContext,
+  useOptionalPromptInputController,
+  usePromptInputAttachments,
+} from './context';
 import type { PromptInputAttachmentError, PromptInputAttachmentItem } from './types';
 import { usePromptInputAttachmentState } from './usePromptInputAttachments';
 import { usePromptInputDrop } from './usePromptInputDrop';
@@ -75,56 +82,6 @@ import { useSpeechRecognition } from './useSpeechRecognition';
 // ============================================================================
 
 export type { PromptInputAttachmentError, PromptInputAttachmentItem } from './types';
-
-export type AttachmentsContext = {
-  files: PromptInputAttachmentItem[];
-  add: (files: File[] | FileList) => void;
-  remove: (id: string) => void;
-  clear: () => void;
-  openFileDialog: () => void;
-  fileInputRef: RefObject<HTMLInputElement | null>;
-};
-
-export type TextInputContext = {
-  value: string;
-  setInput: (v: string) => void;
-  clear: () => void;
-};
-
-export type PromptInputControllerProps = {
-  textInput: TextInputContext;
-  attachments: AttachmentsContext;
-  /** INTERNAL: Allows PromptInput to register its file textInput + "open" callback */
-  __registerFileInput: (ref: RefObject<HTMLInputElement | null>, open: () => void) => void;
-};
-
-const PromptInputController = createContext<PromptInputControllerProps | null>(null);
-const ProviderAttachmentsContext = createContext<AttachmentsContext | null>(null);
-
-export const usePromptInputController = () => {
-  const ctx = useContext(PromptInputController);
-  if (!ctx) {
-    throw new Error(
-      'Wrap your component inside <PromptInputProvider> to use usePromptInputController().',
-    );
-  }
-  return ctx;
-};
-
-// Optional variants (do NOT throw). Useful for dual-mode components.
-const useOptionalPromptInputController = () => useContext(PromptInputController);
-
-export const useProviderAttachments = () => {
-  const ctx = useContext(ProviderAttachmentsContext);
-  if (!ctx) {
-    throw new Error(
-      'Wrap your component inside <PromptInputProvider> to use useProviderAttachments().',
-    );
-  }
-  return ctx;
-};
-
-const useOptionalProviderAttachments = () => useContext(ProviderAttachmentsContext);
 
 export type PromptInputProviderProps = PropsWithChildren<{
   initialInput?: string;
@@ -196,21 +153,6 @@ export function PromptInputProvider({
 // ============================================================================
 // Component Context & Hooks
 // ============================================================================
-
-const LocalAttachmentsContext = createContext<AttachmentsContext | null>(null);
-
-export const usePromptInputAttachments = () => {
-  // Dual-mode: prefer provider if present, otherwise use local
-  const provider = useOptionalProviderAttachments();
-  const local = useContext(LocalAttachmentsContext);
-  const context = provider ?? local;
-  if (!context) {
-    throw new Error(
-      'usePromptInputAttachments must be used within a PromptInput or PromptInputProvider',
-    );
-  }
-  return context;
-};
 
 export type PromptInputAttachmentProps = HTMLAttributes<HTMLDivElement> & {
   data: PromptInputAttachmentItem;

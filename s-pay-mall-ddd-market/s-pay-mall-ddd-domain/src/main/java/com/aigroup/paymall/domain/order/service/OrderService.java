@@ -72,8 +72,9 @@ public class OrderService extends AbstractOrderService {
     }
 
     @Override
-    protected MarketPayDiscountEntity lockMarketPayOrder(String userId, String teamId, Long activityId, String productId, String orderId) {
-        return port.lockMarketPayOrder(userId, teamId, activityId, productId, orderId);
+    protected MarketPayDiscountEntity lockMarketPayOrder(String userId, String teamId, Long activityId,
+                                                         String productId, String orderId, BigDecimal orderPrice) {
+        return port.lockMarketPayOrder(userId, teamId, activityId, productId, orderId, orderPrice);
     }
 
     @Override
@@ -137,7 +138,7 @@ public class OrderService extends AbstractOrderService {
         payOrderEntity.setPayUrl(form);
         payOrderEntity.setOrderStatus(OrderStatusVO.PAY_WAIT);
 
-        // ????
+        // 填充支付订单的营销与金额信息
         payOrderEntity.setMarketType(null == marketPayDiscountEntity ? MarketTypeVO.NO_MARKET.getCode() : MarketTypeVO.GROUP_BUY_MARKET.getCode());
         payOrderEntity.setMarketDeductionAmount(null == marketPayDiscountEntity ? BigDecimal.ZERO : marketPayDiscountEntity.getDeductionPrice());
         payOrderEntity.setPayAmount(payAmount);
@@ -263,7 +264,7 @@ public class OrderService extends AbstractOrderService {
             }
         } else {
             repository.changeOrderPaySuccess(orderId, payTime);
-            // 直购单支付成功即发放权益（开通会员/加油包额度）。
+            // 直购单支付成功即发放永久付费额度。
             // 拼团单的权益在成团回调 changeOrderMarketSettlement 里发放；此处发放幂等（按 order+eventType 去重）。
             // 直购单无阶梯加赠，bonusQuota 传 null。
             benefitEventService.publishGroupBuyCompletedEvents(Collections.singletonList(orderId), null);
@@ -342,11 +343,12 @@ public class OrderService extends AbstractOrderService {
     @Transactional(rollbackFor = Exception.class)
     public void changeOrderMarketSettlement(List<String> outTradeNoList, Integer bonusQuota) {
         // 只对真正从 PAY_SUCCESS 迁移为 MARKET 的订单发放权益；
-        // 未支付/已关闭订单即使出现在回调列表里也不发权益，杜绝"未支付白拿会员"。
+        // 未支付/已关闭订单即使出现在回调列表里也不发额度。
         List<String> settledOrderIds = repository.changeOrderMarketSettlement(outTradeNoList);
         if (null != settledOrderIds && !settledOrderIds.isEmpty()) {
             // 阶梯拼团：把成团所达档位的加赠额度随权益事件透传给 member（在基础额度上叠加发放）
-            benefitEventService.publishGroupBuyCompletedEvents(settledOrderIds, bonusQuota);
+            benefitEventService.publishGroupBuyCompletedEvents(settledOrderIds,
+                    bonusQuota == null ? null : bonusQuota.longValue());
         }
     }
 
@@ -383,33 +385,11 @@ public class OrderService extends AbstractOrderService {
             return repository.refundOrder(userId, orderId);
         }
 
-        // 4. paid group-buy order: park in WAIT_REFUND then notify group; the actual
-        //    alipay refund runs on the team_refund MQ callback. 通知失败不再被吞：如实记录，
-        //    WAIT_REFUND 补偿任务(compensateWaitRefund)兜底重试+直退，保证最终一定退款。
-        if (groupBuyOrder) {
-            boolean parked = repository.refundMarketOrder(userId, orderId);
-            if (!parked) {
-                log.warn("group-buy refund not applied userId:{} orderId:{} status:{}", userId, orderId, status);
-                return false;
-            }
-            boolean notified = port.refundMarketPayOrder(userId, orderId);
-            if (notified) {
-                log.info("group-buy refund accepted, waiting refund callback userId:{} orderId:{}", userId, orderId);
-            } else {
-                log.warn("group-buy refund parked but group notify failed, compensation job will retry userId:{} orderId:{}", userId, orderId);
-            }
-            return true;
-        }
-
-        // 5. C4: paid NO_MARKET order has no group record, the team_refund message
-        //    would never arrive - refund directly through alipay and close locally
-        //    instead of parking it in WAIT_REFUND forever
-        try {
-            return refundPayOrder(userId, orderId);
-        } catch (AlipayApiException e) {
-            log.error("no-market direct refund failed userId:{} orderId:{}", userId, orderId, e);
-            return false;
-        }
+        // Paid quota may already have been consumed. User-facing self-service refund is
+        // therefore forbidden after payment; failed/expired groups still refund through
+        // the internal team_refund callback and refundPayOrder path below.
+        log.warn("paid quota order self-refund rejected userId:{} orderId:{} status:{}", userId, orderId, status);
+        return false;
     }
 
     @Override
@@ -435,12 +415,12 @@ public class OrderService extends AbstractOrderService {
         refundModel.setRefundReason("\u4ea4\u6613\u9000\u6b3e");
         request.setBizModel(refundModel);
 
-        // ?????
+        // 调用支付宝退款接口
         // alipay refund is a long external call, keep it out of the local transaction
         AlipayTradeRefundResponse execute = alipayClient.execute(request);
         if (!execute.isSuccess()) return false;
 
-        // ?????
+        // 原子更新本地订单状态并发布权益撤销事件
         // local DB updates (order close + revoke benefit event) committed atomically
         transactionTemplate.executeWithoutResult(status -> {
             repository.refundOrder(userId, orderId);

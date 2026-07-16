@@ -17,11 +17,13 @@ public class EventResult {
     /**
      * 增量消息计数
      */
+    @Builder.Default
     private AtomicInteger messageCount = new AtomicInteger(0);
 
     /**
      * 增量消息偏移量（从 1 开始）
      */
+    @Builder.Default
     private Map<String, Integer> orderMapping = new HashMap<>();
 
     public Integer getAndIncrOrder(String key) {
@@ -51,6 +53,7 @@ public class EventResult {
      * 增量任务
      */
     private String taskId;
+    @Builder.Default
     private AtomicInteger taskOrder = new AtomicInteger(1);
 
     public String getTaskId() {
@@ -69,6 +72,7 @@ public class EventResult {
     /**
      * 增量任务-流式消息类型
      */
+    @Builder.Default
     private List<String> streamTaskMessageType = new ArrayList<String>() {{
         add("html");
         add("markdown");
@@ -82,6 +86,7 @@ public class EventResult {
     /**
      * 全量结果（回放）
      */
+    @Builder.Default
     private Map<String, Object> resultMap = new HashMap<>();
 
     public static final String PLANNER_ROUND_ID_KEY = "plannerRoundId";
@@ -134,6 +139,7 @@ public class EventResult {
     /**
      * 全量结果（重连）
      */
+    @Builder.Default
     private List<Object> resultList = new ArrayList<>();
 
     public static void main(String[] args) {

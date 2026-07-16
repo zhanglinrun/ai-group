@@ -1,4 +1,4 @@
-# Benefit event E2E: register -> publish GROUP_BUY_COMPLETED -> verify Pro tier
+# Benefit event E2E: register -> publish snapshotted quota package -> verify paid quota grant
 param(
     [string]$Gateway = "http://127.0.0.1:8080",
     [string]$RabbitMgmt = "http://127.0.0.1:15672",
@@ -9,6 +9,25 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+$repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+$envFile = Join-Path $repoRoot ".env"
+if (Test-Path -LiteralPath $envFile) {
+    foreach ($line in Get-Content -LiteralPath $envFile -Encoding UTF8) {
+        if ($line -match '^\s*#' -or $line -notmatch '=') { continue }
+        $key, $value = $line -split '=', 2
+        $key = $key.Trim()
+        if ($key -in @('RABBITMQ_USER', 'RABBITMQ_PASSWORD') -and -not (Test-Path "env:$key")) {
+            Set-Item -Path "env:$key" -Value $value.Trim().Trim('"')
+        }
+    }
+}
+if (-not $PSBoundParameters.ContainsKey('RabbitUser') -and $env:RABBITMQ_USER) {
+    $RabbitUser = $env:RABBITMQ_USER
+}
+if (-not $PSBoundParameters.ContainsKey('RabbitPass') -and $env:RABBITMQ_PASSWORD) {
+    $RabbitPass = $env:RABBITMQ_PASSWORD
+}
 
 function Invoke-Api($Method, $Path, $Body = $null, $Token = $null) {
     $headers = @{ "Content-Type" = "application/json" }
@@ -36,6 +55,19 @@ function Publish-BenefitEvent($PayloadJson) {
     if (-not $resp.routed) { throw "RabbitMQ publish not routed" }
 }
 
+function Wait-ForPaidQuota([string]$AccessToken, [long]$ExpectedMinimum, [int]$TimeoutSeconds = 20) {
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    do {
+        $current = Invoke-Api GET "/api/bff/account/summary" $null $AccessToken
+        if ([long]$current.data.paidQuotaBalance -ge $ExpectedMinimum) {
+            return $current
+        }
+        Start-Sleep -Milliseconds 500
+    } while ((Get-Date) -lt $deadline)
+
+    throw "paid quota did not reach $ExpectedMinimum microcredits within ${TimeoutSeconds}s"
+}
+
 Write-Host "==> Register $Username"
 Invoke-Api POST "/api/auth/register" @{
     username = $Username
@@ -47,11 +79,15 @@ Write-Host "==> Login"
 $login = Invoke-Api POST "/api/auth/login" @{ username = $Username; password = $Password }
 $token = $login.data.accessToken
 $userId = $login.data.user.id
-if (-not $userId) { throw "login failed: no user id" }
+if (-not $token -or -not $userId) { throw "login failed: missing access token or user id" }
 
-Write-Host "==> Baseline summary (FREE)"
+Write-Host "==> Baseline quota account"
 $before = Invoke-Api GET "/api/bff/account/summary" $null $token
-if ($before.data.tier -ne "FREE") { throw "expected FREE before event, got $($before.data.tier)" }
+$beforeFree = [long]$before.data.freeQuotaBalance
+$beforePaid = [long]$before.data.paidQuotaBalance
+if ($beforeFree -ne 5000000L) {
+    throw "expected 5000000 free microcredits before event, got $beforeFree"
+}
 
 $orderId = "smoke-order-$(Get-Random -Maximum 999999)"
 $event = @{
@@ -59,20 +95,20 @@ $event = @{
     eventType   = "GROUP_BUY_COMPLETED"
     userId      = $userId
     orderId     = $orderId
-    productCode = "PRO_MONTH"
-    paidAmount  = 39.00
-    occurredAt  = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:sszzz")
+    productCode = "QUOTA_LIGHT"
+    baseQuota   = 60
+    bonusQuota  = 0
 } | ConvertTo-Json -Compress
 
 Write-Host "==> Publish benefit event orderId=$orderId userId=$userId"
 Publish-BenefitEvent $event
-Start-Sleep -Seconds 3
 
-Write-Host "==> Verify Pro tier"
-$after = Invoke-Api GET "/api/bff/account/summary" $null $token
-if ($after.data.tier -ne "PRO") { throw "expected PRO after event, got $($after.data.tier)" }
-if ($after.data.periodQuotaBalance -lt 500) {
-    throw "expected >=500 period quota after Pro grant, got $($after.data.periodQuotaBalance)"
+Write-Host "==> Verify 60-credit package grant"
+$expectedPaid = $beforePaid + 60000000L
+$after = Wait-ForPaidQuota $token $expectedPaid
+$afterPaid = [long]$after.data.paidQuotaBalance
+if ($afterPaid -lt $expectedPaid) {
+    throw "expected paid quota to increase by at least 60000000 microcredits, before=$beforePaid after=$afterPaid"
 }
 
-Write-Host "BENEFIT EVENT SMOKE OK (tier=$($after.data.tier), quota=$($after.data.periodQuotaBalance))"
+Write-Host "BENEFIT EVENT SMOKE OK (paid microcredits: $beforePaid -> $afterPaid)"

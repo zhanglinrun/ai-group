@@ -27,13 +27,24 @@ if (-not $InternalToken) {
     }
 }
 if (-not $InternalToken) {
-    $InternalToken = "ai-group-dev-internal-token-change-in-prod"
+    $InternalToken = "change-me-to-a-long-random-internal-token"
 }
 
 function Invoke-Mysql([string]$Sql) {
-    $output = $Sql | docker exec -i -e "MYSQL_PWD=$MysqlPassword" $MysqlContainer mysql -uroot -N -B
-    if ($LASTEXITCODE -ne 0) {
-        throw "mysql statement failed with exit code $LASTEXITCODE"
+    $previousMysqlPassword = $env:MYSQL_PWD
+    try {
+        $env:MYSQL_PWD = $MysqlPassword
+        $output = $Sql | docker exec -i -e MYSQL_PWD $MysqlContainer mysql -uroot -N -B
+        $mysqlExitCode = $LASTEXITCODE
+    } finally {
+        if ($null -eq $previousMysqlPassword) {
+            Remove-Item Env:MYSQL_PWD -ErrorAction SilentlyContinue
+        } else {
+            $env:MYSQL_PWD = $previousMysqlPassword
+        }
+    }
+    if ($mysqlExitCode -ne 0) {
+        throw "mysql statement failed with exit code $mysqlExitCode"
     }
     return @($output)
 }

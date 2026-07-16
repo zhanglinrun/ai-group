@@ -37,8 +37,16 @@ public class BaseAgentResponseHandler {
     protected GptProcessResult buildIncrResult(AgentRequest request, EventResult eventResult, AgentResponse agentResponse) {
         GptProcessResult streamResult = new GptProcessResult();
         streamResult.setResponseType(ResponseTypeEnum.text.name());
-        streamResult.setStatus(agentResponse.getFinish() ? SUCCESS : RUNNING);
+        String responseStatus = StringUtils.trimToNull(agentResponse.getStatus());
+        streamResult.setStatus(responseStatus != null
+                ? responseStatus
+                : Boolean.TRUE.equals(agentResponse.getFinish()) ? SUCCESS : RUNNING);
         streamResult.setFinished(agentResponse.getFinish());
+        String errorMessage = StringUtils.defaultIfBlank(
+                agentResponse.getErrorMessage(), agentResponse.getErrorMsg());
+        streamResult.setErrorCode(agentResponse.getErrorCode());
+        streamResult.setErrorMessage(errorMessage);
+        streamResult.setErrorMsg(errorMessage);
         if ("result".equals(agentResponse.getMessageType())) {
             streamResult.setResponse(agentResponse.getResult());
             streamResult.setResponseAll(agentResponse.getResult());
@@ -183,6 +191,19 @@ public class BaseAgentResponseHandler {
         payload.put("messageTime", agentResponse.getMessageTime());
         payload.put("isFinal", Boolean.TRUE.equals(agentResponse.getIsFinal()));
         payload.put("finish", Boolean.TRUE.equals(agentResponse.getFinish()));
+        if (StringUtils.isNotBlank(agentResponse.getStatus())) {
+            payload.put("status", agentResponse.getStatus());
+            payload.put("runStatus", agentResponse.getStatus());
+        }
+        if (StringUtils.isNotBlank(agentResponse.getErrorCode())) {
+            payload.put("errorCode", agentResponse.getErrorCode());
+        }
+        String errorMessage = StringUtils.defaultIfBlank(
+                agentResponse.getErrorMessage(), agentResponse.getErrorMsg());
+        if (StringUtils.isNotBlank(errorMessage)) {
+            payload.put("errorMessage", errorMessage);
+            payload.put("errorMsg", errorMessage);
+        }
         if (StringUtils.isNotBlank(agentResponse.getDigitalEmployee())) {
             payload.put("digitalEmployee", agentResponse.getDigitalEmployee());
         }

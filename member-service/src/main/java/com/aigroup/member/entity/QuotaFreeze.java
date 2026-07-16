@@ -12,7 +12,10 @@ public class QuotaFreeze {
     @TableId
     private String freezeId;
     private Long userId;
-    private Integer amount;
+    private Long amount;
+    private Long freeAmount;
+    private Long paidAmount;
+    private Long settledAmount;
     private String abilityCode;
     private String status;
     /** 客户端幂等键（agent 请求ID）；同一 requestId 重复预扣返回同一 freezeId，避免重试重复冻结 */

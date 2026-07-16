@@ -17,6 +17,7 @@ import org.wwz.ai.domain.agent.runtime.tool.BaseTool;
 import org.wwz.ai.domain.agent.runtime.tool.ToolResultPayload;
 import org.wwz.ai.domain.agent.runtime.util.StringUtil;
 import org.wwz.ai.domain.agent.reactor.config.ReactorConfig;
+import org.wwz.ai.domain.agent.reactor.config.ReactorToolRequestHeaders;
 import org.wwz.ai.domain.agent.ledger.model.tooloutput.ReportToolOutput;
 import org.wwz.ai.domain.agent.ledger.model.tooloutput.ToolFileRefMapper;
 
@@ -117,7 +118,8 @@ public class ReportTool implements BaseTool {
             Future<ToolResultPayload> future = callCodeAgentStream(request, artifactSource);
             return future.get();
         } catch (Exception e) {
-            log.error("{} report_tool error", agentContext.getRequestId(), e);
+            log.error("{} report_tool execute failed errorType={}",
+                    agentContext.getRequestId(), e.getClass().getSimpleName());
             return buildFailurePayload("report_tool 执行失败：" + e.getMessage());
         }
     }
@@ -131,24 +133,25 @@ public class ReportTool implements BaseTool {
         try {
             ReactorConfig reactorConfig = requireReactorConfig();
             String url = reactorConfig.getCodeInterpreterUrl() + "/v1/tool/report";
-            log.info("{} report_tool request {}", agentContext.getRequestId(), JSONObject.toJSONString(codeRequest));
+            log.info("{} report_tool request started fileType={} inputFileCount={} stream={}",
+                    agentContext.getRequestId(), codeRequest.getFileType(),
+                    codeRequest.getFileNames() == null ? 0 : codeRequest.getFileNames().size(),
+                    codeRequest.getStream());
             String[] interval = reactorConfig.getMessageInterval().getOrDefault("report", "1,4").split(",");
             int firstInterval = Integer.parseInt(interval[0]);
             int sendInterval = Integer.parseInt(interval[1]);
             String messageId = StringUtil.getUUID();
             String toolCallId = artifactSource == null ? null : artifactSource.getToolCallId();
             String digitalEmployee = agentContext.getToolCollection().getDigitalEmployee(getName());
-            java.util.concurrent.atomic.AtomicReference<CodeInterpreterResponse> latestResponseRef =
-                    new java.util.concurrent.atomic.AtomicReference<>(CodeInterpreterResponse.builder()
-                            .codeOutput("report_tool 执行失败")
-                            .build());
+            java.util.concurrent.atomic.AtomicReference<CodeInterpreterResponse> finalResponseRef =
+                    new java.util.concurrent.atomic.AtomicReference<>();
             java.util.concurrent.atomic.AtomicInteger index = new java.util.concurrent.atomic.AtomicInteger(1);
             StringBuilder incrementalBuffer = new StringBuilder();
 
             requireRemoteStreamPort().openStream(RemoteStreamRequest.builder()
                     .method("POST")
                     .url(url)
-                    .headers(Map.of("Content-Type", "application/json"))
+                    .headers(ReactorToolRequestHeaders.json(reactorConfig))
                     .body(JSONObject.toJSONString(codeRequest))
                     .connectTimeoutSeconds(60000L)
                     .readTimeoutSeconds(60000L)
@@ -171,12 +174,23 @@ public class ReportTool implements BaseTool {
                     }
                     int currentIndex = index.getAndIncrement();
                     if (currentIndex == 1 || currentIndex % 100 == 0) {
-                        log.info("{} report_tool recv data: {}", agentContext.getRequestId(), data);
+                        log.debug("{} report_tool event received sequence={} payloadChars={}",
+                                agentContext.getRequestId(), currentIndex, data.length());
                     }
                     CodeInterpreterResponse codeResponse = JSONObject.parseObject(data, CodeInterpreterResponse.class);
-                    latestResponseRef.set(codeResponse);
                     codeResponse.setToolCallId(toolCallId);
-                    if (codeResponse.getIsFinal()) {
+                    if (Boolean.TRUE.equals(codeResponse.getIsFinal())) {
+                        String validationError = validateFinalResponse(codeResponse);
+                        if (validationError != null) {
+                            log.warn("{} report_tool rejected invalid final response reason={}",
+                                    agentContext.getRequestId(), validationError);
+                            if (!future.isDone()) {
+                                future.complete(buildFailurePayload(
+                                        "report_tool 执行失败：上游未返回有效报告产物（" + validationError + "）。"));
+                            }
+                            return;
+                        }
+                        finalResponseRef.set(codeResponse);
                         if (Objects.nonNull(codeResponse.getFileInfo())) {
                             for (CodeInterpreterResponse.FileInfo fileInfo : codeResponse.getFileInfo()) {
                                 File file = File.builder()
@@ -203,19 +217,24 @@ public class ReportTool implements BaseTool {
 
                 @Override
                 public void onClosed() {
-                    CodeInterpreterResponse codeResponse = latestResponseRef.get();
-                    String result = StringUtils.isNotBlank(codeResponse.getData())
-                            ? codeResponse.getData()
-                            : codeResponse.getCodeOutput();
-                    if (!future.isDone()) {
-                        future.complete(buildSuccessPayload(codeRequest, codeResponse, result));
+                    if (future.isDone()) {
+                        return;
                     }
+                    CodeInterpreterResponse codeResponse = finalResponseRef.get();
+                    if (codeResponse == null) {
+                        future.complete(buildFailurePayload(
+                                "report_tool 执行失败：上游流在有效最终响应到达前关闭。"));
+                        return;
+                    }
+                    future.complete(buildSuccessPayload(codeRequest, codeResponse, resolveResult(codeResponse)));
                 }
 
                 @Override
                 public void onFailure(Throwable throwable, Integer statusCode, String responseBody) {
-                    log.error("{} report_tool request error, code={}, body={}",
-                            agentContext.getRequestId(), statusCode, responseBody, throwable);
+                    log.error("{} report_tool upstream failed statusCode={} responseChars={} errorType={}",
+                            agentContext.getRequestId(), statusCode,
+                            responseBody == null ? 0 : responseBody.length(),
+                            throwable == null ? "unknown" : throwable.getClass().getSimpleName());
                     if (!future.isDone()) {
                         if (statusCode != null) {
                             future.complete(buildFailurePayload("report_tool 执行失败：上游服务返回异常状态 " + statusCode + "。"));
@@ -226,11 +245,39 @@ public class ReportTool implements BaseTool {
                 }
             });
         } catch (Exception e) {
-            log.error("{} report_tool request error", agentContext.getRequestId(), e);
+            log.error("{} report_tool request failed errorType={}",
+                    agentContext.getRequestId(), e.getClass().getSimpleName());
             future.complete(buildFailurePayload("report_tool 执行失败：" + e.getMessage()));
         }
 
         return future;
+    }
+
+    private String validateFinalResponse(CodeInterpreterResponse response) {
+        if (response == null || !Boolean.TRUE.equals(response.getIsFinal())) {
+            return "missing final marker";
+        }
+        String result = resolveResult(response);
+        if (StringUtils.isBlank(result) || "report_tool 执行失败".equals(StringUtils.trim(result))) {
+            return "empty report content";
+        }
+        if (response.getFileInfo() == null || response.getFileInfo().isEmpty()) {
+            return "missing report artifact";
+        }
+        boolean hasValidArtifact = response.getFileInfo().stream()
+                .filter(Objects::nonNull)
+                .anyMatch(fileInfo -> StringUtils.isNotBlank(fileInfo.getOssUrl())
+                        || StringUtils.isNotBlank(fileInfo.getDomainUrl()));
+        return hasValidArtifact ? null : "report artifact has no storage reference";
+    }
+
+    private String resolveResult(CodeInterpreterResponse response) {
+        if (response == null) {
+            return "";
+        }
+        return StringUtils.isNotBlank(response.getData())
+                ? response.getData()
+                : StringUtils.defaultString(response.getCodeOutput());
     }
 
     /**

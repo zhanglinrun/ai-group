@@ -51,16 +51,18 @@ public class AgentQueryServiceImpl implements AgentQueryService {
         req.setTraceId(ChateiUtils.getRequestId(req));
 
         AgentRequest agentRequest = buildAgentRequest(req);
-        log.info("{} start handle Agent request: {}", req.getRequestId(), JSON.toJSONString(agentRequest));
+        log.info("{} start handle agent request agentType={} deepThink={} fileCount={} stream={}",
+                req.getRequestId(), agentRequest.getAgentType(), req.getDeepThink(),
+                agentRequest.getSessionFiles() == null ? 0 : agentRequest.getSessionFiles().size(),
+                agentRequest.getIsStream());
         try {
             handleMultiAgentRequest(agentRequest, stream);
         } catch (Exception e) {
-            log.error("{}, error in requestMultiAgent, deepThink: {}, errorMsg: {}",
-                    req.getRequestId(), req.getDeepThink(), e.getMessage(), e);
+            log.error("{} multi agent request failed deepThink={} errorType={}",
+                    req.getRequestId(), req.getDeepThink(), e.getClass().getSimpleName());
             throw e;
         } finally {
-            log.info("{}, agent.query.web.singleRequest end, requestId: {}",
-                    req.getRequestId(), JSON.toJSONString(req));
+            log.info("{} agent query request finished", req.getRequestId());
         }
     }
 
@@ -70,7 +72,9 @@ public class AgentQueryServiceImpl implements AgentQueryService {
     void handleMultiAgentRequest(AgentRequest request, AgentMessageStream stream) {
         long startTime = System.currentTimeMillis();
         RemoteStreamRequest remoteRequest = buildRemoteRequest(request);
-        log.info("{} agentRequest:{}", request.getRequestId(), JSON.toJSONString(request));
+        log.info("{} relay agent request agentType={} fileCount={}",
+                request.getRequestId(), request.getAgentType(),
+                request.getSessionFiles() == null ? 0 : request.getSessionFiles().size());
         try {
             List<AgentResponse> agentRespList = new ArrayList<>();
             EventResult eventResult = new EventResult();
@@ -94,15 +98,16 @@ public class AgentQueryServiceImpl implements AgentQueryService {
                     }
                     String data = line.substring(5);
                     if ("[DONE]".equals(data)) {
-                        log.info("{} data equals with [DONE] {}:", request.getRequestId(), data);
+                        log.info("{} upstream agent stream completed", request.getRequestId());
                         return;
                     }
                     if (data.startsWith("heartbeat")) {
                         stream.send(buildHeartbeatData(request.getRequestId()));
-                        log.info("{} heartbeat-data: {}", request.getRequestId(), data);
+                        log.debug("{} upstream agent heartbeat", request.getRequestId());
                         return;
                     }
-                    log.info("{} recv from autocontroller: {}", request.getRequestId(), data);
+                    log.debug("{} upstream agent event received payloadChars={}",
+                            request.getRequestId(), data.length());
                     AgentResponse agentResponse = JSON.parseObject(data, AgentResponse.class);
                     AgentType agentType = AgentType.fromCode(request.getAgentType());
                     AgentResponseHandler handler = handlerMap.get(agentType);
@@ -131,8 +136,10 @@ public class AgentQueryServiceImpl implements AgentQueryService {
                         closeDownstream(stream, downstreamClosed);
                         return;
                     }
-                    log.error("{} multi agent request failed, code={}, body={}",
-                            request.getRequestId(), statusCode, responseBody, throwable);
+                    log.error("{} multi agent request failed code={} responseChars={} errorType={}",
+                            request.getRequestId(), statusCode,
+                            responseBody == null ? 0 : responseBody.length(),
+                            throwable == null ? "unknown" : throwable.getClass().getSimpleName());
                     failDownstream(stream, downstreamClosed, throwable);
                 }
 
@@ -146,7 +153,8 @@ public class AgentQueryServiceImpl implements AgentQueryService {
                 cancelRemoteStream(request.getRequestId(), remoteSessionRef);
             }
         } catch (Exception e) {
-            log.error("{} open multi agent stream failed", request.getRequestId(), e);
+            log.error("{} open multi agent stream failed errorType={}",
+                    request.getRequestId(), e.getClass().getSimpleName());
             stream.completeWithError(e);
         }
     }
@@ -181,7 +189,8 @@ public class AgentQueryServiceImpl implements AgentQueryService {
             remoteStreamSession.cancel();
             log.info("{} cancel upstream stream because downstream SSE already aborted", requestId);
         } catch (Exception e) {
-            log.warn("{} cancel upstream stream failed", requestId, e);
+            log.warn("{} cancel upstream stream failed errorType={}",
+                    requestId, e.getClass().getSimpleName());
         }
     }
 
@@ -208,13 +217,15 @@ public class AgentQueryServiceImpl implements AgentQueryService {
         request.setQuery(req.getQuery());
         request.setSessionFiles(req.getSessionFiles());
 
-        if ("chat".equalsIgnoreCase(req.getOutputStyle())) {
+        boolean deepThink = req.getDeepThink() != null && req.getDeepThink() != 0;
+        boolean quickChat = "chat".equalsIgnoreCase(req.getOutputStyle()) && !deepThink;
+        if (quickChat) {
             request.setAgentType(AgentType.WORKFLOW.getValue());
             request.setSopPrompt("");
         } else {
-            Integer agentType = (req.getDeepThink() == null || req.getDeepThink() == 0)
-                    ? AgentType.REACT.getValue()
-                    : AgentType.PLAN_SOLVE.getValue();
+            Integer agentType = deepThink
+                    ? AgentType.PLAN_SOLVE.getValue()
+                    : AgentType.REACT.getValue();
             request.setAgentType(agentType);
             request.setSopPrompt(agentType.equals(AgentType.PLAN_SOLVE.getValue())
                     ? reactorConfig.getReactorSopPrompt()
@@ -228,7 +239,7 @@ public class AgentQueryServiceImpl implements AgentQueryService {
         request.setOutputStyle(req.getOutputStyle());
         if (StringUtils.isNotBlank(req.getAiAgentId())) {
             request.setAiAgentId(req.getAiAgentId());
-        } else if ("chat".equalsIgnoreCase(req.getOutputStyle())
+        } else if (quickChat
                 && StringUtils.isNotBlank(reactorConfig.getChatDefaultRoleId())) {
             request.setAiAgentId(reactorConfig.getChatDefaultRoleId());
         }

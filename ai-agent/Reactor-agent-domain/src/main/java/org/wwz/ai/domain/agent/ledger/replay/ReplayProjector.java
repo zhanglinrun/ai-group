@@ -214,7 +214,10 @@ public class ReplayProjector {
         if ("planning".equals(agentName)) {
             return "plan_thought";
         }
-        if ("summary".equals(agentName)) {
+        // 普通聊天由 workflow agent 直接产出最终回答。若仍按默认分支投影为
+        // tool_thought，下面的 run summary fallback 会再补一份 result，历史回放
+        // 就会把同一段回答显示两次。
+        if ("summary".equals(agentName) || ExecutionLedgerConstants.ENTRY_AGENT_WORKFLOW.equals(agentName)) {
             return "result";
         }
         if ("executor".equals(agentName)

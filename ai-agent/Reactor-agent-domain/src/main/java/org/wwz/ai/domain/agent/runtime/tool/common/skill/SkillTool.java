@@ -77,15 +77,19 @@ public class SkillTool implements BaseTool {
                     .build();
             return result.toDisplayText();
         } catch (SkillLoadException e) {
-            log.warn("{} skill_tool load failed, input={}",
+            log.warn("{} skill_tool load failed inputType={} inputChars={} errorType={}",
                     agentContext == null ? "unknown" : agentContext.getRequestId(),
-                    input,
+                    input == null ? "null" : input.getClass().getSimpleName(),
+                    input == null ? 0 : String.valueOf(input).length(),
+                    e.getClass().getSimpleName(),
                     e);
             return e.getMessage();
         } catch (Exception e) {
-            log.error("{} skill_tool execute error, input={}",
+            log.error("{} skill_tool execute error inputType={} inputChars={} errorType={}",
                     agentContext == null ? "unknown" : agentContext.getRequestId(),
-                    input,
+                    input == null ? "null" : input.getClass().getSimpleName(),
+                    input == null ? 0 : String.valueOf(input).length(),
+                    e.getClass().getSimpleName(),
                     e);
             return "skill_tool execute failed";
         }

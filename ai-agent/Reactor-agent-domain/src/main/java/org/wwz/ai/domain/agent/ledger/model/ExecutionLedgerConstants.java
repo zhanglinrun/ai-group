@@ -23,6 +23,7 @@ public final class ExecutionLedgerConstants {
 
     public static final String ENTRY_AGENT_REACT = "react";
     public static final String ENTRY_AGENT_PLAN_SOLVE = "plan_solve";
+    public static final String ENTRY_AGENT_WORKFLOW = "workflow";
 
     public static final String ARTIFACT_ROLE_INPUT = "input";
     public static final String ARTIFACT_ROLE_OUTPUT = "output";

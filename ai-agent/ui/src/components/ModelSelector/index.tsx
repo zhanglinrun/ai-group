@@ -86,7 +86,9 @@ const ModelSelector: ReactorType.FC<Props> = ({ models, selectedModelId, disable
                     type="button"
                     className={cn(
                       'flex w-full items-center gap-2 rounded-xl border border-transparent px-2 py-2 text-left transition-all duration-200',
-                      active ? 'bg-brand-soft' : 'bg-transparent hover:bg-[var(--chat-surface-soft)]',
+                      active
+                        ? 'bg-brand-soft'
+                        : 'bg-transparent hover:bg-[var(--chat-surface-soft)]',
                     )}
                     onClick={() => onSelect(model.modelId)}
                   >

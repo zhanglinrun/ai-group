@@ -45,8 +45,11 @@ public class SessionContextMemoryIntegrationTest {
         Mockito.when(handler.apply(Mockito.any(AgentRequest.class), Mockito.any()))
                 .thenAnswer(invocation -> {
                     AgentRequest request = invocation.getArgument(0);
-                    Assert.assertTrue(request.getHistoryDialogue().contains("历史 thought from react"));
+                    Assert.assertFalse(request.getHistoryDialogue().contains("历史 thought from react"));
+                    Assert.assertTrue(request.getHistoryDialogue().contains("summary:req-react-history-001"));
                     Assert.assertTrue(request.getHistoryDialogue().contains("### Run req-react-history-001"));
+                    Assert.assertTrue(request.getHistoryDialogue().contains(
+                            "<untrusted-context source=\"retrieved-conversation-memory\">"));
                     return "ok";
                 });
 
@@ -66,7 +69,8 @@ public class SessionContextMemoryIntegrationTest {
         AgentSessionStream stream = Mockito.mock(AgentSessionStream.class);
         strategy.execute(request, stream);
 
-        Assert.assertTrue(request.getHistoryDialogue().contains("历史 thought from react"));
+        Assert.assertFalse(request.getHistoryDialogue().contains("历史 thought from react"));
+        Assert.assertTrue(request.getHistoryDialogue().contains("summary:req-react-history-001"));
         Mockito.verify(stream, Mockito.never()).send(Mockito.any());
     }
 
@@ -87,8 +91,11 @@ public class SessionContextMemoryIntegrationTest {
         Mockito.when(handler.apply(Mockito.any(AgentRequest.class), Mockito.any()))
                 .thenAnswer(invocation -> {
                     AgentRequest request = invocation.getArgument(0);
-                    Assert.assertTrue(request.getHistoryDialogue().contains("历史 thought from plan"));
+                    Assert.assertFalse(request.getHistoryDialogue().contains("历史 thought from plan"));
+                    Assert.assertTrue(request.getHistoryDialogue().contains("summary:req-plan-history-001"));
                     Assert.assertTrue(request.getHistoryDialogue().contains("### Run req-plan-history-001"));
+                    Assert.assertTrue(request.getHistoryDialogue().contains(
+                            "<untrusted-context source=\"retrieved-conversation-memory\">"));
                     return "ok";
                 });
 
@@ -107,7 +114,8 @@ public class SessionContextMemoryIntegrationTest {
         AgentSessionStream stream = Mockito.mock(AgentSessionStream.class);
         strategy.execute(request, stream);
 
-        Assert.assertTrue(request.getHistoryDialogue().contains("历史 thought from plan"));
+        Assert.assertFalse(request.getHistoryDialogue().contains("历史 thought from plan"));
+        Assert.assertTrue(request.getHistoryDialogue().contains("summary:req-plan-history-001"));
         Mockito.verify(stream, Mockito.never()).send(Mockito.any());
     }
 
@@ -151,7 +159,7 @@ public class SessionContextMemoryIntegrationTest {
                                                     ExecutionLedgerQueryService queryService) {
         LongTermMemoryService longTerm = Mockito.mock(LongTermMemoryService.class);
         Mockito.when(longTerm.recall(Mockito.any(), Mockito.any(), Mockito.any())).thenReturn(List.of());
-        return new ConversationMemoryManagerImpl(medium, longTerm, queryService, new ReactorConfig());
+        return new ConversationMemoryManagerImpl(medium, longTerm, new ReactorConfig());
     }
 
     private void seedSimpleHistory(ExecutionLedgerFixtureFactory.LedgerTestContext ctx,

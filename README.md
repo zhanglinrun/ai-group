@@ -1,6 +1,6 @@
 # AI-Group：网页 Agent + 拼团支付一体化平台
 
-一个面向 C 端的「AI 网页 Agent」平台：用户注册后通过**拼团**方式购买会员，支付宝支付成团后获得会员权益与对话配额，再进入多智能体运行时进行 ReAct / Plan-Execute 流式对话。项目由一层自研微服务平台聚合三套业务系统组成，覆盖网关鉴权、认证、会员配额、拼团、支付、Agent 运行时与前端的完整链路。
+一个面向 C 端的「AI 网页 Agent」学习项目：用户注册后获得月度免费额度，也可通过**拼团**购买额度包；支付成团后，订单快照中的基础额度与阶梯加赠额度经 MQ 幂等入账，再用于 ReAct / Plan-Solve 流式对话。项目聚合微服务平台、拼团、支付与自研 Agent Harness，覆盖鉴权、额度结算、工具执行、记忆、checkpoint/resume 和前端回放。
 
 > 技术基线：JDK 21、Spring Boot 3.5.16、Spring Cloud 2025.0.3、Spring Cloud Alibaba 2025.0.0.0、Spring AI 1.1.x、React 19 + Vite 6。
 
@@ -17,7 +17,7 @@ flowchart LR
     subgraph platform [自研平台层]
         GW["gateway-service :8080<br/>JWT 校验 + 身份头注入 + 内部令牌"]
         AUTH["auth-service :8081<br/>注册/登录/刷新令牌轮换"]
-        MEMBER["member-service :8082<br/>会员/配额两阶段扣减/权益"]
+        MEMBER["member-service :18082<br/>额度钱包/两阶段结算/权益"]
         BFF["bff-service :8083<br/>聚合 + 降级"]
     end
 
@@ -48,20 +48,22 @@ flowchart LR
     platform --> infra
 ```
 
-数据流（主链路）：注册 → 登录 → 定价 → 拼团下单 → 支付宝支付 → 成团结算（HTTP + MQ 双通道）→ 权益事件（本地消息表 outbox）→ member 开通 Pro + 发放配额 → Agent 对话按 `预扣→确认/释放` 计费。
+数据流（主链路）：注册 → 登录 → 初始化 5 credits 免费额度 → 额度包下单 → 支付/成团结算 → 权益事件（outbox + MQ）→ member 按订单快照发放付费额度 → Agent 的每次 LLM 调用先预留上界，再按 provider usage（缺失时本地估算）结算并释放未使用余额。
 
 ## 2. 模块职责
 
+各模块的详细说明见对应目录下的 README。
+
 | 模块 | 端口 | 包名 / 技术 | 职责 |
 |------|------|------|------|
-| `gateway-service` | 8080 | `com.aigroup.gateway` / Spring Cloud Gateway (WebFlux) | 统一 JWT 校验、身份头注入与下游剥离、内部回调令牌校验、CORS |
-| `auth-service` | 8081 | `com.aigroup.auth` / JJWT + BCrypt | 注册/登录/登出/刷新（Redis 刷新令牌原子轮换 + 访问令牌黑名单） |
-| `member-service` | 8082 | `com.aigroup.member` / MyBatis-Plus | SKU、配额账户、`freeze→confirm/release` 两阶段扣减、按订单幂等的权益发放/撤销、月度重置、DLQ |
-| `bff-service` | 8083 | `com.aigroup.bff` / OpenFeign | 聚合 member/group/pay，带降级（degrade）元信息 |
-| `ai-group-common` | - | `com.aigroup.common` | JWT 工具、内部令牌属性、统一 Result/异常、身份头过滤器 |
-| `group` | 8091 | `com.aigroup.groupbuy` / DDD 六模块 | 拼团试算责任链、四类折扣计算器、锁单/结算/退款规则链、超时补偿、本地消息表 |
-| `s-pay-mall-ddd-market` | 8070 | `com.aigroup.paymall` / DDD 六模块 | 下单/掉单恢复、支付宝沙箱回调（验签+金额+幂等）、拼团锁单结算、退款、对账补偿 Job |
-| `ai-agent` | 8090 | `org.wwz.ai` / Spring AI | 多智能体运行时：ReAct + Plan-Execute、工具系统、技能系统、执行账本回放、配额计费 |
+| [`gateway-service`](gateway-service/README.md) | 8080 | `com.aigroup.gateway` / Spring Cloud Gateway (WebFlux) | 统一 JWT 校验、身份头注入与下游剥离、内部回调令牌校验、CORS |
+| [`auth-service`](auth-service/README.md) | 8081 | `com.aigroup.auth` / JJWT + BCrypt | 注册/登录/登出/刷新（Redis 刷新令牌原子轮换 + 访问令牌黑名单） |
+| [`member-service`](member-service/README.md) | 18082 | `com.aigroup.member` / MyBatis-Plus | 额度包 SKU、免费/付费额度账户、`freeze→confirm/release` 两阶段结算、按订单幂等发放、人工审核式撤销、月度免费额度重置、DLQ |
+| [`bff-service`](bff-service/README.md) | 8083 | `com.aigroup.bff` / OpenFeign | 聚合 member/group/pay，带降级（degrade）元信息 |
+| [`ai-group-common`](ai-group-common/README.md) | - | `com.aigroup.common` | JWT 工具、内部令牌属性、统一 Result/异常、身份头过滤器 |
+| [`group`](group/README.md) | 8091 | `com.aigroup.groupbuy` / DDD 六模块 | 拼团试算责任链、四类折扣计算器、锁单/结算/退款规则链、超时补偿、本地消息表 |
+| [`s-pay-mall-ddd-market`](s-pay-mall-ddd-market/README.md) | 8070 | `com.aigroup.paymall` / DDD 六模块 | 下单/掉单恢复、支付宝沙箱回调（验签+金额+幂等）、拼团锁单结算、退款、对账补偿 Job |
+| [`ai-agent`](ai-agent/README.md) | 8090 | `org.wwz.ai` / Spring AI | 多智能体运行时：ReAct + Plan-Execute、工具系统、技能系统、执行账本回放、配额计费 |
 | `ai-agent/reactor-tool` | 1601 | Python (uv) | deep_search / web_fetch / 图片生成 / 脚本沙箱 / embedding 等工具 |
 | `ai-agent/ui` | 5173 | React 19 + Vite + antd | 聊天/定价/订单前端，SSE 流式消费 |
 
@@ -70,10 +72,10 @@ flowchart LR
 ### 前置依赖
 
 - **Docker Desktop**（基础设施）
-- **JDK 21** + **Maven 3.9+**
-- **Node 18+** + **pnpm**
-- **PowerShell 7（`pwsh`）** — 启动脚本使用了 PowerShell 7 语法，**Windows 自带的 5.1 会解析报错**
-- （可选）**Python + uv** — 仅 reactor-tool 需要
+- **JDK 21** + **Maven 3.8.8+**（本次验收使用 3.8.8）
+- **Node 20+** + **pnpm**（锁定的 Vitest 4 要求 Node 20 及以上）
+- **PowerShell 7.4+（`pwsh`）** — 启动脚本使用 `Start-Process -Environment` 安全传递服务变量，**Windows 自带的 5.1 会解析报错**
+- **Python 3.11+ + uv** — 推荐的一键启动会启动 reactor-tool，因此完整链路必需；仅单独运行 Java 平台时可不安装
 - 一个 DashScope（阿里百炼，兼容 OpenAI 协议）API Key
 
 ### 一键启动（推荐）
@@ -85,30 +87,51 @@ Copy-Item .env.example .env
 
 # 2. 用 PowerShell 7 一键起：Docker 基础设施 + DB 初始化 + 构建 + 7 个服务 + 前端 + 冒烟
 pwsh -NoProfile -ExecutionPolicy Bypass -File docs/dev-ops/start-full-stack.ps1
+
+# 默认 member 使用 18082，避免与 ai-interview 的 8082 重叠；仍可显式改成其他空闲端口
+pwsh -NoProfile -ExecutionPolicy Bypass -File docs/dev-ops/start-full-stack.ps1 -MemberPort 19082
+
+# 可选：需要 Prometheus/Grafana/ELK 等观测组件时显式开启（额外占用较多内存）
+pwsh -NoProfile -ExecutionPolicy Bypass -File docs/dev-ops/start-full-stack.ps1 -IncludeObservability
 ```
 
-启动完成后：前端 http://localhost:5173/login ，网关 http://localhost:8080 。
+默认只启动 MySQL、Redis、RabbitMQ、Nacos、Qdrant、MinIO 等业务必需基础设施；观测栈不会默认占用本机资源。启动完成后：前端 http://localhost:5173/login ，网关 http://localhost:8080 。
 
 ### 手动启动
 
-```bash
+> 以下命令用于**已经至少成功执行过一次 `start-full-stack.ps1` 完成全量建表与 seed** 后的分服务调试。单独执行 Docker Compose 只创建数据库，不会递归执行各子目录迁移，不能替代首次一键初始化。
+
+```powershell
+$ErrorActionPreference = 'Stop'
+
 # 基础设施
-cd docs/dev-ops && docker compose -f docker-compose-platform.yml up -d
+Set-Location '.\docs\dev-ops'
+docker compose --env-file '..\..\.env' -f 'docker-compose-platform.yml' up -d
 
-# 构建
+# 回到仓库根目录后构建
+Set-Location '..\..'
 mvn clean install -DskipTests
-cd group && mvn clean install -DskipTests
-cd ../s-pay-mall-ddd-market && mvn clean install -DskipTests
+Push-Location '.\group'
+mvn clean install -DskipTests
+Pop-Location
+Push-Location '.\s-pay-mall-ddd-market'
+mvn clean install -DskipTests
+Pop-Location
+Push-Location '.\ai-agent'
+mvn clean install -DskipTests
+Pop-Location
 
-# 按序启动各服务（见端口表），前端：
-cd ai-agent/ui && pnpm install && pnpm dev
+# 按端口表启动后端服务；前端单独启动
+Set-Location '.\ai-agent\ui'
+pnpm install --frozen-lockfile
+pnpm dev
 ```
 
 ## 4. 端口清单
 
 | 类别 | 服务 | 端口 |
 |------|------|------|
-| 平台 | gateway / auth / member / bff | 8080 / 8081 / 8082 / 8083 |
+| 平台 | gateway / auth / member / bff | 8080 / 8081 / 18082 / 8083 |
 | 业务 | pay / agent / group / reactor-tool | 8070 / 8090 / 8091 / 1601 |
 | 前端 | Vite dev server | 5173 |
 | 基础设施 | MySQL / Redis / RabbitMQ | 13306 / 16379 / 5672(15672) |
@@ -117,31 +140,42 @@ cd ai-agent/ui && pnpm install && pnpm dev
 ## 5. 验证脚本
 
 ```powershell
-# 平台冒烟：注册→登录→定价→会员摘要（FREE + 20 点）
+# 平台冒烟：注册→登录→定价→5,000,000 microcredits 免费额度
 pwsh docs/dev-ops/smoke-test.ps1
-# 权益链路：模拟成团 MQ → 开通 Pro + 发放配额
+# 权益链路：模拟成团 MQ → 发放 60 credits 付费额度
 pwsh docs/dev-ops/smoke-benefit-event.ps1
-# 端到端：下单→内部回调结算→权益→会员升级 PRO
+# 已发放权益撤销：记录 REJECTED_GRANTED，不静默扣回
+pwsh docs/dev-ops/smoke-benefit-revoke.ps1
+# 端到端：额度包下单→模拟验签后支付状态→拼团结算→权益到账
 pwsh docs/dev-ops/verify-e2e.ps1
 # 安全冒烟：直连/伪造头/无令牌回调均应被拒
 pwsh docs/dev-ops/smoke-security.ps1
+# 真实模型 WORKFLOW SSE：校验流式帧、最终帧和额度结算
+pwsh docs/dev-ops/smoke-agent-sse.ps1
+# 真实 Plan-Solve：校验 plan/task/evaluation/checkpoint 等生命周期事件
+pwsh docs/dev-ops/smoke-agent-sse.ps1 -DeepThink -OutputStyle plain `
+  -Query '不要调用外部工具。请用三点解释 Agent 为什么需要 checkpoint。'
 ```
 
 ## 6. 技术亮点
 
-- **执行账本 + 历史回放（event sourcing）**：`dialogue_run / llm_invocation / tool_invocation / artifact_record` + 按工具类型分表，支持会话历史精确回放。
-- **三层对话记忆**：短期（单 run 上下文）/ 中期（会话滚动摘要压缩，替代硬截断，落 MySQL 账本）/ 长期（跨会话 Qdrant 向量召回 + 时间衰减遗忘），由 `ConversationMemoryManager` 统一组装注入，ReAct/Plan/chat 共用，Qdrant 不可用时 fail-open。
-- **循环/工具/幻觉兜底三件套**：ReAct 死循环检测 + 步数上限可识别终止；工具失败有界重试 + 结构化错误回喂；抗幻觉约束 prompt。断开即停释放配额、per-user 并发限流、崩溃遗留冻结配额兜底释放 job。
-- **可度量的最小评测集**：经 Gateway 跑真实 SSE，输出任务成功率、p50/p95 时延、平均步数/token、工具轨迹命中与可选 LLM-as-judge 打分（见 `docs/evals`）。
+- **执行账本 + 历史回放**：`dialogue_run / llm_invocation / tool_invocation / artifact_record` + 按工具类型分表，支持会话历史重建与审计；它是事实账本/投影机制，不宣称实现了完整 Event Sourcing。
+- **上下文工程与三层记忆**：ReAct / Plan-Solve 由统一 `ContextManager` 同时预算 system prompt、消息、记忆、工具 schema 与安全余量，working context 保留完整 tool-call 原子单元；普通 WORKFLOW 使用有界 Spring AI MessageWindow，并注入会话摘要/长期记忆块，尚未与结构化 Agent 共用同一预算器。长期记忆仅准入用户明确声明的 `PREFERENCE / FACT / PROCEDURE`，普通问答不自动写入，并支持 owner、source、confidence、version、TTL 与稳定语义槽位 upsert；开发环境默认启用 Qdrant 跨会话层，首次保存按真实 embedding 维度建集合并创建 owner 等 keyword 索引。
+- **MCP 动态工具生态**：MCP Registry 支持 SSE、STDIO、Streamable HTTP 的工具发现与调用；开发 seed 预置两个官方 FastMCP 只读 Server、4 个 `project_` / `utility_` 工具，并以 Python 与 Java 互操作测试真实覆盖 `initialize -> tools/list -> tools/call`。当前只消费 MCP Tools，不把它表述为完整实现全部 MCP 能力。
+- **循环/工具/幻觉兜底三件套**：ReAct 死循环检测 + 步数上限可识别终止；工具失败有界重试 + 结构化错误回喂；抗幻觉约束 prompt。SSE 断开后在执行边界停止后续步骤，已发生的 LLM 调用仍按实际/估算 usage 结算；另有 per-user 并发限流和崩溃遗留冻结额度释放 Job。
+- **可复现 Agent Eval**：离线固定集输出 `pass@k`、`pass^k`、memory precision/recall 与估算 token cost；Resume benchmark 在相同 12K token 预算下比较硬截断和滚动摘要。README 指标只代表确定性离线样本，不冒充线上成功率。
+- **Plan-Solve 质量与恢复门禁**：规则 evaluator + 可选 LLM Judge + 真实 artifact registry outcome evidence；在 `READY_FOR_STEP / BEFORE_SUMMARY` 保存脱敏最小 checkpoint，恢复时校验 owner/session、SHA-256 和原子认领，对未知副作用默认 fail-closed。该能力是节点级 resume，不是 exactly-once。
+- **工具执行安全边界**：`reactor-tool` 默认只监听回环地址，写操作要求内部服务令牌；脚本运行限制解释器、并发、时间、输出、文件、环境变量与 POSIX 资源，并提供 non-root/read-only 容器配置。
 - **Claude-skills 风格技能系统**：`SKILL.md` 解析 + 路径沙箱 + `read/grep/glob/list/skill/script_runner` 工具族。
-- **两阶段配额扣减**：Agent 对话 `预扣(freeze)→确认(confirm)/释放(release)`，按执行账本 run 终态结算，`settled` CAS 保证至多一次。
+- **调用级配额结算**：每次 LLM 调用按输入估算与最大输出预扣，结束后按 provider usage（缺失或 `0/0` 时回退本地估算）确认实际消耗并释放余量；member 以 requestId 和冻结单状态守卫保证单笔预扣幂等，异常遗留由定时任务兜底释放。执行账本用于审计，不参与 run 级统一扣费。
 - **支付一致性**：支付宝回调「验签 + 金额比对 + 订单存在性 + SQL 状态守卫」四件套；超时关单前先对账支付宝；本地消息表（outbox）+ 补偿 Job 保证权益/结算最终一致。
 - **拼团超卖防护**：Redis 预占 + DB 条件更新（CAS）+ 唯一索引三层。
 - **网关安全**：JWT 校验 + 身份头剥离/注入、刷新令牌 `getAndDelete` 原子轮换、内部回调令牌校验。
 
 ## 7. 设计取舍与面试答辩
 
-> 见 [docs/DESIGN-NOTES.md](docs/DESIGN-NOTES.md)（教程 vs 自研边界、高频追问预案、选型理由）。
+- [Agent 秋招交付、演示与简历指南](ai-agent/project-docs/AUTUMN-RECRUITMENT-GUIDE.md)
+- [ADR：保留自研 Agent Harness，不迁移 Spring AI Alibaba Runtime](ai-agent/project-docs/adr/0001-retain-custom-agent-harness.md)
 
 ## 8. 目录结构
 
@@ -150,7 +184,7 @@ ai-group/
 ├── ai-group-common/        # 平台共享库
 ├── gateway-service/        # API 网关
 ├── auth-service/           # 认证
-├── member-service/         # 会员/配额
+├── member-service/         # 免费/付费额度钱包与权益
 ├── bff-service/            # BFF 聚合
 ├── group/                  # 拼团（DDD 六模块，com.aigroup.groupbuy）
 ├── s-pay-mall-ddd-market/  # 支付（DDD 六模块，com.aigroup.paymall）

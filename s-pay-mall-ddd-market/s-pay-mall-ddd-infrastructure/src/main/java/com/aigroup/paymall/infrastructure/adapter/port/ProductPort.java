@@ -44,17 +44,21 @@ public class ProductPort implements IProductPort {
                 .productName(productDTO.getProductName())
                 .productDesc(productDTO.getProductDesc())
                 .price(productDTO.getPrice())
+                .productCode(productDTO.getProductCode())
+                .baseQuota(productDTO.getBaseQuota())
                 .build();
     }
 
     @Override
-    public MarketPayDiscountEntity lockMarketPayOrder(String userId, String teamId, Long activityId, String productId, String orderId) {
+    public MarketPayDiscountEntity lockMarketPayOrder(String userId, String teamId, Long activityId,
+                                                      String productId, String orderId, java.math.BigDecimal orderPrice) {
         // 请求参数
         LockMarketPayOrderRequestDTO requestDTO = new LockMarketPayOrderRequestDTO();
         requestDTO.setUserId(userId);
         requestDTO.setTeamId(teamId);
         requestDTO.setGoodsId(productId);
         requestDTO.setActivityId(activityId);
+        requestDTO.setOrderPrice(orderPrice);
         requestDTO.setSource(source);
         requestDTO.setChannel(chanel);
         requestDTO.setOutTradeNo(orderId);

@@ -126,25 +126,30 @@ public abstract class ReActAgent extends BaseAgent {
 
             // 5. 同步获取异步结果（阻塞等待LLM响应，可根据业务调整为非阻塞）
             String llmResponse = summaryFuture.get();
-            log.info("requestId: {} task:{} generateDigitalEmployee LLM响应: {}", context.getRequestId(), task, llmResponse);
+            log.info("{} generateDigitalEmployee LLM response received taskChars={} responseChars={}",
+                    context.getRequestId(), task == null ? 0 : task.length(),
+                    llmResponse == null ? 0 : llmResponse.length());
 
             // 6. 解析LLM响应为JSON对象（处理两种常见格式）
             JSONObject jsonObject = parseDigitalEmployee(llmResponse);
             if (jsonObject != null) {
                 // 7. 解析成功：更新工具集合中的数字员工配置
-                log.info("requestId:{} generateDigitalEmployee 解析后配置: {}", context.getRequestId(), jsonObject);
+                log.info("{} generateDigitalEmployee configuration parsed fieldCount={}",
+                        context.getRequestId(), jsonObject.size());
 
                 context.getToolCollection().updateDigitalEmployee(jsonObject);
                 // 8. 同步更新智能体的可用工具集（使新生成的数字员工工具生效）
                 availableTools = context.getToolCollection();
             } else {
                 // 解析失败：记录错误日志
-                log.error("requestId: {} generateDigitalEmployee 响应解析失败，原始响应:{}", context.getRequestId(), llmResponse);
+                log.error("{} generateDigitalEmployee response parse failed responseChars={}",
+                        context.getRequestId(), llmResponse == null ? 0 : llmResponse.length());
             }
 
         } catch (Exception e) {
             // 异常捕获：涵盖LLM调用、JSON解析、工具更新等所有异常场景
-            log.error("requestId: {} generateDigitalEmployee 执行失败", context.getRequestId(), e);
+            log.error("{} generateDigitalEmployee failed errorType={}",
+                    context.getRequestId(), e.getClass().getSimpleName());
         }
     }
 
@@ -185,7 +190,9 @@ public abstract class ReActAgent extends BaseAgent {
             return JSON.parseObject(jsonString);
         } catch (Exception e) {
             // 解析异常：记录日志并返回null
-            log.error("requestId: {} parseDigitalEmployee JSON解析失败，待解析字符串:{}", context.getRequestId(), jsonString, e);
+            log.error("{} parse digital employee response failed payloadChars={} errorType={}",
+                    context.getRequestId(), jsonString == null ? 0 : jsonString.length(),
+                    e.getClass().getSimpleName());
             return null;
         }
     }

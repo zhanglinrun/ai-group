@@ -51,6 +51,8 @@ public class AgentExecutionLedgerRepositoryTest {
                 .callKind(ExecutionLedgerConstants.CALL_KIND_ASK_TOOL)
                 .streaming(false)
                 .modelName("test-model")
+                .inputRateSnapshot(5L)
+                .outputRateSnapshot(30L)
                 .startedAt(now.plusSeconds(1))
                 .build());
         Assert.assertNotNull(llmInvocationId);
@@ -64,6 +66,8 @@ public class AgentExecutionLedgerRepositoryTest {
                 .promptTokens(10)
                 .completionTokens(20)
                 .totalTokens(30)
+                .usageSource("PROVIDER")
+                .chargedMicrocredits(650L)
                 .finishReason("tool_calls")
                 .finishedAt(now.plusSeconds(2))
                 .build());
@@ -156,6 +160,11 @@ public class AgentExecutionLedgerRepositoryTest {
         Assert.assertEquals(Integer.valueOf(20), run.getCompletionTokensTotal());
         Assert.assertEquals(Integer.valueOf(30), run.getTotalTokensTotal());
         Assert.assertEquals(Integer.valueOf(ExecutionLedgerConstants.STATUS_SUCCESS), run.getStatus());
+        var invocation = ctx.llmDao.queryByRunId(runId).get(0);
+        Assert.assertEquals(Long.valueOf(5L), invocation.getInputRateSnapshot());
+        Assert.assertEquals(Long.valueOf(30L), invocation.getOutputRateSnapshot());
+        Assert.assertEquals("PROVIDER", invocation.getUsageSource());
+        Assert.assertEquals(Long.valueOf(650L), invocation.getChargedMicrocredits());
 
         List<ArtifactRecord> artifacts = ctx.artifactDao.queryByRunId(runId);
         Assert.assertEquals(1, artifacts.size());

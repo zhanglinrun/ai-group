@@ -196,10 +196,12 @@ public class ReactImplAgent extends ReActAgent {
 
         } catch (Exception e) {
             // 异常处理：记录错误日志，添加异常消息到记忆，标记智能体为完成状态
-            log.error("{} react think error", context.getRequestId(), e);
+            log.error("{} react think failed errorType={}",
+                    context.getRequestId(), e.getClass().getSimpleName());
             getMemory().addMessage(Message.assistantMessage(
                     "Error encountered while processing: " + e.getMessage(), null));
-            // 异常被吞掉后流程会降级走总结，这里标记 run 失败，保证账本终态与配额结算反映真实结果
+            // 异常被吞掉后流程会降级走总结，这里标记 run 失败以保证账本终态反映真实结果；
+            // LLM 配额已按每次调用独立结算。
             context.markRunFailed();
             setState(AgentState.FINISHED); // 标记智能体完成（终止后续流程）
             return false; // 思考失败
@@ -262,8 +264,10 @@ public class ReactImplAgent extends ReActAgent {
         try {
             return JSON.parseObject(command.getFunction().getArguments(), Map.class);
         } catch (Exception e) {
-            log.warn("{} invalid tool arguments, fallback empty map. tool={}, args={}",
-                    context.getRequestId(), command.getFunction().getName(), command.getFunction().getArguments());
+            String rawArguments = command.getFunction().getArguments();
+            log.warn("{} invalid tool arguments, fallback empty map tool={} argsChars={} errorType={}",
+                    context.getRequestId(), command.getFunction().getName(),
+                    rawArguments == null ? 0 : rawArguments.length(), e.getClass().getSimpleName());
             return Map.of();
         }
     }

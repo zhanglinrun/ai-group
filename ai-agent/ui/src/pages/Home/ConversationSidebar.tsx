@@ -30,7 +30,7 @@ type NavItem = {
 const platformNavItems = [
   { to: ROUTES.PRICING, label: '定价' },
   { to: ROUTES.ORDERS, label: '订单' },
-  { to: ROUTES.ACCOUNT, label: '会员中心' },
+  { to: ROUTES.ACCOUNT, label: '额度中心' },
 ];
 
 const navItems: NavItem[] = [
@@ -95,15 +95,6 @@ const ConversationSidebar = memo((props: ConversationSidebarProps) => {
     e.stopPropagation();
     setExpandedSessionId((prev) => (prev === sessionId ? null : sessionId));
   }, []);
-
-  const handleActionClick = useCallback(
-    (e: React.MouseEvent, action: string, session: ConversationSessionItem) => {
-      e.stopPropagation();
-      setExpandedSessionId(null);
-      console.log(`[ConversationSidebar] ${action}:`, session.sessionId);
-    },
-    [],
-  );
 
   return (
     <div className="agent-sidebar hidden lg:flex">
@@ -242,7 +233,7 @@ const ConversationSidebar = memo((props: ConversationSidebarProps) => {
                       type="button"
                       onClick={() => onSelectSession(session)}
                       className={classNames(
-                        'group flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left transition-colors',
+                        'group flex w-full items-center gap-2 rounded-lg py-2 pl-2.5 pr-9 text-left transition-colors',
                         isActive
                           ? 'bg-[var(--chat-surface-muted)] text-[var(--chat-text)]'
                           : 'text-[var(--chat-text-soft)] hover:bg-[var(--chat-surface-muted)] hover:text-[var(--chat-text)]',
@@ -251,20 +242,18 @@ const ConversationSidebar = memo((props: ConversationSidebarProps) => {
                       <span className="min-w-0 flex-1 truncate text-[13px]">
                         {session.title || '未命名会话'}
                       </span>
-                      <span
-                        className={classNames(
-                          'shrink-0 transition-opacity',
-                          isHovered || isExpanded ? 'opacity-100' : 'opacity-0',
-                        )}
-                      >
-                        <button
-                          type="button"
-                          onClick={(e) => handleMoreClick(e, session.sessionId)}
-                          className="rounded p-0.5 text-[var(--chat-text-muted)] transition-colors hover:bg-[var(--chat-surface-muted)] hover:text-[var(--chat-text)]"
-                        >
-                          <MoreHorizontal className="h-3.5 w-3.5" />
-                        </button>
-                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={`更多会话操作：${session.title || '未命名会话'}`}
+                      aria-expanded={isExpanded}
+                      onClick={(event) => handleMoreClick(event, session.sessionId)}
+                      className={classNames(
+                        'absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-[var(--chat-text-muted)] transition-all hover:bg-[var(--chat-surface-muted)] hover:text-[var(--chat-text)]',
+                        isHovered || isExpanded ? 'opacity-100' : 'opacity-0',
+                      )}
+                    >
+                      <MoreHorizontal className="h-3.5 w-3.5" />
                     </button>
 
                     {/* 更多操作下拉 */}
@@ -272,19 +261,21 @@ const ConversationSidebar = memo((props: ConversationSidebarProps) => {
                       <div className="absolute right-2 top-full z-10 mt-1 w-32 rounded-lg border border-[var(--chat-border)] bg-[var(--chat-surface)] py-1 shadow-[var(--shadow-md)]">
                         <button
                           type="button"
-                          onClick={(e) => handleActionClick(e, 'pin', session)}
-                          className="flex w-full items-center gap-2 px-3 py-2 text-[12px] text-[var(--chat-text-soft)] transition-colors hover:bg-[var(--chat-surface-soft)] hover:text-[var(--chat-text)]"
+                          disabled
+                          title="置顶功能暂未开放"
+                          className="flex w-full cursor-not-allowed items-center gap-2 px-3 py-2 text-[12px] text-[var(--chat-text-muted)] opacity-65"
                         >
                           <Pin className="h-3.5 w-3.5" />
-                          <span>置顶</span>
+                          <span>置顶（暂未开放）</span>
                         </button>
                         <button
                           type="button"
-                          onClick={(e) => handleActionClick(e, 'delete', session)}
-                          className="flex w-full items-center gap-2 px-3 py-2 text-[12px] text-[var(--chat-text-soft)] transition-colors hover:bg-[var(--chat-surface-soft)] hover:text-[var(--destructive)]"
+                          disabled
+                          title="删除功能暂未开放"
+                          className="flex w-full cursor-not-allowed items-center gap-2 px-3 py-2 text-[12px] text-[var(--chat-text-muted)] opacity-65"
                         >
                           <Trash2 className="h-3.5 w-3.5" />
-                          <span>删除</span>
+                          <span>删除（暂未开放）</span>
                         </button>
                       </div>
                     )}

@@ -49,7 +49,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class QuotaConcurrencyBenchmarkIT {
 
     private static final long USER_ID = 9_100_000_001L;
-    private static final int INITIAL_QUOTA = 1_000;
+    private static final long INITIAL_QUOTA = 3_000_000_000L;
     private static final int CONCURRENT_UNIQUE_REQUESTS = 100;
     private static final int CONCURRENT_DUPLICATE_REQUESTS = 100;
     private static final int ABANDONED_FREEZES = 50;
@@ -66,9 +66,10 @@ class QuotaConcurrencyBenchmarkIT {
                 CREATE TABLE IF NOT EXISTS quota_account (
                     id BIGINT NOT NULL AUTO_INCREMENT,
                     user_id BIGINT NOT NULL,
-                    period_quota_balance INT NOT NULL DEFAULT 0,
-                    topup_quota_balance INT NOT NULL DEFAULT 0,
-                    frozen_balance INT NOT NULL DEFAULT 0,
+                    free_quota_balance BIGINT NOT NULL DEFAULT 0,
+                    paid_quota_balance BIGINT NOT NULL DEFAULT 0,
+                    frozen_balance BIGINT NOT NULL DEFAULT 0,
+                    last_free_grant_month VARCHAR(7) DEFAULT NULL,
                     update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                     PRIMARY KEY (id),
                     UNIQUE KEY uk_user_id (user_id)
@@ -78,7 +79,10 @@ class QuotaConcurrencyBenchmarkIT {
                 CREATE TABLE IF NOT EXISTS quota_freeze (
                     freeze_id VARCHAR(64) NOT NULL,
                     user_id BIGINT NOT NULL,
-                    amount INT NOT NULL,
+                    amount BIGINT NOT NULL,
+                    free_amount BIGINT NOT NULL,
+                    paid_amount BIGINT NOT NULL,
+                    settled_amount BIGINT NOT NULL DEFAULT 0,
                     ability_code VARCHAR(64) NOT NULL,
                     status VARCHAR(32) NOT NULL,
                     request_id VARCHAR(64) DEFAULT NULL,
@@ -93,7 +97,7 @@ class QuotaConcurrencyBenchmarkIT {
                     id BIGINT NOT NULL AUTO_INCREMENT,
                     user_id BIGINT NOT NULL,
                     type VARCHAR(32) NOT NULL,
-                    amount INT NOT NULL,
+                    amount BIGINT NOT NULL,
                     freeze_id VARCHAR(64) DEFAULT NULL,
                     ability_code VARCHAR(64) DEFAULT NULL,
                     remark VARCHAR(255) DEFAULT NULL,
@@ -108,7 +112,7 @@ class QuotaConcurrencyBenchmarkIT {
         jdbcTemplate.update("DELETE FROM quota_account WHERE user_id = ?", USER_ID);
         jdbcTemplate.update("""
                 INSERT INTO quota_account
-                    (user_id, period_quota_balance, topup_quota_balance, frozen_balance)
+                    (user_id, free_quota_balance, paid_quota_balance, frozen_balance)
                 VALUES (?, ?, 0, 0)
                 """, USER_ID, INITIAL_QUOTA);
     }
@@ -125,7 +129,7 @@ class QuotaConcurrencyBenchmarkIT {
         List<TimedResult<String>> uniqueFreezes = runConcurrent(
                 CONCURRENT_UNIQUE_REQUESTS,
                 index -> () -> memberService.freeze(
-                        USER_ID, "react", 1, "bench-unique-" + index).get("freezeId")
+                        USER_ID, 1L, 1L, "react", "bench-unique-" + index).get("freezeId").toString()
         );
         assertAllSuccessful(uniqueFreezes);
         Set<String> uniqueFreezeIds = uniqueFreezes.stream()
@@ -144,11 +148,29 @@ class QuotaConcurrencyBenchmarkIT {
         assertAllSuccessful(uniqueReleases);
         assertEquals(0, frozenBalance());
 
+        List<TimedResult<Map<String, Object>>> shortenedReservations = runConcurrent(
+                2,
+                index -> () -> memberService.freeze(
+                        USER_ID, 2_000_000_000L, 1L, "llm", "bench-shorten-" + index)
+        );
+        assertAllSuccessful(shortenedReservations);
+        long shortenedTotal = shortenedReservations.stream()
+                .map(TimedResult::value)
+                .mapToLong(value -> ((Number) value.get("amount")).longValue())
+                .sum();
+        assertEquals(INITIAL_QUOTA, shortenedTotal,
+                "concurrent reserve-up-to must never overbook the account");
+        assertEquals(INITIAL_QUOTA, frozenBalance());
+        for (TimedResult<Map<String, Object>> reservation : shortenedReservations) {
+            memberService.release(reservation.value().get("freezeId").toString());
+        }
+        assertEquals(0L, frozenBalance());
+
         String duplicateRequestId = "bench-duplicate-request";
         List<TimedResult<String>> duplicateFreezes = runConcurrent(
                 CONCURRENT_DUPLICATE_REQUESTS,
                 ignored -> () -> memberService.freeze(
-                        USER_ID, "react", 1, duplicateRequestId).get("freezeId")
+                        USER_ID, 1L, 1L, "react", duplicateRequestId).get("freezeId").toString()
         );
         assertAllSuccessful(duplicateFreezes);
         Set<String> duplicateFreezeIds = duplicateFreezes.stream()
@@ -175,11 +197,11 @@ class QuotaConcurrencyBenchmarkIT {
                 "SELECT COUNT(*) FROM quota_ledger WHERE user_id = ? AND freeze_id = ? AND type = 'CONFIRM'",
                 USER_ID, duplicateFreezeId);
         assertEquals(1, confirmLedgerRows);
-        int duplicateDeductions = Math.max(0, INITIAL_QUOTA - periodBalance() - 1);
-        assertEquals(0, duplicateDeductions);
+        long duplicateDeductions = Math.max(0L, INITIAL_QUOTA - freeBalance() - 1L);
+        assertEquals(0L, duplicateDeductions);
 
         for (int index = 0; index < ABANDONED_FREEZES; index++) {
-            memberService.freeze(USER_ID, "react", 1, "bench-abandoned-" + index);
+            memberService.freeze(USER_ID, 1L, 1L, "react", "bench-abandoned-" + index);
         }
         assertEquals(ABANDONED_FREEZES, frozenBalance());
         jdbcTemplate.update("""
@@ -217,6 +239,7 @@ class QuotaConcurrencyBenchmarkIT {
         results.put("duplicateConfirmSuccessRatePct", successRate(duplicateConfirms));
         results.put("duplicateConfirmLatencyP99Ms", percentile(duplicateConfirms, 99));
         results.put("distinctFreezeIdsForDuplicateRequest", duplicateFreezeIds.size());
+        results.put("concurrentShortenedReservationTotal", shortenedTotal);
         results.put("confirmLedgerRows", confirmLedgerRows);
         results.put("duplicateDeductions", duplicateDeductions);
         results.put("expiredFreezeReleaseSuccessRatePct",
@@ -277,14 +300,14 @@ class QuotaConcurrencyBenchmarkIT {
         assertTrue(failures.isEmpty(), () -> "concurrent failures: " + failures);
     }
 
-    private int frozenBalance() {
+    private long frozenBalance() {
         return jdbcTemplate.queryForObject(
-                "SELECT frozen_balance FROM quota_account WHERE user_id = ?", Integer.class, USER_ID);
+                "SELECT frozen_balance FROM quota_account WHERE user_id = ?", Long.class, USER_ID);
     }
 
-    private int periodBalance() {
+    private long freeBalance() {
         return jdbcTemplate.queryForObject(
-                "SELECT period_quota_balance FROM quota_account WHERE user_id = ?", Integer.class, USER_ID);
+                "SELECT free_quota_balance FROM quota_account WHERE user_id = ?", Long.class, USER_ID);
     }
 
     private int count(String sql, Object... args) {

@@ -35,7 +35,7 @@ management:
         include: health,info,prometheus
 
 jwt:
-  secret: ${JWT_SECRET:ai-group-dev-jwt-secret-2026-k8m3p9x2v7n4q1w6-change-in-prod}
+  secret: ${JWT_SECRET:change-me-to-a-long-random-secret}
 
 gateway:
   route:
@@ -50,7 +50,7 @@ gateway:
 
 ai-group:
   internal:
-    token: ${AI_GROUP_INTERNAL_TOKEN:ai-group-dev-internal-token-change-in-prod}
+    token: ${AI_GROUP_INTERNAL_TOKEN:change-me-to-a-long-random-internal-token}
 
 logging:
   level:

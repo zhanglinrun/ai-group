@@ -1,0 +1,113 @@
+# `member-service`（额度账户服务）
+
+这是 `ai-group` 里管理「免费额度 + 付费额度」的钱包服务。用户注册后获得每月免费额度，购买额度包并完成拼团后获得付费额度；Agent 的每次 LLM 调用按 `预留 → 结算/释放` 的方式消费额度。
+
+它默认跑在端口 `18082`（避免与 `ai-interview` 的 `8082` 重叠），数据存在 `member_db`（会员库），持久层用 `MyBatis-Plus`。
+
+---
+
+## 它管的两件事
+
+### 1. 额度包权益
+
+用户支付成团后，支付/结算侧会发送带订单快照的权益消息。member 只信任消息里的 `productCode`、`baseQuota` 和可选 `bonusQuota`，将额度统一换算成 microcredits 后计入付费余额，避免套餐后来改价或改额度影响历史订单。
+
+关键点是**按订单 + 事件类型幂等**：同一笔订单的权益消息即使重复投递，也只会真正发放一次，靠 `benefit_grant_event` 的幂等键去重。额度已经发放后的撤销不会自动扣回，以免用户已消费后出现负账；系统记录 `REJECTED_GRANTED`，交由运营审核处理。
+
+### 2. 对话配额（两阶段扣减）
+
+Agent 对话消耗配额，用的是类似「预授权 + 确认」的两阶段方式：
+
+- **预扣（freeze）**：每次 LLM 调用前按输入估算与最大输出冻结一笔上界额度。
+- **确认（confirm）**：调用成功或已经产生供应商消耗后，按实际 usage（不可用时按本地估算）扣减，并自动释放未使用余量。
+- **释放（release）**：预留后未发起供应商调用、结算失败等场景释放整笔冻结；进程崩溃遗留的冻结由定时任务兜底释放。
+
+客户端断开会阻止后续步骤，但已在途或已完成的供应商调用仍会按可得 usage 结算，并不承诺“断开即免费”。账户分为**免费额度**（每月重置为 5 credits）和**付费额度**（购买额度包获得、不按月清零），内部统一使用 `1 credit = 1,000,000 microcredits` 计量，变动记录在 `quota_ledger`。
+
+---
+
+## 对外接口
+
+### 用户端
+
+| 接口 | 作用 |
+| --- | --- |
+| `GET /api/member/skus` | 查在售套餐列表（用户端定价页用） |
+| `GET /api/member/summary` | 查免费、付费、冻结及可用额度摘要 |
+| `GET /api/member/quota-ledger` | 查最近的额度流水 |
+
+### 服务间内部接口（`/internal/**`，只允许服务间带内部令牌调用）
+
+| 接口 | 作用 |
+| --- | --- |
+| `POST /internal/members/init-free` | 给新注册用户开免费账户（auth 注册后调用） |
+| `POST /internal/quota/freeze` | 预扣配额 |
+| `POST /internal/quota/confirm` | 确认扣减 |
+| `POST /internal/quota/release` | 释放冻结 |
+| `GET /internal/benefits/orders/{orderId}/status` | 查某订单的权益发放状态 |
+
+### 运营端（`/api/member/admin/**`，需要 `ADMIN` 角色）
+
+会员详情查询、权益事件查看、配额人工调整、手动触发月度发放，以及套餐（SKU）的增删改查。用户端定价页和运营端读同一张 SKU 表，运营改完启用后立即可见。
+
+---
+
+## 两个定时任务
+
+- `MonthlyQuotaGrantJob`（月度免费额度发放）：每月将账户免费额度重置为 5 credits，付费额度保持不变。
+- `ExpiredFreezeReleaseJob`（过期冻结释放）：兜底清理那些因为服务崩溃等原因遗留、迟迟没确认也没释放的冻结配额，把它们退回，防止配额被永久占住。
+
+---
+
+## 消息消费
+
+`BenefitEventConsumer`（权益事件消费者）监听成团消息队列，收到后触发权益发放。消费失败会抛异常触发重试，最终进 `DLQ`（死信队列）人工兜底。
+
+---
+
+## 数据模型
+
+| 表 / 实体 | 存什么 |
+| --- | --- |
+| `ProductSku`（额度包） | 套餐价格、基础额度和拼团商品/活动映射 |
+| `QuotaAccount`（额度账户） | 免费额度、付费额度、冻结额度和最近免费发放月份 |
+| `QuotaFreeze`（配额冻结） | 每笔预扣的冻结记录及其状态 |
+| `QuotaLedger`（配额流水） | 配额变动的流水账 |
+| `BenefitGrantEvent`（权益发放事件） | 按订单幂等的权益发放记录 |
+
+---
+
+## 本地运行
+
+依赖 `MySQL`（数据库，`member_db`）、`Redis`（缓存）、`RabbitMQ`（消息队列）、`Nacos`（注册中心）。表结构在 `src/main/resources/schema.sql`。
+
+跟平台一套启动脚本走：
+
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File docs/dev-ops/start-full-stack.ps1
+```
+
+单独跑（先确认中间件就绪）：
+
+```bash
+cd member-service && mvn spring-boot:run
+```
+
+权益链路可以用平台自带脚本验证：`docs/dev-ops/smoke-benefit-event.ps1`（模拟成团消息 → 发放付费额度）。
+
+---
+
+## 相关代码
+
+- `MemberController`（用户端 + 内部接口）、`MemberAdminController`（运营端接口）。
+- `MemberServiceImpl`（额度服务实现）：权益发放、额度预留与结算的主逻辑。
+- `BenefitEventConsumer`（权益事件消费者）：监听成团消息。
+- `MonthlyQuotaGrantJob` / `ExpiredFreezeReleaseJob`：两个定时任务。
+
+---
+
+## 提醒
+
+- 权益发放和配额确认都要保持幂等，重复消息不能重复发、重复扣。
+- 两阶段扣减的 `confirm` / `release` 必须成对兜底，`ExpiredFreezeReleaseJob` 是最后一道防线，别停掉。
+- `/internal/**` 接口只走内部令牌，不要暴露给外部直连。

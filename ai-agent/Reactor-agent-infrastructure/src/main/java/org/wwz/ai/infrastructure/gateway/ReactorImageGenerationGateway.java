@@ -11,6 +11,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.wwz.ai.domain.agent.runtime.util.StringUtil;
 import org.wwz.ai.domain.agent.reactor.config.ReactorConfig;
+import org.wwz.ai.domain.agent.reactor.config.ReactorToolRequestHeaders;
 import org.wwz.ai.domain.agent.reactor.gateway.IReactorImageGenerationGateway;
 import org.wwz.ai.domain.agent.reactor.model.imagegeneration.ImageGenerationGatewayFile;
 import org.wwz.ai.domain.agent.reactor.model.imagegeneration.ImageGenerationGatewayRequest;
@@ -29,7 +30,7 @@ import java.util.concurrent.TimeUnit;
 @Component
 public class ReactorImageGenerationGateway implements IReactorImageGenerationGateway {
 
-    private static final MediaType JSON_MEDIA_TYPE = MediaType.parse("application/json");
+    private static final MediaType JSON_MEDIA_TYPE = MediaType.get("application/json");
     private static final long DEFAULT_TIMEOUT_SECONDS = 1080L;
 
     private final OkHttpClient httpClient = new OkHttpClient.Builder()
@@ -53,21 +54,20 @@ public class ReactorImageGenerationGateway implements IReactorImageGenerationGat
         }
 
         String url = trimTrailingSlash(baseUrl) + "/v1/tool/image_generation";
-        RequestBody requestBody = RequestBody.create(
-                JSON_MEDIA_TYPE,
-                JSON.toJSONString(requestDTO)
-        );
+        RequestBody requestBody = RequestBody.create(JSON.toJSONString(requestDTO), JSON_MEDIA_TYPE);
 
         Request request = new Request.Builder()
                 .url(url)
+                .headers(okhttp3.Headers.of(ReactorToolRequestHeaders.json(reactorConfig)))
                 .post(requestBody)
                 .build();
 
         try (Response response = httpClient.newCall(request).execute()) {
             String responseText = response.body() == null ? null : response.body().string();
             if (!response.isSuccessful()) {
-                log.error("调用 Python 生图服务失败 requestId={}, code={}, body={}",
-                        requestDTO.getRequestId(), response.code(), responseText);
+                log.error("调用 Python 生图服务失败 requestId={}, code={}, responseChars={}",
+                        requestDTO.getRequestId(), response.code(),
+                        responseText == null ? 0 : responseText.length());
                 throw new IllegalStateException(resolveFailureMessage(responseText));
             }
             if (!StringUtils.hasText(responseText)) {

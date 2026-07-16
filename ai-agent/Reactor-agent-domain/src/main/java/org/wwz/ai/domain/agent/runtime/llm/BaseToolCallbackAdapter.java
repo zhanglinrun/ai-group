@@ -61,7 +61,9 @@ public class BaseToolCallbackAdapter implements ToolCallback {
             }
             return OBJECT_MAPPER.writeValueAsString(result);
         } catch (Exception e) {
-            log.error("BaseTool ToolCallback 调用失败: tool={}, input={}", tool.getName(), toolInput, e);
+            log.error("BaseTool ToolCallback failed tool={} inputChars={} errorType={}",
+                    tool.getName(), toolInput == null ? 0 : toolInput.length(),
+                    e.getClass().getSimpleName());
             throw new RuntimeException("BaseTool callback execute failed: " + tool.getName(), e);
         }
     }

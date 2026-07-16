@@ -44,6 +44,10 @@ class CIRequest(BaseModel):
 
 
 class ReportRequest(CIRequest):
+    query: Optional[str] = Field(
+        default=None,
+        description="原始用户请求；用于保留事实边界、禁止项和输出约束",
+    )
     file_type: Literal["html", "markdown", "ppt"] = Field("html", alias="fileType", description="生成报告的文件类型")
     template_type: str = Field(default="html", alias="templateType", description="生成报告的模板样式类型")
 

@@ -27,10 +27,16 @@ import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.util.CollectionUtils;
 import org.wwz.ai.domain.agent.adapter.port.RemoteHttpRequest;
+import org.wwz.ai.domain.agent.adapter.port.QuotaBillingPort;
 import org.wwz.ai.domain.agent.runtime.agent.AgentContext;
+import org.wwz.ai.domain.agent.runtime.agent.ExplicitToolChoicePolicy;
+import org.wwz.ai.domain.agent.runtime.context.ContextBudget;
+import org.wwz.ai.domain.agent.runtime.context.ContextManager;
+import org.wwz.ai.domain.agent.runtime.context.ManagedContext;
 import org.wwz.ai.domain.agent.runtime.dto.Message;
 import org.wwz.ai.domain.agent.runtime.dto.tool.McpToolInfo;
 import org.wwz.ai.domain.agent.runtime.dto.tool.ToolCall;
+import org.wwz.ai.domain.agent.runtime.enums.RoleType;
 import org.wwz.ai.domain.agent.runtime.dto.tool.ToolChoice;
 import org.wwz.ai.domain.agent.runtime.executor.AgentExecutorSupport;
 import org.wwz.ai.domain.agent.runtime.tool.BaseTool;
@@ -50,9 +56,11 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
@@ -93,6 +101,8 @@ public class LLM {
     private final String functionCallType;
     /** token 计数器，保留给截断逻辑使用。 */
     private final TokenCounter tokenCounter;
+    /** 所有主 LLM 路径共享的上下文预算与信任边界。 */
+    private final ContextManager contextManager;
     /** JSON 工具。 */
     private final ObjectMapper objectMapper;
     /** 扩展参数。 */
@@ -156,6 +166,7 @@ public class LLM {
         this.maxInputTokens = config.getMaxInputTokens();
         this.extParams = config.getExtParams();
         this.tokenCounter = new TokenCounter();
+        this.contextManager = new ContextManager(this.tokenCounter);
         this.objectMapper = new ObjectMapper();
     }
 
@@ -247,7 +258,8 @@ public class LLM {
             return messages;
         }
 
-        log.info("{} before truncate {}", context.getRequestId(), JSON.toJSONString(messages));
+        log.debug("{} truncate legacy context messageCount={}, tokenBudget={}",
+                context.getRequestId(), messages.size(), maxInputTokens);
         List<Map<String, Object>> truncatedMessages = new ArrayList<>();
         int remainingTokens = maxInputTokens;
         Map<String, Object> system = messages.get(0);
@@ -281,7 +293,8 @@ public class LLM {
             truncatedMessages.add(0, system);
         }
 
-        log.info("{} after truncate {}", context.getRequestId(), JSON.toJSONString(truncatedMessages));
+        log.debug("{} legacy context truncated messageCount={} -> {}, remainingTokens={}",
+                context.getRequestId(), messages.size(), truncatedMessages.size(), remainingTokens);
         return truncatedMessages;
     }
 
@@ -342,14 +355,17 @@ public class LLM {
             String callKind
     ) {
         try {
+            List<Message> requestMessages = prepareRequestMessages(
+                    context, mergeMessages(systemMsgs, messages), null);
             LlmInvocationHandle invocationHandle = startLlmInvocation(
                     context,
                     callKind,
                     stream
             );
+            reserveLlmCall(context, invocationHandle, requestMessages, null);
             Prompt prompt = buildPrompt(
-                    mergeMessages(systemMsgs, messages),
-                    chatOptionsFactory.buildTextOptions(llmSettings, temperature)
+                    requestMessages,
+                    chatOptionsFactory.buildTextOptions(llmSettings, temperature, invocationHandle.maxOutputTokens())
             );
             OpenAiChatModel chatModel = resolveChatModel();
 
@@ -392,18 +408,20 @@ public class LLM {
                 });
             }
 
-            return streamResponseHandler.handleStringStream(context, chatModel.stream(prompt), null, false, pushToClient)
-                    .whenComplete((content, throwable) -> {
+            return streamResponseHandler.handleStringStreamResponse(
+                            context, chatModel.stream(prompt), null, false, pushToClient,
+                            partial -> observePartialOutput(invocationHandle, partial))
+                    .whenComplete((response, throwable) -> {
                         if (throwable == null) {
                             finishLlmInvocation(
                                     context,
                                     invocationHandle,
                                     ExecutionLedgerConstants.STATUS_SUCCESS,
-                                    content,
+                                    response.content(),
                                     0,
-                                    null,
-                                    null,
-                                    null,
+                                    response.promptTokens(),
+                                    response.completionTokens(),
+                                    response.totalTokens(),
                                     null,
                                     null
                             );
@@ -422,7 +440,7 @@ public class LLM {
                                 null,
                                 cause.getMessage()
                         );
-                    });
+                    }).thenApply(StreamResponseHandler.StreamedTextResponse::content);
         } catch (Exception e) {
             log.error("{} Unexpected error in ask: {}", context.getRequestId(), e.getMessage(), e);
             return failedFuture(e);
@@ -464,6 +482,7 @@ public class LLM {
             if (!ToolChoice.isValid(toolChoice)) {
                 throw new IllegalArgumentException("Invalid tool_choice: " + toolChoice);
             }
+            String requiredToolName = resolveRequiredToolName(context, tools, toolChoice);
 
             LlmInvocationHandle invocationHandle = startLlmInvocation(
                     context,
@@ -476,9 +495,14 @@ public class LLM {
                         context, messages, systemMsgs, tools, temperature, stream, timeout, startTime, invocationHandle);
             }
 
+            List<Message> requestMessages = prepareRequestMessages(
+                    context, mergeMessages(systemMsgs, messages), tools);
+            reserveLlmCall(context, invocationHandle, requestMessages, tools);
             Prompt prompt = buildPrompt(
-                    mergeMessages(systemMsgs, messages),
-                    chatOptionsFactory.buildToolOptions(llmSettings, temperature, tools, toolChoice)
+                    requestMessages,
+                    chatOptionsFactory.buildToolOptions(
+                            llmSettings, temperature, tools, toolChoice,
+                            requiredToolName, invocationHandle.maxOutputTokens())
             );
             OpenAiChatModel chatModel = resolveChatModel();
 
@@ -486,6 +510,8 @@ public class LLM {
                     context.getRequestId(), model, stream);
 
             if (!stream) {
+                Message fallbackSystemMessage = firstSystemMessage(requestMessages);
+                List<Message> fallbackMessages = withoutSystemMessages(requestMessages);
                 CompletableFuture<ToolCallResponse> springFuture = AgentExecutorSupport.supplyAsync(
                         runtimeDependencies.requireLlmExecutor(),
                         "llmAskToolFunctionCall",
@@ -500,7 +526,9 @@ public class LLM {
 
                 return withFallback(
                         springFuture,
-                        () -> legacyAskToolFunctionCallNonStream(context, messages, systemMsgs, tools, toolChoice, temperature, timeout, startTime),
+                        () -> legacyAskToolFunctionCallNonStream(
+                                 context, fallbackMessages, fallbackSystemMessage,
+                                 tools, toolChoice, requiredToolName, temperature, timeout, startTime),
                         context.getRequestId(),
                         "askTool(function_call, stream=false)"
                 ).whenComplete((response, throwable) -> {
@@ -512,15 +540,17 @@ public class LLM {
                 });
             }
 
-            return streamResponseHandler.handleToolCallStream(context, chatModel.stream(prompt), startTime, pushToClient)
+            return streamResponseHandler.handleToolCallStream(
+                            context, chatModel.stream(prompt), startTime, pushToClient,
+                            partial -> observePartialOutput(invocationHandle, partial))
+                    .orTimeout(timeout, TimeUnit.SECONDS)
                     .whenComplete((response, throwable) -> {
                         if (throwable == null) {
                             finishLlmInvocation(context, invocationHandle, response, null);
                             return;
                         }
                         finishLlmInvocation(context, invocationHandle, null, unwrapCompletionThrowable(throwable));
-                    })
-                    .orTimeout(timeout, TimeUnit.SECONDS);
+                    });
         } catch (Exception e) {
             log.error("{} Unexpected error in askTool: {}", context.getRequestId(), e.getMessage(), e);
             return failedFuture(e);
@@ -543,9 +573,12 @@ public class LLM {
             LlmInvocationHandle invocationHandle
     ) {
         Message mergedSystemMessage = buildStructParseSystemMessage(systemMsg, tools);
+        List<Message> requestMessages = prepareRequestMessages(
+                context, mergeMessages(mergedSystemMessage, messages), null);
+        reserveLlmCall(context, invocationHandle, requestMessages, null);
         Prompt prompt = buildPrompt(
-                mergeMessages(mergedSystemMessage, messages),
-                chatOptionsFactory.buildTextOptions(llmSettings, temperature)
+                requestMessages,
+                chatOptionsFactory.buildTextOptions(llmSettings, temperature, invocationHandle.maxOutputTokens())
         );
         OpenAiChatModel chatModel = resolveChatModel();
 
@@ -565,30 +598,42 @@ public class LLM {
                     );
                     toolCallResponse.setPromptTokens(resolvePromptTokens(response.getMetadata()));
                     toolCallResponse.setCompletionTokens(resolveCompletionTokens(response.getMetadata()));
-                    finishLlmInvocation(context, invocationHandle, toolCallResponse, null);
                     return toolCallResponse;
                 } catch (Exception e) {
-                    finishLlmInvocation(context, invocationHandle, null, e);
                     throw new CompletionException(e);
                 }
-            }).orTimeout(timeout, TimeUnit.SECONDS);
+            }).orTimeout(timeout, TimeUnit.SECONDS).whenComplete((response, throwable) -> {
+                if (throwable == null) {
+                    finishLlmInvocation(context, invocationHandle, response, null);
+                } else {
+                    finishLlmInvocation(context, invocationHandle, null, unwrapCompletionThrowable(throwable));
+                }
+            });
         }
 
-        return streamResponseHandler.handleStringStream(
+        return streamResponseHandler.handleStringStreamResponse(
                         context,
                         chatModel.stream(prompt),
                         STRUCT_PARSE_JSON_MARKER,
-                        true
+                        true,
+                        true,
+                        partial -> observePartialOutput(invocationHandle, partial)
                 )
-                .thenApply(content -> buildStructParseToolCallResponse(context, content, null, null, startTime))
+                .orTimeout(timeout, TimeUnit.SECONDS)
+                .thenApply(streamed -> {
+                    ToolCallResponse response = buildStructParseToolCallResponse(
+                            context, streamed.content(), null, streamed.totalTokens(), startTime);
+                    response.setPromptTokens(streamed.promptTokens());
+                    response.setCompletionTokens(streamed.completionTokens());
+                    return response;
+                })
                 .whenComplete((response, throwable) -> {
                     if (throwable == null) {
                         finishLlmInvocation(context, invocationHandle, response, null);
                         return;
                     }
                     finishLlmInvocation(context, invocationHandle, null, unwrapCompletionThrowable(throwable));
-                })
-                .orTimeout(timeout, TimeUnit.SECONDS);
+                });
     }
 
     /**
@@ -600,12 +645,14 @@ public class LLM {
             Message systemMsg,
             ToolCollection tools,
             ToolChoice toolChoice,
+            String requiredToolName,
             Double temperature,
             int timeout,
             long startTime
     ) {
         try {
-            Map<String, Object> params = buildLegacyFunctionCallParams(messages, systemMsg, tools, toolChoice, temperature);
+            Map<String, Object> params = buildLegacyFunctionCallParams(
+                    messages, systemMsg, tools, toolChoice, requiredToolName, temperature);
             log.warn("{} fallback askTool to legacy HTTP, model={}, toolCount={}",
                     context.getRequestId(), model, countTools(tools));
 
@@ -618,7 +665,6 @@ public class LLM {
 
     private ToolCallResponse parseLegacyFunctionCallResponse(AgentContext context, String responseJson, long startTime) {
         try {
-            log.info("{} legacy llm response {}", context.getRequestId(), responseJson);
             JsonNode jsonResponse = objectMapper.readTree(responseJson);
             JsonNode choices = jsonResponse.get("choices");
             if (choices == null || choices.isEmpty() || choices.get(0).get("message") == null) {
@@ -639,7 +685,7 @@ public class LLM {
                             ? functionNode.get("name").asText()
                             : null;
                     if (StringUtils.isBlank(name)) {
-                        log.warn("{} skip invalid tool call from legacy response: {}", context.getRequestId(), toolCall);
+                        log.warn("{} skip invalid unnamed tool call from legacy response", context.getRequestId());
                         continue;
                     }
                     toolCalls.add(ToolCall.builder()
@@ -659,6 +705,10 @@ public class LLM {
             Integer totalTokens = jsonResponse.has("usage") && jsonResponse.get("usage").has("total_tokens")
                     ? jsonResponse.get("usage").get("total_tokens").asInt()
                     : null;
+
+            log.debug("{} parsed legacy llm response finishReason={}, toolCount={}, totalTokens={}, contentChars={}",
+                    context.getRequestId(), finishReason, toolCalls.size(), totalTokens,
+                    content == null ? 0 : content.length());
 
             return ToolCallResponse.builder()
                     .content(content)
@@ -680,6 +730,7 @@ public class LLM {
             Message systemMsg,
             ToolCollection tools,
             ToolChoice toolChoice,
+            String requiredToolName,
             Double temperature
     ) {
         Map<String, Object> params = new HashMap<>();
@@ -727,16 +778,35 @@ public class LLM {
         params.put("model", model);
         params.put("messages", formattedMessages);
         params.put("tools", formattedTools);
-        params.put("tool_choice", toolChoice.getValue());
         params.put("max_tokens", maxTokens);
         params.put("temperature", temperature != null ? temperature : this.temperature);
         params.put("stream", false);
         if (extParams != null) {
             params.putAll(extParams);
         }
+        params.put("tool_choice", OpenAiChatOptionsFactory.resolveProviderToolChoice(
+                toolChoice, requiredToolName));
 
-        log.info("legacy fallback request {}", JSONObject.toJSONString(params));
+        log.debug("legacy fallback prepared model={}, messageCount={}, toolCount={}",
+                model, formattedMessages.size(), formattedTools.size());
         return params;
+    }
+
+    private String resolveRequiredToolName(AgentContext context,
+                                           ToolCollection tools,
+                                           ToolChoice toolChoice) {
+        if (toolChoice != ToolChoice.REQUIRED || context == null || tools == null) {
+            return null;
+        }
+        Set<String> availableToolNames = new LinkedHashSet<>();
+        if (tools.getToolMap() != null) {
+            availableToolNames.addAll(tools.getToolMap().keySet());
+        }
+        if (tools.getMcpToolMap() != null) {
+            availableToolNames.addAll(tools.getMcpToolMap().keySet());
+        }
+        return ExplicitToolChoicePolicy.resolveRequiredToolNameForCurrentTask(
+                context.getQuery(), context.getTask(), 1, availableToolNames);
     }
 
     /**
@@ -827,6 +897,44 @@ public class LLM {
         return new Prompt(messageConverter.convert(domainMessages), options);
     }
 
+    private List<Message> prepareRequestMessages(AgentContext context,
+                                                 List<Message> messages,
+                                                 ToolCollection tools) {
+        int toolSchemaTokens = estimateToolTokens(tools);
+        ManagedContext managed = contextManager.prepare(
+                messages,
+                ContextBudget.forModel(maxInputTokens, toolSchemaTokens)
+        );
+        if (managed.compacted()) {
+            log.info("{} context compacted: messageTokens {} -> {}, toolSchemaTokens={}, maxInputTokens={}",
+                    context == null ? null : context.getRequestId(),
+                    managed.originalMessageTokens(),
+                    managed.finalMessageTokens(),
+                    toolSchemaTokens,
+                    maxInputTokens);
+        }
+        return managed.messages();
+    }
+
+    private Message firstSystemMessage(List<Message> messages) {
+        if (messages == null) {
+            return null;
+        }
+        return messages.stream()
+                .filter(message -> message != null && message.getRole() == RoleType.SYSTEM)
+                .findFirst()
+                .orElse(null);
+    }
+
+    private List<Message> withoutSystemMessages(List<Message> messages) {
+        if (messages == null || messages.isEmpty()) {
+            return List.of();
+        }
+        return messages.stream()
+                .filter(message -> message != null && message.getRole() != RoleType.SYSTEM)
+                .toList();
+    }
+
     private List<Message> mergeMessages(List<Message> systemMsgs, List<Message> messages) {
         List<Message> mergedMessages = new ArrayList<>();
         if (systemMsgs != null) {
@@ -912,8 +1020,10 @@ public class LLM {
     }
 
     private LlmInvocationHandle startLlmInvocation(AgentContext context, String callKind, boolean stream) {
+        long inputRate = positiveRate(llmSettings.getInputCreditsPerMillion(), 5L);
+        long outputRate = positiveRate(llmSettings.getOutputCreditsPerMillion(), 30L);
         if (context == null || !context.hasActiveLedgerRun() || context.getAgentRunState() == null) {
-            return LlmInvocationHandle.disabled();
+            return LlmInvocationHandle.disabled(inputRate, outputRate, maxTokens);
         }
         LocalDateTime startedAt = LocalDateTime.now();
         int invocationSeq = context.getAgentRunState().nextInvocationSeq();
@@ -926,10 +1036,91 @@ public class LLM {
                 .callKind(callKind)
                 .streaming(stream)
                 .modelName(model)
+                .inputRateSnapshot(inputRate)
+                .outputRateSnapshot(outputRate)
                 .startedAt(startedAt)
                 .build());
         context.getAgentRunState().bindCurrentLlmInvocationId(invocationId);
-        return new LlmInvocationHandle(invocationId);
+        return new LlmInvocationHandle(invocationId, inputRate, outputRate, maxTokens);
+    }
+
+    private void reserveLlmCall(AgentContext context,
+                                LlmInvocationHandle handle,
+                                List<Message> requestMessages,
+                                ToolCollection tools) {
+        int estimatedInputTokens = estimateInputTokens(requestMessages, tools);
+        handle.estimatedInputTokens = estimatedInputTokens;
+        if (context == null || context.getOwnerId() == null) {
+            return;
+        }
+        QuotaBillingPort billingPort = runtimeDependencies.getQuotaBillingPort();
+        if (billingPort == null) {
+            throw new IllegalStateException("QuotaBillingPort must be configured for authenticated LLM calls");
+        }
+
+        LlmQuotaCalculator.ReservationAmounts amounts = LlmQuotaCalculator.reservation(
+                estimatedInputTokens, maxTokens, handle.inputRateSnapshot, handle.outputRateSnapshot);
+        String billingRequestId = context.getRequestId() + ":llm:"
+                + (handle.invocationId == null ? StringUtil.getUUID() : handle.invocationId);
+        try {
+            handle.reservation = billingPort.reserve(context.getOwnerId(), amounts.requestedMicrocredits(),
+                    amounts.minimumMicrocredits(), billingRequestId);
+            handle.maxOutputTokens = LlmQuotaCalculator.affordableOutputTokens(
+                    handle.reservation.reservedMicrocredits(), estimatedInputTokens, maxTokens,
+                    handle.inputRateSnapshot, handle.outputRateSnapshot);
+            if (handle.maxOutputTokens < LlmQuotaCalculator.MIN_OUTPUT_TOKENS) {
+                billingPort.release(handle.reservation.freezeId());
+                handle.reservation = null;
+                throw new IllegalStateException("额度不足，无法支持最少256个输出Token");
+            }
+        } catch (RuntimeException e) {
+            recordReservationFailure(context, handle, e);
+            throw e;
+        }
+    }
+
+    private int estimateInputTokens(List<Message> messages, ToolCollection tools) {
+        int tokens = tokenCounter.countListMessageTokens(formatMessages(messages, isClaudeModel()));
+        return Math.addExact(tokens, estimateToolTokens(tools));
+    }
+
+    private int estimateToolTokens(ToolCollection tools) {
+        int tokens = 0;
+        if (tools == null) {
+            return tokens;
+        }
+        for (BaseTool tool : tools.getToolMap().values()) {
+            tokens = Math.addExact(tokens, tokenCounter.countText(JSON.toJSONString(Map.of(
+                    "name", tool.getName(),
+                    "description", StringUtils.defaultString(tool.getDescription()),
+                    "parameters", normalizeToolParameters(tool.toParams(), tool.getName())))));
+        }
+        for (McpToolInfo tool : tools.getMcpToolMap().values()) {
+            tokens = Math.addExact(tokens, tokenCounter.countText(JSON.toJSONString(Map.of(
+                    "name", tool.getName(),
+                    "description", StringUtils.defaultString(tool.getDesc()),
+                    "parameters", parseAndNormalizeToolParameters(tool.getParameters(), tool.getName())))));
+        }
+        return tokens;
+    }
+
+    private void recordReservationFailure(AgentContext context, LlmInvocationHandle handle, RuntimeException error) {
+        if (context == null || !handle.enabled()) {
+            return;
+        }
+        context.getExecutionRecorder().finishLlmInvocation(LlmInvocationFinishRecord.builder()
+                .llmInvocationId(handle.invocationId)
+                .requestId(context.getRequestId())
+                .status(ExecutionLedgerConstants.STATUS_FAILED)
+                .promptTokens(handle.estimatedInputTokens)
+                .completionTokens(0)
+                .totalTokens(handle.estimatedInputTokens)
+                .usageSource("ESTIMATED")
+                .chargedMicrocredits(0L)
+                .errorMsg(error.getMessage())
+                .finishedAt(LocalDateTime.now())
+                .build());
+        handle.ledgerFinished = true;
     }
 
     private void finishLlmInvocation(AgentContext context,
@@ -951,6 +1142,8 @@ public class LLM {
             );
             return;
         }
+        handle.estimatedOutputTokens = tokenCounter.countText(response == null ? null : response.getContent())
+                + tokenCounter.countText(response == null ? null : JSON.toJSONString(response.getToolCalls()));
         finishLlmInvocation(
                 context,
                 handle,
@@ -975,22 +1168,93 @@ public class LLM {
                                      Integer totalTokens,
                                      String finishReason,
                                      String errorMsg) {
-        if (context == null || handle == null || !handle.enabled() || handle.invocationId() == null) {
+        if (context == null || handle == null) {
             return;
         }
-        context.getExecutionRecorder().finishLlmInvocation(LlmInvocationFinishRecord.builder()
-                .llmInvocationId(handle.invocationId())
-                .requestId(context.getRequestId())
-                .status(status)
-                .responseText(responseText)
-                .toolCallCount(toolCallCount)
-                .promptTokens(promptTokens)
-                .completionTokens(completionTokens)
-                .totalTokens(totalTokens)
-                .finishReason(finishReason)
-                .errorMsg(errorMsg)
-                .finishedAt(LocalDateTime.now())
-                .build());
+        BillingSettlement billing = settleLlmCall(handle, promptTokens, completionTokens, responseText, toolCallCount);
+        promptTokens = billing.promptTokens();
+        completionTokens = billing.completionTokens();
+        totalTokens = promptTokens + completionTokens;
+        RuntimeException settlementFailure = billing.failure();
+        if (handle.enabled() && handle.invocationId != null && !handle.ledgerFinished) {
+            context.getExecutionRecorder().finishLlmInvocation(LlmInvocationFinishRecord.builder()
+                    .llmInvocationId(handle.invocationId)
+                    .requestId(context.getRequestId())
+                    .status(settlementFailure == null ? status : ExecutionLedgerConstants.STATUS_FAILED)
+                    .responseText(responseText)
+                    .toolCallCount(toolCallCount)
+                    .promptTokens(promptTokens)
+                    .completionTokens(completionTokens)
+                    .totalTokens(totalTokens)
+                    .usageSource(billing.usageSource())
+                    .chargedMicrocredits(billing.chargedMicrocredits())
+                    .finishReason(finishReason)
+                    .errorMsg(settlementFailure == null ? errorMsg : settlementFailure.getMessage())
+                    .finishedAt(LocalDateTime.now())
+                    .build());
+            handle.ledgerFinished = true;
+        }
+        if (settlementFailure != null) {
+            throw settlementFailure;
+        }
+    }
+
+    private BillingSettlement settleLlmCall(LlmInvocationHandle handle,
+                                             Integer providerPromptTokens,
+                                             Integer providerCompletionTokens,
+                                             String responseText,
+                                             Integer toolCallCount) {
+        if (handle.settled) {
+            return handle.settlement;
+        }
+        int estimatedOutput = handle.estimatedOutputTokens >= 0
+                ? handle.estimatedOutputTokens
+                : estimateOutputTokens(responseText, toolCallCount);
+        LlmUsageSettlement.Result resolved = LlmUsageSettlement.resolve(
+                providerPromptTokens,
+                providerCompletionTokens,
+                handle.estimatedInputTokens,
+                estimatedOutput,
+                handle.inputRateSnapshot,
+                handle.outputRateSnapshot);
+        if (handle.reservation != null) {
+            try {
+                LlmQuotaCalculator.requireWithinReservation(
+                        resolved.chargedMicrocredits(), handle.reservation.reservedMicrocredits(), "LLM call");
+                runtimeDependencies.getQuotaBillingPort().settle(
+                        handle.reservation.freezeId(), resolved.chargedMicrocredits());
+            } catch (RuntimeException settlementFailure) {
+                try {
+                    runtimeDependencies.getQuotaBillingPort().release(handle.reservation.freezeId());
+                } catch (RuntimeException releaseFailure) {
+                    settlementFailure.addSuppressed(releaseFailure);
+                }
+                handle.settlement = new BillingSettlement(
+                        resolved.inputTokens(), resolved.outputTokens(), resolved.usageSource(), 0L, settlementFailure);
+                handle.settled = true;
+                return handle.settlement;
+            }
+        }
+        handle.settlement = new BillingSettlement(
+                resolved.inputTokens(), resolved.outputTokens(), resolved.usageSource(),
+                resolved.chargedMicrocredits(), null);
+        handle.settled = true;
+        return handle.settlement;
+    }
+
+    private int estimateOutputTokens(String responseText, Integer toolCallCount) {
+        int tokens = tokenCounter.countText(responseText);
+        // Tool names/arguments are part of responseText only on struct_parse. Native tool calls are
+        // represented separately, so retain a small format allowance when their details are unavailable.
+        return Math.addExact(tokens, Math.max(0, toolCallCount == null ? 0 : toolCallCount) * 4);
+    }
+
+    private void observePartialOutput(LlmInvocationHandle handle, String partialOutput) {
+        handle.estimatedOutputTokens = tokenCounter.countText(partialOutput);
+    }
+
+    private long positiveRate(long configured, long fallback) {
+        return configured > 0 ? configured : fallback;
     }
 
     private <T> CompletableFuture<T> withFallback(CompletableFuture<T> primaryFuture,
@@ -1237,14 +1501,48 @@ public class LLM {
         private long duration;
     }
 
-    private record LlmInvocationHandle(Long invocationId) {
-        private static LlmInvocationHandle disabled() {
-            return new LlmInvocationHandle(null);
+    private static final class LlmInvocationHandle {
+        private final Long invocationId;
+        private final long inputRateSnapshot;
+        private final long outputRateSnapshot;
+        private int estimatedInputTokens;
+        private int estimatedOutputTokens = -1;
+        private int maxOutputTokens;
+        private QuotaBillingPort.Reservation reservation;
+        private boolean settled;
+        private boolean ledgerFinished;
+        private BillingSettlement settlement;
+
+        private LlmInvocationHandle(Long invocationId,
+                                    long inputRateSnapshot,
+                                    long outputRateSnapshot,
+                                    int maxOutputTokens) {
+            this.invocationId = invocationId;
+            this.inputRateSnapshot = inputRateSnapshot;
+            this.outputRateSnapshot = outputRateSnapshot;
+            this.maxOutputTokens = maxOutputTokens;
+        }
+
+        private static LlmInvocationHandle disabled(long inputRateSnapshot,
+                                                    long outputRateSnapshot,
+                                                    int maxOutputTokens) {
+            return new LlmInvocationHandle(null, inputRateSnapshot, outputRateSnapshot, maxOutputTokens);
         }
 
         private boolean enabled() {
             return invocationId != null;
         }
+
+        private int maxOutputTokens() {
+            return maxOutputTokens;
+        }
+    }
+
+    private record BillingSettlement(int promptTokens,
+                                     int completionTokens,
+                                     String usageSource,
+                                     long chargedMicrocredits,
+                                     RuntimeException failure) {
     }
 
     private static ReactorRuntimeDependencies requireRuntimeDependencies(ReactorRuntimeDependencies dependencies) {

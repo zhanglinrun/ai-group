@@ -46,7 +46,7 @@ const RegisterPage = memo(() => {
           注册
         </Typography.Title>
         <Typography.Paragraph type="secondary" className="!mb-6">
-          注册即自动开通 Free 会员，每月 20 点配额
+          注册即享每月 5 点免费额度，未使用部分月底清零
         </Typography.Paragraph>
         <Form layout="vertical" onFinish={handleSubmit} autoComplete="off">
           <Form.Item

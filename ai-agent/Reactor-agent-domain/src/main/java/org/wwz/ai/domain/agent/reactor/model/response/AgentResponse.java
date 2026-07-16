@@ -34,6 +34,12 @@ public class AgentResponse {
     private Map<String, Object> resultMap;
     private String result;
     private Boolean finish;
+    /** Authoritative run terminal status (SUCCESS / FAILED / STOPPED / TIMEOUT). */
+    private String status;
+    private String errorCode;
+    private String errorMessage;
+    /** Compatibility alias consumed by the existing SSE envelope. */
+    private String errorMsg;
     private Map<String, String> ext;
 
     @Data

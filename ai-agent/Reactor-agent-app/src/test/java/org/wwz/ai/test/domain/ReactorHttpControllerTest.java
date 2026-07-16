@@ -4,7 +4,7 @@ import com.alibaba.fastjson.JSONObject;
 import org.junit.Assert;
 import org.junit.Test;
 import org.mockito.Mockito;
-import org.springframework.scheduling.concurrent.ConcurrentTaskScheduler;
+import org.springframework.scheduling.TaskScheduler;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.wwz.ai.application.agent.dataquery.DataAgentApplicationService;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -135,7 +135,7 @@ public class ReactorHttpControllerTest {
                 Mockito.mock(ConversationSessionOwnershipApplicationService.class));
         ReflectionTestUtils.setField(reactorController, "agentExecutorProperties", new AgentExecutorProperties());
         ReflectionTestUtils.setField(reactorController, "dispatchExecutor", (Executor) Runnable::run);
-        ReflectionTestUtils.setField(reactorController, "heartbeatScheduler", new ConcurrentTaskScheduler());
+        ReflectionTestUtils.setField(reactorController, "heartbeatScheduler", Mockito.mock(TaskScheduler.class));
 
         GptQueryReq gptQueryReq = new GptQueryReq();
         Mockito.doNothing().when(gptQueryIngressService).queryAgentStreamIncr(Mockito.eq(gptQueryReq), Mockito.any());

@@ -153,9 +153,15 @@ public class ModelCatalogAdapter implements ModelCatalogPort {
                 .functionCallType("function_call")
                 .maxTokens(DEFAULT_MAX_TOKENS)
                 .maxInputTokens(DEFAULT_MAX_INPUT_TOKENS)
+                .inputCreditsPerMillion(defaultRate(model.getInputCreditsPerMillion(), 5L))
+                .outputCreditsPerMillion(defaultRate(model.getOutputCreditsPerMillion(), 30L))
                 .temperature(0.0)
                 .extParams(new HashMap<>())
                 .build();
+    }
+
+    private long defaultRate(Long configured, long fallback) {
+        return configured != null && configured > 0 ? configured : fallback;
     }
 
     /** 不可变目录快照，含加载时间戳用于 TTL 判定。 */

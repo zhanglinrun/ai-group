@@ -17,6 +17,9 @@ public interface MemberFeignClient {
     @GetMapping("/api/member/summary")
     Result<Map<String, Object>> summary();
 
+    @GetMapping("/api/member/quota-ledger")
+    Result<List<Map<String, Object>>> quotaLedger();
+
     @GetMapping("/internal/benefits/orders/{orderId}/status")
     Result<Map<String, String>> benefitStatus(@org.springframework.web.bind.annotation.PathVariable("orderId") String orderId);
 }

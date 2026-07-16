@@ -1,3 +1,5 @@
+param([switch]$Detached)
+
 $ErrorActionPreference = "Stop"
 
 # Always use the local project virtual environment.
@@ -17,8 +19,11 @@ Push-Location $projectRoot
 try {
     Remove-Item Env:VIRTUAL_ENV -ErrorAction SilentlyContinue
 
-    # Single-process startup keeps the runtime environment stable.
-    $env:ENV = "prod"
+    # Single-process startup keeps the runtime environment stable without pretending local runs are production.
+    if (-not $env:ENV) {
+        $env:ENV = "local"
+    }
+    $env:REACTOR_TOOL_RELOAD = "false"
     $env:PYTHONIOENCODING = "utf-8"
 
     if (-not $env:SKILL_PYTHON_BIN) {
@@ -65,7 +70,18 @@ try {
         throw "Port $port is already in use by PID $($listener.OwningProcess): $commandLine"
     }
 
-    & $pythonExe "server.py" "--workers" "1"
+    $serverArgs = @("server.py", "--workers", "1")
+    if ($Detached) {
+        $process = Start-Process `
+            -FilePath $pythonExe `
+            -ArgumentList $serverArgs `
+            -WorkingDirectory $projectRoot `
+            -WindowStyle Hidden `
+            -PassThru
+        Write-Host "reactor-tool started in background (PID $($process.Id))."
+    } else {
+        & $pythonExe @serverArgs
+    }
 }
 finally {
     Pop-Location

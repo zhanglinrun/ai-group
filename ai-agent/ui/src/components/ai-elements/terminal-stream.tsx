@@ -34,11 +34,15 @@ const TerminalStreamTextComponent = ({
   const displayedRef = useRef('');
   const prevIsStreamingRef = useRef(isStreaming);
 
-  const [displayed, setDisplayed] = useState(isStreaming ? text : '');
+  const [displayed, setDisplayed] = useState(isStreaming ? '' : text);
 
   useEffect(() => {
     latestTextRef.current = text;
-  }, [text]);
+    if (!isStreaming) {
+      displayedRef.current = text;
+      setDisplayed(text);
+    }
+  }, [isStreaming, text]);
 
   useEffect(() => {
     let rafId: number | null = null;
@@ -53,9 +57,6 @@ const TerminalStreamTextComponent = ({
     };
 
     if (!isStreaming) {
-      stop();
-      displayedRef.current = text;
-      setDisplayed(text);
       prevIsStreamingRef.current = isStreaming;
       return;
     }

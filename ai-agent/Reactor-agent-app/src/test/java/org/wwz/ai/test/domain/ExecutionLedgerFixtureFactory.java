@@ -539,7 +539,7 @@ public final class ExecutionLedgerFixtureFactory {
         }
 
         @Override
-        public int insertLlmInvocation(LlmInvocation invocation) {
+        public synchronized int insertLlmInvocation(LlmInvocation invocation) {
             for (LlmInvocation existing : store.llmInvocations.values()) {
                 if (existing.getDeleted() == 0
                         && existing.getRunId().equals(invocation.getRunId())
@@ -567,6 +567,8 @@ public final class ExecutionLedgerFixtureFactory {
             existing.setPromptTokens(invocation.getPromptTokens());
             existing.setCompletionTokens(invocation.getCompletionTokens());
             existing.setTotalTokens(invocation.getTotalTokens());
+            existing.setUsageSource(invocation.getUsageSource());
+            existing.setChargedMicrocredits(invocation.getChargedMicrocredits());
             existing.setFinishReason(invocation.getFinishReason());
             existing.setErrorMsg(invocation.getErrorMsg());
             existing.setFinishedAt(invocation.getFinishedAt());
@@ -604,7 +606,7 @@ public final class ExecutionLedgerFixtureFactory {
         }
 
         @Override
-        public int insertToolInvocation(ToolInvocation invocation) {
+        public synchronized int insertToolInvocation(ToolInvocation invocation) {
             for (ToolInvocation existing : store.toolInvocations.values()) {
                 if (existing.getDeleted() != 0) {
                     continue;
@@ -722,7 +724,7 @@ public final class ExecutionLedgerFixtureFactory {
         }
 
         @Override
-        public int batchInsertArtifacts(List<ArtifactRecord> records) {
+        public synchronized int batchInsertArtifacts(List<ArtifactRecord> records) {
             int inserted = 0;
             for (ArtifactRecord record : records) {
                 boolean exists = store.artifacts.values().stream()
@@ -911,6 +913,10 @@ public final class ExecutionLedgerFixtureFactory {
                 .promptTokens(invocation.getPromptTokens())
                 .completionTokens(invocation.getCompletionTokens())
                 .totalTokens(invocation.getTotalTokens())
+                .inputRateSnapshot(invocation.getInputRateSnapshot())
+                .outputRateSnapshot(invocation.getOutputRateSnapshot())
+                .usageSource(invocation.getUsageSource())
+                .chargedMicrocredits(invocation.getChargedMicrocredits())
                 .finishReason(invocation.getFinishReason())
                 .status(invocation.getStatus())
                 .errorMsg(invocation.getErrorMsg())

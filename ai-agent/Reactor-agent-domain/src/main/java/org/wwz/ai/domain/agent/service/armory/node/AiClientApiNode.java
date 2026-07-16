@@ -5,7 +5,6 @@ import org.wwz.ai.domain.agent.model.valobj.enums.AiAgentEnumVO;
 import org.wwz.ai.domain.agent.model.valobj.AiClientApiVO;
 import org.wwz.ai.domain.agent.service.armory.node.factory.DefaultArmoryStrategyFactory;
 import cn.bugstack.wrench.design.framework.tree.StrategyHandler;
-import com.alibaba.fastjson.JSON;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.openai.api.OpenAiApi;
@@ -25,7 +24,10 @@ public class AiClientApiNode extends AbstractArmorySupport {
 
     @Override
     protected String doApply(ArmoryCommandEntity requestParameter, DefaultArmoryStrategyFactory.DynamicContext dynamicContext) throws Exception {
-        log.info("Ai Agent 构建节点，API 接口请求{}", JSON.toJSONString(requestParameter));
+        log.info("armory node start node=api commandType={} commandIdCount={}",
+                requestParameter == null ? null : requestParameter.getCommandType(),
+                requestParameter == null || requestParameter.getCommandIdList() == null
+                        ? 0 : requestParameter.getCommandIdList().size());
 
         //根据当前节点的处理类型 用每个节点自定义的dataName从枚举值里获取键所对应的值
         List<AiClientApiVO> aiClientApiList = dynamicContext.getValue(dataName());

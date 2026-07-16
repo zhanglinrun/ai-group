@@ -8,7 +8,7 @@ param(
     [int]$TimeoutSec = 180,
     [switch]$Judge,
     [string]$CasesFile = "cases.jsonl",
-    [int]$EvaluationQuota = 2000,
+    [long]$EvaluationQuota = 5000000,
     [string]$MysqlContainer = "ai-group-mysql",
     [string]$MysqlPassword = $(if ($env:MYSQL_ROOT_PASSWORD) { $env:MYSQL_ROOT_PASSWORD } else { "123456" }),
     [string]$ReportName = ""
@@ -35,9 +35,20 @@ function Escape-Sql([string]$Value) {
 }
 
 function Invoke-Mysql([string]$Sql) {
-    $output = $Sql | docker exec -i -e "MYSQL_PWD=$MysqlPassword" $MysqlContainer mysql -uroot -N -B
-    if ($LASTEXITCODE -ne 0) {
-        throw "mysql statement failed with exit code $LASTEXITCODE"
+    $previousMysqlPassword = $env:MYSQL_PWD
+    try {
+        $env:MYSQL_PWD = $MysqlPassword
+        $output = $Sql | docker exec -i -e MYSQL_PWD $MysqlContainer mysql -uroot -N -B
+        $mysqlExitCode = $LASTEXITCODE
+    } finally {
+        if ($null -eq $previousMysqlPassword) {
+            Remove-Item Env:MYSQL_PWD -ErrorAction SilentlyContinue
+        } else {
+            $env:MYSQL_PWD = $previousMysqlPassword
+        }
+    }
+    if ($mysqlExitCode -ne 0) {
+        throw "mysql statement failed with exit code $mysqlExitCode"
     }
     return @($output)
 }
@@ -279,7 +290,7 @@ $quotaRows = @(Invoke-Mysql "SELECT COUNT(*) FROM member_db.quota_account WHERE 
 if ($quotaRows.Count -ne 1 -or [int]$quotaRows[0] -ne 1) {
     throw "evaluation member quota account was not initialized for userId=$userId"
 }
-Invoke-Mysql "UPDATE member_db.quota_account SET period_quota_balance = GREATEST(period_quota_balance, $EvaluationQuota), topup_quota_balance = GREATEST(topup_quota_balance, $EvaluationQuota), frozen_balance = 0 WHERE user_id = $userId;" | Out-Null
+Invoke-Mysql "UPDATE member_db.quota_account SET free_quota_balance = $EvaluationQuota, paid_quota_balance = 0, frozen_balance = 0 WHERE user_id = $userId;" | Out-Null
 Write-Host "Evaluation user: $username (userId=$userId, isolated quota=$EvaluationQuota)"
 
 $cases = @(Get-Content -LiteralPath $casesPath | Where-Object { $_.Trim() } | ForEach-Object { $_ | ConvertFrom-Json })

@@ -64,7 +64,8 @@ public class SummaryResultNode extends AbstractExecuteSupport {
         }
 
         agentContext.getPrinter().send("result", taskResult);
-        // 执行链路可能吞掉异常后降级到总结，此时 run 终态必须记为失败，供历史回放与配额结算使用
+        // 执行链路可能吞掉异常后降级到总结，此时 run 终态必须记为失败供历史回放；
+        // LLM 配额已在每次调用结束时独立结算。
         boolean runFailed = agentContext.isRunFailed();
         ExecutionLedgerRunSupport.finishRun(
                 agentContext,

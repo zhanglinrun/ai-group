@@ -65,7 +65,7 @@ public class LlmChatResponseMapper {
 
         for (AssistantMessage.ToolCall toolCall : output.getToolCalls()) {
             if (toolCall == null || StringUtils.isBlank(toolCall.name())) {
-                log.warn("skip invalid spring-ai tool call: {}", toolCall);
+                log.warn("skip invalid unnamed spring-ai tool call");
                 continue;
             }
             toolCalls.add(ToolCall.builder()

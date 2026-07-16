@@ -15,7 +15,7 @@ import {
   hydrateConversationFromReplayFrames,
   isHistoryDetailEmpty,
 } from '@/utils/conversationHistory';
-import { deriveConversationMetaFromInput } from './homeState';
+import { deriveConversationMetaFromInput, resolveNewConversationMode } from './homeState';
 import { resolveInitialSessionId } from './sessionBootstrap';
 import { useRecentSessions } from './useRecentSessions';
 import WelcomeView from './WelcomeView';
@@ -78,7 +78,8 @@ const createConversation = (
 };
 
 const createInitialState = (): InitialState => {
-  const initialProduct = productList.find((item) => item.type === 'html') ?? defaultProduct;
+  // 新用户和“新聊天”默认进入普通对话，避免简单问答隐式附加网页报告要求。
+  const initialProduct = productList.find((item) => item.type === 'chat') ?? defaultProduct;
   return { productType: initialProduct.type };
 };
 
@@ -269,29 +270,23 @@ const Home: ReactorType.FC<HomeProps> = memo(() => {
   const createNewChat = useCallback(
     (override?: Partial<CHAT.ConversationHistory>) => {
       const nextSessionId = override?.sessionId || createSessionId();
-      const defaultStructuredProduct =
-        productList.find((item) => item.type === initialRef.current.productType) ?? defaultProduct;
-      const nextProductType =
-        override?.productType ||
-        (product.type === 'chat' ? defaultStructuredProduct.type : product.type);
+      const nextMode = resolveNewConversationMode(override);
+      const nextProductType = nextMode.productType;
       setActiveView('chat');
       setCurrentConversation(
         createConversation({
+          ...override,
           sessionId: nextSessionId,
           productType: nextProductType,
-          deepThink:
-            nextProductType === 'chat' || nextProductType === 'dataAgent'
-              ? false
-              : (override?.deepThink ?? false),
+          deepThink: nextMode.deepThink,
           role:
             override?.role ||
             (nextProductType === 'chat' ? toConversationRole(defaultFixRole) : null),
-          ...override,
         }),
       );
       resetInput();
     },
-    [defaultFixRole, product.type, resetInput],
+    [defaultFixRole, resetInput],
   );
 
   const updateCurrentConversationMeta = useCallback((meta: Partial<CHAT.ConversationHistory>) => {
@@ -305,6 +300,13 @@ const Home: ReactorType.FC<HomeProps> = memo(() => {
   const onInputConsumed = useCallback(() => {
     resetInput();
   }, [resetInput]);
+
+  const handleRunSettled = useCallback(() => {
+    // 最终 SSE 帧可能略早于账本事务提交，短暂延后再拉取可避免新会话仍不在侧栏。
+    window.setTimeout(() => {
+      void refreshRecentSessions(true);
+    }, 300);
+  }, [refreshRecentSessions]);
 
   const handleSelectRecentSession = useCallback(
     (session: ConversationSessionItem) => {
@@ -366,8 +368,7 @@ const Home: ReactorType.FC<HomeProps> = memo(() => {
 
       updateCurrentConversationMeta({
         productType: nextProduct.type,
-        deepThink:
-          nextProduct.type === 'chat' || nextProduct.type === 'dataAgent' ? false : nextDeepThink,
+        deepThink: nextProduct.type === 'dataAgent' ? false : nextDeepThink,
         role:
           nextProduct.type === 'chat'
             ? currentConversation.role || toConversationRole(defaultFixRole)
@@ -450,6 +451,7 @@ const Home: ReactorType.FC<HomeProps> = memo(() => {
               onSelectionChange={handleInputSelectionChange}
               onInputConsumed={onInputConsumed}
               onSelectModel={handleSelectModel}
+              onRunSettled={handleRunSettled}
             />
           ) : (
             <WelcomeView

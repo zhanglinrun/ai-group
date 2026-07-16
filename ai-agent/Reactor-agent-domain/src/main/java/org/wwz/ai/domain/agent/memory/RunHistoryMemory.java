@@ -26,6 +26,12 @@ public class RunHistoryMemory {
 
     private String entryAgent;
 
+    /** 用户原始诉求；作为历史数据而非指令注入。 */
+    private String queryText;
+
+    /** run 结束时生成的结论摘要，替代原始 chain-of-thought 回灌。 */
+    private String finalSummaryText;
+
     @Builder.Default
     private List<FileArtifactMemory> sessionInputFiles = new ArrayList<>();
 

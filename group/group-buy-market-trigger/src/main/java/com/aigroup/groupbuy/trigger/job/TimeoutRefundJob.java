@@ -16,8 +16,8 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 /**
- * @author Fuzhengwei bugstack.cn @????
- * @description ??????????????
+ * @author Fuzhengwei (bugstack.cn)
+ * @description 拼团超时退款任务
  * @create 2025-01-31 15:00
  */
 @Slf4j
@@ -34,18 +34,18 @@ public class TimeoutRefundJob {
     private RedissonClient redissonClient;
 
     /**
-     * ???????????????
+     * 定时扫描并处理超时拼团订单。
      */
     @Scheduled(cron = "0 */1 * * * ?")
     public void exec() {
-        // ??????????????
+        // 获取分布式锁，避免多个实例重复执行任务
         RLock lock = redissonClient.getLock("group_buy_market_timeout_refund_job_exec");
         try {
-            // waitTime????????????
-            // leaseTime????????????
+            // waitTime：等待获取锁的最长时间
+            // leaseTime：获取锁后的自动释放时间
             boolean isLocked = lock.tryLock(3, 60, TimeUnit.SECONDS);
             if (!isLocked) {
-                log.info("?????????????????????");
+                log.info("未获取到超时退款任务锁，本轮跳过");
                 return;
             }
 

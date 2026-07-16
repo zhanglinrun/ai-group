@@ -41,6 +41,7 @@ type Props = {
   onSelectionChange?: (selection: { product: CHAT.Product; deepThink: boolean }) => void;
   onInputConsumed?: () => void;
   onSelectModel?: (modelId: string) => void;
+  onRunSettled?: (sessionId: string) => void;
 };
 
 const getProductByType = (type?: string) => {
@@ -64,6 +65,7 @@ const ChatView: ReactorType.FC<Props> = (props) => {
     onSelectionChange,
     onInputConsumed,
     onSelectModel,
+    onRunSettled,
   } = props;
 
   const [activeTask, setActiveTask] = useState<CHAT.Task>();
@@ -99,11 +101,13 @@ const ChatView: ReactorType.FC<Props> = (props) => {
     loading: streamLoading,
     streamingThoughtMap,
     sendMessage,
+    resumeFromCheckpoint,
     regenerateLastMessage,
   } = useConversationStream({
     conversation,
     selectedModelId,
     onConversationChange,
+    onRunSettled,
     onPrepareStreamingWorkspace: () => {
       // 新一轮请求开始后，工作区恢复自动跟随，避免仍停留在上一轮手动点开的旧任务上。
       setActiveTask(undefined);
@@ -399,6 +403,8 @@ const ChatView: ReactorType.FC<Props> = (props) => {
               changeFile={changeFile}
               changePlan={changePlan}
               onRegenerate={handleRegenerate}
+              resumeDisabled={loading}
+              onResumeCheckpoint={resumeFromCheckpoint}
             />
           ))}
         </motion.div>
@@ -435,6 +441,8 @@ const ChatView: ReactorType.FC<Props> = (props) => {
               changeFile={changeFile}
               changePlan={changePlan}
               onRegenerate={handleRegenerate}
+              resumeDisabled={loading}
+              onResumeCheckpoint={resumeFromCheckpoint}
             />
           </motion.div>
         ))}
@@ -517,7 +525,7 @@ const ChatView: ReactorType.FC<Props> = (props) => {
                 {conversation.deepThink && (
                   <div className="flex shrink-0 items-center gap-1.5 rounded-full bg-[var(--chat-surface-muted)] px-3 py-1 text-[12px] font-medium text-[var(--chat-text-soft)]">
                     <i className="font_family icon-shendusikao text-[11px]"></i>
-                    <span>深度研究</span>
+                    <span>{conversation.productType === 'chat' ? '深度思考' : '深度研究'}</span>
                   </div>
                 )}
               </div>
@@ -609,7 +617,7 @@ const ChatView: ReactorType.FC<Props> = (props) => {
                     {conversation.deepThink && (
                       <div className="flex shrink-0 items-center gap-1.5 rounded-full bg-[#1d1d1f] px-3 py-1 text-[12px] font-medium text-white">
                         <i className="font_family icon-shendusikao text-[11px]"></i>
-                        <span>深度研究</span>
+                        <span>{conversation.productType === 'chat' ? '深度思考' : '深度研究'}</span>
                       </div>
                     )}
                   </div>

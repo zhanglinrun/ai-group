@@ -22,6 +22,8 @@ type BuildAgentStreamRequestInput = {
   fallbackRoleAgentId?: string;
   /** 用户在输入框选择的模型 ID；为空则由后端走默认模型逻辑。 */
   modelId?: string;
+  resumeCheckpointId?: string;
+  resumeDecision?: CHAT.CheckpointResumeDecision;
 };
 
 const resolvePreviewUrl = (file: CHAT.TFile) =>
@@ -65,18 +67,23 @@ export const buildAgentStreamRequest = ({
   aiAgentId,
   fallbackRoleAgentId,
   modelId,
+  resumeCheckpointId,
+  resumeDecision,
 }: BuildAgentStreamRequestInput) => {
   const sessionFiles = mapSessionFiles(files);
   const resolvedAgentId = aiAgentId || fallbackRoleAgentId;
+  const resolvedResumeDecision = resumeCheckpointId ? resumeDecision || 'SAFE_ONLY' : undefined;
 
   return {
     sessionId,
     requestId,
     query: message,
-    deepThink: deepThink ? 1 : 0,
+    // Checkpoint 只属于 Plan-Solve；恢复请求即使调用方状态陈旧也必须进入 Plan-Solve。
+    deepThink: resumeCheckpointId ? 1 : deepThink ? 1 : 0,
     outputStyle,
     ...(sessionFiles.length ? { sessionFiles } : {}),
     ...(outputStyle === 'chat' && resolvedAgentId ? { aiAgentId: resolvedAgentId } : {}),
     ...(modelId ? { modelId } : {}),
+    ...(resumeCheckpointId ? { resumeCheckpointId, resumeDecision: resolvedResumeDecision } : {}),
   };
 };

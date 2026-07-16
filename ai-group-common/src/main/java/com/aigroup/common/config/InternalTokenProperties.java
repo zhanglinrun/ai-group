@@ -12,5 +12,5 @@ public class InternalTokenProperties {
     /**
      * Shared secret for /internal/** service-to-service calls.
      */
-    private String token = "ai-group-dev-internal-token-change-in-prod";
+    private String token = "change-me-to-a-long-random-internal-token";
 }

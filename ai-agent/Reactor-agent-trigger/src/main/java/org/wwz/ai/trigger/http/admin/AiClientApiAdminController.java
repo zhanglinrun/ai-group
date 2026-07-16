@@ -45,7 +45,7 @@ public class AiClientApiAdminController implements IAiClientApiAdminService {
     @PostMapping("/create")
     public Response<Boolean> createAiClientApi(@RequestBody AiClientApiRequestDTO request) {
         try {
-            log.info("创建AI客户端API配置请求：{}", request);
+            log.info("创建AI客户端API配置请求");
 
             // DTO转PO
             AiClientApi aiClientApi = convertToAiClientApi(request);
@@ -74,7 +74,7 @@ public class AiClientApiAdminController implements IAiClientApiAdminService {
     @PutMapping("/update-by-id")
     public Response<Boolean> updateAiClientApiById(@RequestBody AiClientApiRequestDTO request) {
         try {
-            log.info("根据ID更新AI客户端API配置请求：{}", request);
+            log.info("根据ID更新AI客户端API配置请求");
 
             if (request.getId() == null) {
                 return Response.<Boolean>builder()
@@ -110,7 +110,7 @@ public class AiClientApiAdminController implements IAiClientApiAdminService {
     @PutMapping("/update-by-api-id")
     public Response<Boolean> updateAiClientApiByApiId(@RequestBody AiClientApiRequestDTO request) {
         try {
-            log.info("根据API ID更新AI客户端API配置请求：{}", request);
+            log.info("根据API ID更新AI客户端API配置请求");
 
             if (!StringUtils.hasText(request.getApiId())) {
                 return Response.<Boolean>builder()
@@ -290,7 +290,7 @@ public class AiClientApiAdminController implements IAiClientApiAdminService {
     @PostMapping("/query-list")
     public Response<List<AiClientApiResponseDTO>> queryAiClientApiList(@RequestBody AiClientApiQueryRequestDTO request) {
         try {
-            log.info("分页查询AI客户端API配置列表请求：{}", request);
+            log.info("分页查询AI客户端API配置列表请求");
 
             // 这里需要根据实际的DAO实现来调整，如果DAO没有分页查询方法，需要先添加
             // 暂时使用查询所有然后过滤的方式

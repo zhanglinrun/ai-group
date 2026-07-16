@@ -1,6 +1,5 @@
 package org.wwz.ai.config;
 
-import com.alibaba.fastjson.JSON;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
@@ -33,7 +32,7 @@ public class AiAgentAutoConfiguration implements ApplicationListener<Application
     @Override
     public void onApplicationEvent(ApplicationReadyEvent event) {
         try {
-            log.info("AI Agent 自动装配开始，配置: {}", aiAgentAutoConfigProperties);
+            log.info("AI Agent 自动装配开始 enabled={}", aiAgentAutoConfigProperties.isEnabled());
 
             // 检查配置是否有效
             if (!aiAgentAutoConfigProperties.isEnabled()) {
@@ -44,9 +43,9 @@ public class AiAgentAutoConfiguration implements ApplicationListener<Application
             // 运行时策略工厂仍由 Spring 提前装配，这里只触发应用层入口，不在 app 内拼业务逻辑。
             List<AiAgentVO> aiAgentVOS = armoryService.acceptArmoryAllAvailableAgents();
 
-            log.info("AI Agent 自动装配完成 {}", JSON.toJSONString(aiAgentVOS));
+            log.info("AI Agent 自动装配完成 agentCount={}", aiAgentVOS == null ? 0 : aiAgentVOS.size());
         } catch (Exception e) {
-            log.error("AI Agent 自动装配失败", e);
+            log.error("AI Agent 自动装配失败 errorType={}", e.getClass().getSimpleName());
         }
     }
 

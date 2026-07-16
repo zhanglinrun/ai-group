@@ -5,12 +5,13 @@ import tailwindcss from '@tailwindcss/vite';
 import { createToolProxyConfig } from './toolProxy';
 
 export default defineConfig(({ mode }) => {
-  const repoRoot = path.resolve(__dirname, '../../..');
+  const repoRoot = path.resolve(__dirname, '../..');
   const env = loadEnv(mode, repoRoot, '');
   const apiTarget = env.VITE_API_TARGET || 'http://127.0.0.1:8080';
   const agentBase = env.SERVICE_BASE_URL || apiTarget;
   const toolBase =
     env.REACTOR_TOOL_BASE_URL || env.AGENT_GROUP_REACTOR_TOOL_BASE_URL || 'http://127.0.0.1:1601';
+  const toolToken = env.AGENT_GROUP_REACTOR_TOOL_TOKEN || env.AI_GROUP_INTERNAL_TOKEN || '';
 
   return {
     plugins: [react(), tailwindcss()],
@@ -47,7 +48,7 @@ export default defineConfig(({ mode }) => {
           target: apiTarget,
           changeOrigin: true,
         },
-        '/tool': createToolProxyConfig(toolBase),
+        '/tool': createToolProxyConfig(toolBase, toolToken),
       },
     },
     define: {

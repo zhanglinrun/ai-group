@@ -42,6 +42,14 @@ public class LlmInvocationView {
 
     private Integer totalTokens;
 
+    private Long inputRateSnapshot;
+
+    private Long outputRateSnapshot;
+
+    private String usageSource;
+
+    private Long chargedMicrocredits;
+
     private String finishReason;
 
     private Integer status;

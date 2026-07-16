@@ -58,7 +58,7 @@ public class DynamicAutoAgentTest {
                         .build())
                 .defaultOptions(OpenAiChatOptions.builder()
                         .model("gpt-4.1")
-                        .toolCallbacks(new SyncMcpToolCallbackProvider(sseMcpClient_BaiduSearch(), stdioMcpClient()).getToolCallbacks())
+                        .toolCallbacks(SyncMcpToolCallbackProvider.builder().mcpClients(sseMcpClient_BaiduSearch(), stdioMcpClient()).build().getToolCallbacks())
                         .build())
                 .build();
     }
@@ -86,7 +86,7 @@ public class DynamicAutoAgentTest {
                 .build();
 
         var mcpClient = McpClient.sync(new StdioClientTransport(stdioParams,
-                        new io.modelcontextprotocol.json.jackson.JacksonMcpJsonMapper(new com.fasterxml.jackson.databind.ObjectMapper())))
+                        new io.modelcontextprotocol.json.jackson2.JacksonMcpJsonMapper(new com.fasterxml.jackson.databind.ObjectMapper())))
                 .requestTimeout(Duration.ofSeconds(10)).build();
 
         var init = mcpClient.initialize();
@@ -404,7 +404,7 @@ public class DynamicAutoAgentTest {
             // 解析技术栈
             JsonNode techStackNode = jsonNode.get("techStack");
             Map<String, List<String>> techStack = new HashMap<>();
-            techStackNode.fields().forEachRemaining(entry -> {
+            techStackNode.properties().forEach(entry -> {
                 List<String> values = new ArrayList<>();
                 entry.getValue().forEach(item -> values.add(item.asText()));
                 techStack.put(entry.getKey(), values);

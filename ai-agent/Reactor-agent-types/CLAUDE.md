@@ -1,4 +1,4 @@
-[根目录](../CLAUDE.md) > **ai-agent-station-study-types**
+[Agent 项目说明](../README.md) > **Reactor-agent-types**
 
 # ai-agent-station-study-types 模块
 

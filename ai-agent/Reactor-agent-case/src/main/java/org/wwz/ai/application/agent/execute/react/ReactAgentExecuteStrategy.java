@@ -56,7 +56,8 @@ public class ReactAgentExecuteStrategy implements IExecuteStrategy {
 
         try {
             String result = executeHandler.apply(request, dynamicContext);
-            log.info("ReactAgent execute result: {}", result);
+            log.info("{} ReactAgent execution finished resultChars={}",
+                    request == null ? null : request.getRequestId(), result == null ? 0 : result.length());
         } catch (Exception e) {
             ExecutionLedgerRunSupport.finishRun(
                     dynamicContext.getAgentContext(),

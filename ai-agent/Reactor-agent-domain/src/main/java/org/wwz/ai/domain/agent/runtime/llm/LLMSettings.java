@@ -42,5 +42,15 @@ public class LLMSettings {
     @JSONField(name = "max_input_tokens")
     private int maxInputTokens;
 
+    /** Credits charged per one million input tokens. */
+    @Builder.Default
+    @JSONField(name = "input_credits_per_million")
+    private long inputCreditsPerMillion = 5L;
+
+    /** Credits charged per one million output tokens. */
+    @Builder.Default
+    @JSONField(name = "output_credits_per_million")
+    private long outputCreditsPerMillion = 30L;
+
     private Map<String, Object> extParams;
 }

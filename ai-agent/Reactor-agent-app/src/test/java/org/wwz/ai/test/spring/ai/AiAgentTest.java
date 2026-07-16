@@ -14,7 +14,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.chat.client.advisor.PromptChatMemoryAdvisor;
+import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
 import org.springframework.ai.chat.client.advisor.SimpleLoggerAdvisor;
 import org.springframework.ai.chat.memory.MessageWindowChatMemory;
 import org.springframework.ai.chat.messages.AssistantMessage;
@@ -69,9 +69,9 @@ public class AiAgentTest {
                 .openAiApi(openAiApi)
                 .defaultOptions(OpenAiChatOptions.builder()
                         .model("deepseek-v3.2")
-                        .toolCallbacks(new SyncMcpToolCallbackProvider(stdioMcpClient(),
+                        .toolCallbacks(SyncMcpToolCallbackProvider.builder().mcpClients(stdioMcpClient(),
 //                                sseMcpClient01(),
-                                sseMcpClient02()).getToolCallbacks())
+                                sseMcpClient02()).build().getToolCallbacks())
                         .build())
                 .build();
 
@@ -87,11 +87,11 @@ public class AiAgentTest {
                         	 3. 获取发送到 CSDN 文章的 URL 地址。
                         	 4. 微信公众号消息通知，平台：CSDN、主题：为文章标题、描述：为文章简述、跳转地址：从发布文章到CSDN获取 URL 地址
                         """)
-                .defaultToolCallbacks(new SyncMcpToolCallbackProvider(stdioMcpClient(),
+                .defaultToolCallbacks(SyncMcpToolCallbackProvider.builder().mcpClients(stdioMcpClient(),
 //                        sseMcpClient01(),
-                        sseMcpClient02()).getToolCallbacks())
+                        sseMcpClient02()).build().getToolCallbacks())
                 .defaultAdvisors(
-                        PromptChatMemoryAdvisor.builder(
+                        MessageChatMemoryAdvisor.builder(
                                 MessageWindowChatMemory.builder()
                                         .maxMessages(100)
                                         .build()
@@ -219,7 +219,7 @@ public class AiAgentTest {
                         请基于以上模板，优化并扩展以下prompt，确保内容专业、完整且结构清晰，注意不要携带任何引导词或解释，不要使用代码块包围。
                         """)
                 .defaultAdvisors(
-                        PromptChatMemoryAdvisor.builder(
+                        MessageChatMemoryAdvisor.builder(
                                 MessageWindowChatMemory.builder()
                                         .maxMessages(100)
                                         .build()
@@ -254,11 +254,11 @@ public class AiAgentTest {
                         	 3. 获取发送到 CSDN 文章的 URL 地址。
                         	 4. 微信公众号消息通知，平台：CSDN、主题：为文章标题、描述：为文章简述、跳转地址：为发布文章到CSDN获取 URL地址 CSDN文章链接 https 开头的地址。
                         """)
-                .defaultToolCallbacks(new SyncMcpToolCallbackProvider(
+                .defaultToolCallbacks(SyncMcpToolCallbackProvider.builder().mcpClients(
 //                        sseMcpClient01(),
-                        sseMcpClient02()))
+                        sseMcpClient02()).build())
                 .defaultAdvisors(
-                        PromptChatMemoryAdvisor.builder(
+                        MessageChatMemoryAdvisor.builder(
                                 MessageWindowChatMemory.builder()
                                         .maxMessages(100)
                                         .build()
@@ -288,7 +288,7 @@ public class AiAgentTest {
                 .build();
 
         var mcpClient = McpClient.sync(new StdioClientTransport(stdioParams,
-                        new io.modelcontextprotocol.json.jackson.JacksonMcpJsonMapper(new com.fasterxml.jackson.databind.ObjectMapper())))
+                        new io.modelcontextprotocol.json.jackson2.JacksonMcpJsonMapper(new com.fasterxml.jackson.databind.ObjectMapper())))
                 .requestTimeout(Duration.ofSeconds(10)).build();
 
         var init = mcpClient.initialize();

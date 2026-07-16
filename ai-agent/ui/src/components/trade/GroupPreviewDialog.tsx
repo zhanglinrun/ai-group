@@ -52,8 +52,8 @@ const TeamRow = memo(
           <div>
             <div className="text-sm font-medium">队伍 {shortTeamId(teamId)}</div>
             <div className="mt-1 text-xs text-[var(--chat-text-soft)]">
-              已支付 {tiered ? tierView.complete : complete}/{tiered ? tierView.maxTarget : target} 人
-              {countdown ? (ended ? ` · ${COUNTDOWN_ENDED}` : ` · 剩余 ${countdown}`) : ''}
+              已支付 {tiered ? tierView.complete : complete}/{tiered ? tierView.maxTarget : target}{' '}
+              人{countdown ? (ended ? ` · ${COUNTDOWN_ENDED}` : ` · 剩余 ${countdown}`) : ''}
             </div>
           </div>
           <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
@@ -73,13 +73,19 @@ const TeamRow = memo(
         {tiered ? (
           <div className="mt-3 flex items-center justify-between rounded-xl bg-[var(--chat-surface-soft)] px-3 py-2 text-xs">
             <span className="text-[var(--chat-text-soft)]">
-              当前 <span className="font-medium text-[var(--chat-text)]">{formatQuota(tierView.currentQuota)}</span>
+              当前{' '}
+              <span className="font-medium text-[var(--chat-text)]">
+                {formatQuota(tierView.currentQuota)}
+              </span>
             </span>
             {tierView.reachedMax ? (
               <span className="font-medium text-emerald-600">已封顶</span>
             ) : (
               <span className="text-[var(--chat-text-soft)]">
-                下一档 <span className="font-medium text-[var(--chat-text)]">{formatQuota(tierView.nextQuota)}</span>
+                下一档{' '}
+                <span className="font-medium text-[var(--chat-text)]">
+                  {formatQuota(tierView.nextQuota)}
+                </span>
                 <span className="ml-1 text-orange-600">+{tierView.boost}</span>
               </span>
             )}
@@ -106,13 +112,8 @@ TeamRow.displayName = 'TeamRow';
 
 const GroupPreviewDialog = memo(
   ({ sku, groupBuy, loading, buyingKey, onClose, onBuy }: GroupPreviewDialogProps) => {
-    const goods = groupBuy?.goods;
     const theme = skuTheme(sku.code);
-    // 优先展示该 SKU 自己的拼团价（月卡/年卡/加油包各自独立活动），回退页面级 goods
-    const groupPrice = sku.groupPayPrice ?? goods?.payPrice ?? sku.price;
-    const originPrice = sku.groupOriginalPrice ?? goods?.originalPrice ?? sku.price;
-    const deductionPrice = sku.groupDeductionPrice ?? goods?.deductionPrice;
-    // 只展示属于该 SKU 活动的队伍，避免跨套餐加错团
+    // 只展示属于该额度包活动的队伍，避免跨套餐加错团
     const teamList = (groupBuy?.teamList ?? []).filter(
       (team) =>
         sku.groupActivityId == null ||
@@ -137,7 +138,7 @@ const GroupPreviewDialog = memo(
             <div className="min-w-0 flex-1">
               <div className="truncate text-lg font-medium">{skuDisplayName(sku)}</div>
               <div className="mt-1 text-sm text-[var(--chat-text-soft)]">
-                拼团支付成功后等待成团；成团后自动开通 Pro 并发放配额。
+                拼团与直购同价；成团后按人数档位发放基础额度和赠送额度。
               </div>
             </div>
             <button
@@ -153,29 +154,22 @@ const GroupPreviewDialog = memo(
             <section
               className={`rounded-2xl border border-[var(--chat-border)] bg-gradient-to-br ${theme.gradient} p-5`}
             >
-              <div className="text-sm text-[var(--chat-text-soft)]">拼团价格</div>
-              <div className="mt-2 text-3xl font-semibold">{formatPrice(groupPrice)}</div>
+              <div className="text-sm text-[var(--chat-text-soft)]">直购 / 拼团同价</div>
+              <div className="mt-2 text-3xl font-semibold">{formatPrice(sku.price)}</div>
               <div className="mt-2 text-sm text-[var(--chat-text-soft)]">
-                原价 {formatPrice(originPrice)}
-                {deductionPrice != null && deductionPrice > 0 ? (
-                  <span className="ml-2 font-medium text-emerald-600">
-                    省 {formatPrice(deductionPrice)}
-                  </span>
-                ) : null}
+                人数越多，赠送额度越多
               </div>
               <div className="mt-4 grid grid-cols-2 gap-2 text-sm">
-                {sku.periodQuota != null ? (
+                {sku.baseQuota != null ? (
                   <div className="rounded-xl bg-white/70 px-3 py-2 dark:bg-white/10">
-                    <div className="text-xs text-[var(--chat-text-soft)]">周期配额</div>
-                    <div className="mt-1 font-medium">{formatQuota(sku.periodQuota)}</div>
+                    <div className="text-xs text-[var(--chat-text-soft)]">基础额度</div>
+                    <div className="mt-1 font-medium">{formatQuota(sku.baseQuota)}</div>
                   </div>
                 ) : null}
-                {sku.memberDays != null ? (
-                  <div className="rounded-xl bg-white/70 px-3 py-2 dark:bg-white/10">
-                    <div className="text-xs text-[var(--chat-text-soft)]">有效期</div>
-                    <div className="mt-1 font-medium">{sku.memberDays} 天</div>
-                  </div>
-                ) : null}
+                <div className="rounded-xl bg-white/70 px-3 py-2 dark:bg-white/10">
+                  <div className="text-xs text-[var(--chat-text-soft)]">有效期</div>
+                  <div className="mt-1 font-medium">永久有效</div>
+                </div>
               </div>
               {ladder.length > 0 ? (
                 <div className="mt-4 overflow-hidden rounded-xl border border-white/60 bg-white/60 dark:bg-white/5">
@@ -246,7 +240,7 @@ const GroupPreviewDialog = memo(
 
           <div className="mt-4 flex items-center gap-2 rounded-2xl bg-[var(--chat-surface-soft)] px-4 py-3 text-xs text-[var(--chat-text-soft)]">
             <CreditCard className="h-3.5 w-3.5 shrink-0" />
-            <span>支付将跳转支付宝沙箱，完成后请回到「订单记录」查看成团进度。</span>
+            <span>下单后将弹出支付二维码，完成后请到「订单记录」查看成团进度。</span>
           </div>
         </div>
       </div>

@@ -7,6 +7,7 @@ import org.wwz.ai.domain.agent.adapter.port.FileArtifactPort;
 import org.wwz.ai.domain.agent.adapter.port.ModelCatalogPort;
 import org.wwz.ai.domain.agent.adapter.port.RemoteHttpPort;
 import org.wwz.ai.domain.agent.adapter.port.RemoteStreamPort;
+import org.wwz.ai.domain.agent.adapter.port.QuotaBillingPort;
 import org.wwz.ai.domain.agent.runtime.llm.LLMSettings;
 import org.wwz.ai.domain.agent.runtime.tool.mcp.runtime.McpToolExecutor;
 import org.wwz.ai.domain.agent.reactor.config.ReactorConfig;
@@ -44,6 +45,9 @@ public class ReactorRuntimeDependencies {
 
     /** 模型目录端口，供用户按 modelId 覆盖模型时解析 DB 配置。可为空（未装配时回退静态配置）。 */
     ModelCatalogPort modelCatalogPort;
+
+    /** Optional only for isolated tests; production requests with an owner require this port. */
+    QuotaBillingPort quotaBillingPort;
 
     //预留给之后并发调用llm
     Executor llmExecutor;
@@ -160,6 +164,8 @@ public class ReactorRuntimeDependencies {
                 .functionCallType(env.getProperty("llm.default.function_call_type", "function_call"))
                 .apiKey(env.getProperty("llm.default.apikey", ""))
                 .maxInputTokens(parseInt(env.getProperty("llm.default.max_input_tokens"), 100000))
+                .inputCreditsPerMillion(parseLong(env.getProperty("llm.default.input_credits_per_million"), 5L))
+                .outputCreditsPerMillion(parseLong(env.getProperty("llm.default.output_credits_per_million"), 30L))
                 .extParams(new HashMap<>())
                 .build();
     }
@@ -181,6 +187,18 @@ public class ReactorRuntimeDependencies {
         }
         try {
             return Double.parseDouble(value.trim());
+        } catch (NumberFormatException ignore) {
+            return defaultValue;
+        }
+    }
+
+    private long parseLong(String value, long defaultValue) {
+        if (value == null || value.isBlank()) {
+            return defaultValue;
+        }
+        try {
+            long parsed = Long.parseLong(value.trim());
+            return parsed > 0 ? parsed : defaultValue;
         } catch (NumberFormatException ignore) {
             return defaultValue;
         }

@@ -1,7 +1,9 @@
 package org.wwz.ai.test.domain;
 
 import org.junit.Assert;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
 import org.wwz.ai.domain.agent.runtime.dto.Message;
 import org.wwz.ai.domain.agent.runtime.dto.tool.ToolCall;
 import org.wwz.ai.domain.agent.runtime.enums.AgentState;
@@ -9,13 +11,19 @@ import org.wwz.ai.domain.agent.runtime.evaluation.PlanEvaluationPolicy;
 import org.wwz.ai.domain.agent.runtime.evaluation.PlanEvaluationRequest;
 import org.wwz.ai.domain.agent.runtime.evaluation.PlanEvaluationResult;
 import org.wwz.ai.domain.agent.runtime.evaluation.PlanExecutionEvaluator;
+import org.wwz.ai.domain.agent.runtime.evaluation.PlanOutcomeEvidence;
 import org.wwz.ai.domain.agent.runtime.evaluation.PlanReflectionBudget;
 
+import java.net.URI;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class PlanExecutionEvaluatorTest {
+
+    @Rule
+    public TemporaryFolder temporaryFolder = new TemporaryFolder();
 
     @Test
     public void shouldAcceptCompleteResultWithSuccessfulToolEvidence() {
@@ -149,6 +157,77 @@ public class PlanExecutionEvaluatorTest {
         Assert.assertTrue(result.accepted());
         Assert.assertTrue(judgePrompt.get().contains("今天是 2026年7月13日"));
         Assert.assertTrue(judgePrompt.get().contains("Qdrant official hybrid query documentation"));
+    }
+
+    @Test
+    public void shouldAcceptServerVerifiedTestCitationAndArtifactOutcomes() throws Exception {
+        Path artifact = temporaryFolder.newFile("verified-report.md").toPath();
+        PlanExecutionEvaluator evaluator = new PlanExecutionEvaluator(
+                policy(false, 75, 6000),
+                null,
+                request -> List.of(
+                        PlanOutcomeEvidence.testResult("maven-unit-tests", true, 0, 18, 0,
+                                "target/surefire-reports"),
+                        PlanOutcomeEvidence.citation("official-api", true,
+                                URI.create("https://docs.example.test/api"), 200),
+                        PlanOutcomeEvidence.artifact("markdown-report", true, artifact)
+                )
+        );
+
+        PlanEvaluationResult result = evaluator.evaluate(new PlanEvaluationRequest(
+                "实现并验证报告生成", "运行测试、核验引用并生成产物",
+                "测试、引用解析和报告文件均已经由运行时验证完成。",
+                List.of(), AgentState.FINISHED, 1), new PlanReflectionBudget(6000));
+
+        Assert.assertTrue(result.accepted());
+        Assert.assertTrue(result.failureReasons().isEmpty());
+    }
+
+    @Test
+    public void shouldRejectUnverifiedRequiredOutcomesEvenWhenJudgeScoresPerfectly() {
+        PlanExecutionEvaluator evaluator = new PlanExecutionEvaluator(
+                policy(true, 75, 6000),
+                (system, user, timeout) -> """
+                        {"completeness":100,"factualConsistency":100,"toolEvidence":100,"overall":100,
+                         "failureReasons":[],"replanInstruction":""}
+                        """,
+                request -> List.of(
+                        PlanOutcomeEvidence.testResult("maven-unit-tests", true, 1, 18, 1,
+                                "target/surefire-reports"),
+                        PlanOutcomeEvidence.citation("missing-source", true,
+                                URI.create("https://docs.example.test/missing"), 404),
+                        PlanOutcomeEvidence.artifact("missing-report", true,
+                                Path.of("target", "does-not-exist", "report.md"))
+                )
+        );
+
+        PlanEvaluationResult result = evaluator.evaluate(new PlanEvaluationRequest(
+                "实现并验证报告生成", "运行测试、核验引用并生成产物",
+                "模型声称测试、引用和产物全部成功，但运行时证据并不支持该结论。",
+                List.of(), AgentState.FINISHED, 1), new PlanReflectionBudget(6000));
+
+        Assert.assertFalse(result.accepted());
+        Assert.assertTrue(result.failureReasons().stream().anyMatch(reason -> reason.contains("test outcome")));
+        Assert.assertTrue(result.failureReasons().stream().anyMatch(reason -> reason.contains("citation outcome")));
+        Assert.assertTrue(result.failureReasons().stream().anyMatch(reason -> reason.contains("artifact outcome")));
+    }
+
+    @Test
+    public void shouldFailClosedWhenConfiguredOutcomeAdapterThrows() {
+        PlanExecutionEvaluator evaluator = new PlanExecutionEvaluator(
+                policy(false, 75, 6000),
+                null,
+                request -> {
+                    throw new IllegalStateException("artifact registry unavailable");
+                }
+        );
+
+        PlanEvaluationResult result = evaluator.evaluate(new PlanEvaluationRequest(
+                "生成可验证结果", "生成报告", "已经生成一份完整且内容充分的报告。",
+                List.of(), AgentState.FINISHED, 1), new PlanReflectionBudget(6000));
+
+        Assert.assertFalse(result.accepted());
+        Assert.assertTrue(result.failureReasons().contains("required outcome verification adapter failed"));
     }
 
     private PlanEvaluationPolicy policy(boolean llmJudgeEnabled, int threshold, int budget) {

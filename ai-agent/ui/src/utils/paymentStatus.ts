@@ -1,24 +1,17 @@
 import type { AccountSummary } from '@/services/bff';
 
-export type PaymentOutcome = 'paid-waiting-group' | 'pro-active';
+export type PaymentOutcome = 'paid-waiting-group' | 'quota-granted';
 
 export function resolvePaymentOutcome(summary: AccountSummary): PaymentOutcome {
-  const tier = (summary.tier || '').toUpperCase();
-  const hasActivePro =
-    tier === 'PRO' &&
-    Boolean(summary.expireAt) &&
-    new Date(summary.expireAt as string).getTime() > Date.now();
-
-  if (hasActivePro) {
-    return 'pro-active';
+  if ((summary.pendingGroupOrders?.length ?? 0) > 0) {
+    return 'paid-waiting-group';
   }
-
-  return 'paid-waiting-group';
+  return 'quota-granted';
 }
 
 export function paymentOutcomeMessage(outcome: PaymentOutcome): string {
-  if (outcome === 'pro-active') {
-    return 'Pro 会员已生效，可立即使用全部权益。';
+  if (outcome === 'quota-granted') {
+    return '支付成功，额度已发放，可立即使用。';
   }
-  return '支付成功！订单已提交，正在等待拼团成团，成团后 Pro 会员将自动开通。';
+  return '支付成功，订单正在等待成团；成团后将自动发放基础额度和赠送额度。';
 }

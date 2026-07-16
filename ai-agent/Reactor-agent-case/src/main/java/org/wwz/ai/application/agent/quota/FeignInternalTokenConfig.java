@@ -12,7 +12,7 @@ public class FeignInternalTokenConfig {
 
     @Bean
     public RequestInterceptor internalTokenInterceptor(
-            @Value("${ai-group.internal.token:ai-group-dev-internal-token-change-in-prod}") String token) {
+            @Value("${ai-group.internal.token:change-me-to-a-long-random-internal-token}") String token) {
         return template -> {
             String target = template.url();
             if (target == null || target.isBlank()) {

@@ -2,6 +2,7 @@ package com.aigroup.member.service;
 
 import com.aigroup.member.dto.TradeCompletedEvent;
 import com.aigroup.member.vo.MemberSummaryVO;
+import com.aigroup.member.vo.QuotaLedgerVO;
 import com.aigroup.member.vo.SkuVO;
 
 import java.util.List;
@@ -13,9 +14,16 @@ public interface MemberService {
 
     List<SkuVO> listSkus();
 
+    SkuVO findEnabledSkuByGoodsId(String goodsId);
+
     MemberSummaryVO summary(Long userId);
 
-    Map<String, String> freeze(Long userId, String abilityCode, int multiplier, String requestId);
+    List<QuotaLedgerVO> listQuotaLedger(Long userId);
+
+    Map<String, Object> freeze(Long userId, long requestedAmount, long minAmount,
+                               String abilityCode, String requestId);
+
+    void confirm(String freezeId, long actualAmount);
 
     void confirm(String freezeId);
 
@@ -30,7 +38,8 @@ public interface MemberService {
 
     int grantMonthlyQuota();
 
-    void adminAdjustQuota(Long userId, int periodDelta, int topupDelta, String remark);
+    /** paidDelta is expressed in whole credits; ledger/account persistence uses microcredits. */
+    void adminAdjustQuota(Long userId, long paidDelta, String remark);
 
     /**
      * Benefit grant status for an order: PENDING, GRANTED, REVOKED.

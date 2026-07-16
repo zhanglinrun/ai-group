@@ -1,5 +1,6 @@
 package org.wwz.ai.domain.agent.runtime.dto;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -131,6 +132,7 @@ public class Plan {
     /**
      * 更新步骤状态
      */
+    @JsonIgnore
     public String getCurrentStep() {
         for (int i = 0; i < steps.size(); i++) {
             if ("in_progress".equals(stepStatus.get(i))) {
@@ -143,6 +145,7 @@ public class Plan {
     /**
      * 获取当前进行中的步骤索引。
      */
+    @JsonIgnore
     public Integer getCurrentStepIndex() {
         if (steps == null || stepStatus == null) {
             return null;

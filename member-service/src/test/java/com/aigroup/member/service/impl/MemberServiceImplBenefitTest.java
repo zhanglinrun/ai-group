@@ -2,32 +2,36 @@ package com.aigroup.member.service.impl;
 
 import com.aigroup.common.constant.CommonConstant;
 import com.aigroup.common.exception.BusinessException;
-import com.aigroup.member.config.QuotaAbilityProperties;
 import com.aigroup.member.dto.TradeCompletedEvent;
 import com.aigroup.member.entity.BenefitGrantEvent;
-import com.aigroup.member.entity.MemberAccount;
 import com.aigroup.member.entity.QuotaAccount;
 import com.aigroup.member.entity.QuotaFreeze;
+import com.aigroup.member.entity.QuotaLedger;
 import com.aigroup.member.mapper.BenefitGrantEventMapper;
-import com.aigroup.member.mapper.MemberAccountMapper;
 import com.aigroup.member.mapper.ProductSkuMapper;
 import com.aigroup.member.mapper.QuotaAccountMapper;
 import com.aigroup.member.mapper.QuotaFreezeMapper;
 import com.aigroup.member.mapper.QuotaLedgerMapper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.transaction.PlatformTransactionManager;
 
-import java.time.LocalDateTime;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.Map;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.verify;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -35,8 +39,6 @@ class MemberServiceImplBenefitTest {
 
     @Mock
     private BenefitGrantEventMapper benefitGrantEventMapper;
-    @Mock
-    private MemberAccountMapper memberAccountMapper;
     @Mock
     private ProductSkuMapper productSkuMapper;
     @Mock
@@ -46,20 +48,155 @@ class MemberServiceImplBenefitTest {
     @Mock
     private QuotaLedgerMapper quotaLedgerMapper;
     @Mock
-    private QuotaAbilityProperties quotaAbilityProperties;
+    private PlatformTransactionManager transactionManager;
 
     @InjectMocks
     private MemberServiceImpl memberService;
 
     @Test
-    void benefitGrantStatusForOrder_returnsPendingWhenNoEvent() {
-        when(benefitGrantEventMapper.selectOne(any())).thenReturn(null);
+    void freezeUsesFreeFirstAndAtomicallyShortensToAvailableBalance() {
+        QuotaAccount account = account(5_000_000L, 2_000_000L, 0L);
+        when(quotaAccountMapper.selectForUpdateByUserId(1001L)).thenReturn(account);
+        when(quotaFreezeMapper.sumPendingFreeAmount(1001L)).thenReturn(0L);
+        when(quotaFreezeMapper.sumPendingPaidAmount(1001L)).thenReturn(0L);
+        when(quotaAccountMapper.freezeBalanceIfAvailable(1001L, 7_000_000L)).thenReturn(1);
 
-        assertEquals("PENDING", memberService.benefitGrantStatusForOrder("order-1"));
+        Map<String, Object> result = memberService.freeze(
+                1001L, 10_000_000L, 1_000_000L, "llm", "request-1");
+
+        assertEquals(7_000_000L, result.get("amount"));
+        ArgumentCaptor<QuotaFreeze> captor = ArgumentCaptor.forClass(QuotaFreeze.class);
+        verify(quotaFreezeMapper).insert(captor.capture());
+        assertEquals(5_000_000L, captor.getValue().getFreeAmount());
+        assertEquals(2_000_000L, captor.getValue().getPaidAmount());
     }
 
     @Test
-    void benefitGrantStatusForOrder_returnsGrantedWhenCompleted() {
+    void freezeRejectsWhenAvailableIsBelowMinimum() {
+        QuotaAccount account = account(100L, 0L, 0L);
+        when(quotaAccountMapper.selectForUpdateByUserId(1001L)).thenReturn(account);
+        when(quotaFreezeMapper.sumPendingFreeAmount(1001L)).thenReturn(0L);
+        when(quotaFreezeMapper.sumPendingPaidAmount(1001L)).thenReturn(0L);
+
+        assertThrows(BusinessException.class,
+                () -> memberService.freeze(1001L, 1_000L, 256L, "llm", "request-1"));
+        verify(quotaAccountMapper, never()).freezeBalanceIfAvailable(any(), anyLong());
+    }
+
+    @Test
+    void freezeReusesConcurrentIdempotentReservation() {
+        QuotaAccount account = account(5_000_000L, 0L, 0L);
+        QuotaFreeze existing = freeze(3_000_000L, 3_000_000L, 0L);
+        existing.setFreezeId("freeze-existing");
+        when(quotaFreezeMapper.selectByUserIdAndRequestId(1001L, "duplicate")).thenReturn(null);
+        when(quotaAccountMapper.selectForUpdateByUserId(1001L)).thenReturn(account);
+        when(quotaFreezeMapper.selectForUpdateByUserIdAndRequestId(1001L, "duplicate")).thenReturn(existing);
+
+        Map<String, Object> result = memberService.freeze(
+                1001L, 3_000_000L, 3_000_000L, "llm", "duplicate");
+
+        assertEquals("freeze-existing", result.get("freezeId"));
+        assertEquals(3_000_000L, result.get("amount"));
+        verify(quotaAccountMapper, never()).freezeBalanceIfAvailable(any(), anyLong());
+    }
+
+    @Test
+    void confirmSettlesActualFreeFirstAndReleasesUnusedReservation() {
+        QuotaFreeze freeze = freeze(7_000_000L, 5_000_000L, 2_000_000L);
+        QuotaAccount account = account(5_000_000L, 10_000_000L, 7_000_000L);
+        when(quotaFreezeMapper.selectForUpdateByFreezeId("freeze-1")).thenReturn(freeze);
+        when(quotaAccountMapper.selectForUpdateByUserId(1001L)).thenReturn(account);
+
+        memberService.confirm("freeze-1", 6_000_000L);
+
+        assertEquals(0L, account.getFreeQuotaBalance());
+        assertEquals(9_000_000L, account.getPaidQuotaBalance());
+        assertEquals(0L, account.getFrozenBalance());
+        assertEquals(6_000_000L, freeze.getSettledAmount());
+        assertEquals("CONFIRMED", freeze.getStatus());
+    }
+
+    @Test
+    void confirmIsIdempotent() {
+        QuotaFreeze freeze = freeze(1_000L, 1_000L, 0L);
+        freeze.setStatus("CONFIRMED");
+        when(quotaFreezeMapper.selectForUpdateByFreezeId("freeze-1")).thenReturn(freeze);
+
+        memberService.confirm("freeze-1", 1_000L);
+
+        verify(quotaAccountMapper, never()).selectForUpdateByUserId(any());
+        verify(quotaLedgerMapper, never()).insert(any());
+    }
+
+    @Test
+    void releaseThrowsWhenFrozenBalanceDoesNotMatch() {
+        QuotaFreeze freeze = freeze(5L, 5L, 0L);
+        when(quotaFreezeMapper.selectForUpdateByFreezeId("freeze-1")).thenReturn(freeze);
+        when(quotaAccountMapper.releaseFrozenBalance(1001L, 5L)).thenReturn(0);
+
+        assertThrows(BusinessException.class, () -> memberService.release("freeze-1"));
+    }
+
+    @Test
+    void completedOrderGrantsSnapshottedBaseAndBonusAsPermanentMicrocredits() {
+        QuotaAccount account = account(5_000_000L, 1_000_000L, 0L);
+        when(quotaAccountMapper.selectForUpdateByUserId(1001L)).thenReturn(account);
+        TradeCompletedEvent event = completedEvent(500L, 50L);
+
+        memberService.handleBenefitEvent(event);
+
+        assertEquals(551_000_000L, account.getPaidQuotaBalance());
+        ArgumentCaptor<BenefitGrantEvent> captor = ArgumentCaptor.forClass(BenefitGrantEvent.class);
+        verify(benefitGrantEventMapper).insert(captor.capture());
+        assertEquals(550_000_000L, captor.getValue().getGrantedQuota());
+        assertEquals("GRANTED", captor.getValue().getStatus());
+    }
+
+    @Test
+    void duplicateCompletedOrderDoesNotGrantTwice() {
+        when(benefitGrantEventMapper.selectOne(any())).thenReturn(new BenefitGrantEvent());
+
+        memberService.handleBenefitEvent(completedEvent(500L, 50L));
+
+        verify(quotaAccountMapper, never()).selectForUpdateByUserId(any());
+        verify(quotaLedgerMapper, never()).insert(any());
+    }
+
+    @Test
+    void automaticRevokeAfterGrantDoesNotRemoveConsumedPaidQuota() {
+        BenefitGrantEvent granted = new BenefitGrantEvent();
+        granted.setStatus("GRANTED");
+        when(benefitGrantEventMapper.selectOne(any())).thenReturn(null, granted);
+        TradeCompletedEvent event = completedEvent(500L, 0L);
+        event.setEventType(CommonConstant.EVENT_GROUP_BUY_REVOKED);
+
+        memberService.handleBenefitEvent(event);
+
+        verify(quotaAccountMapper, never()).selectForUpdateByUserId(any());
+        ArgumentCaptor<BenefitGrantEvent> captor = ArgumentCaptor.forClass(BenefitGrantEvent.class);
+        verify(benefitGrantEventMapper).insert(captor.capture());
+        assertEquals("REJECTED_GRANTED", captor.getValue().getStatus());
+    }
+
+    @Test
+    void monthlyResetReplacesOnlyFreeBalanceAndIsIdempotent() {
+        String month = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy-MM"));
+        QuotaAccount account = account(2_000_000L, 700_000_000L, 250L);
+        account.setLastFreeGrantMonth("2000-01");
+        when(quotaAccountMapper.selectForUpdateByUserId(1001L)).thenReturn(account);
+
+        boolean first = memberService.grantMonthlyQuotaForUser(1001L, month);
+        boolean second = memberService.grantMonthlyQuotaForUser(1001L, month);
+
+        assertEquals(true, first);
+        assertEquals(false, second);
+        assertEquals(5_000_000L, account.getFreeQuotaBalance());
+        assertEquals(700_000_000L, account.getPaidQuotaBalance());
+        assertEquals(250L, account.getFrozenBalance());
+    }
+
+    @Test
+    void benefitGrantStatusForOrderReturnsGrantedOnlyForGrantedCompletion() {
         BenefitGrantEvent event = new BenefitGrantEvent();
         event.setStatus("GRANTED");
         when(benefitGrantEventMapper.selectOne(any())).thenReturn(event);
@@ -68,95 +205,55 @@ class MemberServiceImplBenefitTest {
     }
 
     @Test
-    void benefitGrantStatusForOrder_returnsRevokedWhenRevoked() {
-        BenefitGrantEvent event = new BenefitGrantEvent();
-        event.setStatus("REVOKED");
-        when(benefitGrantEventMapper.selectOne(any())).thenReturn(event);
+    void ledgerQueryIsLimitedToTheAuthenticatedUser() {
+        QuotaLedger row = new QuotaLedger();
+        row.setType("CONFIRM");
+        row.setAmount(-30L);
+        when(quotaLedgerMapper.selectList(any())).thenAnswer(invocation -> {
+            com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<QuotaLedger> query =
+                    invocation.getArgument(0);
+            String sql = query.getSqlSegment();
+            assertTrue(sql.contains("LIMIT 50"));
+            assertTrue(query.getParamNameValuePairs().containsValue(1001L));
+            return List.of(row);
+        });
 
-        assertEquals("REVOKED", memberService.benefitGrantStatusForOrder("order-1"));
+        var result = memberService.listQuotaLedger(1001L);
+
+        assertEquals(1, result.size());
+        assertEquals(-30L, result.getFirst().getAmount());
     }
 
-    @Test
-    void release_throwsWhenFrozenBalanceMismatch() {
+    private QuotaAccount account(long free, long paid, long frozen) {
+        QuotaAccount account = new QuotaAccount();
+        account.setUserId(1001L);
+        account.setFreeQuotaBalance(free);
+        account.setPaidQuotaBalance(paid);
+        account.setFrozenBalance(frozen);
+        return account;
+    }
+
+    private QuotaFreeze freeze(long amount, long free, long paid) {
         QuotaFreeze freeze = new QuotaFreeze();
         freeze.setFreezeId("freeze-1");
         freeze.setUserId(1001L);
-        freeze.setAmount(5);
+        freeze.setAmount(amount);
+        freeze.setFreeAmount(free);
+        freeze.setPaidAmount(paid);
+        freeze.setSettledAmount(0L);
         freeze.setStatus("PENDING");
-        when(quotaFreezeMapper.selectForUpdateByFreezeId("freeze-1")).thenReturn(freeze);
-        when(quotaAccountMapper.releaseFrozenBalance(1001L, 5)).thenReturn(0);
-
-        assertThrows(BusinessException.class, () -> memberService.release("freeze-1"));
+        freeze.setAbilityCode("llm");
+        return freeze;
     }
 
-    @Test
-    void freeze_reusesConcurrentFreezeAfterAccountLock() {
-        QuotaAccount account = new QuotaAccount();
-        account.setUserId(1001L);
-        account.setPeriodQuotaBalance(20);
-        account.setTopupQuotaBalance(0);
-        account.setFrozenBalance(3);
-        QuotaFreeze existing = new QuotaFreeze();
-        existing.setFreezeId("freeze-existing");
-        existing.setUserId(1001L);
-        existing.setRequestId("request-duplicate");
-        existing.setAmount(3);
-        existing.setStatus("PENDING");
-
-        when(quotaFreezeMapper.selectByUserIdAndRequestId(1001L, "request-duplicate")).thenReturn(null);
-        when(quotaAbilityProperties.resolveCost("plan_solve", 1)).thenReturn(3);
-        when(quotaAccountMapper.selectForUpdateByUserId(1001L)).thenReturn(account);
-        when(quotaFreezeMapper.selectForUpdateByUserIdAndRequestId(1001L, "request-duplicate"))
-                .thenReturn(existing);
-
-        Map<String, String> result = memberService.freeze(1001L, "plan_solve", 1, "request-duplicate");
-
-        assertEquals("freeze-existing", result.get("freezeId"));
-        verify(quotaAccountMapper, never()).freezeBalanceIfAvailable(any(), any(Integer.class));
-        verify(quotaFreezeMapper, never()).insert(any());
-        verify(quotaLedgerMapper, never()).insert(any());
-    }
-
-    @Test
-    void handleGroupBuyRevoked_rollsBackPeriodQuotaAndDowngradesTier() {
-        BenefitGrantEvent granted = new BenefitGrantEvent();
-        granted.setId(10L);
-        granted.setOrderId("order-1");
-        granted.setStatus("GRANTED");
-        granted.setTierEffect("PRO");
-        granted.setPeriodQuotaGranted(100);
-        granted.setMemberDaysDelta(30);
-        granted.setTopupQuotaGranted(0);
-
-        MemberAccount member = new MemberAccount();
-        member.setUserId(1001L);
-        member.setTier("PRO");
-        member.setExpireAt(LocalDateTime.now().plusDays(30));
-
-        QuotaAccount quota = new QuotaAccount();
-        quota.setUserId(1001L);
-        quota.setPeriodQuotaBalance(100);
-        quota.setTopupQuotaBalance(0);
-        quota.setFrozenBalance(0);
-
-        when(benefitGrantEventMapper.selectOne(any())).thenReturn(null, granted);
-        when(memberAccountMapper.selectOne(any())).thenReturn(member);
-        when(quotaAccountMapper.selectForUpdateByUserId(1001L)).thenReturn(quota);
-        when(benefitGrantEventMapper.selectCount(any())).thenReturn(0L);
-        when(benefitGrantEventMapper.insert(any())).thenReturn(1);
-        when(quotaLedgerMapper.insert(any())).thenReturn(1);
-
+    private TradeCompletedEvent completedEvent(long base, long bonus) {
         TradeCompletedEvent event = new TradeCompletedEvent();
-        event.setEventType(CommonConstant.EVENT_GROUP_BUY_REVOKED);
+        event.setEventType(CommonConstant.EVENT_GROUP_BUY_COMPLETED);
         event.setUserId(1001L);
         event.setOrderId("order-1");
-        event.setProductCode("PRO_MONTH");
-
-        memberService.handleBenefitEvent(event);
-
-        assertEquals("FREE", member.getTier());
-        assertEquals(20, quota.getPeriodQuotaBalance());
-        verify(benefitGrantEventMapper).updateById(granted);
-        assertEquals("REVOKED", granted.getStatus());
+        event.setProductCode("QUOTA_500");
+        event.setBaseQuota(base);
+        event.setBonusQuota(bonus);
+        return event;
     }
 }

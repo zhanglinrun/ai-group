@@ -53,7 +53,7 @@ public class OrderServiceMarketSettlementTest {
         orderService.changeOrderMarketSettlement(callbackList, 100);
 
         // benefit granted for the settled order only, not the unpaid one
-        verify(benefitEventService).publishGroupBuyCompletedEvents(Collections.singletonList("order-paid"), 100);
+        verify(benefitEventService).publishGroupBuyCompletedEvents(Collections.singletonList("order-paid"), 100L);
     }
 
     @Test

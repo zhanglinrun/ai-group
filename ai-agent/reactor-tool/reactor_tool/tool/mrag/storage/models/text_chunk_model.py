@@ -1,10 +1,12 @@
 from typing import Optional, List
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class TextChunkModel(BaseModel):
     """文本切块模型"""
+    model_config = ConfigDict(extra="allow")
+
     kb_id: str
 
     text: Optional[str] = Field(None, description="原始文本")
@@ -17,6 +19,3 @@ class TextChunkModel(BaseModel):
     filename: Optional[str] = Field(None, description="文件名")
     created: Optional[float] = Field(None, description="创建时间")
     split_type: Optional[str] = Field(None, description="切分类型")
-
-    class Config:
-        extra = "allow"

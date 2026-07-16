@@ -67,11 +67,25 @@ const ColsAndDataDrawer: FC<Props> = (props) => {
   }, [modelInfo]);
 
   useEffect(() => {
-    agentApi.previewData(modelInfo.modelCode).then((res) => {
-      const _ddt = res as DataDataType;
-      setViewDataSource(Array.isArray(_ddt.dataList) ? _ddt.dataList! : []);
-    });
-  }, []);
+    let cancelled = false;
+
+    void agentApi.previewData(modelInfo.modelCode).then(
+      (res) => {
+        if (cancelled) return;
+        const previewData = res as DataDataType;
+        setViewDataSource(Array.isArray(previewData.dataList) ? previewData.dataList : []);
+      },
+      () => {
+        if (!cancelled) {
+          setViewDataSource([]);
+        }
+      },
+    );
+
+    return () => {
+      cancelled = true;
+    };
+  }, [modelInfo.modelCode]);
 
   return (
     <Drawer title={modelInfo.modelName} width={1000} onClose={() => dataShow(false)} open={show}>

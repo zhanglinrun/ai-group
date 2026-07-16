@@ -43,14 +43,25 @@ spring:
       - org.springframework.ai.model.openai.autoconfigure.OpenAiImageAutoConfiguration
 
 jwt:
-  secret: ${JWT_SECRET:ai-group-dev-jwt-secret-2026-k8m3p9x2v7n4q1w6-change-in-prod}
+  secret: ${JWT_SECRET:change-me-to-a-long-random-secret}
 
 ai-agent:
   debug-endpoints:
     enabled: false
+  checkpoint:
+    enabled: ${AGENT_CHECKPOINT_ENABLED:true}
+    max-messages-per-agent: ${AGENT_CHECKPOINT_MAX_MESSAGES:40}
+    max-message-chars: ${AGENT_CHECKPOINT_MAX_MESSAGE_CHARS:4000}
+    replay-safe-tools:
+      - deep_search
+      - web_fetch
+      - read_tool
+      - list_directory_tool
+      - grep_tool
+      - glob_tool
 
 ai-group:
   member-service:
     base-url: ${AI_GROUP_MEMBER_URL:http://127.0.0.1:8082}
   internal:
-    token: ${AI_GROUP_INTERNAL_TOKEN:ai-group-dev-internal-token-change-in-prod}
+    token: ${AI_GROUP_INTERNAL_TOKEN:change-me-to-a-long-random-internal-token}

@@ -298,6 +298,36 @@ public class ReplayProjectorTest {
     }
 
     @Test
+    public void shouldProjectWorkflowAnswerAsSingleResultWithoutSummaryFallbackDuplication() {
+        LocalDateTime now = LocalDateTime.of(2026, 7, 15, 12, 0, 0);
+        DialogueRunView run = DialogueRunView.builder()
+                .requestId("req-workflow-001")
+                .status(ExecutionLedgerConstants.STATUS_SUCCESS)
+                .finalSummaryText("普通聊天的最终回答")
+                .startedAt(now.minusSeconds(2))
+                .finishedAt(now)
+                .build();
+        LlmInvocationView workflowInvocation = LlmInvocationView.builder()
+                .id(901L)
+                .invocationSeq(1)
+                .agentName(ExecutionLedgerConstants.ENTRY_AGENT_WORKFLOW)
+                .toolCallCount(0)
+                .responseText("普通聊天的最终回答")
+                .finishedAt(now)
+                .build();
+
+        List<GptProcessResult> frames = replayProjector.projectHistoryFrames(ReplayFactBundle.builder()
+                .run(run)
+                .llmInvocations(List.of(workflowInvocation))
+                .build());
+
+        Assert.assertEquals(1, frames.size());
+        Assert.assertEquals("task", eventMessageType(frames.get(0)));
+        Assert.assertEquals("result", frameResultMap(frames.get(0)).get("messageType"));
+        Assert.assertEquals("普通聊天的最终回答", frameResultMap(frames.get(0)).get("result"));
+    }
+
+    @Test
     public void shouldInterleaveThoughtAndToolByLlmInvocation() {
         LocalDateTime now = LocalDateTime.of(2026, 5, 2, 17, 0, 0);
         LlmInvocationView firstExecutor = LlmInvocationView.builder()

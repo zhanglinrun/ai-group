@@ -11,6 +11,7 @@ import org.wwz.ai.domain.agent.reactor.model.imagegeneration.WorkspaceImageGener
 import org.wwz.ai.domain.agent.reactor.model.imagegeneration.WorkspaceImageGenerationHistoryPage;
 import org.wwz.ai.domain.agent.reactor.model.imagegeneration.WorkspaceImageGenerationResult;
 import org.wwz.ai.domain.agent.reactor.service.IWorkspaceImageGenerationService;
+import org.wwz.ai.domain.agent.adapter.port.QuotaBillingPort;
 import org.wwz.ai.trigger.http.agent.AgentImageGenerationController;
 import org.wwz.ai.trigger.http.agent.vo.PageRespVO;
 import org.wwz.ai.trigger.http.agent.vo.WorkspaceImageGenerationReqVO;
@@ -32,9 +33,9 @@ public class AgentImageGenerationControllerTest {
 
     private MemberQuotaBillingService stubBillingService() {
         MemberQuotaBillingService billingService = Mockito.mock(MemberQuotaBillingService.class);
-        Mockito.when(billingService.freezeForAbility(Mockito.anyLong(), Mockito.anyString()))
-                .thenReturn("freeze-test");
-        Mockito.doNothing().when(billingService).confirm(Mockito.anyString());
+        Mockito.when(billingService.reserve(Mockito.anyLong(), Mockito.anyLong(), Mockito.anyLong(), Mockito.anyString()))
+                .thenReturn(new QuotaBillingPort.Reservation("freeze-test", 1_000_000L));
+        Mockito.doNothing().when(billingService).settle(Mockito.anyString(), Mockito.anyLong());
         Mockito.doNothing().when(billingService).release(Mockito.anyString());
         return billingService;
     }
@@ -78,6 +79,32 @@ public class AgentImageGenerationControllerTest {
         Assert.assertEquals("https://file.example.com/result.png", response.getData().getFileInfo().get(0).getPreviewUrl());
         Assert.assertNotNull(capturedCommand.get());
         Assert.assertEquals("gpt-image-2", capturedCommand.get().getModel());
+    }
+
+    @Test
+    public void test_generateReleasesSurchargeWhenLocalFallbackIsUsed() {
+        OwnerRequestContext.bind(1001L);
+        MemberQuotaBillingService billingService = stubBillingService();
+        IWorkspaceImageGenerationService generationService = Mockito.mock(IWorkspaceImageGenerationService.class);
+        Mockito.when(generationService.generate(Mockito.any())).thenReturn(
+                WorkspaceImageGenerationResult.builder()
+                        .requestId("req-fallback")
+                        .mode("images")
+                        .usedFallback(true)
+                        .data("本地兜底")
+                        .fileInfo(List.of())
+                        .build());
+        AgentImageGenerationController controller = new AgentImageGenerationController(
+                generationService, billingService);
+        WorkspaceImageGenerationReqVO reqVO = new WorkspaceImageGenerationReqVO();
+        reqVO.setRequestId("req-fallback");
+        reqVO.setPrompt("生成兜底图片");
+
+        Response<WorkspaceImageGenerationRespVO> response = controller.generate(reqVO);
+
+        Assert.assertEquals(ResponseCode.SUCCESS.getCode(), response.getCode());
+        Mockito.verify(billingService).release("freeze-test");
+        Mockito.verify(billingService, Mockito.never()).settle(Mockito.anyString(), Mockito.anyLong());
     }
 
     @Test

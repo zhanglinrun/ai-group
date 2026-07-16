@@ -5,10 +5,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
 import org.wwz.ai.application.agent.dispatch.IAgentDispatchService;
 import org.wwz.ai.application.agent.model.IModelCatalogQueryService;
-import org.wwz.ai.application.agent.quota.AgentRunSettlementService;
-import org.wwz.ai.application.agent.quota.MemberQuotaBillingService;
 import org.wwz.ai.application.agent.stream.AgentSessionStream;
-import org.wwz.ai.application.agent.stream.QuotaBillingAgentSessionStream;
 import org.wwz.ai.application.agent.visitor.ConversationSessionOwnershipApplicationService;
 import org.wwz.ai.domain.agent.reactor.config.ReactorConfig;
 import org.wwz.ai.domain.agent.reactor.model.req.AgentRequest;
@@ -22,14 +19,12 @@ import org.wwz.ai.types.agent.owner.OwnerRequestContext;
 public class GptQueryIngressService {
 
     private final IAgentDispatchService agentDispatchService;
-    private final MemberQuotaBillingService memberQuotaBillingService;
     private final ConversationSessionOwnershipApplicationService conversationSessionOwnershipApplicationService;
     private final ReactorConfig reactorConfig;
-    private final AgentRunSettlementService agentRunSettlementService;
     private final IModelCatalogQueryService modelCatalogQueryService;
 
     /**
-     * 同步执行入口：冻结配额 → dispatch → 按账本终态结算。
+     * 同步执行入口：校验请求 → dispatch；具体模型调用在运行时按调用预留并结算额度。
      * 保留给 legacy ReactorController 与单测使用；主链路（AiAgentController）走 prepare + 异步 dispatchAndSettle。
      */
     public void queryAgentStreamIncr(GptQueryReq params, AgentSessionStream stream) {
@@ -38,8 +33,8 @@ public class GptQueryIngressService {
     }
 
     /**
-     * 同步准备阶段：解析身份、构建请求、校验会话归属、冻结配额。
-     * 放在 Servlet 线程执行，使配额不足/归属校验失败能立刻返回，而不占用 dispatch 线程池。
+     * 同步准备阶段：解析身份、构建请求、校验模型与会话归属。
+     * 放在 Servlet 线程执行，使无效请求能立刻返回，而不占用 dispatch 线程池。
      */
     public PreparedGptQuery prepare(GptQueryReq params, AgentSessionStream stream) {
         Long ownerId = OwnerRequestContext.requireOwnerId();
@@ -51,12 +46,7 @@ public class GptQueryIngressService {
                 params.getSessionId(),
                 params.getQuery()
         );
-        String freezeId = memberQuotaBillingService.freezeForAgentRun(ownerId, agentRequest);
-        QuotaBillingAgentSessionStream billingStream = new QuotaBillingAgentSessionStream(stream, memberQuotaBillingService, freezeId);
-        billingStream.onAbort(() -> {
-            // Register quota release on downstream SSE abort even when the execute strategy has no upstream stream to cancel.
-        });
-        return new PreparedGptQuery(agentRequest, billingStream, freezeId);
+        return new PreparedGptQuery(agentRequest, stream);
     }
 
     /**
@@ -66,17 +56,12 @@ public class GptQueryIngressService {
      */
     public void dispatchAndSettle(PreparedGptQuery prepared, boolean rethrow) {
         AgentRequest agentRequest = prepared.agentRequest();
-        QuotaBillingAgentSessionStream billingStream = prepared.billingStream();
+        AgentSessionStream stream = prepared.stream();
         try {
-            agentDispatchService.dispatch(agentRequest, billingStream);
-            // dispatch 正常返回不代表执行成功（agent 失败分支会吞异常），以账本 run 终态决定 confirm/release。
-            if (agentRunSettlementService.shouldReleaseAfterDispatch(agentRequest.getRequestId())) {
-                billingStream.completeWithFailureSettlement();
-            } else {
-                billingStream.complete();
-            }
+            agentDispatchService.dispatch(agentRequest, stream);
+            stream.complete();
         } catch (Exception ex) {
-            billingStream.completeWithError(ex);
+            stream.completeWithError(ex);
             if (rethrow) {
                 if (ex instanceof RuntimeException runtimeException) {
                     throw runtimeException;
@@ -87,11 +72,10 @@ public class GptQueryIngressService {
     }
 
     /**
-     * 准备阶段产物：携带已冻结配额的请求、结算流与冻结ID，供异步执行阶段消费。
+     * 准备阶段产物：携带请求与响应流，供异步执行阶段消费。
      */
     public record PreparedGptQuery(AgentRequest agentRequest,
-                                   QuotaBillingAgentSessionStream billingStream,
-                                   String freezeId) {
+                                   AgentSessionStream stream) {
     }
 
     /**
@@ -115,15 +99,19 @@ public class GptQueryIngressService {
         request.setQuery(req.getQuery());
         request.setSessionFiles(req.getSessionFiles());
         request.setModelId(req.getModelId());
+        request.setResumeCheckpointId(req.getResumeCheckpointId());
+        request.setResumeDecision(req.getResumeDecision());
         request.setIsStream(true);
         request.setOutputStyle(req.getOutputStyle());
-        if ("chat".equalsIgnoreCase(req.getOutputStyle())) {
+        boolean deepThink = req.getDeepThink() != null && req.getDeepThink() != 0;
+        boolean quickChat = "chat".equalsIgnoreCase(req.getOutputStyle()) && !deepThink;
+        if (quickChat) {
             request.setAgentType(AgentType.WORKFLOW.getValue());
             request.setSopPrompt("");
         } else {
-            Integer agentType = (req.getDeepThink() == null || req.getDeepThink() == 0)
-                    ? AgentType.REACT.getValue()
-                    : AgentType.PLAN_SOLVE.getValue();
+            Integer agentType = deepThink
+                    ? AgentType.PLAN_SOLVE.getValue()
+                    : AgentType.REACT.getValue();
             request.setAgentType(agentType);
             request.setSopPrompt(agentType.equals(AgentType.PLAN_SOLVE.getValue())
                     ? reactorConfig.getReactorSopPrompt()
@@ -134,9 +122,13 @@ public class GptQueryIngressService {
         }
         if (StringUtils.isNotBlank(req.getAiAgentId())) {
             request.setAiAgentId(req.getAiAgentId());
-        } else if ("chat".equalsIgnoreCase(req.getOutputStyle())
+        } else if (quickChat
                 && StringUtils.isNotBlank(reactorConfig.getChatDefaultRoleId())) {
             request.setAiAgentId(reactorConfig.getChatDefaultRoleId());
+        }
+        if (StringUtils.isNotBlank(request.getResumeCheckpointId())
+                && !AgentType.PLAN_SOLVE.getValue().equals(request.getAgentType())) {
+            throw new IllegalArgumentException("Checkpoint resume is only supported for Plan-Solve runs");
         }
         return request;
     }

@@ -6,7 +6,9 @@ import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.Mockito;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.wwz.ai.domain.agent.adapter.port.QuotaBillingPort;
 import org.wwz.ai.domain.agent.runtime.agent.AgentContext;
 import org.wwz.ai.domain.agent.runtime.artifact.ToolArtifactSource;
 import org.wwz.ai.domain.agent.runtime.printer.Printer;
@@ -17,6 +19,7 @@ import org.wwz.ai.domain.agent.runtime.dto.ImageGenerationRequest;
 import org.wwz.ai.domain.agent.runtime.tool.common.ImageGenerationTool;
 import org.wwz.ai.domain.agent.reactor.config.ReactorConfig;
 import org.wwz.ai.domain.agent.ledger.model.tooloutput.ImageGenerationToolOutput;
+import org.wwz.ai.domain.agent.reactor.model.imagegeneration.ImageGenerationExecutionResult;
 import org.wwz.ai.domain.agent.reactor.service.imagegeneration.IImageGenerationExecutionKernel;
 import org.wwz.ai.domain.agent.reactor.service.imagegeneration.impl.ImageGenerationExecutionKernelImpl;
 import org.wwz.ai.infrastructure.gateway.ReactorImageGenerationGateway;
@@ -35,6 +38,32 @@ import java.util.concurrent.atomic.AtomicReference;
  * image_generation_tool typed output 回归。
  */
 public class ImageGenerationToolTest {
+
+    @Test
+    public void shouldSettleSurchargeOnlyForRemoteSuccess() {
+        QuotaBillingPort billingPort = Mockito.mock(QuotaBillingPort.class);
+        Mockito.when(billingPort.reserve(Mockito.anyLong(), Mockito.anyLong(), Mockito.anyLong(), Mockito.anyString()))
+                .thenReturn(new QuotaBillingPort.Reservation("freeze-remote", 1_000_000L));
+
+        ToolResultPayload payload = executeBilledTool(false, billingPort, "req-image-paid");
+
+        Assert.assertFalse(payload.getFailed());
+        Mockito.verify(billingPort).settle("freeze-remote", 1_000_000L);
+        Mockito.verify(billingPort, Mockito.never()).release(Mockito.anyString());
+    }
+
+    @Test
+    public void shouldReleaseSurchargeForLocalFallback() {
+        QuotaBillingPort billingPort = Mockito.mock(QuotaBillingPort.class);
+        Mockito.when(billingPort.reserve(Mockito.anyLong(), Mockito.anyLong(), Mockito.anyLong(), Mockito.anyString()))
+                .thenReturn(new QuotaBillingPort.Reservation("freeze-fallback", 1_000_000L));
+
+        ToolResultPayload payload = executeBilledTool(true, billingPort, "req-image-fallback");
+
+        Assert.assertFalse(payload.getFailed());
+        Mockito.verify(billingPort).release("freeze-fallback");
+        Mockito.verify(billingPort, Mockito.never()).settle(Mockito.anyString(), Mockito.anyLong());
+    }
 
     @Test
     public void shouldUseSharedKernelAndReturnRichStructuredOutput() throws Exception {
@@ -239,6 +268,53 @@ public class ImageGenerationToolTest {
         ReflectionTestUtils.setField(reactorConfig, "imageGenerationUrl", baseUrl);
         ReflectionTestUtils.setField(reactorConfig, "imageGenerationToolDesc", "图片生成工具");
         return reactorConfig;
+    }
+
+    private ToolResultPayload executeBilledTool(boolean usedFallback,
+                                                QuotaBillingPort billingPort,
+                                                String requestId) {
+        ReactorConfig reactorConfig = new ReactorConfig();
+        ReflectionTestUtils.setField(reactorConfig, "imageGenerationMicrocredits", 1_000_000L);
+        IImageGenerationExecutionKernel kernel = Mockito.mock(IImageGenerationExecutionKernel.class);
+        Mockito.when(kernel.execute(Mockito.any())).thenReturn(ImageGenerationExecutionResult.builder()
+                .requestId(requestId)
+                .prompt("生成测试图片")
+                .mode("images")
+                .summary("生成完成")
+                .batchCount(1)
+                .sourceImageCount(0)
+                .maskImageCount(0)
+                .usedFallback(usedFallback)
+                .files(List.of())
+                .build());
+        var dependencies = ReactorRuntimeTestSupport.runtimeDependencies(reactorConfig, kernel);
+        ReflectionTestUtils.setField(dependencies, "quotaBillingPort", billingPort);
+        ToolCollection toolCollection = new ToolCollection();
+        AgentContext context = AgentContext.builder()
+                .requestId(requestId)
+                .sessionId("session-" + requestId)
+                .ownerId(1001L)
+                .isStream(false)
+                .printer(Mockito.mock(Printer.class))
+                .toolCollection(toolCollection)
+                .productFiles(new ArrayList<>())
+                .taskProductFiles(new ArrayList<>())
+                .runtimeDependencies(dependencies)
+                .build();
+        toolCollection.setAgentContext(context);
+        ImageGenerationTool tool = new ImageGenerationTool();
+        tool.setAgentContext(context);
+        context.bindCurrentToolArtifactSource(ToolArtifactSource.builder()
+                .sessionId(context.getSessionId())
+                .requestId(context.getRequestId())
+                .toolCallId("call-" + requestId)
+                .toolName("image_generation_tool")
+                .build());
+        try {
+            return (ToolResultPayload) tool.execute(Map.of("prompt", "生成测试图片"));
+        } finally {
+            context.clearCurrentToolArtifactSource();
+        }
     }
 
     private IImageGenerationExecutionKernel buildKernel(ReactorConfig reactorConfig) {

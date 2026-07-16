@@ -1,7 +1,7 @@
 # Secrets / local env (keep .env.example tracked)
 .env
-.env.local
-.env.*.local
+.env.*
+!.env.example
 
 # Build output
 target/
@@ -12,7 +12,7 @@ node_modules/
 # Logs & local runtime data
 *.log
 logs/
-data/
+/data/
 docs/evals/last-report.json
 
 # IDE / tooling

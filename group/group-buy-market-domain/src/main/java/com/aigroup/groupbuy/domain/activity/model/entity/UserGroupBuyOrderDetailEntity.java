@@ -26,6 +26,8 @@ public class UserGroupBuyOrderDetailEntity {
     private Long activityId;
     /** 目标数量 */
     private Integer targetCount;
+    /** 创建团队时的档位规则 JSON 快照 */
+    private String tierSnapshot;
     /** 完成数量 */
     private Integer completeCount;
     /** 锁单数量 */

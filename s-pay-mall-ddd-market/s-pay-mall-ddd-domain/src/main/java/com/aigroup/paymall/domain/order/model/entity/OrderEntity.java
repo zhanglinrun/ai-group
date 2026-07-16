@@ -22,6 +22,8 @@ public class OrderEntity {
     private String productId;
     private String productCode;
     private String productName;
+    /** Whole-credit package entitlement captured at order creation. */
+    private Long baseQuotaSnapshot;
     private String orderId;
     private Date orderTime;
     private BigDecimal totalAmount;

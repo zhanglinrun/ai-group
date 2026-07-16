@@ -13,19 +13,22 @@ Reactor UI 是一个基于 React、TypeScript 和 Vite 的现代化项目。
 
 ## 快速开始
 
-1. 安装依赖：
+1. 使用 pnpm 安装依赖：
 
-```bash
-pnpm install
+```powershell
+$ErrorActionPreference = 'Stop'
+pnpm install --frozen-lockfile
 ```
 
 2. 启动开发服务器：
 
-```bash
+```powershell
+$ErrorActionPreference = 'Stop'
 pnpm run dev
 ```
 
-3. 在浏览器中打开 http://localhost:3000 查看应用。
+3. 在浏览器中打开 http://127.0.0.1:5173 查看应用。开发服务器通过 Gateway 访问后端，
+   不应把 `AI_GROUP_INTERNAL_TOKEN` 或 reactor-tool 内部令牌写入浏览器环境变量。
 
 ## 可用脚本
 
@@ -39,6 +42,6 @@ pnpm run dev
 
 我们欢迎所有形式的贡献！请查看 [CONTRIBUTING.md](CONTRIBUTING.md) 了解如何开始。
 
-## 许可证
+## 项目边界
 
-本项目基于 MIT 许可证开源。详情请查看 [LICENSE](LICENSE) 文件。
+这是 AI-Group 秋招作品集的一部分，许可与发布策略以仓库根目录说明为准；当前目录没有单独的开源许可证文件。

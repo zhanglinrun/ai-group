@@ -8,6 +8,7 @@ import org.apache.calcite.sql.SqlKind;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.wwz.ai.domain.agent.adapter.port.AgentMessageStream;
 import org.wwz.ai.domain.agent.adapter.port.DataQueryExecutionPort;
 import org.wwz.ai.domain.agent.adapter.port.RemoteHttpPort;
@@ -16,6 +17,8 @@ import org.wwz.ai.domain.agent.adapter.port.RemoteStreamListener;
 import org.wwz.ai.domain.agent.adapter.port.RemoteStreamPort;
 import org.wwz.ai.domain.agent.adapter.port.RemoteStreamRequest;
 import org.wwz.ai.domain.agent.reactor.config.data.DataAgentConfig;
+import org.wwz.ai.domain.agent.reactor.config.ReactorConfig;
+import org.wwz.ai.domain.agent.reactor.config.ReactorToolRequestHeaders;
 import org.wwz.ai.domain.agent.reactor.config.data.DbConfig;
 import org.wwz.ai.domain.agent.reactor.data.QueryResult;
 import org.wwz.ai.domain.agent.reactor.data.dto.ChatModelInfoDto;
@@ -61,6 +64,8 @@ public class Nl2SqlQueryService {
     private final DataQueryExecutionPort dataQueryExecutionPort;
     private final RemoteHttpPort remoteHttpPort;
     private final RemoteStreamPort remoteStreamPort;
+    @Autowired
+    private ReactorConfig reactorConfig;
 
     public List<ChatQueryData> runNL2SQLSync(NL2SQLReq request) throws Exception {
         AtomicReference<Throwable> err = new AtomicReference<>();
@@ -68,7 +73,7 @@ public class Nl2SqlQueryService {
         String jsonResult = remoteHttpPort.execute(RemoteHttpRequest.builder()
                 .method("POST")
                 .url(dataAgentConfig.getAgentUrl() + NL2SQL_URL)
-                .headers(Map.of("Content-Type", "application/json"))
+                .headers(ReactorToolRequestHeaders.json(reactorConfig))
                 .body(JSONObject.toJSONString(request))
                 .build());
         log.info("{},{} nl2sql result without sse:{}", request.getTraceId(), request.getRequestId(), jsonResult);
@@ -85,10 +90,7 @@ public class Nl2SqlQueryService {
         remoteStreamPort.openStream(RemoteStreamRequest.builder()
                 .method("POST")
                 .url(dataAgentConfig.getAgentUrl() + NL2SQL_URL)
-                .headers(Map.of(
-                        "Accept", "text/event-stream",
-                        "Content-Type", "application/json"
-                ))
+                .headers(ReactorToolRequestHeaders.sse(reactorConfig))
                 .body(JSONObject.toJSONString(request))
                 .build(), sqlSseListener);
         sqlSseListener.getCountDownLatch().await();

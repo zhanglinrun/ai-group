@@ -96,10 +96,14 @@ public class ScriptRunnerTool extends AbstractSkillPathTool {
             appendGeneratedFiles(response, artifactSource);
             return buildSuccessPayload(response);
         } catch (SkillLoadException e) {
-            log.warn("{} script_runner_tool failed, input={}", requestId(), input, e);
+            log.warn("{} script_runner_tool failed inputType={} errorType={}",
+                    requestId(), input == null ? "null" : input.getClass().getSimpleName(),
+                    e.getClass().getSimpleName());
             return buildFailurePayload(e.getMessage());
         } catch (Exception e) {
-            log.error("{} script_runner_tool execute error, input={}", requestId(), input, e);
+            log.error("{} script_runner_tool execute error inputType={} errorType={}",
+                    requestId(), input == null ? "null" : input.getClass().getSimpleName(),
+                    e.getClass().getSimpleName());
             return buildFailurePayload("script_runner_tool execute failed");
         }
     }

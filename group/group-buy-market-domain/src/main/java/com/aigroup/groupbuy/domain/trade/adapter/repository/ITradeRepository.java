@@ -34,6 +34,12 @@ public interface ITradeRepository {
     NotifyTaskEntity settlementMarketPayOrder(GroupBuyTeamSettlementAggregate groupBuyTeamSettlementAggregate);
 
     /**
+     * Dev-only: finalize the real team containing an already COMPLETE member order and create the
+     * same settlement notification task as the normal full-team path. Repeated calls are idempotent.
+     */
+    NotifyTaskEntity finalizePaidTeamForDemo(String userId, String outTradeNo);
+
+    /**
      * 阶梯拼团到期结算：对到期仍在拼单中、且已达最低档人数的团，按已达档位定档并写入成团回调任务。
      * 未达最低档的团不在此处理（交由退款流程）。
      *

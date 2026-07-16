@@ -9,6 +9,8 @@ import org.springframework.stereotype.Service;
 import org.wwz.ai.domain.agent.adapter.port.RemoteHttpPort;
 import org.wwz.ai.domain.agent.adapter.port.RemoteHttpRequest;
 import org.wwz.ai.domain.agent.reactor.config.data.DataAgentConfig;
+import org.wwz.ai.domain.agent.reactor.config.ReactorConfig;
+import org.wwz.ai.domain.agent.reactor.config.ReactorToolRequestHeaders;
 import org.wwz.ai.domain.agent.reactor.data.dto.ChatSchemaDto;
 import org.wwz.ai.domain.agent.reactor.data.dto.NL2SQLReq;
 import org.wwz.ai.domain.agent.reactor.data.dto.TableRagResult;
@@ -28,6 +30,8 @@ public class TableRagService {
 
     @Autowired
     DataAgentConfig dataAgentConfig;
+    @Autowired
+    ReactorConfig reactorConfig;
     @Autowired
     RemoteHttpPort remoteHttpPort;
 
@@ -69,7 +73,7 @@ public class TableRagService {
         return remoteHttpPort.execute(RemoteHttpRequest.builder()
                 .method("POST")
                 .url(dataAgentConfig.getAgentUrl() + TABLE_RAG_URL)
-                .headers(java.util.Map.of("Content-Type", "application/json"))
+                .headers(ReactorToolRequestHeaders.json(reactorConfig))
                 .body(JSONObject.toJSONString(req))
                 .build());
     }

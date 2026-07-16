@@ -2,7 +2,7 @@ package org.wwz.ai.test.domain.support;
 
 import org.springframework.core.env.Environment;
 import org.springframework.mock.env.MockEnvironment;
-import org.springframework.scheduling.concurrent.ConcurrentTaskScheduler;
+import org.springframework.scheduling.TaskScheduler;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.wwz.ai.domain.agent.adapter.port.FileArtifactPort;
 import org.wwz.ai.domain.agent.adapter.port.RemoteHttpPort;
@@ -83,7 +83,7 @@ public final class ReactorRuntimeTestSupport {
                 .llmExecutor(sameThreadExecutor)
                 .taskExecutor(sameThreadExecutor)
                 .toolExecutor(sameThreadExecutor)
-                .heartbeatScheduler(new ConcurrentTaskScheduler())
+                .heartbeatScheduler(org.mockito.Mockito.mock(TaskScheduler.class))
                 .build();
     }
 }

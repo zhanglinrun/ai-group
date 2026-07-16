@@ -26,12 +26,15 @@ import org.wwz.ai.domain.agent.reactor.config.data.QdrantConfig;
 
 import java.io.IOException;
 import java.net.URI;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -137,34 +140,40 @@ public class QdrantService implements InitializingBean, DisposableBean {
     }
 
     public void createCosineCollection(String collectionName, int dimension) throws ExecutionException, InterruptedException {
+        List<String> defaultKeywordIndexes = StringUtils.equals(
+                collectionName, DataAgentConstants.SCHEMA_COLLECTION_NAME)
+                ? List.of("modelCode")
+                : List.of();
+        ensureCosineCollection(collectionName, dimension, defaultKeywordIndexes);
+    }
+
+    /**
+     * 幂等确保单向量 Cosine 集合及 keyword payload 索引存在。
+     *
+     * <p>已有集合会校验向量维度，绝不为修复维度冲突而隐式重建或清空数据。创建集合或索引发生
+     * 多实例竞争时会二次读取服务端状态；只有目标确实未就绪时才向上抛错。</p>
+     */
+    public void ensureCosineCollection(String collectionName,
+                                       int dimension,
+                                       List<String> keywordIndexFields)
+            throws ExecutionException, InterruptedException {
+        if (StringUtils.isBlank(collectionName)) {
+            throw new IllegalArgumentException("collectionName is empty");
+        }
+        if (dimension <= 0) {
+            throw new IllegalArgumentException("vector dimension must be positive");
+        }
+        List<String> normalizedIndexFields = normalizeKeywordIndexFields(keywordIndexFields);
         ResolvedQdrantEndpoint endpoint = resolveEndpoint();
         if (shouldUseRestApi(endpoint)) {
             try {
-                if (isCollectionExist(collectionName)) {
-                    ensurePayloadIndexes(endpoint, collectionName);
-                    log.info("集合已存在，无需创建");
-                    return;
-                }
-                Map<String, Object> body = new LinkedHashMap<>();
-                Map<String, Object> vectors = new LinkedHashMap<>();
-                vectors.put("size", dimension);
-                vectors.put("distance", "Cosine");
-                body.put("vectors", vectors);
-                executeRestRequest(endpoint, "PUT", "/collections/" + collectionName, body);
-                ensurePayloadIndexes(endpoint, collectionName);
+                ensureCosineCollectionByRest(endpoint, collectionName, dimension, normalizedIndexFields);
                 return;
             } catch (IOException e) {
-                throw new RuntimeException("Qdrant REST 创建集合失败", e);
+                throw new RuntimeException("Qdrant REST 集合或索引初始化失败", e);
             }
         }
-        if (isCollectionExist(collectionName)) {
-            log.info("集合已存在，无需创建");
-            return;
-        }
-        getClient().createCollectionAsync(
-                collectionName,
-                Collections.VectorParams.newBuilder().setDistance(Collections.Distance.Cosine).setSize(dimension).build()
-        ).get();
+        ensureCosineCollectionByGrpc(collectionName, dimension, normalizedIndexFields);
     }
 
     public void recreateCosineCollection(String collectionName, int dimension) throws ExecutionException, InterruptedException {
@@ -472,14 +481,155 @@ public class QdrantService implements InitializingBean, DisposableBean {
         return String.format("%s://%s:%d", scheme, endpoint.getHost(), endpoint.getPort());
     }
 
-    private void ensurePayloadIndexes(ResolvedQdrantEndpoint endpoint, String collectionName) throws IOException {
-        if (!StringUtils.equals(collectionName, DataAgentConstants.SCHEMA_COLLECTION_NAME)) {
-            return;
+    private void ensureCosineCollectionByRest(ResolvedQdrantEndpoint endpoint,
+                                              String collectionName,
+                                              int dimension,
+                                              List<String> keywordIndexFields) throws IOException {
+        boolean exists = listCollectionsByRest(endpoint).contains(collectionName);
+        RestCollectionState state = null;
+        if (!exists) {
+            try {
+                Map<String, Object> body = new LinkedHashMap<>();
+                Map<String, Object> vectors = new LinkedHashMap<>();
+                vectors.put("size", dimension);
+                vectors.put("distance", "Cosine");
+                body.put("vectors", vectors);
+                executeRestRequest(endpoint, "PUT", "/collections/" + collectionName, body);
+                log.info("Qdrant collection created collection={} dimension={}", collectionName, dimension);
+            } catch (IOException createFailure) {
+                // 多实例可能同时通过 exists 检查；若竞争方已经创建成功，则继续校验而不是误报失败。
+                if (!listCollectionsByRest(endpoint).contains(collectionName)) {
+                    throw createFailure;
+                }
+                log.info("Qdrant collection create raced with another initializer collection={}", collectionName);
+                state = readRestCollectionState(endpoint, collectionName);
+            }
+        } else {
+            state = readRestCollectionState(endpoint, collectionName);
         }
+
+        Set<String> indexedFields = new LinkedHashSet<>();
+        if (state != null) {
+            assertExpectedDimension(collectionName, dimension, state.dimension());
+            indexedFields.addAll(state.keywordIndexFields());
+        }
+        for (String field : keywordIndexFields) {
+            if (indexedFields.contains(field)) {
+                continue;
+            }
+            try {
+                createKeywordIndexByRest(endpoint, collectionName, field);
+            } catch (IOException indexFailure) {
+                // payload index 创建同样可能发生多实例竞争；服务端状态优先于单次请求返回。
+                RestCollectionState refreshed = readRestCollectionState(endpoint, collectionName);
+                if (!refreshed.keywordIndexFields().contains(field)) {
+                    throw indexFailure;
+                }
+            }
+        }
+    }
+
+    private void ensureCosineCollectionByGrpc(String collectionName,
+                                              int dimension,
+                                              List<String> keywordIndexFields)
+            throws ExecutionException, InterruptedException {
+        boolean exists = isCollectionExist(collectionName);
+        if (!exists) {
+            try {
+                getClient().createCollectionAsync(
+                        collectionName,
+                        Collections.VectorParams.newBuilder()
+                                .setDistance(Collections.Distance.Cosine)
+                                .setSize(dimension)
+                                .build()
+                ).get();
+                log.info("Qdrant collection created collection={} dimension={}", collectionName, dimension);
+            } catch (ExecutionException createFailure) {
+                if (!isCollectionExist(collectionName)) {
+                    throw createFailure;
+                }
+                log.info("Qdrant collection create raced with another initializer collection={}", collectionName);
+            }
+        }
+
+        Collections.CollectionInfo info = getClient().getCollectionInfoAsync(collectionName).get();
+        Collections.VectorsConfig vectorsConfig = info.getConfig().getParams().getVectorsConfig();
+        if (vectorsConfig.getConfigCase() != Collections.VectorsConfig.ConfigCase.PARAMS) {
+            throw new IllegalStateException("Qdrant collection uses named vectors, collection=" + collectionName);
+        }
+        assertExpectedDimension(collectionName, dimension, vectorsConfig.getParams().getSize());
+        Set<String> indexedFields = new LinkedHashSet<>(info.getPayloadSchemaMap().keySet());
+        for (String field : keywordIndexFields) {
+            if (indexedFields.contains(field)) {
+                continue;
+            }
+            Points.CreateFieldIndexCollection request = Points.CreateFieldIndexCollection.newBuilder()
+                    .setCollectionName(collectionName)
+                    .setFieldName(field)
+                    .setFieldType(Points.FieldType.FieldTypeKeyword)
+                    .setWait(true)
+                    .build();
+            try {
+                getClient().createPayloadIndexAsync(request, Duration.ofSeconds(30)).get();
+            } catch (ExecutionException indexFailure) {
+                Collections.CollectionInfo refreshed = getClient().getCollectionInfoAsync(collectionName).get();
+                if (!refreshed.getPayloadSchemaMap().containsKey(field)) {
+                    throw indexFailure;
+                }
+            }
+        }
+    }
+
+    private RestCollectionState readRestCollectionState(ResolvedQdrantEndpoint endpoint,
+                                                        String collectionName) throws IOException {
+        JSONObject response = JSON.parseObject(executeRestRequest(
+                endpoint, "GET", "/collections/" + collectionName, null));
+        JSONObject result = response.getJSONObject("result");
+        JSONObject config = result == null ? null : result.getJSONObject("config");
+        JSONObject params = config == null ? null : config.getJSONObject("params");
+        JSONObject vectors = params == null ? null : params.getJSONObject("vectors");
+        Integer dimension = vectors == null ? null : vectors.getInteger("size");
+        if (dimension == null || dimension <= 0) {
+            throw new IllegalStateException(
+                    "Qdrant collection vector dimension is unavailable, collection=" + collectionName);
+        }
+        JSONObject payloadSchema = result.getJSONObject("payload_schema");
+        Set<String> indexedFields = payloadSchema == null
+                ? Set.of()
+                : Set.copyOf(payloadSchema.keySet());
+        return new RestCollectionState(dimension, indexedFields);
+    }
+
+    private void createKeywordIndexByRest(ResolvedQdrantEndpoint endpoint,
+                                          String collectionName,
+                                          String field) throws IOException {
         Map<String, Object> body = new LinkedHashMap<>();
-        body.put("field_name", "modelCode");
+        body.put("field_name", field);
         body.put("field_schema", "keyword");
         executeRestRequest(endpoint, "PUT", "/collections/" + collectionName + "/index?wait=true", body);
+        log.info("Qdrant keyword payload index ready collection={} field={}", collectionName, field);
+    }
+
+    private List<String> normalizeKeywordIndexFields(List<String> fields) {
+        if (fields == null || fields.isEmpty()) {
+            return List.of();
+        }
+        return fields.stream()
+                .filter(StringUtils::isNotBlank)
+                .map(String::trim)
+                .distinct()
+                .sorted()
+                .toList();
+    }
+
+    private void assertExpectedDimension(String collectionName, int expected, long actual) {
+        if (actual != expected) {
+            throw new IllegalStateException("Qdrant collection dimension mismatch, collection="
+                    + collectionName + ", expected=" + expected + ", actual=" + actual);
+        }
+    }
+
+    private record RestCollectionState(int dimension, Set<String> keywordIndexFields) {
     }
 
     private Map<String, Object> convertFilterToRest(Points.Filter filter) {

@@ -67,10 +67,10 @@ public class SummaryAgent extends BaseAgent {
             log.info("requestId: {} no visible artifact bindings found in context", requestId);
             return "";
         }
-        log.info("requestId: {} {} artifact bindings:{}", requestId, LOG_FLAG, bindings);
+        log.info("requestId: {} {} artifact bindingCount={}", requestId, LOG_FLAG, bindings.size());
         String result = ToolArtifactFormatter.formatSummaryContext(bindings);
 
-        log.info("requestId: {} generated file info: {}", requestId, result);
+        log.info("requestId: {} generated file info charCount={}", requestId, result.length());
         return result;
     }
 
@@ -150,12 +150,12 @@ public class SummaryAgent extends BaseAgent {
             }
             for (Map.Entry<String, ToolArtifactBinding> entry : keyToBinding.entrySet()) {
                 if (item.contains(entry.getKey())) {
-                    log.info("requestId: {} add artifact by key:{} file:{}", requestId, entry.getKey(), entry.getValue().getFile());
                     selectedFiles.putIfAbsent(entry.getKey(), entry.getValue().getFile());
                     break;
                 }
             }
         }
+        log.info("requestId: {} selected artifact count={}", requestId, selectedFiles.size());
         return TaskSummaryResult.builder()
                 .taskSummary(summary)
                 .files(new ArrayList<>(selectedFiles.values()))
@@ -202,7 +202,10 @@ public class SummaryAgent extends BaseAgent {
 
         // 1. 参数校验：消息列表为空 或 用户查询为空时，返回空总结结果（避免空指针/无意义的LLM调用）
         if (CollectionUtils.isEmpty(messages) || StringUtils.isEmpty(query)) {
-            log.warn("requestId: {}  summaryTaskResult messages:{}  or query:{} is empty", requestId, messages, query);
+            log.warn("requestId: {} summaryTaskResult input invalid messageCount={} queryChars={}",
+                    requestId,
+                    messages == null ? 0 : messages.size(),
+                    query == null ? 0 : query.length());
             // 构建空总结结果（taskSummary为空字符串），保证返回值非null
             return TaskSummaryResult.builder().taskSummary("").build();
         }
@@ -218,7 +221,8 @@ public class SummaryAgent extends BaseAgent {
                 String content = message.getContent();
                 // 消息内容超长时截断：避免超出LLM上下文窗口限制，导致调用失败/总结不全
                 if (content != null && content.length() > getMessageSizeLimit()) {
-                    log.info("requestId: {} message truncate,{}", requestId, message);
+                    log.info("requestId: {} summary message truncated role={} originalChars={} limit={}",
+                            requestId, message.getRole(), content.length(), getMessageSizeLimit());
                     // 截取前N个字符（getMessageSizeLimit()返回最大允许长度）
                     content = content.substring(0, getMessageSizeLimit());
                 }
@@ -258,15 +262,18 @@ public class SummaryAgent extends BaseAgent {
                     context.setStreamMessageType(previousStreamMessageType);
                 }
             }
-            log.info("requestId: {} summaryTaskResult: {}", requestId, llmResponse);
+            log.info("requestId: {} summaryTaskResult completed responseChars={}",
+                    requestId, llmResponse == null ? 0 : llmResponse.length());
 
             // 6. 解析LLM响应：将LLM返回的文本转为结构化的TaskSummaryResult对象（如提取总结文本、文件列表）
             return parseLlmResponse(llmResponse);
 
         } catch (Exception e) {
             // 异常处理：捕获所有异常（LLM调用失败、解析失败等），返回兜底提示
-            log.error("requestId: {} in summaryTaskResult failed,", requestId, e);
-            // 兜底返回不向上抛异常，这里标记 run 失败，保证账本终态与配额结算反映真实结果
+            log.error("requestId: {} summaryTaskResult failed errorType={}",
+                    requestId, e.getClass().getSimpleName(), e);
+            // 兜底返回不向上抛异常，这里标记 run 失败以保证账本终态反映真实结果；
+            // LLM 配额已按每次调用独立结算。
             context.markRunFailed();
             // 构建兜底结果：提示用户任务执行失败，联系管理员，保证方法返回值非null
             return TaskSummaryResult.builder().taskSummary("任务执行失败，请联系管理员！").build();

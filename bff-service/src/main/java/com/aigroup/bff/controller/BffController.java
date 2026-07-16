@@ -44,7 +44,7 @@ public class BffController {
         Map<String, Object> data = new HashMap<>();
         DegradeContext degrade = new DegradeContext();
         List<Map<String, Object>> skus = listSkusSafe(degrade);
-        // 按 SKU 各自的拼团商品查询营销配置（月卡/年卡/加油包价格不同，不能共用一个默认活动）
+        // 按 SKU 各自的拼团商品查询营销配置，不同额度包不能共用一个默认活动。
         Map<String, Map<String, Object>> marketByGoods = queryGroupMarketsForSkus(skus, degrade);
         enrichSkusWithGroupBuy(skus, marketByGoods);
         data.put("skus", skus);
@@ -83,6 +83,7 @@ public class BffController {
         if (summary == null) {
             summary = new HashMap<>();
         }
+        summary.put("quotaLedger", listQuotaLedgerSafe(degrade));
         summary.put("pendingGroupOrders", listPendingGroupOrdersSafe(degrade));
         summary.put("meta", degrade.meta());
         return Result.success(summary);
@@ -177,7 +178,7 @@ public class BffController {
     private Map<String, Object> buildAggregatedGroupBuy(List<Map<String, Object>> skus, Map<String, Map<String, Object>> marketByGoods) {
         Map<String, Object> aggregated = null;
         List<Object> mergedTeams = new ArrayList<>();
-        // 按 SKU 顺序聚合，保证顶层默认取第一个会员套餐的活动
+        // 按 SKU 顺序聚合，保证顶层默认取第一个额度包的活动。
         List<String> orderedGoods = new ArrayList<>();
         for (Map<String, Object> sku : skus) {
             String goodsId = stringValue(sku.get("groupGoodsId"));
@@ -274,6 +275,21 @@ public class BffController {
         }
     }
 
+    private List<Map<String, Object>> listQuotaLedgerSafe(DegradeContext degrade) {
+        try {
+            Result<List<Map<String, Object>>> result = memberFeignClient.quotaLedger();
+            if (result == null || result.getCode() == null || result.getCode() != 200) {
+                degrade.add("member", "QUOTA_LEDGER_UNAVAILABLE",
+                        result == null ? null : result.getMessage());
+                return List.of();
+            }
+            return result.getData() == null ? List.of() : result.getData();
+        } catch (Exception ex) {
+            degrade.add("member", "QUOTA_LEDGER_UNAVAILABLE", ex.getMessage());
+            return List.of();
+        }
+    }
+
     private List<Map<String, Object>> listSkusSafe(DegradeContext degrade) {
         try {
             Result<List<Map<String, Object>>> result = memberFeignClient.listSkus();
@@ -325,17 +341,18 @@ public class BffController {
                 Map<String, Object> mapped = new HashMap<>();
                 String orderId = stringValue(orderMap.get("orderId"));
                 String rawStatus = stringValue(orderMap.get("status"));
+                Object marketType = orderMap.get("marketType");
                 mapped.put("orderId", orderId);
                 mapped.put("status", rawStatus);
-                mapped.put("displayStatus", resolveDisplayStatus(rawStatus, orderMap.get("marketType"), orderId));
+                mapped.put("displayStatus", resolveDisplayStatus(rawStatus, marketType, orderId));
                 mapped.put("productName", orderMap.get("productName"));
                 // 展示金额 = 商品价 - 营销扣减（真实应付价）。沙箱小额模式下 payAmount 是 0.01 实收，
                 // 不能作为展示价；无 totalAmount 的历史单退回 payAmount。
                 mapped.put("amount", resolveDisplayAmount(
                         orderMap.get("totalAmount"), orderMap.get("marketDeductionAmount"), orderMap.get("payAmount")));
                 mapped.put("paidAt", orderMap.get("payTime"));
-                mapped.put("marketType", orderMap.get("marketType"));
-                mapped.put("groupStatus", mapGroupStatus(rawStatus));
+                mapped.put("marketType", marketType);
+                mapped.put("groupStatus", isGroupBuyMarket(marketType) ? mapGroupStatus(rawStatus) : null);
                 // 透传收银台表单：pay 服务仅对 PAY_WAIT 订单回传 payUrl，
                 // 前端订单中心据此渲染「去支付」按钮恢复支付（此前被丢弃导致待支付订单无法继续付款）。
                 mapped.put("payUrl", orderMap.get("payUrl"));
@@ -359,7 +376,7 @@ public class BffController {
         return switch (normalized) {
             case "PAY_WAIT", "CREATE" -> "PAY_WAIT";
             case "PAY_SUCCESS" -> isGroupBuyMarket(marketType) ? "PAID_WAIT_GROUP" : "PAID";
-            case "DEAL_DONE" -> "GROUP_FORMED";
+            case "DEAL_DONE" -> isGroupBuyMarket(marketType) ? "GROUP_FORMED" : "PAID";
             case "MARKET" -> "GROUP_FORMED";
             case "WAIT_REFUND" -> "WAIT_REFUND";
             case "CLOSE" -> "CLOSED";
@@ -369,19 +386,25 @@ public class BffController {
 
     private String resolveDisplayStatus(String payStatus, Object marketType, String orderId) {
         String base = mapDisplayStatus(payStatus, marketType);
-        if (!"MARKET".equals(normalizePayStatus(payStatus)) || orderId == null || orderId.isBlank()) {
+        String normalized = normalizePayStatus(payStatus);
+        boolean benefitTerminal = "MARKET".equals(normalized) || "DEAL_DONE".equals(normalized);
+        if (!benefitTerminal || orderId == null || orderId.isBlank()) {
             return base;
         }
         try {
-            Map<String, String> benefit = memberFeignClient.benefitStatus(orderId).getData();
-            String grantStatus = benefit == null ? "PENDING" : benefit.getOrDefault("status", "PENDING");
+            Result<Map<String, String>> result = memberFeignClient.benefitStatus(orderId);
+            Map<String, String> benefit = result == null || result.getCode() == null || result.getCode() != 200
+                    ? null : result.getData();
+            String grantStatus = benefit == null
+                    ? "PENDING" : benefit.getOrDefault("status", "PENDING").toUpperCase();
             return switch (grantStatus) {
                 case "GRANTED" -> "BENEFIT_GRANTED";
                 case "REVOKED" -> "CLOSED";
-                default -> "GROUP_FORMED";
+                default -> base;
             };
         } catch (Exception ex) {
-            return "UNKNOWN";
+            // Member 短暂不可用不能把 pay 的稳定终态降成 UNKNOWN；下一次刷新再收敛权益状态。
+            return base;
         }
     }
 

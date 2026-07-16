@@ -1,6 +1,5 @@
 package org.wwz.ai.trigger.http.reactor;
 
-import com.alibaba.fastjson.JSON;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -72,7 +71,10 @@ public class ReactorController {
     @PostMapping("/AutoAgent")
     public SseEmitter AutoAgent(@RequestBody AgentRequest request) throws UnsupportedEncodingException {
 
-        log.info("{} auto agent request: {}", request.getRequestId(), JSON.toJSONString(request));
+        log.info("{} debug auto agent request accepted agentType={} stream={} fileCount={} resumeRequested={}",
+                request.getRequestId(), request.getAgentType(), request.getIsStream(),
+                request.getSessionFiles() == null ? 0 : request.getSessionFiles().size(),
+                StringUtils.isNotBlank(request.getResumeCheckpointId()));
 
         Long AUTO_AGENT_SSE_TIMEOUT = 600 * 1000L;
 
@@ -86,7 +88,8 @@ public class ReactorController {
                     request.getQuery()
             );
         } catch (Exception e) {
-            log.warn("{} reject auto agent request before dispatch", request.getRequestId(), e);
+            log.warn("{} reject auto agent request before dispatch errorType={}",
+                    request.getRequestId(), e.getClass().getSimpleName());
             emitter.completeWithError(e);
             return emitter;
         }
@@ -107,15 +110,18 @@ public class ReactorController {
                     agentDispatchService.dispatch(request, new SseEmitterAgentSessionStream(emitter));
                     emitter.complete();
                 } catch (Exception e) {
-                    log.error("{} auto agent error", request.getRequestId(), e);
+                    log.error("{} auto agent error errorType={}",
+                            request.getRequestId(), e.getClass().getSimpleName());
                     emitter.completeWithError(e);
                 }
             });
         } catch (AgentExecutorBusyException e) {
-            log.warn("{} dispatch rejected", request.getRequestId(), e);
+            log.warn("{} dispatch rejected errorType={}",
+                    request.getRequestId(), e.getClass().getSimpleName());
             emitter.completeWithError(e);
         } catch (Exception e) {
-            log.error("{} auto agent error", request.getRequestId(), e);
+            log.error("{} auto agent error errorType={}",
+                    request.getRequestId(), e.getClass().getSimpleName());
             emitter.completeWithError(e);
         }
 
@@ -152,7 +158,8 @@ public class ReactorController {
         try {
             gptQueryIngressService.queryAgentStreamIncr(params, new SseEmitterAgentSessionStream(emitter));
         } catch (Exception e) {
-            log.warn("reject gpt stream request {}", params.getRequestId(), e);
+            log.warn("reject gpt stream request {} errorType={}",
+                    params.getRequestId(), e.getClass().getSimpleName());
             emitter.completeWithError(e);
         }
         return emitter;

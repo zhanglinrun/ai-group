@@ -24,6 +24,8 @@ public class PayOrder {
     private String productCode;
     // 商品名称
     private String productName;
+    /** 下单时基础额度快照（整额度点） */
+    private Long baseQuotaSnapshot;
     // 订单ID
     private String orderId;
     // 下单时间

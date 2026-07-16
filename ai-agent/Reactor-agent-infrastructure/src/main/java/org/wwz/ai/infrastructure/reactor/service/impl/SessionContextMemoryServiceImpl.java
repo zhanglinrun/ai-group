@@ -30,12 +30,12 @@ import java.util.stream.Collectors;
 /**
  * 单会话上下文记忆服务实现（三层记忆中的「中期/会话记忆」）。
  *
- * <p>读取策略：最近 {@code recentRunWindow} 轮 run 逐字保留（完整 ReAct 循环明细），
- * 更早的 run 用其在账本里已生成的每轮总结（{@code final_summary_text}）做「摘要压缩」，
- * 替代此前「超预算直接硬截断丢历史」的做法。整体仍受 token 预算约束。</p>
+ * <p>读取策略：最近 {@code recentRunWindow} 轮保留「用户诉求 + run 总结 + 工具证据摘要 + artifact 引用」，
+ * 不回灌 raw chain-of-thought 和工具参数；更早的 run 使用 {@code final_summary_text} 压缩。
+ * 原始执行事实仍完整保存在 ledger，仅 prompt 注入视图受 token 预算约束。</p>
  *
- * <p>兼容：不传 {@code recentRunWindow} 的旧构造器等价于「全部逐字 + 预算保留最新」的历史行为，
- * 仅当通过带窗口的构造器（生产 Spring 装配）且历史轮次超过窗口时才启用摘要压缩。</p>
+ * <p>兼容：不传 {@code recentRunWindow} 的旧构造器会为全部历史构建安全证据视图；
+ * 仅当通过带窗口的构造器（生产 Spring 装配）且历史轮次超过窗口时启用更早轮次摘要压缩。</p>
  */
 @Service
 public class SessionContextMemoryServiceImpl implements SessionContextMemoryService {
@@ -46,6 +46,9 @@ public class SessionContextMemoryServiceImpl implements SessionContextMemoryServ
     private static final String OLDER_SUMMARY_HEADER = "### 更早对话摘要（压缩）";
     private static final int OLDER_QUERY_MAX_CHARS = 200;
     private static final int OLDER_SUMMARY_MAX_CHARS = 400;
+    private static final int RECENT_QUERY_MAX_CHARS = 800;
+    private static final int RECENT_SUMMARY_MAX_CHARS = 1200;
+    private static final int TOOL_OBSERVATION_SUMMARY_MAX_CHARS = 400;
 
     private final ExecutionLedgerQueryService executionLedgerQueryService;
     private final ILlmInvocationLedgerDao llmInvocationLedgerDao;
@@ -110,7 +113,7 @@ public class SessionContextMemoryServiceImpl implements SessionContextMemoryServ
         if (orderedRuns.isEmpty()) {
             return "";
         }
-        // 历史轮次不超过窗口（或未启用压缩）时，走原「全部逐字 + 预算保留最新」路径，保持既有行为与输出格式。
+        // 历史轮次不超过窗口（或未启用压缩）时，为全部 run 构建安全证据视图并按预算保留最新。
         if (recentRunWindow == Integer.MAX_VALUE || orderedRuns.size() <= recentRunWindow) {
             SessionHistoryMemory memory = assembleSessionHistoryMemory(sessionId, currentRequestId, orderedRuns);
             return formatHistoryDialogueWithinTokenBudget(memory);
@@ -169,7 +172,7 @@ public class SessionContextMemoryServiceImpl implements SessionContextMemoryServ
         String text = builder.toString().trim();
         int budget = Math.max(0, maxHistoryDialogueTokens * 4 / 10);
         if (budget > 0 && tokenCounter.countText(text) > budget) {
-            text = text.substring(0, Math.min(text.length(), budget)).trim();
+            text = tokenCounter.truncateTextToTokens(text, budget).trim();
         }
         return text;
     }
@@ -190,9 +193,7 @@ public class SessionContextMemoryServiceImpl implements SessionContextMemoryServ
             }
             keptRunBlocks.removeFirst();
             if (keptRunBlocks.isEmpty() && budgetTokens > 0) {
-                String truncated = runBlock.length() <= budgetTokens
-                        ? runBlock
-                        : runBlock.substring(0, budgetTokens);
+                String truncated = tokenCounter.truncateTextToTokens(runBlock, budgetTokens);
                 truncated = truncated.trim();
                 if (StringUtils.isNotBlank(truncated)) {
                     keptRunBlocks.add(truncated);
@@ -252,6 +253,8 @@ public class SessionContextMemoryServiceImpl implements SessionContextMemoryServ
                     .requestId(run.getRequestId())
                     .sessionId(run.getSessionId())
                     .entryAgent(run.getEntryAgent())
+                    .queryText(run.getQueryText())
+                    .finalSummaryText(run.getFinalSummaryText())
                     .sessionInputFiles(new ArrayList<>(inputFilesByRunId.getOrDefault(run.getId(), List.of())))
                     .reactCycles(new ArrayList<>())
                     .build();
@@ -266,7 +269,6 @@ public class SessionContextMemoryServiceImpl implements SessionContextMemoryServ
                         .invocationSeq(llmInvocation.getInvocationSeq())
                         .agentName(llmInvocation.getAgentName())
                         .stepNo(llmInvocation.getStepNo())
-                        .thoughtContent(StringUtils.defaultString(llmInvocation.getResponseText()))
                         .toolCalls(new ArrayList<>())
                         .build();
                 for (ToolInvocation toolInvocation : toolInvocationsByLlmInvocationId.getOrDefault(llmInvocation.getId(), List.of())) {
@@ -279,7 +281,6 @@ public class SessionContextMemoryServiceImpl implements SessionContextMemoryServ
                             .stepNo(toolInvocation.getStepNo())
                             .toolName(toolInvocation.getToolName())
                             .toolProvider(toolInvocation.getToolProvider())
-                            .inputJson(StringUtils.defaultString(toolInvocation.getInputJson()))
                             .llmObservation(StringUtils.defaultString(toolInvocation.getLlmObservation()))
                             .files(new ArrayList<>(outputFilesByToolInvocationId.getOrDefault(toolInvocation.getId(), List.of())))
                             .build());
@@ -326,6 +327,12 @@ public class SessionContextMemoryServiceImpl implements SessionContextMemoryServ
     private String formatRunHistory(RunHistoryMemory run) {
         StringBuilder builder = new StringBuilder();
         builder.append("### Run ").append(valueOrEmpty(run.getRequestId())).append('\n');
+        builder.append("User Request:\n")
+                .append(truncateText(valueOrEmpty(run.getQueryText()), RECENT_QUERY_MAX_CHARS))
+                .append("\n\n");
+        builder.append("Run Summary:\n")
+                .append(truncateText(valueOrEmpty(run.getFinalSummaryText()), RECENT_SUMMARY_MAX_CHARS))
+                .append("\n\n");
         if (run.getSessionInputFiles() != null && !run.getSessionInputFiles().isEmpty()) {
             builder.append("[Session Input Files]\n");
             for (FileArtifactMemory file : run.getSessionInputFiles()) {
@@ -339,27 +346,32 @@ public class SessionContextMemoryServiceImpl implements SessionContextMemoryServ
             }
             builder.append('\n');
         }
+        builder.append("[Tool Evidence]\n");
+        boolean hasToolEvidence = false;
         for (ReactCycleMemory cycle : run.getReactCycles()) {
-            builder.append("[ReAct Cycle ").append(valueOrEmpty(cycle.getInvocationSeq())).append("]\n");
-            builder.append("Thought:\n").append(valueOrEmpty(cycle.getThoughtContent())).append("\n\n");
-            builder.append("Tool Calls:\n");
             if (cycle.getToolCalls() == null || cycle.getToolCalls().isEmpty()) {
-                builder.append("- none\n\n");
                 continue;
             }
+            hasToolEvidence = true;
+            builder.append("- cycle=").append(valueOrEmpty(cycle.getInvocationSeq()))
+                    .append(", agent=").append(valueOrEmpty(cycle.getAgentName()))
+                    .append(", step=").append(valueOrEmpty(cycle.getStepNo())).append('\n');
             int index = 1;
             for (ToolCallMemory toolCall : cycle.getToolCalls()) {
-                builder.append(index++).append(". toolName=").append(valueOrEmpty(toolCall.getToolName())).append('\n');
-                builder.append("   toolProvider=").append(valueOrEmpty(toolCall.getToolProvider())).append('\n');
-                builder.append("   inputJson=").append(valueOrEmpty(toolCall.getInputJson())).append('\n');
-                builder.append("   llmObservation=").append(valueOrEmpty(toolCall.getLlmObservation())).append('\n');
-                builder.append("Files:\n");
+                builder.append("  ").append(index++).append(". toolName=")
+                        .append(valueOrEmpty(toolCall.getToolName()))
+                        .append(", toolProvider=").append(valueOrEmpty(toolCall.getToolProvider())).append('\n');
+                builder.append("     observationSummary=")
+                        .append(truncateText(valueOrEmpty(toolCall.getLlmObservation())
+                                .replaceAll("\\s+", " "), TOOL_OBSERVATION_SUMMARY_MAX_CHARS))
+                        .append('\n');
+                builder.append("     artifactRefs:\n");
                 if (toolCall.getFiles() == null || toolCall.getFiles().isEmpty()) {
-                    builder.append("- none\n");
+                    builder.append("     - none\n");
                     continue;
                 }
                 for (FileArtifactMemory file : toolCall.getFiles()) {
-                    builder.append("- artifactRole=").append(valueOrEmpty(file.getArtifactRole()))
+                    builder.append("     - artifactRole=").append(valueOrEmpty(file.getArtifactRole()))
                             .append(", fileName=").append(valueOrEmpty(file.getFileName()))
                             .append(", mimeType=").append(valueOrEmpty(file.getMimeType()))
                             .append(", fileSize=").append(valueOrEmpty(file.getFileSize()))
@@ -369,7 +381,9 @@ public class SessionContextMemoryServiceImpl implements SessionContextMemoryServ
                             .append('\n');
                 }
             }
-            builder.append('\n');
+        }
+        if (!hasToolEvidence) {
+            builder.append("- none\n");
         }
         return builder.toString().trim();
     }
@@ -379,10 +393,7 @@ public class SessionContextMemoryServiceImpl implements SessionContextMemoryServ
         if (remainingTokens <= 0 || StringUtils.isBlank(runBlock)) {
             return "";
         }
-        int truncateLength = Math.min(runBlock.length(), remainingTokens);
-
-        // 当前 TokenCounter 仍按字符数近似计算，因此这里按字符裁剪即可稳定满足预算上限。
-        return runBlock.substring(0, truncateLength).trim();
+        return tokenCounter.truncateTextToTokens(runBlock, remainingTokens).trim();
     }
 
     private int normalizeMaxHistoryDialogueTokens(int configuredMaxTokens) {

@@ -2,6 +2,8 @@ package com.aigroup.paymall.infrastructure.gateway.dto;
 
 import lombok.Data;
 
+import java.math.BigDecimal;
+
 /**
  * @author Fuzhengwei bugstack.cn @小傅哥
  * @description 营销支付锁单请求对象
@@ -18,6 +20,8 @@ public class LockMarketPayOrderRequestDTO {
     private Long activityId;
     // 商品ID
     private String goodsId;
+    // 支付服务从 member SKU 取得的订单价格；额度拼团必须按此可信价格锁单
+    private BigDecimal orderPrice;
     // 渠道
     private String source;
     // 来源

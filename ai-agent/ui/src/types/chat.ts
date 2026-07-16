@@ -20,28 +20,42 @@ declare global {
         taskStatus?: MESSAGE.MsgItem['taskStatus'];
         planList?: PlanItem[];
         timeline?: TimelineEntry[];
-      metrics?: {
-        event_count?: number;
-        status?: string;
-        /** 本轮实际使用的模型名（用户可选模型 / 默认模型解析结果）。 */
-        modelName?: string;
-        /** 本轮总 token 用量（流式下可能缺失）。 */
-        totalTokens?: number;
-        /** 本轮耗时（毫秒）。 */
-        durationMs?: number;
-        /** Plan-Solve 质量门执行次数。 */
-        evaluationCount?: number;
-        /** Evaluator 定向重规划次数，不包含普通计划推进。 */
-        replanCount?: number;
-        /** 质量评估与反馈消耗的保守 token 估算。 */
-        reflectionTokens?: number;
-        /** 最近一轮质量评估分数（0-100）。 */
-        qualityScore?: number;
-      };
+        checkpoint?: AgentCheckpoint;
+        metrics?: {
+          event_count?: number;
+          status?: string;
+          /** 本轮实际使用的模型名（用户可选模型 / 默认模型解析结果）。 */
+          modelName?: string;
+          /** 本轮总 token 用量（流式下可能缺失）。 */
+          totalTokens?: number;
+          /** 本轮耗时（毫秒）。 */
+          durationMs?: number;
+          /** Plan-Solve 质量门执行次数。 */
+          evaluationCount?: number;
+          /** Evaluator 定向重规划次数，不包含普通计划推进。 */
+          replanCount?: number;
+          /** 质量评估与反馈消耗的保守 token 估算。 */
+          reflectionTokens?: number;
+          /** 最近一轮质量评估分数（0-100）。 */
+          qualityScore?: number;
+        };
         startedAt?: string;
         finishedAt?: string;
       }
     >;
+
+    export type CheckpointResumeDecision = 'SAFE_ONLY' | 'RESTART_FROM_CHECKPOINT';
+
+    export type AgentCheckpoint = {
+      checkpointId: string;
+      phase: string;
+      sequence?: number;
+      nextStepIndex?: number;
+      resumable: boolean;
+      sourceRequestId?: string;
+      resumeDecision?: CheckpointResumeDecision;
+      status: 'AVAILABLE' | 'RESUMED';
+    };
 
     export type TimelineEntry = {
       seq: number;
@@ -85,6 +99,10 @@ declare global {
       aiAgentId?: string;
       /** 用户在输入框选择的模型 ID；为空则由后端走默认模型逻辑。 */
       modelId?: string;
+      /** Plan-Solve 检查点恢复 ID；仅恢复操作传递。 */
+      resumeCheckpointId?: string;
+      /** 默认 SAFE_ONLY；RESTART_FROM_CHECKPOINT 必须经过用户显式确认。 */
+      resumeDecision?: CheckpointResumeDecision;
     };
 
     export type TAbortController = {

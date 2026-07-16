@@ -19,6 +19,7 @@ import org.wwz.ai.domain.agent.runtime.tool.BaseTool;
 import org.wwz.ai.domain.agent.runtime.tool.ToolResultPayload;
 import org.wwz.ai.domain.agent.runtime.util.StringUtil;
 import org.wwz.ai.domain.agent.reactor.config.ReactorConfig;
+import org.wwz.ai.domain.agent.reactor.config.ReactorToolRequestHeaders;
 import org.wwz.ai.domain.agent.ledger.model.tooloutput.MultimodalAgentToolOutput;
 import org.wwz.ai.domain.agent.ledger.model.tooloutput.ToolFileRefMapper;
 
@@ -130,11 +131,13 @@ public class MultiModalAgent implements BaseTool {
             if (activeStreamSession != null) {
                 activeStreamSession.cancel();
             }
-            log.error("{} multimodalagent_tool timeout after {} minutes",
-                    agentContext.getRequestId(), MULTIMODAL_AGENT_TIMEOUT_MINUTES, e);
+            log.error("{} multimodalagent_tool timeout after {} minutes errorType={}",
+                    agentContext.getRequestId(), MULTIMODAL_AGENT_TIMEOUT_MINUTES,
+                    e.getClass().getSimpleName(), e);
             return buildFailurePayload("multimodalagent_tool 执行失败：多模态检索超时，请稍后重试。");
         } catch (Exception e) {
-            log.error("{} multimodalagent_tool error", agentContext.getRequestId(), e);
+            log.error("{} multimodalagent_tool error errorType={}",
+                    agentContext.getRequestId(), e.getClass().getSimpleName(), e);
             return buildFailurePayload("multimodalagent_tool 执行失败：" + e.getMessage());
         } finally {
             activeStreamSession = null;
@@ -147,8 +150,12 @@ public class MultiModalAgent implements BaseTool {
         try {
             ReactorConfig reactorConfig = requireReactorConfig();
             String url = reactorConfig.getMultiModalAgentUrl() + "/v1/tool/mragQuery";
-            log.info("{} multimodalagent_tool request {}", agentContext.getRequestId(),
-                    JSONObject.toJSONString(multiModalAgentRequest));
+            log.info("{} multimodalagent_tool request questionChars={} queryChars={} stream={} contentStream={}",
+                    agentContext.getRequestId(),
+                    multiModalAgentRequest.getQuestion() == null ? 0 : multiModalAgentRequest.getQuestion().length(),
+                    multiModalAgentRequest.getQuery() == null ? 0 : multiModalAgentRequest.getQuery().length(),
+                    multiModalAgentRequest.getStream(),
+                    multiModalAgentRequest.getContentStream());
 
             String[] interval = reactorConfig.getMessageInterval().getOrDefault("knowledge", "1,4").split(",");
             int firstInterval = Integer.parseInt(interval[0]);
@@ -156,7 +163,7 @@ public class MultiModalAgent implements BaseTool {
             activeStreamSession = requireRemoteStreamPort().openStream(RemoteStreamRequest.builder()
                     .method("POST")
                     .url(url)
-                    .headers(Map.of("Content-Type", "application/json"))
+                    .headers(ReactorToolRequestHeaders.json(reactorConfig))
                     .body(JSONObject.toJSONString(multiModalAgentRequest))
                     .connectTimeoutSeconds(MULTIMODAL_AGENT_CONNECT_TIMEOUT_SECONDS)
                     .readTimeoutSeconds(TimeUnit.MINUTES.toSeconds(MULTIMODAL_AGENT_IO_TIMEOUT_MINUTES))
@@ -185,8 +192,11 @@ public class MultiModalAgent implements BaseTool {
                 @Override
                 public void onFailure(Throwable throwable, Integer statusCode, String responseBody) {
                     activeStreamSession = null;
-                    log.error("{} multimodalagent_tool request error, code={}, body={}",
-                            agentContext.getRequestId(), statusCode, responseBody, throwable);
+                    log.error("{} multimodalagent_tool request error statusCode={} bodyChars={} errorType={}",
+                            agentContext.getRequestId(), statusCode,
+                            responseBody == null ? 0 : responseBody.length(),
+                            throwable == null ? "unknown" : throwable.getClass().getSimpleName(),
+                            throwable);
                     if (!future.isDone()) {
                         if (statusCode != null) {
                             future.complete(buildFailurePayload("multimodalagent_tool 执行失败：上游服务返回异常状态 " + statusCode + "。"));
@@ -197,7 +207,8 @@ public class MultiModalAgent implements BaseTool {
                 }
             });
         } catch (Exception e) {
-            log.error("{} multimodalagent_tool request error", agentContext.getRequestId(), e);
+            log.error("{} multimodalagent_tool request error errorType={}",
+                    agentContext.getRequestId(), e.getClass().getSimpleName(), e);
             future.complete(buildFailurePayload("multimodalagent_tool 执行失败：" + e.getMessage()));
         }
         return future;
@@ -248,8 +259,9 @@ public class MultiModalAgent implements BaseTool {
             try {
                 streamResponse = JSONObject.parseObject(data, MultiModalAgentResponse.class);
             } catch (Exception parseException) {
-                log.warn("{} multimodalagent_tool parse chunk failed, raw={}",
-                        agentContext.getRequestId(), data, parseException);
+                log.warn("{} multimodalagent_tool parse chunk failed chunkChars={} errorType={}",
+                        agentContext.getRequestId(), data.length(),
+                        parseException.getClass().getSimpleName(), parseException);
                 return;
             }
 

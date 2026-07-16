@@ -6,6 +6,7 @@ import lombok.extern.slf4j.Slf4j;
 import okhttp3.*;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.util.CollectionUtils;
+import org.wwz.ai.domain.agent.adapter.port.QuotaBillingPort;
 import org.wwz.ai.domain.agent.runtime.agent.AgentContext;
 import org.wwz.ai.domain.agent.runtime.artifact.ToolArtifactSource;
 import org.wwz.ai.domain.agent.runtime.dto.File;
@@ -79,6 +80,7 @@ public class ImageGenerationTool implements BaseTool {
     @Override
     @SuppressWarnings("unchecked")
     public Object execute(Object input) {
+        QuotaBillingPort.Reservation reservation = null;
         try {
             Map<String, Object> params = (Map<String, Object>) input;
             String prompt = StringUtils.trimToEmpty(valueAsString(params.get("prompt")));
@@ -94,6 +96,7 @@ public class ImageGenerationTool implements BaseTool {
             }
             List<String> maskFileNames = toStringList(params.get("maskFileNames"));
             ToolArtifactSource artifactSource = agentContext.requireCurrentToolArtifactSource(getName());
+            reservation = reserveSurcharge(artifactSource);
             ImageGenerationExecutionResult result = requireKernel().execute(ImageGenerationExecuteCommand.builder()
                     // 图片产物目录按 session 归档，和其他工具保持一致，便于会话内统一查看文件。
                     .requestId(agentContext.getSessionId())
@@ -110,10 +113,50 @@ public class ImageGenerationTool implements BaseTool {
                     .build());
             appendGeneratedArtifacts(result, artifactSource);
             emitFileMessage(result, artifactSource);
-            return buildSuccessPayload(result);
+            ToolResultPayload payload = buildSuccessPayload(result);
+            if (Boolean.TRUE.equals(result.getUsedFallback())) {
+                releaseSurcharge(reservation);
+            } else {
+                settleSurcharge(reservation);
+            }
+            reservation = null;
+            return payload;
         } catch (Exception e) {
-            log.error("{} image_generation_tool error, input={}", agentContext.getRequestId(), input, e);
+            releaseSurcharge(reservation);
+            log.error("{} image_generation_tool error inputType={} inputChars={} errorType={}",
+                    agentContext.getRequestId(),
+                    input == null ? "null" : input.getClass().getSimpleName(),
+                    input == null ? 0 : String.valueOf(input).length(),
+                    e.getClass().getSimpleName(),
+                    e);
             return buildFailurePayload("image_generation_tool 执行失败：" + e.getMessage());
+        }
+    }
+
+    private QuotaBillingPort.Reservation reserveSurcharge(ToolArtifactSource source) {
+        if (agentContext.getOwnerId() == null || agentContext.getRuntimeDependencies().getQuotaBillingPort() == null) {
+            return null;
+        }
+        long amount = Math.max(0L, requireReactorConfig().getImageGenerationMicrocredits());
+        if (amount == 0L) {
+            return null;
+        }
+        return agentContext.getRuntimeDependencies().getQuotaBillingPort().reserve(
+                agentContext.getOwnerId(), amount, amount,
+                agentContext.getRequestId() + ":tool:image_generation:"
+                        + (source == null ? StringUtil.getUUID() : source.getToolCallId()));
+    }
+
+    private void settleSurcharge(QuotaBillingPort.Reservation reservation) {
+        if (reservation != null) {
+            agentContext.getRuntimeDependencies().getQuotaBillingPort()
+                    .settle(reservation.freezeId(), reservation.reservedMicrocredits());
+        }
+    }
+
+    private void releaseSurcharge(QuotaBillingPort.Reservation reservation) {
+        if (reservation != null) {
+            agentContext.getRuntimeDependencies().getQuotaBillingPort().release(reservation.freezeId());
         }
     }
 

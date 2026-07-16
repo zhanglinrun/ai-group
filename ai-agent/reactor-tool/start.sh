@@ -14,7 +14,8 @@ if [[ -f ".env" ]]; then
   set +a
 fi
 
-export ENV="${ENV:-prod}"
+export ENV="${ENV:-local}"
+export REACTOR_TOOL_RELOAD="${REACTOR_TOOL_RELOAD:-false}"
 export PYTHONIOENCODING="utf-8"
 export SKILL_PYTHON_BIN="${SKILL_PYTHON_BIN:-$(pwd)/.venv/bin/python}"
 
@@ -34,4 +35,4 @@ fi
 mkdir -p "$FILE_SAVE_PATH"
 
 # 运行Python服务器
-python server.py --workers "${REACTOR_TOOL_WORKERS:-5}"
+python server.py --workers "${REACTOR_TOOL_WORKERS:-1}"

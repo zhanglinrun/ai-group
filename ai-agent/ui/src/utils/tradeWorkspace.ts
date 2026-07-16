@@ -10,7 +10,8 @@ export type TradeSettlementHint = {
 
 export type TradeWorkspaceSummary = {
   availableQuota: number;
-  periodQuota: number;
+  freeQuota: number;
+  paidQuota: number;
   frozenQuota: number;
   totalOrders: number;
   groupOrders: number;
@@ -27,7 +28,7 @@ const DISPLAY_STATUS_LABELS: Record<string, string> = {
   PAY_WAIT: '待支付',
   PAID_WAIT_GROUP: '支付成功，待成团',
   GROUP_FORMED: '已成团，权益发放中',
-  BENEFIT_GRANTED: '已开通 Pro',
+  BENEFIT_GRANTED: '额度已到账',
   WAIT_REFUND: '退款中',
   CLOSED: '已关闭',
   PAID: '已支付',
@@ -64,21 +65,21 @@ export function tradeSettlementHint(order: OrderItem): TradeSettlementHint {
   if (display === 'PAID_WAIT_GROUP') {
     return {
       label: '等待成团',
-      detail: '拼团支付成功只表示名额已锁定，成团后才发放 Pro 与配额。',
+      detail: '拼团支付成功只表示名额已锁定，成团后才发放基础额度和赠送额度。',
       tone: 'warn',
     };
   }
   if (display === 'GROUP_FORMED') {
     return {
       label: '成团待到账',
-      detail: '拼团已成团，权益发放中，请稍后刷新会员中心。',
+      detail: '拼团已成团，额度发放中，请稍后刷新额度中心。',
       tone: 'warn',
     };
   }
   if (display === 'BENEFIT_GRANTED') {
     return {
-      label: '已开通',
-      detail: '权益已发放，可在会员中心查看配额。',
+      label: '已到账',
+      detail: '额度已发放，可在额度中心查看余额。',
       tone: 'ready',
     };
   }
@@ -104,14 +105,14 @@ export function tradeSettlementHint(order: OrderItem): TradeSettlementHint {
   if (isGroup && (groupStatus === 'waiting' || WAITING_STATUSES.has(status))) {
     return {
       label: '等待成团',
-      detail: '拼团支付成功只表示名额已锁定，成团后才发放 Pro 与配额。',
+      detail: '拼团支付成功只表示名额已锁定，成团后才发放基础额度和赠送额度。',
       tone: 'warn',
     };
   }
   if (isGroup && (groupStatus === 'formed' || DONE_STATUSES.has(status))) {
     return {
       label: '核对到账',
-      detail: '拼团已成团或交易完成，请核对会员中心配额是否到账。',
+      detail: '拼团已成团或交易完成，请核对额度中心余额是否到账。',
       tone: 'ready',
     };
   }
@@ -131,7 +132,7 @@ export function tradeSettlementHint(order: OrderItem): TradeSettlementHint {
   }
   return {
     label: '待核查',
-    detail: '请结合订单状态与会员中心配额判断。',
+    detail: '请结合订单状态与额度中心余额判断。',
     tone: 'neutral',
   };
 }
@@ -143,22 +144,26 @@ export function summarizeTradeWorkspace(
   const groupOrders = orders.filter(
     (order) => order.marketType === 1 || Boolean(order.groupStatus),
   );
-  const waitingGroupOrders = orders.filter((order) => {
-    const hint = tradeSettlementHint(order);
-    return hint.tone === 'warn';
+  // “待成团”只统计真正处于支付成功等待组队的订单。此前按 hint.tone=warn 统计，
+  // 会把 GROUP_FORMED（权益发放中）也算进去，甚至在 GRANTED 后造成长期错误告警。
+  const waitingGroupOrders = groupOrders.filter((order) => {
+    const display = (order.displayStatus || '').toUpperCase();
+    if (display) return display === 'PAID_WAIT_GROUP';
+    return (order.groupStatus || '').toLowerCase() === 'waiting';
   });
 
   const consistencyHints: string[] = [];
   if (waitingGroupOrders.length > 0) {
-    consistencyHints.push('存在支付成功但等待成团的拼团单，成团后才会开通 Pro。');
+    consistencyHints.push('存在支付成功但等待成团的拼团单，成团后才会发放额度。');
   }
   if (orders.length === 0) {
     consistencyHints.push('暂无订单，购买或参与拼团后这里会显示闭环状态。');
   }
 
   return {
-    availableQuota: summary?.availableQuota ?? summary?.periodQuotaBalance ?? 0,
-    periodQuota: summary?.periodQuotaBalance ?? 0,
+    availableQuota: summary?.availableQuota ?? 0,
+    freeQuota: summary?.freeQuotaBalance ?? 0,
+    paidQuota: summary?.paidQuotaBalance ?? 0,
     frozenQuota: summary?.frozenBalance ?? 0,
     totalOrders: orders.length,
     groupOrders: groupOrders.length,

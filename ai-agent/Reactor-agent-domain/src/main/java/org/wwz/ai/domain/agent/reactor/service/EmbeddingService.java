@@ -6,6 +6,8 @@ import com.alibaba.fastjson.TypeReference;
 import org.wwz.ai.domain.agent.adapter.port.RemoteHttpPort;
 import org.wwz.ai.domain.agent.adapter.port.RemoteHttpRequest;
 import org.wwz.ai.domain.agent.reactor.config.data.DataAgentConfig;
+import org.wwz.ai.domain.agent.reactor.config.ReactorConfig;
+import org.wwz.ai.domain.agent.reactor.config.ReactorToolRequestHeaders;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -24,6 +26,8 @@ public class EmbeddingService {
     private DataAgentConfig dataAgentConfig;
     @Autowired
     private RemoteHttpPort remoteHttpPort;
+    @Autowired
+    private ReactorConfig reactorConfig;
 
     public String resolveEmbeddingUrl() {
         if (dataAgentConfig.getQdrantConfig() != null && StringUtils.isNotBlank(dataAgentConfig.getQdrantConfig().getEmbeddingUrl())) {
@@ -66,7 +70,8 @@ public class EmbeddingService {
             String res = remoteHttpPort.execute(RemoteHttpRequest.builder()
                     .method("POST")
                     .url(embeddingUrl)
-                    .headers(java.util.Map.of("Content-Type", "application/json"))
+                    .headers(ReactorToolRequestHeaders.json(
+                            isReactorToolUrl(embeddingUrl) ? reactorConfig : null))
                     .body(body.toJSONString())
                     .build());
             return parseEmbeddingResponse(res);
@@ -87,5 +92,12 @@ public class EmbeddingService {
     public boolean healthCheck() {
         List<Float> vector = getVector("health_check");
         return CollectionUtils.isNotEmpty(vector);
+    }
+
+    private boolean isReactorToolUrl(String url) {
+        String agentUrl = StringUtils.removeEnd(StringUtils.trimToEmpty(dataAgentConfig.getAgentUrl()), "/");
+        String targetUrl = StringUtils.trimToEmpty(url);
+        return StringUtils.isNotBlank(agentUrl)
+                && (targetUrl.equals(agentUrl) || targetUrl.startsWith(agentUrl + "/"));
     }
 }

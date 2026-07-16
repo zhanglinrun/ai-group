@@ -52,7 +52,7 @@ const LoginPage = memo(() => {
           登录
         </Typography.Title>
         <Typography.Paragraph type="secondary" className="!mb-6">
-          使用账号登录后购买会员并使用 AI 对话能力
+          使用账号登录后购买额度并使用 AI 对话能力
         </Typography.Paragraph>
         <Form layout="vertical" onFinish={handleSubmit} autoComplete="off">
           <Form.Item

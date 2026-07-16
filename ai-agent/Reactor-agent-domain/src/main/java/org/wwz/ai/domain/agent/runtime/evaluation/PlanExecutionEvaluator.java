@@ -37,10 +37,18 @@ public final class PlanExecutionEvaluator {
 
     private final PlanEvaluationPolicy policy;
     private final PlanQualityJudge qualityJudge;
+    private final PlanOutcomeEvidenceAdapter outcomeEvidenceAdapter;
 
     public PlanExecutionEvaluator(PlanEvaluationPolicy policy, PlanQualityJudge qualityJudge) {
+        this(policy, qualityJudge, null);
+    }
+
+    public PlanExecutionEvaluator(PlanEvaluationPolicy policy,
+                                  PlanQualityJudge qualityJudge,
+                                  PlanOutcomeEvidenceAdapter outcomeEvidenceAdapter) {
         this.policy = policy == null ? PlanEvaluationPolicy.defaults() : policy;
         this.qualityJudge = qualityJudge;
+        this.outcomeEvidenceAdapter = outcomeEvidenceAdapter;
     }
 
     public PlanEvaluationResult evaluate(PlanEvaluationRequest request, PlanReflectionBudget budget) {
@@ -48,12 +56,13 @@ public final class PlanExecutionEvaluator {
             return PlanEvaluationResult.disabled();
         }
 
-        RuleEvaluation rule = evaluateRules(request);
+        OutcomeVerification outcomeVerification = verifyOutcomes(request);
+        RuleEvaluation rule = evaluateRules(request, outcomeVerification);
         if (!policy.llmJudgeEnabled() || qualityJudge == null) {
             return fromRule(rule, false, false, 0);
         }
 
-        String prompt = buildPrompt(request, rule);
+        String prompt = buildPrompt(request, rule, outcomeVerification.evidence());
         int estimatedTokens = estimateTokens(SYSTEM_PROMPT) + estimateTokens(prompt)
                 + policy.maxJudgeResponseTokens();
         if (budget == null || !budget.tryConsume(estimatedTokens)) {
@@ -91,7 +100,8 @@ public final class PlanExecutionEvaluator {
         return cjk + (asciiLike + 3) / 4;
     }
 
-    private RuleEvaluation evaluateRules(PlanEvaluationRequest request) {
+    private RuleEvaluation evaluateRules(PlanEvaluationRequest request,
+                                         OutcomeVerification outcomeVerification) {
         String result = request == null ? "" : StringUtils.trimToEmpty(request.executorResult());
         List<Message> messages = request == null ? List.of() : request.messages();
         Set<String> failures = new LinkedHashSet<>();
@@ -107,6 +117,12 @@ public final class PlanExecutionEvaluator {
             failures.add("executor result is too short to demonstrate completion");
         } else {
             completeness = 100;
+        }
+
+        if (outcomeVerification.hardFailure()) {
+            completeness = Math.min(completeness, 20);
+            failures.addAll(outcomeVerification.failureReasons());
+            hardFailure = true;
         }
 
         int factualConsistency = containsFailureMarker(result) ? 20 : 100;
@@ -189,12 +205,20 @@ public final class PlanExecutionEvaluator {
         );
     }
 
-    private String buildPrompt(PlanEvaluationRequest request, RuleEvaluation rule) {
+    private String buildPrompt(PlanEvaluationRequest request,
+                               RuleEvaluation rule,
+                               List<PlanOutcomeEvidence> outcomeEvidence) {
         String query = truncate(request == null ? null : request.query());
         String task = truncate(request == null ? null : request.task());
         String result = truncate(request == null ? null : request.executorResult());
         String currentDate = truncate(request == null ? null : request.currentDate());
-        String evidence = truncate(renderEvidence(request == null ? List.of() : request.messages()));
+        List<Message> evidenceMessages = new ArrayList<>();
+        if (request != null) {
+            evidenceMessages.addAll(request.priorEvidence());
+            evidenceMessages.addAll(request.messages());
+        }
+        String evidence = truncate(renderEvidence(evidenceMessages));
+        String verifiedOutcomes = truncate(renderOutcomeEvidence(outcomeEvidence));
         return """
                 Evaluate the current executor round against the original request and current task.
                 Deterministic rule score: %d. Deterministic findings: %s
@@ -214,7 +238,56 @@ public final class PlanExecutionEvaluator {
                 <UNTRUSTED_DATA name="tool_evidence">
                 %s
                 </UNTRUSTED_DATA>
-                """.formatted(rule.overall, rule.failureReasons, currentDate, query, task, result, evidence);
+                <UNTRUSTED_DATA name="outcome_evidence_references">
+                %s
+                </UNTRUSTED_DATA>
+                """.formatted(rule.overall, rule.failureReasons, currentDate, query, task, result,
+                evidence, verifiedOutcomes);
+    }
+
+    private OutcomeVerification verifyOutcomes(PlanEvaluationRequest request) {
+        if (outcomeEvidenceAdapter == null) {
+            return OutcomeVerification.empty();
+        }
+        try {
+            List<PlanOutcomeEvidence> collected = outcomeEvidenceAdapter.collect(request);
+            List<PlanOutcomeEvidence> evidence = collected == null
+                    ? List.of()
+                    : collected.stream().filter(item -> item != null).toList();
+            List<String> failures = new ArrayList<>();
+            for (PlanOutcomeEvidence item : evidence) {
+                if (item.required() && !item.verified()) {
+                    failures.add("required " + item.type().name().toLowerCase(Locale.ROOT)
+                            + " outcome is not verified: " + item.name());
+                }
+            }
+            return new OutcomeVerification(evidence, failures, !failures.isEmpty());
+        } catch (Exception e) {
+            log.warn("Plan outcome evidence adapter unavailable; rejecting unverifiable outcome: {}", e.getMessage());
+            return new OutcomeVerification(
+                    List.of(),
+                    List.of("required outcome verification adapter failed"),
+                    true
+            );
+        }
+    }
+
+    private String renderOutcomeEvidence(List<PlanOutcomeEvidence> evidence) {
+        if (evidence == null || evidence.isEmpty()) {
+            return "none";
+        }
+        StringBuilder builder = new StringBuilder();
+        int index = 0;
+        for (PlanOutcomeEvidence item : evidence) {
+            builder.append(++index)
+                    .append(". type=").append(item.type())
+                    .append(" name=").append(item.name())
+                    .append(" required=").append(item.required())
+                    .append(" verified=").append(item.verified())
+                    .append(" reference=").append(item.reference())
+                    .append('\n');
+        }
+        return builder.toString().trim();
     }
 
     private JudgeEvaluation parseJudgeResponse(String raw) {
@@ -355,5 +428,15 @@ public final class PlanExecutionEvaluator {
             List<String> failureReasons,
             String replanInstruction
     ) {
+    }
+
+    private record OutcomeVerification(
+            List<PlanOutcomeEvidence> evidence,
+            List<String> failureReasons,
+            boolean hardFailure
+    ) {
+        private static OutcomeVerification empty() {
+            return new OutcomeVerification(List.of(), List.of(), false);
+        }
     }
 }

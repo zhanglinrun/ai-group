@@ -14,8 +14,9 @@ import { PlanSection } from './PlanSection';
 import { Timeline } from './Timeline';
 import { MessageToolbar } from './MessageToolbar';
 import MessageMeta from './MessageMeta';
-import { resolveTaskSummaryText } from './contentHelpers';
+import { resolveConversationConclusionText } from './contentHelpers';
 import { sanitizeReasoningText } from '@/utils/reasoningDisplay';
+import CheckpointResumeCard from './CheckpointResumeCard';
 
 type Props = {
   chat: CHAT.ChatItem;
@@ -25,6 +26,8 @@ type Props = {
   changeFile?: (file: CHAT.TFile, chat?: CHAT.ChatItem) => void;
   changePlan?: () => void;
   onRegenerate?: () => void;
+  resumeDisabled?: boolean;
+  onResumeCheckpoint?: (chat: CHAT.ChatItem, decision: CHAT.CheckpointResumeDecision) => void;
 };
 
 /**
@@ -43,7 +46,7 @@ const ConclusionSection: FC<{
   changeFile?: (file: CHAT.TFile, chat?: CHAT.ChatItem) => void;
   normalizationScope: MarkdownNormalizationScope;
 }> = ({ chat, changeFile, normalizationScope }) => {
-  const summary = resolveTaskSummaryText(chat.conclusion) || '任务已完成';
+  const summary = resolveConversationConclusionText(chat);
   const summaryStreaming = !!chat.loading && chat.conclusion?.messageType === 'agent_stream';
   const attachmentFiles = useMemo(() => getTaskFiles(chat.conclusion), [chat.conclusion]);
   return (
@@ -66,8 +69,17 @@ const ConclusionSection: FC<{
 };
 
 const DialogueComponent: FC<Props> = (props) => {
-  const { chat, streamingThought, deepThink, changeTask, changeFile, changePlan, onRegenerate } =
-    props;
+  const {
+    chat,
+    streamingThought,
+    deepThink,
+    changeTask,
+    changeFile,
+    changePlan,
+    onRegenerate,
+    resumeDisabled,
+    onResumeCheckpoint,
+  } = props;
   const isPlanSolveMessage = isPlanSolveConversation(chat.agentType, deepThink);
   const isReactType = !isPlanSolveMessage;
   const plannerRounds = useMemo(
@@ -141,7 +153,16 @@ const DialogueComponent: FC<Props> = (props) => {
       ) : null}
 
       <div className="mt-5 w-full">
-        <RunStatus status={chat.metrics?.status} finishedAt={chat.finishedAt} />
+        <RunStatus status={chat.metrics?.status} errorMsg={chat.tip} finishedAt={chat.finishedAt} />
+        {chat.checkpoint ? (
+          <CheckpointResumeCard
+            checkpoint={chat.checkpoint}
+            runStatus={chat.metrics?.status}
+            runLoading={chat.loading}
+            disabled={resumeDisabled}
+            onResume={(decision) => onResumeCheckpoint?.(chat, decision)}
+          />
+        ) : null}
       </div>
 
       {/* AI 回复（Markdown） */}
@@ -262,7 +283,9 @@ const Dialogue = memo(
     prev.changeTask === next.changeTask &&
     prev.changeFile === next.changeFile &&
     prev.changePlan === next.changePlan &&
-    prev.onRegenerate === next.onRegenerate,
+    prev.onRegenerate === next.onRegenerate &&
+    prev.resumeDisabled === next.resumeDisabled &&
+    prev.onResumeCheckpoint === next.onResumeCheckpoint,
 );
 
 export default Dialogue;

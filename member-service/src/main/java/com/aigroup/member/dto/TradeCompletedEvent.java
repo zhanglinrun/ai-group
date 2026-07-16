@@ -9,6 +9,8 @@ public class TradeCompletedEvent {
     private Long userId;
     private String orderId;
     private String productCode;
-    /** 阶梯拼团加赠额度（在基础额度之上叠加发放；直购/经典为 0/空） */
-    private Integer bonusQuota;
+    /** Trusted order snapshot, in whole credits. */
+    private Long baseQuota;
+    /** Trusted group-tier snapshot bonus, in whole credits. */
+    private Long bonusQuota;
 }

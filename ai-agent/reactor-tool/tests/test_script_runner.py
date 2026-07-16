@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
 import os
+import asyncio
 import sys
 import tempfile
 import textwrap
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
@@ -198,10 +200,110 @@ class ScriptRunnerTest(unittest.IsolatedAsyncioTestCase):
 
     def test_shell_runtime_should_build_command(self):
         script_path = Path("/tmp/demo.sh")
-        with patch.dict(os.environ, {"SKILL_SHELL_BIN": "custom-shell"}, clear=False):
+        with patch.dict(
+            os.environ,
+            {
+                "SKILL_ALLOWED_RUNTIMES": "python,shell",
+                "SKILL_SHELL_BIN": "custom-shell",
+            },
+            clear=False,
+        ):
             command = build_command("shell", script_path, ["--flag"])
 
         self.assertEqual(["custom-shell", str(script_path), "--flag"], command)
+
+    def test_host_shell_runtime_should_be_denied_by_default(self):
+        with patch.dict(os.environ, {}, clear=True):
+            with self.assertRaisesRegex(PermissionError, "runtime denied by policy: shell"):
+                build_command("shell", Path("/tmp/demo.sh"), [])
+
+    async def test_output_should_be_bounded_and_marked_truncated(self):
+        with tempfile.TemporaryDirectory(prefix="skill-script-output-limit-") as temp_dir:
+            skill_dir = self._create_python_skill(Path(temp_dir), "print('x' * 4096)")
+            request = ScriptRunnerRequest(
+                request_id="req-output-limit",
+                skill_name="demo-skill",
+                skill_base_path=str(skill_dir),
+                script_name="large-output",
+                script_path="scripts/summarize.py",
+                runtime="python",
+                timeout_seconds=5,
+            )
+
+            with patch.dict(os.environ, {"SKILL_MAX_OUTPUT_BYTES": "128"}, clear=False):
+                response = await run_script_request(request)
+
+            self.assertTrue(response.success)
+            self.assertLess(len(response.stdout.encode("utf-8")), 256)
+            self.assertIn("output truncated by reactor-tool policy", response.stdout)
+
+    async def test_child_environment_should_not_inherit_unlisted_values_or_secrets(self):
+        with tempfile.TemporaryDirectory(prefix="skill-script-env-") as temp_dir:
+            skill_dir = self._create_python_skill(
+                Path(temp_dir),
+                """
+                import os
+                print(os.getenv("DEMO_VISIBLE", "missing"))
+                print(os.getenv("DEMO_SECRET_TOKEN", "missing"))
+                """,
+            )
+            request = ScriptRunnerRequest(
+                request_id="req-env",
+                skill_name="demo-skill",
+                skill_base_path=str(skill_dir),
+                script_name="env",
+                script_path="scripts/summarize.py",
+                runtime="python",
+                timeout_seconds=5,
+            )
+
+            with patch.dict(
+                os.environ,
+                {
+                    "DEMO_VISIBLE": "visible",
+                    "DEMO_SECRET_TOKEN": "secret",
+                    "SKILL_CHILD_ENV_ALLOWLIST": "DEMO_VISIBLE,DEMO_SECRET_TOKEN",
+                },
+                clear=False,
+            ):
+                response = await run_script_request(request)
+
+            self.assertTrue(response.success)
+            self.assertEqual(["visible", "missing"], response.stdout.strip().splitlines())
+
+    async def test_process_concurrency_should_respect_configured_limit(self):
+        with tempfile.TemporaryDirectory(prefix="skill-script-concurrency-") as temp_dir:
+            skill_dir = self._create_python_skill(
+                Path(temp_dir),
+                """
+                import time
+                time.sleep(0.25)
+                print("done")
+                """,
+            )
+
+            def request(request_id: str) -> ScriptRunnerRequest:
+                return ScriptRunnerRequest(
+                    request_id=request_id,
+                    skill_name="demo-skill",
+                    skill_base_path=str(skill_dir),
+                    script_name="concurrency",
+                    script_path="scripts/summarize.py",
+                    runtime="python",
+                    timeout_seconds=5,
+                )
+
+            with patch.dict(os.environ, {"SKILL_MAX_CONCURRENT_PROCESSES": "1"}, clear=False):
+                started_at = time.monotonic()
+                first, second = await asyncio.gather(
+                    run_script_request(request("req-concurrency-1")),
+                    run_script_request(request("req-concurrency-2")),
+                )
+                elapsed = time.monotonic() - started_at
+
+            self.assertTrue(first.success)
+            self.assertTrue(second.success)
+            self.assertGreaterEqual(elapsed, 0.45)
 
     def _create_python_skill(self, root_dir: Path, script_content: str) -> Path:
         skill_dir = root_dir / "demo-skill"

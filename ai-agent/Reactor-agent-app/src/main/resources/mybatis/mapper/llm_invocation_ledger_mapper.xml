@@ -16,6 +16,10 @@
         <result column="prompt_tokens" property="promptTokens"/>
         <result column="completion_tokens" property="completionTokens"/>
         <result column="total_tokens" property="totalTokens"/>
+        <result column="input_rate_snapshot" property="inputRateSnapshot"/>
+        <result column="output_rate_snapshot" property="outputRateSnapshot"/>
+        <result column="usage_source" property="usageSource"/>
+        <result column="charged_microcredits" property="chargedMicrocredits"/>
         <result column="finish_reason" property="finishReason"/>
         <result column="status" property="status"/>
         <result column="error_msg" property="errorMsg"/>
@@ -29,18 +33,21 @@
 
     <sql id="entityColumns">
         id, run_id, invocation_seq, agent_name, step_no, call_kind, streaming, model_name, response_text,
-        tool_call_count, prompt_tokens, completion_tokens, total_tokens, finish_reason, status, error_msg,
+        tool_call_count, prompt_tokens, completion_tokens, total_tokens, input_rate_snapshot, output_rate_snapshot,
+        usage_source, charged_microcredits, finish_reason, status, error_msg,
         started_at, finished_at, duration_ms, create_time, update_time, deleted
     </sql>
 
     <insert id="insertLlmInvocation" parameterType="org.wwz.ai.domain.agent.ledger.entity.LlmInvocation" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO llm_invocation (
             run_id, invocation_seq, agent_name, step_no, call_kind, streaming, model_name, response_text,
-            tool_call_count, prompt_tokens, completion_tokens, total_tokens, finish_reason, status, error_msg,
+            tool_call_count, prompt_tokens, completion_tokens, total_tokens, input_rate_snapshot, output_rate_snapshot,
+            usage_source, charged_microcredits, finish_reason, status, error_msg,
             started_at, finished_at, duration_ms, create_time, update_time, deleted
         ) VALUES (
             #{runId}, #{invocationSeq}, #{agentName}, #{stepNo}, #{callKind}, #{streaming}, #{modelName}, #{responseText},
-            #{toolCallCount}, #{promptTokens}, #{completionTokens}, #{totalTokens}, #{finishReason}, #{status}, #{errorMsg},
+            #{toolCallCount}, #{promptTokens}, #{completionTokens}, #{totalTokens}, #{inputRateSnapshot}, #{outputRateSnapshot},
+            #{usageSource}, #{chargedMicrocredits}, #{finishReason}, #{status}, #{errorMsg},
             #{startedAt}, #{finishedAt}, #{durationMs}, NOW(), NOW(), 0
         )
     </insert>
@@ -52,6 +59,8 @@
             prompt_tokens = #{promptTokens},
             completion_tokens = #{completionTokens},
             total_tokens = #{totalTokens},
+            usage_source = #{usageSource},
+            charged_microcredits = #{chargedMicrocredits},
             finish_reason = #{finishReason},
             status = #{status},
             error_msg = #{errorMsg},

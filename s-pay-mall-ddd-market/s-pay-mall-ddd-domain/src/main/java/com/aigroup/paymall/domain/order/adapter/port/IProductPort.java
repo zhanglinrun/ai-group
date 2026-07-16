@@ -9,7 +9,8 @@ import java.util.Date;
 public interface IProductPort {
     ProductEntity queryProductByProductId(String productId);
 
-    MarketPayDiscountEntity lockMarketPayOrder(String userId, String teamId, Long activityId, String productId, String orderId);
+    MarketPayDiscountEntity lockMarketPayOrder(String userId, String teamId, Long activityId,
+                                               String productId, String orderId, java.math.BigDecimal orderPrice);
 
     /**
      * 通知拼团系统结算（登记该成员已支付）。

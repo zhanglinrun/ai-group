@@ -7,6 +7,7 @@ import org.wwz.ai.domain.agent.runtime.dto.tool.ToolChoice;
 import org.wwz.ai.domain.agent.runtime.llm.LLMSettings;
 import org.wwz.ai.domain.agent.runtime.llm.LlmToolCallbackProvider;
 import org.wwz.ai.domain.agent.runtime.llm.OpenAiChatOptionsFactory;
+import org.wwz.ai.domain.agent.runtime.tool.BaseTool;
 import org.wwz.ai.domain.agent.runtime.tool.ToolCollection;
 
 import java.util.LinkedHashMap;
@@ -65,4 +66,46 @@ public class OpenAiChatOptionsFactoryTest {
         Assert.assertEquals(Boolean.FALSE, options.getInternalToolExecutionEnabled());
         Assert.assertTrue(options.getToolCallbacks() == null || options.getToolCallbacks().isEmpty());
     }
+
+    @Test
+    public void test_buildToolOptionsUsesNamedFunctionChoice() {
+        OpenAiChatOptionsFactory factory = new OpenAiChatOptionsFactory();
+        ReflectionTestUtils.setField(factory, "toolCallbackProvider", new LlmToolCallbackProvider());
+
+        LLMSettings settings = LLMSettings.builder()
+                .model("gpt-4o")
+                .maxTokens(1024)
+                .temperature(0.1D)
+                .build();
+        ToolCollection tools = new ToolCollection();
+        tools.addTool(new BaseTool() {
+            @Override
+            public String getName() {
+                return "report_tool";
+            }
+
+            @Override
+            public String getDescription() {
+                return "Generate an HTML report";
+            }
+
+            @Override
+            public Map<String, Object> toParams() {
+                return Map.of("type", "object", "properties", Map.of());
+            }
+
+            @Override
+            public Object execute(Object input) {
+                return "unused";
+            }
+        });
+
+        var options = factory.buildToolOptions(
+                settings, null, tools, ToolChoice.REQUIRED, "report_tool", 1024);
+
+        Assert.assertEquals(
+                Map.of("type", "function", "function", Map.of("name", "report_tool")),
+                options.getToolChoice());
+    }
+
 }

@@ -8,7 +8,7 @@ import PaymentQrDialog from '@/components/trade/PaymentQrDialog';
 import { bffApi, type GroupBuyInfo, type GroupBuyTeam, type SkuItem } from '@/services/bff';
 import { useTradePurchase } from '@/hooks/useTradePurchase';
 import { ROUTES } from '@/router/routes';
-import { isMemberSku, skuDisplayName } from '@/utils/tradeDisplay';
+import { skuDisplayName } from '@/utils/tradeDisplay';
 
 const GroupBuyHallPage = memo(() => {
   const navigate = useNavigate();
@@ -35,15 +35,12 @@ const GroupBuyHallPage = memo(() => {
     void loadHall();
   }, [loadHall]);
 
-  const memberSkus = useMemo(
-    () => skus.filter((sku) => isMemberSku(sku) && sku.code !== 'FREE'),
-    [skus],
-  );
-  const defaultSku = memberSkus[0] ?? null;
+  const quotaSkus = useMemo(() => skus.filter((sku) => (sku.baseQuota ?? 0) > 0), [skus]);
+  const defaultSku = quotaSkus[0] ?? null;
   const teamList = groupBuy?.teamList ?? [];
   const canGroupBuy = groupBuy?.activityId != null;
 
-  // 大厅聚合了各 SKU 活动的队伍：按 team.activityId 归属到对应套餐（月卡/年卡/加油包）
+  // 大厅聚合了各额度包活动的队伍：按 team.activityId 归属到对应套餐
   const skuByActivityId = useMemo(() => {
     const map = new Map<number, SkuItem>();
     for (const sku of skus) {
@@ -57,7 +54,7 @@ const GroupBuyHallPage = memo(() => {
   const resolveTeamSku = useCallback(
     (team: GroupBuyTeam): SkuItem | null => {
       if (team.activityId != null) {
-        return skuByActivityId.get(team.activityId) ?? defaultSku;
+        return skuByActivityId.get(team.activityId) ?? null;
       }
       return defaultSku;
     },
@@ -88,8 +85,8 @@ const GroupBuyHallPage = memo(() => {
             </h1>
             <p className="mt-1 text-sm text-[var(--chat-text-soft)]">
               {canGroupBuy
-                ? `共 ${teamList.length} 个进行中的拼团，参团享优惠，成团后自动开通会员`
-                : '拼团活动暂不可用，可前往购买页直接购买会员或额度包'}
+                ? `共 ${teamList.length} 个进行中的拼团，人数越多赠送额度越多`
+                : '拼团活动暂不可用，可前往购买页直接购买额度包'}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -117,7 +114,7 @@ const GroupBuyHallPage = memo(() => {
         </div>
 
         <div className="mt-4 rounded-2xl border border-amber-200/80 bg-amber-50/80 px-4 py-3 text-sm text-amber-900">
-          拼团购买支付成功后需等待成团，成团后自动开通 Pro 会员并发放周期配额；也可在
+          拼团与直购同价，支付成功后等待成团，成团时按人数档位发放基础额度和赠送额度；也可在
           <Link to={ROUTES.PRICING} className="mx-1 font-medium underline">
             购买套餐
           </Link>
@@ -131,9 +128,7 @@ const GroupBuyHallPage = memo(() => {
         ) : !canGroupBuy ? (
           <div className="mt-6 rounded-3xl border border-dashed border-[var(--chat-border)] px-6 py-16 text-center">
             <div className="text-base font-medium">拼团活动暂不可用</div>
-            <p className="mt-2 text-sm text-[var(--chat-text-soft)]">
-              你可以先选择直接购买会员或额度包
-            </p>
+            <p className="mt-2 text-sm text-[var(--chat-text-soft)]">你可以先选择直接购买额度包</p>
             <Link
               to={ROUTES.PRICING}
               className="mt-4 inline-flex rounded-full bg-[var(--chat-text)] px-4 py-2 text-sm text-white"
@@ -171,7 +166,6 @@ const GroupBuyHallPage = memo(() => {
                   key={team.teamId}
                   team={team}
                   sku={teamSku}
-                  groupPrice={teamSku?.groupPayPrice ?? groupBuy?.goods?.payPrice}
                   buyingKey={buyingKey}
                   onJoin={() => void handleJoinTeam(team)}
                 />

@@ -12,7 +12,7 @@ const navItems = [
   },
   {
     to: ROUTES.PRICING,
-    label: '购买会员',
+    label: '购买额度',
   },
   {
     to: ROUTES.GROUP_BUY_HALL,
@@ -24,7 +24,7 @@ const navItems = [
   },
   {
     to: ROUTES.ACCOUNT,
-    label: '会员中心',
+    label: '额度中心',
   },
 ];
 

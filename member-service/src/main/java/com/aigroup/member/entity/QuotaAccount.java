@@ -13,8 +13,9 @@ public class QuotaAccount {
     @TableId(type = IdType.AUTO)
     private Long id;
     private Long userId;
-    private Integer periodQuotaBalance;
-    private Integer topupQuotaBalance;
-    private Integer frozenBalance;
+    private Long freeQuotaBalance;
+    private Long paidQuotaBalance;
+    private Long frozenBalance;
+    private String lastFreeGrantMonth;
     private LocalDateTime updateTime;
 }

@@ -20,6 +20,7 @@ dependencies = [
     "litellm>=1.74.0.post1",
     "loguru>=0.7.3",
     "matplotlib>=3.10.3",
+    "mcp>=1.28.1,<2",
     "altair>=5.5.0",
     "openai>=1.93.0",
     "openpyxl>=3.1.5",

@@ -82,13 +82,19 @@ public class ListDirectoryTool extends AbstractSkillPathTool {
             }
             return result.toString();
         } catch (SkillLoadException e) {
-            log.warn("{} list_directory_tool failed, input={}", requestId(), input, e);
+            log.warn("{} list_directory_tool failed inputType={} inputChars={} errorType={}",
+                    requestId(), input == null ? "null" : input.getClass().getSimpleName(),
+                    input == null ? 0 : String.valueOf(input).length(), e.getClass().getSimpleName(), e);
             return e.getMessage();
         } catch (IOException e) {
-            log.error("{} list_directory_tool io error, input={}", requestId(), input, e);
+            log.error("{} list_directory_tool io error inputType={} inputChars={} errorType={}",
+                    requestId(), input == null ? "null" : input.getClass().getSimpleName(),
+                    input == null ? 0 : String.valueOf(input).length(), e.getClass().getSimpleName(), e);
             return "list_directory_tool execute failed";
         } catch (Exception e) {
-            log.error("{} list_directory_tool error, input={}", requestId(), input, e);
+            log.error("{} list_directory_tool error inputType={} inputChars={} errorType={}",
+                    requestId(), input == null ? "null" : input.getClass().getSimpleName(),
+                    input == null ? 0 : String.valueOf(input).length(), e.getClass().getSimpleName(), e);
             return "list_directory_tool execute failed";
         }
     }

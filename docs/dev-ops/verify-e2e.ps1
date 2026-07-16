@@ -1,14 +1,31 @@
-# E2E verify: register -> login -> pricing -> create pay order -> group settlement -> benefit -> member upgraded
+# E2E verify: register -> create quota-package order -> group settlement -> paid quota granted
 param(
     [string]$Gateway = "http://127.0.0.1:8080",
     [string]$PayInternalCallback = "/api/v1/alipay/group_buy_notify",
     [string]$Username = "e2e_user_$(Get-Random -Maximum 99999)",
     [string]$Password = "Smoke@123456",
-    [string]$SkuCode = "PRO_MONTH",
+    [string]$SkuCode = "QUOTA_LIGHT",
     [string]$MysqlContainer = "ai-group-mysql"
 )
 
 $ErrorActionPreference = "Stop"
+
+$repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+$envFile = Join-Path $repoRoot ".env"
+if (Test-Path -LiteralPath $envFile) {
+    foreach ($line in Get-Content -LiteralPath $envFile -Encoding UTF8) {
+        if ($line -match '^\s*#' -or $line -notmatch '=') { continue }
+        $key, $value = $line -split '=', 2
+        $key = $key.Trim()
+        if ($key -in @('MYSQL_ROOT_PASSWORD', 'AI_GROUP_INTERNAL_TOKEN') -and -not (Test-Path "env:$key")) {
+            Set-Item -Path "env:$key" -Value $value.Trim().Trim('"')
+        }
+    }
+}
+if (-not $env:MYSQL_ROOT_PASSWORD) { $env:MYSQL_ROOT_PASSWORD = "123456" }
+if (-not $env:AI_GROUP_INTERNAL_TOKEN) {
+    $env:AI_GROUP_INTERNAL_TOKEN = "change-me-to-a-long-random-internal-token"
+}
 
 function Invoke-Api($Method, $Path, $Body = $null, $Token = $null, $ExtraHeaders = @{}) {
     # 注意：PowerShell 变量名不区分大小写，局部变量不能叫 $headers（会覆盖同名参数）
@@ -22,6 +39,19 @@ function Invoke-Api($Method, $Path, $Body = $null, $Token = $null, $ExtraHeaders
     return Invoke-RestMethod -Method $Method -Uri $uri -Headers $requestHeaders
 }
 
+function Wait-ForPaidQuota([string]$AccessToken, [long]$ExpectedMinimum, [int]$TimeoutSeconds = 30) {
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    do {
+        $current = Invoke-Api GET "/api/bff/account/summary" $null $AccessToken
+        if ([long]$current.data.paidQuotaBalance -ge $ExpectedMinimum) {
+            return $current
+        }
+        Start-Sleep -Milliseconds 500
+    } while ((Get-Date) -lt $deadline)
+
+    throw "paid quota did not reach $ExpectedMinimum microcredits within ${TimeoutSeconds}s"
+}
+
 Write-Host "==> Register $Username"
 Invoke-Api POST "/api/auth/register" @{ username = $Username; password = $Password; email = "$Username@test.local" } | Out-Null
 
@@ -32,9 +62,22 @@ if (-not $token) { throw "login failed: no accessToken" }
 
 Write-Host "==> Pricing"
 $pricing = Invoke-Api GET "/api/bff/pricing" $null $token
-$activityId = $pricing.data.groupBuy.activityId
-$goodsId = $pricing.data.groupBuy.goods.goodsId
-if (-not $activityId -or -not $goodsId) { throw "pricing missing groupBuy activityId/goodsId" }
+$sku = @($pricing.data.skus) | Where-Object { $_.code -eq $SkuCode } | Select-Object -First 1
+if (-not $sku) { throw "pricing missing enabled SKU: $SkuCode" }
+$activityId = $sku.groupActivityId
+$goodsId = $sku.groupGoodsId
+$baseQuota = [long]$sku.baseQuota
+if (-not $activityId -or -not $goodsId -or $baseQuota -le 0L) {
+    throw "pricing SKU $SkuCode missing groupActivityId/groupGoodsId/baseQuota"
+}
+
+Write-Host "==> Baseline quota account"
+$before = Invoke-Api GET "/api/bff/account/summary" $null $token
+$beforeFree = [long]$before.data.freeQuotaBalance
+$beforePaid = [long]$before.data.paidQuotaBalance
+if ($beforeFree -ne 5000000L) {
+    throw "expected 5000000 free microcredits after register, got $beforeFree"
+}
 
 Write-Host "==> Create pay order (via gateway)"
 $create = Invoke-Api POST "/api/v1/alipay/create_pay_order" @{
@@ -61,11 +104,18 @@ Write-Host "OrderId=$orderId"
 # callback. The following group callback must still enforce PAY_SUCCESS -> MARKET,
 # so an unpaid order cannot receive benefits.
 $mysqlPassword = $env:MYSQL_ROOT_PASSWORD
-if (-not $mysqlPassword) { throw "MYSQL_ROOT_PASSWORD env var not set" }
 Write-Host "==> Simulate verified Alipay payment state (local fixture only)"
 $sql = "update s_pay_mall_ddd_market.pay_order set status='PAY_SUCCESS', pay_time=now() where order_id='$orderId' and status='PAY_WAIT'; select row_count();"
-$updated = (& docker exec $MysqlContainer mysql -uroot "-p$mysqlPassword" -N -e $sql 2>$null | Select-Object -Last 1).Trim()
-if ($LASTEXITCODE -ne 0 -or $updated -ne "1") {
+$hadMysqlPwd = Test-Path Env:MYSQL_PWD
+$previousMysqlPwd = $env:MYSQL_PWD
+$env:MYSQL_PWD = $mysqlPassword
+try {
+    $updated = ($sql | docker exec -i -e MYSQL_PWD $MysqlContainer mysql -uroot -N -B 2>$null | Select-Object -Last 1).Trim()
+    $mysqlExitCode = $LASTEXITCODE
+} finally {
+    if ($hadMysqlPwd) { $env:MYSQL_PWD = $previousMysqlPwd } else { Remove-Item Env:MYSQL_PWD -ErrorAction SilentlyContinue }
+}
+if ($mysqlExitCode -ne 0 -or $updated -ne "1") {
     throw "failed to advance local payment fixture to PAY_SUCCESS (updated=$updated)"
 }
 
@@ -78,13 +128,14 @@ $notifyResp = Invoke-Api POST $PayInternalCallback @{ teamId = "e2e-team"; outTr
 if ($notifyResp -ne "success") { throw "group_buy_notify failed: $notifyResp" }
 
 Write-Host "==> Wait benefit propagation"
-Start-Sleep -Seconds 3
+$expectedPaid = $beforePaid + ($baseQuota * 1000000L)
+$summary = Wait-ForPaidQuota $token $expectedPaid
 
-Write-Host "==> Verify member upgraded"
-$summary = Invoke-Api GET "/api/bff/account/summary" $null $token
-if ($summary.data.tier -ne "PRO") {
-    throw "expected PRO after settlement, got $($summary.data.tier) (meta.degraded=$($summary.data.meta.degraded))"
+Write-Host "==> Verify snapshotted package quota granted"
+$afterPaid = [long]$summary.data.paidQuotaBalance
+if ($afterPaid -lt $expectedPaid) {
+    throw "expected paid quota increase of at least $($baseQuota * 1000000L) microcredits, before=$beforePaid after=$afterPaid"
 }
 
-Write-Host "E2E OK (tier=$($summary.data.tier), periodQuota=$($summary.data.periodQuotaBalance))"
+Write-Host "E2E OK (sku=$SkuCode, paid microcredits: $beforePaid -> $afterPaid)"
 

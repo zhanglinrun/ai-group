@@ -3,27 +3,20 @@ import { describe, expect, it } from 'vitest';
 import { paymentOutcomeMessage, resolvePaymentOutcome } from './paymentStatus';
 
 describe('paymentStatus', () => {
-  it('Pro 已生效时返回 pro-active', () => {
-    expect(
-      resolvePaymentOutcome({
-        tier: 'PRO',
-        expireAt: new Date(Date.now() + 86_400_000).toISOString(),
-      }),
-    ).toBe('pro-active');
+  it('没有待成团订单时返回 quota-granted', () => {
+    expect(resolvePaymentOutcome({ paidQuotaBalance: 60_000_000 })).toBe('quota-granted');
   });
 
-  it('Free 或待成团时返回 paid-waiting-group', () => {
-    expect(resolvePaymentOutcome({ tier: 'FREE' })).toBe('paid-waiting-group');
+  it('存在待成团订单时返回 paid-waiting-group', () => {
     expect(
       resolvePaymentOutcome({
-        tier: 'PRO',
-        expireAt: new Date(Date.now() - 86_400_000).toISOString(),
+        pendingGroupOrders: [{ orderId: 'o-1' }],
       }),
     ).toBe('paid-waiting-group');
   });
 
-  it('文案区分等待成团与 Pro 生效', () => {
-    expect(paymentOutcomeMessage('paid-waiting-group')).toContain('等待拼团');
-    expect(paymentOutcomeMessage('pro-active')).toContain('Pro 会员已生效');
+  it('文案区分等待成团与额度到账', () => {
+    expect(paymentOutcomeMessage('paid-waiting-group')).toContain('等待成团');
+    expect(paymentOutcomeMessage('quota-granted')).toContain('额度已发放');
   });
 });

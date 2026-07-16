@@ -121,18 +121,21 @@ public class SessionContextMemoryServiceTest {
         Assert.assertTrue(historyDialogue.contains("### Run req-memory-001"));
         Assert.assertTrue(historyDialogue.contains("[Session Input Files]"));
         Assert.assertTrue(historyDialogue.contains("fileName=brief.txt, mimeType=text/plain, fileSize=12, storageKey=oss://brief.txt, downloadUrl=https://download/brief.txt, previewUrl=https://preview/brief.txt"));
-        Assert.assertTrue(historyDialogue.contains("[ReAct Cycle 1]"));
-        Assert.assertTrue(historyDialogue.contains("Thought:\n第一轮思考"));
+        Assert.assertTrue(historyDialogue.contains("User Request:\nquery:req-memory-001"));
+        Assert.assertTrue(historyDialogue.contains("Run Summary:\nsummary:req-memory-001"));
+        Assert.assertTrue(historyDialogue.contains("[Tool Evidence]"));
+        Assert.assertTrue(historyDialogue.contains("cycle=1, agent=react, step=1"));
         Assert.assertTrue(historyDialogue.contains("1. toolName=file_tool"));
         Assert.assertTrue(historyDialogue.contains("toolProvider=local"));
-        Assert.assertTrue(historyDialogue.contains("inputJson={\"query\":\"日报\"}"));
-        Assert.assertTrue(historyDialogue.contains("llmObservation=已生成日报"));
+        Assert.assertTrue(historyDialogue.contains("observationSummary=已生成日报"));
         Assert.assertTrue(historyDialogue.contains("artifactRole=output, fileName=report.md, mimeType=text/markdown, fileSize=128, storageKey=oss://report.md, downloadUrl=https://download/report.md, previewUrl=https://preview/report.md"));
         Assert.assertTrue(historyDialogue.contains("### Run req-memory-002"));
-        Assert.assertTrue(historyDialogue.contains("Thought:\n第二轮先思考无需工具"));
-        Assert.assertTrue(historyDialogue.contains("Tool Calls:\n- none"));
-        Assert.assertTrue(historyDialogue.contains("Thought:\n第二轮继续思考后调用工具"));
-        Assert.assertTrue(historyDialogue.contains("Files:\n- none"));
+        Assert.assertTrue(historyDialogue.contains("Run Summary:\nsummary:req-memory-002"));
+        Assert.assertTrue(historyDialogue.contains("toolName=deep_search_tool"));
+        Assert.assertTrue(historyDialogue.contains("artifactRefs:\n     - none"));
+        Assert.assertFalse(historyDialogue.contains("Thought:"));
+        Assert.assertFalse(historyDialogue.contains("inputJson="));
+        Assert.assertFalse(historyDialogue.contains("第一轮思考"));
         Assert.assertFalse(historyDialogue.contains("req-memory-003-current"));
         Assert.assertTrue(historyDialogue.indexOf("### Run req-memory-001") < historyDialogue.indexOf("### Run req-memory-002"));
     }
@@ -199,8 +202,9 @@ public class SessionContextMemoryServiceTest {
 
         Assert.assertTrue(historyDialogue.startsWith("## 单会话历史记忆"));
         Assert.assertTrue(historyDialogue.contains("### Run req-memory-truncate-003"));
-        Assert.assertFalse(historyDialogue.contains("### Run req-memory-truncate-001"));
         Assert.assertFalse(historyDialogue.contains("req-memory-truncate-004-current"));
+        Assert.assertFalse(historyDialogue.contains("Thought:"));
+        Assert.assertFalse(historyDialogue.contains("inputJson="));
         Assert.assertTrue(new TokenCounter().countText(historyDialogue) <= 260);
     }
 
@@ -227,9 +231,10 @@ public class SessionContextMemoryServiceTest {
         Assert.assertTrue(historyDialogue.contains("summary:req-comp-002"));
         Assert.assertFalse(historyDialogue.contains("### Run req-comp-001"));
         Assert.assertFalse(historyDialogue.contains("### Run req-comp-002"));
-        // 最近一轮仍逐字保留
+        // 最近一轮仍保留 query/summary 与证据视图，但不回灌 raw thought
         Assert.assertTrue(historyDialogue.contains("### Run req-comp-003"));
-        Assert.assertTrue(historyDialogue.contains("最近一轮的详细思考"));
+        Assert.assertTrue(historyDialogue.contains("summary:req-comp-003"));
+        Assert.assertFalse(historyDialogue.contains("最近一轮的详细思考"));
     }
 
     private Long createRun(ExecutionLedgerFixtureFactory.LedgerTestContext ctx,

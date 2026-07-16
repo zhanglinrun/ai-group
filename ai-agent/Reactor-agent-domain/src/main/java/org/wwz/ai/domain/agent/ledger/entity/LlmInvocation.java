@@ -54,6 +54,18 @@ public class LlmInvocation {
     /** total token */
     private Integer totalTokens;
 
+    /** Snapshotted credits-per-million input rate. */
+    private Long inputRateSnapshot;
+
+    /** Snapshotted credits-per-million output rate. */
+    private Long outputRateSnapshot;
+
+    /** PROVIDER or ESTIMATED. */
+    private String usageSource;
+
+    /** Actual settled amount in integer microcredits. */
+    private Long chargedMicrocredits;
+
     /** 完成原因 */
     private String finishReason;
 

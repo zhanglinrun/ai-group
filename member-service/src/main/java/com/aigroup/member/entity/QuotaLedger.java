@@ -14,7 +14,7 @@ public class QuotaLedger {
     private Long id;
     private Long userId;
     private String type;
-    private Integer amount;
+    private Long amount;
     private String freezeId;
     private String abilityCode;
     private String remark;

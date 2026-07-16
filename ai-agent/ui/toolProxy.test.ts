@@ -12,6 +12,12 @@ describe('createToolProxyConfig', () => {
     );
   });
 
+  it('should inject the internal token only in the Vite server proxy', () => {
+    const proxy = createToolProxyConfig('http://127.0.0.1:1601', ' shared-token ');
+
+    expect(proxy.headers).toEqual({ 'X-Tool-Token': 'shared-token' });
+  });
+
   it('should preserve configured tool base path in rewrite result', () => {
     const proxy = createToolProxyConfig('https://www.owwzo.top/tool');
 

@@ -9,6 +9,7 @@ import org.wwz.ai.domain.agent.adapter.port.RemoteHttpRequest;
 import org.wwz.ai.domain.agent.runtime.dto.skill.ScriptRunnerToolRequest;
 import org.wwz.ai.domain.agent.runtime.dto.skill.ScriptRunnerToolResponse;
 import org.wwz.ai.domain.agent.reactor.config.ReactorConfig;
+import org.wwz.ai.domain.agent.reactor.config.ReactorToolRequestHeaders;
 
 /**
  * Skill 脚本执行客户端，负责调用 reactor-tool。
@@ -22,6 +23,7 @@ public class SkillScriptRunnerClient {
     private final RemoteHttpPort remoteHttpPort;
 
     public ScriptRunnerToolResponse run(ScriptRunnerToolRequest request) {
+        long startedAt = System.nanoTime();
         try {
             String baseUrl = normalizeBaseUrl(reactorConfig.getCodeInterpreterUrl());
             if (baseUrl.isBlank()) {
@@ -32,7 +34,7 @@ public class SkillScriptRunnerClient {
             String responseText = remoteHttpPort.execute(RemoteHttpRequest.builder()
                     .method("POST")
                     .url(baseUrl + "/v1/tool/script_runner")
-                    .headers(java.util.Map.of("Content-Type", "application/json"))
+                    .headers(ReactorToolRequestHeaders.json(reactorConfig))
                     .body(JSONObject.toJSONString(request))
                     .connectTimeoutSeconds(timeoutSeconds)
                     .readTimeoutSeconds(timeoutSeconds)
@@ -50,7 +52,14 @@ public class SkillScriptRunnerClient {
         } catch (SkillLoadException e) {
             throw e;
         } catch (Exception e) {
-            log.error("script runner call failed, request={}", JSONObject.toJSONString(request), e);
+            log.error("{} script runner call failed runtime={} argumentCount={} argvCount={} timeoutSeconds={} errorType={} durationMs={}",
+                    request == null ? null : request.getRequestId(),
+                    request == null ? null : request.getRuntime(),
+                    request == null || request.getArguments() == null ? 0 : request.getArguments().size(),
+                    request == null || request.getArgv() == null ? 0 : request.getArgv().size(),
+                    request == null ? null : request.getTimeoutSeconds(),
+                    e.getClass().getSimpleName(),
+                    (System.nanoTime() - startedAt) / 1_000_000L);
             throw new SkillLoadException("script runner call failed", e);
         }
     }

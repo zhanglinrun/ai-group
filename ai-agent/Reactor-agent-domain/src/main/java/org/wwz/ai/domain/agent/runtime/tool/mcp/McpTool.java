@@ -11,6 +11,7 @@ import org.wwz.ai.domain.agent.adapter.port.RemoteHttpRequest;
 import org.wwz.ai.domain.agent.runtime.agent.AgentContext;
 import org.wwz.ai.domain.agent.runtime.tool.BaseTool;
 import org.wwz.ai.domain.agent.reactor.config.ReactorConfig;
+import org.wwz.ai.domain.agent.reactor.config.ReactorToolRequestHeaders;
 
 import java.util.Map;
 
@@ -77,7 +78,7 @@ public class McpTool implements BaseTool {
             String response = agentContext.getRuntimeDependencies().requireRemoteHttpPort().execute(RemoteHttpRequest.builder()
                     .method("POST")
                     .url(mcpClientUrl)
-                    .headers(java.util.Map.of("Content-Type", "application/json"))
+                    .headers(ReactorToolRequestHeaders.json(reactorConfig))
                     .body(JSON.toJSONString(mcpToolRequest))
                     .connectTimeoutSeconds(30L)
                     .readTimeoutSeconds(30L)
@@ -85,7 +86,7 @@ public class McpTool implements BaseTool {
                     .callTimeoutSeconds(30L)
                     .build());
 
-            log.info("list tool request: {} response: {}", JSON.toJSONString(mcpToolRequest), response);
+            log.info("{} listed MCP tools from configured server", agentContext.getRequestId());
 
             return response;
         } catch (Exception e) {
@@ -107,14 +108,14 @@ public class McpTool implements BaseTool {
             String response = agentContext.getRuntimeDependencies().requireRemoteHttpPort().execute(RemoteHttpRequest.builder()
                     .method("POST")
                     .url(mcpClientUrl)
-                    .headers(java.util.Map.of("Content-Type", "application/json"))
+                    .headers(ReactorToolRequestHeaders.json(reactorConfig))
                     .body(JSON.toJSONString(mcpToolRequest))
                     .connectTimeoutSeconds(30L)
                     .readTimeoutSeconds(30L)
                     .writeTimeoutSeconds(30L)
                     .callTimeoutSeconds(30L)
                     .build());
-            log.info("call tool request: {} response: {}", JSON.toJSONString(mcpToolRequest), response);
+            log.info("{} called MCP tool {}", agentContext.getRequestId(), toolName);
             return response;
         } catch (Exception e) {
             log.error("{} call tool error ", agentContext.getRequestId(), e);

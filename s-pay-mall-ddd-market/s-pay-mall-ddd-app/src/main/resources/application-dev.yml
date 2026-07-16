@@ -14,6 +14,8 @@ app:
       notify-url: http://127.0.0.1:8070/api/v1/alipay/group_buy_notify
       source: s01
       chanel: c01
+    member-service:
+      api-url: ${MEMBER_SERVICE_URL:http://127.0.0.1:8082}
 
 # 线程池配置
 thread:
@@ -29,9 +31,9 @@ thread:
 # 数据库配置；启动时配置数据库资源信息
 spring:
   datasource:
-    username: root
-    password: 123456
-    url: jdbc:mysql://127.0.0.1:13306/s_pay_mall_ddd_market?useUnicode=true&characterEncoding=utf8&autoReconnect=true&zeroDateTimeBehavior=convertToNull&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    username: ${MYSQL_USER:root}
+    password: ${MYSQL_ROOT_PASSWORD:123456}
+    url: jdbc:mysql://${MYSQL_HOST:127.0.0.1}:${MYSQL_PORT:13306}/s_pay_mall_ddd_market?useUnicode=true&characterEncoding=utf8&autoReconnect=true&zeroDateTimeBehavior=convertToNull&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
     driver-class-name: com.mysql.cj.jdbc.Driver
   hikari:
     pool-name: Retail_HikariCP
@@ -45,10 +47,10 @@ spring:
   type: com.zaxxer.hikari.HikariDataSource
   # RabbitMQ
   rabbitmq:
-    host: 127.0.0.1
-    port: 5672
-    username: admin
-    password: admin
+    host: ${RABBITMQ_HOST:127.0.0.1}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USER:admin}
+    password: ${RABBITMQ_PASSWORD:admin}
     listener:
       simple:
         prefetch: 1 # 每次投递n个消息，消费完在投递n个
@@ -134,7 +136,7 @@ weixin:
 
 # 支付宝支付 - 沙箱；密钥从根目录 .env 注入（start-full-stack.ps1 会设置环境变量）
 alipay:
-  enabled: ${ALIPAY_ENABLED:true}
+  enabled: ${ALIPAY_ENABLED:false}
   strict: ${ALIPAY_STRICT:false}
   app_id: ${ALIPAY_APP_ID:9021000163648430}
   merchant_private_key: ${ALIPAY_MERCHANT_PRIVATE_KEY:}
@@ -159,37 +161,34 @@ logging:
 
 ai-group:
   internal:
-    token: ${AI_GROUP_INTERNAL_TOKEN:ai-group-dev-internal-token-change-in-prod}
+    token: ${AI_GROUP_INTERNAL_TOKEN:change-me-to-a-long-random-internal-token}
   pay:
+    # 本地秋招演示专用：开启后注册 dev-only 模拟支付入口；生产 profile 没有该路由。
+    demo-complete-enabled: ${AI_GROUP_DEMO_PAYMENT_ENABLED:false}
     # 小额实收开关：>0 时实际向支付宝只收该金额（真实支付通道演示用）；<=0 按套餐价全额收取。
     # 当前走支付宝沙箱（假钱），默认全额收取使收银台金额与页面价格一致；
     # 若切换到真实支付通道又只想花几分钱演示，设 AI_GROUP_PAY_SANDBOX_AMOUNT=0.01 即可。
     sandbox-amount: ${AI_GROUP_PAY_SANDBOX_AMOUNT:0}
     # 商品目录（goodsId -> 名称/展示价），与 member_db.product_sku、group_buy_market.sku 对齐
     catalog:
+      # Only local development may use the static fallback when member-service is down.
+      fallback-enabled: true
       products:
         "9890001":
           name: "《手写MyBatis：渐进式源码实践》"
           price: 100.00
         "9890002":
-          name: "Pro 月卡"
-          price: 49.00
+          name: "轻量额度包（60）"
+          price: 12.00
+          product-code: "QUOTA_LIGHT"
+          base-quota: 60
         "9890003":
-          name: "Pro 年卡"
-          price: 399.00
+          name: "标准额度包（300）"
+          price: 60.00
+          product-code: "QUOTA_STANDARD"
+          base-quota: 300
         "9890004":
-          name: "额度加油包"
-          price: 29.00
-    goods-sku-bindings:
-      # legacy 演示商品（历史订单引用）
-      "9890001":
-        - "PRO_MONTH"
-        - "PRO_YEAR"
-        - "TOPUP_200"
-      # 每 SKU 独立拼团商品（与 member_db.product_sku.group_goods_id 对齐）
-      "9890002":
-        - "PRO_MONTH"
-      "9890003":
-        - "PRO_YEAR"
-      "9890004":
-        - "TOPUP_200"
+          name: "大额额度包（700）"
+          price: 140.00
+          product-code: "QUOTA_LARGE"
+          base-quota: 700

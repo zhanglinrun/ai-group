@@ -122,7 +122,7 @@ const AdminLogin = memo(({ onLogin }: { onLogin: () => void }) => {
 });
 AdminLogin.displayName = 'AdminLogin';
 
-/** 会员套餐管理 */
+/** 永久额度包管理 */
 const SkuPanel = memo(() => {
   const [rows, setRows] = useState<AdminSku[]>([]);
   const [activities, setActivities] = useState<AdminGroupActivity[]>([]);
@@ -133,11 +133,7 @@ const SkuPanel = memo(() => {
     code: '',
     name: '',
     price: 0,
-    periodQuota: 0,
-    topupQuota: 0,
-    memberDays: 30,
-    tier: 'PRO',
-    skuType: 'MEMBER',
+    baseQuota: 60,
     status: 1,
   });
 
@@ -171,11 +167,7 @@ const SkuPanel = memo(() => {
       await adminApi.updateSku(row.code, {
         name: row.name,
         price: row.price,
-        periodQuota: row.periodQuota,
-        topupQuota: row.topupQuota,
-        memberDays: row.memberDays,
-        tier: row.tier,
-        skuType: row.skuType,
+        baseQuota: row.baseQuota,
         status: row.status,
         groupGoodsId: row.groupGoodsId,
         groupActivityId: row.groupActivityId,
@@ -202,11 +194,7 @@ const SkuPanel = memo(() => {
         code: '',
         name: '',
         price: 0,
-        periodQuota: 0,
-        topupQuota: 0,
-        memberDays: 30,
-        tier: 'PRO',
-        skuType: 'MEMBER',
+        baseQuota: 60,
         status: 1,
       });
       await load();
@@ -259,7 +247,7 @@ const SkuPanel = memo(() => {
       </div>
       {showCreate ? (
         <div className="rounded-lg border border-dashed border-[var(--chat-border)] p-4">
-          <div className="mb-3 text-sm font-medium">新建会员套餐</div>
+          <div className="mb-3 text-sm font-medium">新建额度包</div>
           <div className="grid gap-3 md:grid-cols-4">
             <label className="text-xs text-[var(--chat-text-soft)]">
               Code
@@ -269,7 +257,7 @@ const SkuPanel = memo(() => {
                 onChange={(e) =>
                   setDraft((prev) => ({ ...prev, code: e.target.value.toUpperCase() }))
                 }
-                placeholder="PRO_QUARTER"
+                placeholder="QUOTA_LIGHT"
               />
             </label>
             <label className="text-xs text-[var(--chat-text-soft)]">
@@ -278,31 +266,8 @@ const SkuPanel = memo(() => {
                 className={`${inputClass} mt-1`}
                 value={draft.name || ''}
                 onChange={(e) => setDraft((prev) => ({ ...prev, name: e.target.value }))}
-                placeholder="Pro 季卡"
+                placeholder="轻享额度包"
               />
-            </label>
-            <label className="text-xs text-[var(--chat-text-soft)]">
-              类型
-              <select
-                className={`${inputClass} mt-1`}
-                value={draft.skuType || 'MEMBER'}
-                onChange={(e) => setDraft((prev) => ({ ...prev, skuType: e.target.value }))}
-              >
-                <option value="MEMBER">会员</option>
-                <option value="TOPUP">加油包</option>
-                <option value="FREE">免费</option>
-              </select>
-            </label>
-            <label className="text-xs text-[var(--chat-text-soft)]">
-              会员等级
-              <select
-                className={`${inputClass} mt-1`}
-                value={draft.tier || 'PRO'}
-                onChange={(e) => setDraft((prev) => ({ ...prev, tier: e.target.value }))}
-              >
-                <option value="PRO">PRO</option>
-                <option value="FREE">FREE</option>
-              </select>
             </label>
             <label className="text-xs text-[var(--chat-text-soft)]">
               原价
@@ -314,35 +279,13 @@ const SkuPanel = memo(() => {
               />
             </label>
             <label className="text-xs text-[var(--chat-text-soft)]">
-              周期配额
+              基础额度（点）
               <input
                 className={`${inputClass} mt-1`}
                 type="number"
-                value={draft.periodQuota || 0}
+                value={draft.baseQuota || 0}
                 onChange={(e) =>
-                  setDraft((prev) => ({ ...prev, periodQuota: Number(e.target.value) }))
-                }
-              />
-            </label>
-            <label className="text-xs text-[var(--chat-text-soft)]">
-              加油包额度
-              <input
-                className={`${inputClass} mt-1`}
-                type="number"
-                value={draft.topupQuota || 0}
-                onChange={(e) =>
-                  setDraft((prev) => ({ ...prev, topupQuota: Number(e.target.value) }))
-                }
-              />
-            </label>
-            <label className="text-xs text-[var(--chat-text-soft)]">
-              有效期(天)
-              <input
-                className={`${inputClass} mt-1`}
-                type="number"
-                value={draft.memberDays || 0}
-                onChange={(e) =>
-                  setDraft((prev) => ({ ...prev, memberDays: Number(e.target.value) }))
+                  setDraft((prev) => ({ ...prev, baseQuota: Number(e.target.value) }))
                 }
               />
             </label>
@@ -380,9 +323,7 @@ const SkuPanel = memo(() => {
               <th className={thClass}>Code</th>
               <th className={thClass}>名称</th>
               <th className={thClass}>价格(¥)</th>
-              <th className={thClass}>周期配额</th>
-              <th className={thClass}>加油包额度</th>
-              <th className={thClass}>有效期(天)</th>
+              <th className={thClass}>基础额度(点)</th>
               <th className={thClass}>关联拼团活动</th>
               <th className={thClass}>上架</th>
               <th className={thClass}>操作</th>
@@ -411,24 +352,8 @@ const SkuPanel = memo(() => {
                   <input
                     className={inputClass}
                     type="number"
-                    value={row.periodQuota ?? 0}
-                    onChange={(e) => patchRow(row.code, { periodQuota: Number(e.target.value) })}
-                  />
-                </td>
-                <td className={tdClass}>
-                  <input
-                    className={inputClass}
-                    type="number"
-                    value={row.topupQuota ?? 0}
-                    onChange={(e) => patchRow(row.code, { topupQuota: Number(e.target.value) })}
-                  />
-                </td>
-                <td className={tdClass}>
-                  <input
-                    className={inputClass}
-                    type="number"
-                    value={row.memberDays ?? 0}
-                    onChange={(e) => patchRow(row.code, { memberDays: Number(e.target.value) })}
+                    value={row.baseQuota ?? 0}
+                    onChange={(e) => patchRow(row.code, { baseQuota: Number(e.target.value) })}
                   />
                 </td>
                 <td className={tdClass}>
@@ -686,7 +611,7 @@ const GroupBuyPanel = memo(() => {
                 className={`${inputClass} mt-1`}
                 value={draft.activityName}
                 onChange={(e) => setDraft((prev) => ({ ...prev, activityName: e.target.value }))}
-                placeholder="Pro 季卡拼团"
+                placeholder="自定义额度包拼团"
               />
             </label>
             <label className="text-xs text-[var(--chat-text-soft)]">
@@ -805,22 +730,6 @@ const GroupBuyPanel = memo(() => {
                 <tr key={row.activityId} className="border-t border-[var(--chat-border)]/60">
                   <td className={`${tdClass} font-medium`}>{row.activityId}</td>
                   <td className={tdClass}>
-                    <select
-                      className={inputClass}
-                      value={row.marketPlan || 'ZJ'}
-                      onChange={(e) =>
-                        patchRow(row.activityId, {
-                          marketPlan: e.target.value as 'ZJ' | 'MJ' | 'ZK' | 'N',
-                        })
-                      }
-                    >
-                      <option value="ZJ">直减</option>
-                      <option value="MJ">满减</option>
-                      <option value="ZK">折扣</option>
-                      <option value="N">固定价购</option>
-                    </select>
-                  </td>
-                  <td className={tdClass}>
                     <input
                       className={inputClass}
                       value={row.activityName ?? ''}
@@ -844,6 +753,22 @@ const GroupBuyPanel = memo(() => {
                         patchRow(row.activityId, { originalPrice: Number(e.target.value) })
                       }
                     />
+                  </td>
+                  <td className={tdClass}>
+                    <select
+                      className={inputClass}
+                      value={row.marketPlan || 'ZJ'}
+                      onChange={(e) =>
+                        patchRow(row.activityId, {
+                          marketPlan: e.target.value as 'ZJ' | 'MJ' | 'ZK' | 'N',
+                        })
+                      }
+                    >
+                      <option value="ZJ">直减</option>
+                      <option value="MJ">满减</option>
+                      <option value="ZK">折扣</option>
+                      <option value="N">固定价购</option>
+                    </select>
                   </td>
                   <td className={tdClass}>
                     <input
@@ -1027,6 +952,8 @@ const ModelPanel = memo(() => {
     modelName: '',
     modelType: 'openai',
     modelUsage: 'chat',
+    inputCreditsPerMillion: 5,
+    outputCreditsPerMillion: 30,
     status: 1,
   });
   /** apiId -> 用户输入的新 Key（不回显旧 Key，读接口已脱敏） */
@@ -1144,6 +1071,8 @@ const ModelPanel = memo(() => {
       modelName: '',
       modelType: 'openai',
       modelUsage: 'chat',
+      inputCreditsPerMillion: 5,
+      outputCreditsPerMillion: 30,
       status: 1,
     });
   };
@@ -1365,6 +1294,8 @@ const ModelPanel = memo(() => {
                   <th className={thClass}>模型名称</th>
                   <th className={thClass}>协议/厂商</th>
                   <th className={thClass}>用途</th>
+                  <th className={thClass}>输入费率</th>
+                  <th className={thClass}>输出费率</th>
                   <th className={thClass}>启用</th>
                   <th className={thClass}>操作</th>
                 </tr>
@@ -1392,6 +1323,34 @@ const ModelPanel = memo(() => {
                         className={inputClass}
                         value={model.modelUsage || 'chat'}
                         onChange={(e) => patchModel(model.modelId, { modelUsage: e.target.value })}
+                      />
+                    </td>
+                    <td className={tdClass}>
+                      <input
+                        className={inputClass}
+                        type="number"
+                        min={0}
+                        value={model.inputCreditsPerMillion ?? 5}
+                        onChange={(e) =>
+                          patchModel(model.modelId, {
+                            inputCreditsPerMillion: Number(e.target.value),
+                          })
+                        }
+                        title="每百万输入 Token 消耗的额度点"
+                      />
+                    </td>
+                    <td className={tdClass}>
+                      <input
+                        className={inputClass}
+                        type="number"
+                        min={0}
+                        value={model.outputCreditsPerMillion ?? 30}
+                        onChange={(e) =>
+                          patchModel(model.modelId, {
+                            outputCreditsPerMillion: Number(e.target.value),
+                          })
+                        }
+                        title="每百万输出 Token 消耗的额度点"
                       />
                     </td>
                     <td className={tdClass}>
@@ -1469,6 +1428,34 @@ const ModelPanel = memo(() => {
                     </td>
                     <td className={tdClass}>
                       <input
+                        className={inputClass}
+                        type="number"
+                        min={0}
+                        value={newModel.inputCreditsPerMillion ?? 5}
+                        onChange={(e) =>
+                          setNewModel((prev) => ({
+                            ...prev,
+                            inputCreditsPerMillion: Number(e.target.value),
+                          }))
+                        }
+                      />
+                    </td>
+                    <td className={tdClass}>
+                      <input
+                        className={inputClass}
+                        type="number"
+                        min={0}
+                        value={newModel.outputCreditsPerMillion ?? 30}
+                        onChange={(e) =>
+                          setNewModel((prev) => ({
+                            ...prev,
+                            outputCreditsPerMillion: Number(e.target.value),
+                          }))
+                        }
+                      />
+                    </td>
+                    <td className={tdClass}>
+                      <input
                         type="checkbox"
                         checked={newModel.status === 1}
                         onChange={(e) =>
@@ -1520,9 +1507,9 @@ const ModelPanel = memo(() => {
 ModelPanel.displayName = 'ModelPanel';
 
 const TABS: Array<{ key: AdminTab; label: string; icon: typeof Package }> = [
-  { key: 'skus', label: '会员套餐', icon: Package },
+  { key: 'skus', label: '额度包', icon: Package },
   { key: 'groupbuy', label: '拼团活动', icon: Users },
-  { key: 'models', label: '模型 Key', icon: KeyRound },
+  { key: 'models', label: '模型与费率', icon: KeyRound },
 ];
 
 const AdminPage = memo(() => {

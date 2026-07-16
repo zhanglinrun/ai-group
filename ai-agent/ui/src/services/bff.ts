@@ -12,11 +12,8 @@ export interface SkuItem {
   code: string;
   name: string;
   price: number;
-  periodQuota?: number;
-  topupQuota?: number;
-  memberDays?: number;
-  tier?: string;
-  skuType?: string;
+  /** 购买后发放的永久额度，单位：额度点 */
+  baseQuota?: number;
   /** 该 SKU 对应的拼团商品ID（无则不支持拼团） */
   groupGoodsId?: string;
   /** 该 SKU 对应的拼团活动ID（无则不支持拼团） */
@@ -58,6 +55,8 @@ export interface GroupBuyTeam {
   nextTierTargetCount?: number;
   /** 阶梯额度拼团：最高档位人数（用于展示 X/最高档 进度） */
   maxTierTargetCount?: number;
+  /** 创建团队时保存的阶梯快照；老团展示优先使用，避免运营改档后发生变化 */
+  tiers?: GroupBuyTier[];
 }
 
 export interface GroupBuyInfo {
@@ -101,15 +100,24 @@ export interface PendingGroupOrder {
   paidAt?: string;
 }
 
+export interface QuotaLedgerEntry {
+  id?: number;
+  type?: string;
+  amount?: number;
+  freezeId?: string;
+  abilityCode?: string;
+  remark?: string;
+  createdAt?: string;
+}
+
 export interface AccountSummary {
   userId?: number;
-  tier?: string;
-  startAt?: string;
-  expireAt?: string;
-  periodQuotaBalance?: number;
-  topupQuotaBalance?: number;
+  /** 以下余额均为微额度，1 额度点 = 1,000,000 微额度 */
+  freeQuotaBalance?: number;
+  paidQuotaBalance?: number;
   frozenBalance?: number;
   availableQuota?: number;
+  quotaLedger?: QuotaLedgerEntry[];
   pendingGroupOrders?: PendingGroupOrder[];
   meta?: {
     degraded?: boolean;

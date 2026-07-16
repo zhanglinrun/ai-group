@@ -13,6 +13,7 @@ public record PlanEvaluationRequest(
         String task,
         String executorResult,
         List<Message> messages,
+        List<Message> priorEvidence,
         AgentState executorState,
         int stepNo,
         String currentDate
@@ -23,12 +24,23 @@ public record PlanEvaluationRequest(
                                  String executorResult,
                                  List<Message> messages,
                                  AgentState executorState,
+                                 int stepNo,
+                                 String currentDate) {
+        this(query, task, executorResult, messages, List.of(), executorState, stepNo, currentDate);
+    }
+
+    public PlanEvaluationRequest(String query,
+                                 String task,
+                                 String executorResult,
+                                 List<Message> messages,
+                                 AgentState executorState,
                                  int stepNo) {
-        this(query, task, executorResult, messages, executorState, stepNo, "");
+        this(query, task, executorResult, messages, List.of(), executorState, stepNo, "");
     }
 
     public PlanEvaluationRequest {
         messages = messages == null ? List.of() : List.copyOf(messages);
+        priorEvidence = priorEvidence == null ? List.of() : List.copyOf(priorEvidence);
         currentDate = currentDate == null ? "" : currentDate;
     }
 }

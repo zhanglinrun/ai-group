@@ -9,21 +9,21 @@ export type PackageTheme = {
 };
 
 const SKU_THEMES: Record<string, PackageTheme> = {
-  PRO_MONTH: {
+  QUOTA_LIGHT: {
     accent: 'bg-violet-600',
     accentSoft: 'bg-violet-50',
     accentText: 'text-violet-700',
     gradient: 'from-violet-500/15 via-violet-400/5 to-transparent',
     ring: 'ring-violet-200',
   },
-  PRO_YEAR: {
+  QUOTA_STANDARD: {
     accent: 'bg-sky-600',
     accentSoft: 'bg-sky-50',
     accentText: 'text-sky-700',
     gradient: 'from-sky-500/15 via-sky-400/5 to-transparent',
     ring: 'ring-sky-200',
   },
-  TOPUP_200: {
+  QUOTA_LARGE: {
     accent: 'bg-emerald-600',
     accentSoft: 'bg-emerald-50',
     accentText: 'text-emerald-700',
@@ -41,16 +41,15 @@ const DEFAULT_THEME: PackageTheme = {
 };
 
 const SKU_DISPLAY_NAMES: Record<string, string> = {
-  PRO_MONTH: 'Pro 月卡',
-  PRO_YEAR: 'Pro 年卡',
-  TOPUP_200: '额度加油包',
-  FREE: 'Free 体验版',
+  QUOTA_LIGHT: '轻享额度包',
+  QUOTA_STANDARD: '标准额度包',
+  QUOTA_LARGE: '大额额度包',
 };
 
 const SKU_DESCRIPTIONS: Record<string, string> = {
-  PRO_MONTH: '按月开通 Pro 会员，享受更高周期配额与专属权益。',
-  PRO_YEAR: '年度 Pro 会员，更长有效期，适合持续深度使用。',
-  TOPUP_200: '一次性购买加油包额度，支付成功后立即到账。',
+  QUOTA_LIGHT: '适合体验和低频使用，付费额度永久有效。',
+  QUOTA_STANDARD: '适合日常求职学习与多轮对话。',
+  QUOTA_LARGE: '适合高频使用，单点价格与大团赠送更划算。',
 };
 
 export function skuDisplayName(sku: Pick<SkuItem, 'code' | 'name'>): string {
@@ -58,33 +57,11 @@ export function skuDisplayName(sku: Pick<SkuItem, 'code' | 'name'>): string {
 }
 
 export function skuDescription(sku: Pick<SkuItem, 'code'>): string {
-  return SKU_DESCRIPTIONS[sku.code] || '开通后即可在对话中使用对应配额。';
+  return SKU_DESCRIPTIONS[sku.code] || '购买后即可在对话中使用，付费额度永久有效。';
 }
 
 export function skuTheme(code: string): PackageTheme {
   return SKU_THEMES[code] || DEFAULT_THEME;
-}
-
-export function isMemberSku(sku: SkuItem): boolean {
-  if (sku.skuType) {
-    return sku.skuType.toUpperCase() === 'MEMBER';
-  }
-  return sku.code.startsWith('PRO_');
-}
-
-export function isTopupSku(sku: SkuItem): boolean {
-  if (sku.skuType) {
-    return sku.skuType.toUpperCase() === 'TOPUP';
-  }
-  return sku.code.startsWith('TOPUP_');
-}
-
-export function tierLabel(tier?: string): string {
-  const normalized = (tier || 'FREE').toUpperCase();
-  if (normalized === 'PRO') {
-    return 'Pro 会员';
-  }
-  return 'Free 用户';
 }
 
 export function formatPrice(price?: number): string {
@@ -95,6 +72,12 @@ export function formatPrice(price?: number): string {
 export function formatQuota(value?: number): string {
   if (value == null) return '-';
   return `${value} 点`;
+}
+
+/** 后端账本使用微额度，界面统一换算为额度点。 */
+export function formatMicroQuota(value?: number): string {
+  if (value == null) return '-';
+  return `${(value / 1_000_000).toLocaleString('zh-CN', { maximumFractionDigits: 6 })} 点`;
 }
 
 export function shortTeamId(teamId?: string): string {
@@ -122,12 +105,9 @@ export function teamProgress(team: {
 
 // ---------------- 阶梯拼团（tiered group-buy）展示辅助 ----------------
 
-/** SKU 的基础额度：会员套餐取周期配额，加油包取额度包配额 */
-export function baseQuotaOf(
-  sku: Pick<SkuItem, 'code' | 'skuType' | 'periodQuota' | 'topupQuota'>,
-): number {
-  if (isTopupSku(sku as SkuItem)) return Number(sku.topupQuota ?? 0);
-  return Number(sku.periodQuota ?? 0);
+/** SKU 的基础永久额度，单位：额度点。 */
+export function baseQuotaOf(sku: Pick<SkuItem, 'baseQuota'>): number {
+  return Number(sku.baseQuota ?? 0);
 }
 
 export type QuotaLadderRow = {
@@ -206,7 +186,7 @@ export type TeamTierView = {
  * 依赖 team.reachedTierNo/nextTierTargetCount/maxTierTargetCount（后端计算）+ sku 的基础额度与档位。
  */
 export function teamTierView(team: GroupBuyTeam, sku?: SkuItem | null): TeamTierView {
-  const tiers = sortedTiers(sku?.groupTiers);
+  const tiers = sortedTiers(team.tiers?.length ? team.tiers : sku?.groupTiers);
   const base = sku ? baseQuotaOf(sku) : 0;
   const complete = Number(team.completeCount ?? team.lockCount ?? 0);
   const reachedTierNo = Number(team.reachedTierNo ?? 0);

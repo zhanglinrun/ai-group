@@ -11,6 +11,5 @@ export interface ModelItem {
 }
 
 export const modelCatalogApi = {
-  list: () =>
-    api.get<ModelItem[]>(`/api/agent/models`) as unknown as Promise<ModelItem[]>,
+  list: () => api.get<ModelItem[]>(`/api/agent/models`) as unknown as Promise<ModelItem[]>,
 };

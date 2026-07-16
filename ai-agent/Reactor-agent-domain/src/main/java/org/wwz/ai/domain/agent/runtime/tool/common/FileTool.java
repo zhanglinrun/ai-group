@@ -90,7 +90,7 @@ public class FileTool implements BaseTool {
                 return getFilePayload(fileRequest, true);
             }
         } catch (Exception e) {
-            log.error("{} file tool error, input:{}", agentContext.getRequestId(), JSON.toJSONString(input), e);
+            log.error("{} file tool request failed", agentContext.getRequestId(), e);
             return buildFailurePayload(command, null, "file_tool 执行失败：" + e.getMessage());
         }
         return buildFailurePayload(command, null, "file_tool 执行失败：不支持的 command。");
@@ -155,12 +155,14 @@ public class FileTool implements BaseTool {
             fileRequest.setFileName(fileRequest.getFileName() + ".md");
         }
         try {
-            log.info("{} file tool upload request {}", agentContext.getRequestId(), JSON.toJSONString(fileRequest));
+            log.info("{} file tool upload fileName={}, contentChars={}", agentContext.getRequestId(),
+                    fileRequest.getFileName(), fileRequest.getContent() == null ? 0 : fileRequest.getContent().length());
             FileResponse fileResponse = fileArtifactPort.upload(reactorConfig.getCodeInterpreterUrl(), fileRequest);
             if (fileResponse == null) {
                 return buildFailurePayload("upload", fileRequest.getFileName(), "上传文件失败 " + fileRequest.getFileName());
             }
-            log.info("{} file tool upload response {}", agentContext.getRequestId(), JSON.toJSONString(fileResponse));
+            log.info("{} file tool upload completed fileName={}, fileSize={}", agentContext.getRequestId(),
+                    fileResponse.getFileName(), fileResponse.getFileSize());
             // 构建前端格式
             Map<String, Object> resultMap = new HashMap<>();
             resultMap.put("command", "写入文件");
@@ -231,13 +233,14 @@ public class FileTool implements BaseTool {
         // 适配多轮对话
         getFileRequest.setRequestId(agentContext.getSessionId());
         try {
-            log.info("{} file tool get request {}", agentContext.getRequestId(), JSON.toJSONString(getFileRequest));
+            log.info("{} file tool get fileName={}", agentContext.getRequestId(), getFileRequest.getFileName());
             FileResponse fileResponse = fileArtifactPort.get(reactorConfig.getCodeInterpreterUrl(), getFileRequest);
             if (fileResponse == null) {
                 String errMessage = "获取文件失败 " + fileRequest.getFileName();
                 return buildFailurePayload("get", fileRequest.getFileName(), errMessage);
             }
-            log.info("{} file tool get response {}", agentContext.getRequestId(), JSON.toJSONString(fileResponse));
+            log.info("{} file tool get completed fileName={}, fileSize={}", agentContext.getRequestId(),
+                    fileResponse.getFileName(), fileResponse.getFileSize());
             // 构建前端格式
             Map<String, Object> resultMap = new HashMap<>();
             resultMap.put("command", "读取文件");

@@ -12,5 +12,5 @@ import lombok.NoArgsConstructor;
 public class QuotaFreezeVO {
 
     private String freezeId;
-    private Integer amount;
+    private Long amount;
 }

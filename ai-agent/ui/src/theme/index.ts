@@ -1,4 +1,5 @@
-export { ThemeProvider, useTheme, bootstrapTheme } from './ThemeProvider';
+export { ThemeProvider } from './ThemeProvider';
+export { bootstrapTheme, useTheme } from './themeRuntime';
 export { default as AppearanceSettings } from './AppearanceSettings';
 export {
   PALETTES,

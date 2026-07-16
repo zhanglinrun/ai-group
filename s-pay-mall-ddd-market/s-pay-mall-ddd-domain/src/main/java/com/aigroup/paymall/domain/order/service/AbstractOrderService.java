@@ -34,6 +34,19 @@ public abstract class AbstractOrderService implements IOrderService {
 
     @Override
     public PayOrderEntity createOrder(ShopCartEntity shopCartEntity) throws Exception {
+        // Resolve identity, price and quota from the trusted server catalog before
+        // looking up/recovering an order. Browser-supplied productCode is only a hint.
+        ProductEntity productEntity = port.queryProductByProductId(shopCartEntity.getProductId());
+        if (productEntity == null || productEntity.getProductCode() == null || productEntity.getBaseQuota() == null
+                || productEntity.getBaseQuota() <= 0) {
+            throw new AppException(ResponseCode.ILLEGAL_PARAMETER.getCode(), "quota package is not configured: " + shopCartEntity.getProductId());
+        }
+        if (shopCartEntity.getProductCode() != null
+                && !productEntity.getProductCode().equals(shopCartEntity.getProductCode())) {
+            throw new AppException(ResponseCode.ILLEGAL_PARAMETER.getCode(), "product code does not match server catalog");
+        }
+        shopCartEntity.setProductCode(productEntity.getProductCode());
+
         // 1. 查询当前用户是否存在掉单和未支付订单
         OrderEntity unpaidOrderEntity = repository.queryUnPayOrder(shopCartEntity);
 
@@ -64,7 +77,8 @@ public abstract class AbstractOrderService implements IOrderService {
                             shopCartEntity.getTeamId(),
                             shopCartEntity.getActivityId(),
                             shopCartEntity.getProductId(),
-                            unpaidOrderEntity.getOrderId());
+                            unpaidOrderEntity.getOrderId(),
+                            unpaidOrderEntity.getTotalAmount());
                 } else {
                     // 防御分支：已持久化真实折扣时用其重建折扣实体，仍走营销预支付，避免退化为 NO_MARKET
                     marketPayDiscountEntity = MarketPayDiscountEntity.builder()
@@ -93,15 +107,8 @@ public abstract class AbstractOrderService implements IOrderService {
                     .build();
         }
 
-        // 查询商品信息
-        ProductEntity productEntity = port.queryProductByProductId(shopCartEntity.getProductId());
-
         // 订单实体信息
-        OrderEntity orderEntity = CreateOrderAggregate.buildOrderEntity(
-                productEntity.getProductId(),
-                shopCartEntity.getProductCode(),
-                productEntity.getProductName(),
-                shopCartEntity.getMarketTypeVO().getCode());
+        OrderEntity orderEntity = CreateOrderAggregate.buildOrderEntity(productEntity, shopCartEntity.getMarketTypeVO().getCode());
 
         // 订单聚合对象
         CreateOrderAggregate orderAggregate = CreateOrderAggregate.builder()
@@ -120,7 +127,8 @@ public abstract class AbstractOrderService implements IOrderService {
                     shopCartEntity.getTeamId(),
                     shopCartEntity.getActivityId(),
                     shopCartEntity.getProductId(),
-                    orderEntity.getOrderId());
+                    orderEntity.getOrderId(),
+                    productEntity.getPrice());
             // lock failure must not degrade to a full-price NO_MARKET order
             if (null == marketPayDiscountEntity) {
                 log.error("group buy lock market pay order failed, abort createOrder. userId:{} productId:{} orderId:{}",
@@ -147,7 +155,8 @@ public abstract class AbstractOrderService implements IOrderService {
 
     protected abstract void doSaveOrder(CreateOrderAggregate orderAggregate);
 
-    protected abstract MarketPayDiscountEntity lockMarketPayOrder(String userId, String teamId, Long activityId, String productId, String orderId);
+    protected abstract MarketPayDiscountEntity lockMarketPayOrder(String userId, String teamId, Long activityId,
+                                                                  String productId, String orderId, BigDecimal orderPrice);
 
     protected abstract PayOrderEntity doPrepayOrder(String userId, String productId, String productName, String orderId, BigDecimal totalAmount) throws AlipayApiException;
 

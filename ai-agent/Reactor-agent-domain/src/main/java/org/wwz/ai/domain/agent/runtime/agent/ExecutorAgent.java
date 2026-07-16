@@ -14,6 +14,7 @@ import org.wwz.ai.domain.agent.runtime.enums.RoleType;
 import org.wwz.ai.domain.agent.runtime.llm.LLM;
 import org.wwz.ai.domain.agent.runtime.prompt.ToolCallPrompt;
 import org.wwz.ai.domain.agent.runtime.tool.BaseTool;
+import org.wwz.ai.domain.agent.runtime.tool.ToolCollection;
 import org.wwz.ai.domain.agent.runtime.util.FileUtil;
 import org.wwz.ai.domain.agent.reactor.config.ReactorConfig;
 import org.wwz.ai.domain.agent.reactor.model.response.AgentResponse;
@@ -124,17 +125,20 @@ public class ExecutorAgent extends ReActAgent {
 
         try {
             // 获取带工具选项的响应
-            log.info("{} executor ask tool {}", context.getRequestId(), JSON.toJSONString(availableTools));
-            ToolChoice toolChoice = resolveExecutorToolChoice();
+            log.info("{} executor ask tool toolCount={}", context.getRequestId(),
+                    availableTools == null || availableTools.getToolMap() == null
+                            ? 0 : availableTools.getToolMap().size());
+            ToolCollection toolsForCurrentTurn = resolveToolsForCurrentTurn();
+            ToolChoice toolChoice = resolveExecutorToolChoice(toolsForCurrentTurn);
             CompletableFuture<LLM.ToolCallResponse> future = getLlm().askTool(
                     context,
                     getMemory().getMessages(),
                     Message.systemMessage(getSystemPrompt(), null),
-                    availableTools,
+                    toolsForCurrentTurn,
                     toolChoice, null, false, 300
             );
 
-            LLM.ToolCallResponse response = retryUnexecutedToolIntent(future.get());
+            LLM.ToolCallResponse response = retryUnexecutedToolIntent(future.get(), toolsForCurrentTurn);
             setToolCalls(response.getToolCalls() == null ? List.of() : response.getToolCalls());
             if (!toolCalls.isEmpty()) {
                 explicitToolRequirementSatisfied = true;
@@ -166,10 +170,12 @@ public class ExecutorAgent extends ReActAgent {
 
         } catch (Exception e) {
 
-            log.error("Oops! The " + getName() + "'s thinking process hit a snag: " + e.getMessage());
+            log.error("{} executor think failed agent={} errorType={}",
+                    context.getRequestId(), getName(), e.getClass().getSimpleName());
             getMemory().addMessage(Message.assistantMessage(
                     "Error encountered while processing: " + e.getMessage(), null));
-            // 异常被吞掉后流程会降级继续，这里标记 run 失败，保证账本终态与配额结算反映真实结果
+            // 异常被吞掉后流程会降级继续，这里标记 run 失败以保证账本终态反映真实结果；
+            // LLM 配额已按每次调用独立结算。
             context.markRunFailed();
             setState(AgentState.FINISHED);
             return false;
@@ -177,8 +183,9 @@ public class ExecutorAgent extends ReActAgent {
         return true;
     }
 
-    private LLM.ToolCallResponse retryUnexecutedToolIntent(LLM.ToolCallResponse response) throws Exception {
-        if (!hasUnexecutedToolIntent(response) || toolUseIsProhibited()) {
+    private LLM.ToolCallResponse retryUnexecutedToolIntent(LLM.ToolCallResponse response,
+                                                           ToolCollection toolsForCurrentTurn) throws Exception {
+        if (!hasUnexecutedToolIntent(response, toolsForCurrentTurn) || toolUseIsProhibited()) {
             return response;
         }
 
@@ -194,7 +201,7 @@ public class ExecutorAgent extends ReActAgent {
                 context,
                 retryMessages,
                 Message.systemMessage(getSystemPrompt(), null),
-                availableTools,
+                toolsForCurrentTurn,
                 retryChoice,
                 null,
                 false,
@@ -211,13 +218,14 @@ public class ExecutorAgent extends ReActAgent {
     private ToolChoice resolveTextualToolRetryChoice() {
         String originalQuery = context == null ? "" : StringUtils.defaultString(context.getQuery());
         String currentTask = context == null ? "" : StringUtils.defaultString(context.getTask());
-        return ExplicitToolChoicePolicy.resolve(originalQuery + "\n" + currentTask, 1);
+        return ExplicitToolChoicePolicy.resolveForCurrentTask(originalQuery, currentTask, 1);
     }
 
-    private boolean hasUnexecutedToolIntent(LLM.ToolCallResponse response) {
+    private boolean hasUnexecutedToolIntent(LLM.ToolCallResponse response,
+                                            ToolCollection toolsForCurrentTurn) {
         if (response == null || response.getToolCalls() != null && !response.getToolCalls().isEmpty()
-                || StringUtils.isBlank(response.getContent()) || availableTools == null
-                || availableTools.getToolMap() == null || availableTools.getToolMap().isEmpty()) {
+                || StringUtils.isBlank(response.getContent()) || toolsForCurrentTurn == null
+                || allToolNames(toolsForCurrentTurn).isEmpty()) {
             return false;
         }
         String normalized = response.getContent().toLowerCase(Locale.ROOT);
@@ -260,6 +268,9 @@ public class ExecutorAgent extends ReActAgent {
         for (ToolCall command : toolCalls) {
             ToolExecutionOutcome outcome = toolOutcomes.get(command.getId());
             String toolResult = outcome == null ? "" : outcome.getToolResult();
+            if (outcome != null && outcome.isSuccess()) {
+                markSingleUseToolSatisfied(command.getFunction().getName());
+            }
             if (!Arrays.asList("code_interpreter", "report_tool", "file_tool", "deep_search", "multimodalagent_tool", "data_analysis").contains(command.getFunction().getName())) {
                 String toolName = command.getFunction().getName();
                 printer.send("tool_result", AgentResponse.ToolResult.builder()
@@ -279,8 +290,10 @@ public class ExecutorAgent extends ReActAgent {
         try {
             return JSON.parseObject(command.getFunction().getArguments(), Map.class);
         } catch (Exception e) {
-            log.warn("{} invalid tool arguments, fallback empty map. tool={}, args={}",
-                    context.getRequestId(), command.getFunction().getName(), command.getFunction().getArguments());
+            String rawArguments = command.getFunction().getArguments();
+            log.warn("{} invalid tool arguments, fallback empty map tool={} argsChars={} errorType={}",
+                    context.getRequestId(), command.getFunction().getName(),
+                    rawArguments == null ? 0 : rawArguments.length(), e.getClass().getSimpleName());
             return Map.of();
         }
     }
@@ -310,18 +323,84 @@ public class ExecutorAgent extends ReActAgent {
     }
 
     protected ToolChoice resolveExecutorToolChoice() {
+        return resolveExecutorToolChoice(resolveToolsForCurrentTurn());
+    }
+
+    private ToolChoice resolveExecutorToolChoice(ToolCollection toolsForCurrentTurn) {
+        String exhaustedSingleUseTool = resolveSingleUseToolName(availableTools);
+        if (StringUtils.isNotBlank(exhaustedSingleUseTool)
+                && context.getAgentRunState().isSingleUseToolSatisfied(exhaustedSingleUseTool)) {
+            return ToolChoice.AUTO;
+        }
         if (currentRunExplicitToolRequirementSatisfied) {
             return ToolChoice.AUTO;
         }
         String originalQuery = context == null ? "" : StringUtils.defaultString(context.getQuery());
         String currentTask = context == null ? "" : StringUtils.defaultString(context.getTask());
-        ToolChoice currentTaskChoice = ExplicitToolChoicePolicy.resolve(currentTask, 1);
-        if (currentTaskChoice == ToolChoice.REQUIRED) {
-            return ExplicitToolChoicePolicy.resolve(originalQuery + "\n" + currentTask, 1);
+        ToolChoice currentTaskChoice = ExplicitToolChoicePolicy.resolveForCurrentTask(
+                originalQuery, currentTask, 1);
+        if (StringUtils.isNotBlank(currentTask) && currentTaskChoice == ToolChoice.REQUIRED) {
+            return currentTaskChoice;
         }
         return explicitToolRequirementSatisfied
                 ? ToolChoice.AUTO
-                : ExplicitToolChoicePolicy.resolve(originalQuery + "\n" + currentTask, 1);
+                : currentTaskChoice;
+    }
+
+    private ToolCollection resolveToolsForCurrentTurn() {
+        String singleUseToolName = resolveSingleUseToolName(availableTools);
+        if (StringUtils.isBlank(singleUseToolName)
+                || !context.getAgentRunState().isSingleUseToolSatisfied(singleUseToolName)) {
+            return availableTools;
+        }
+        return copyWithoutTool(availableTools, singleUseToolName);
+    }
+
+    private String resolveSingleUseToolName(ToolCollection tools) {
+        return ExplicitToolChoicePolicy.resolveSingleUseRequiredToolName(
+                context == null ? null : context.getQuery(), allToolNames(tools));
+    }
+
+    private Set<String> allToolNames(ToolCollection tools) {
+        Set<String> names = new LinkedHashSet<>();
+        if (tools == null) {
+            return names;
+        }
+        if (tools.getToolMap() != null) {
+            names.addAll(tools.getToolMap().keySet());
+        }
+        if (tools.getMcpToolMap() != null) {
+            names.addAll(tools.getMcpToolMap().keySet());
+        }
+        return names;
+    }
+
+    private ToolCollection copyWithoutTool(ToolCollection source, String excludedToolName) {
+        ToolCollection scoped = new ToolCollection();
+        if (source == null) {
+            return scoped;
+        }
+        scoped.setAgentContext(source.getAgentContext());
+        scoped.setMcpToolExecutor(source.getMcpToolExecutor());
+        scoped.restoreTaskScopedState(source.snapshotTaskScopedState());
+        source.getToolMap().forEach((name, tool) -> {
+            if (!name.equals(excludedToolName)) {
+                scoped.addTool(tool);
+            }
+        });
+        source.getMcpToolMap().forEach((name, tool) -> {
+            if (!name.equals(excludedToolName)) {
+                scoped.addMcpTool(tool);
+            }
+        });
+        return scoped;
+    }
+
+    private void markSingleUseToolSatisfied(String toolName) {
+        String singleUseToolName = resolveSingleUseToolName(availableTools);
+        if (StringUtils.equals(singleUseToolName, toolName)) {
+            context.getAgentRunState().markSingleUseToolSatisfied(toolName);
+        }
     }
 
     @Override

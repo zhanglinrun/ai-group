@@ -23,11 +23,19 @@ export function useTradePurchase(groupBuy: GroupBuyInfo | null) {
       }
 
       const isGroup = mode === 'group';
-      // 优先用 SKU 自己的拼团活动（月卡/年卡/加油包各自独立），回退到页面级默认活动
+      // 优先使用额度包自己的拼团活动，回退到页面级默认活动
       const activityId = sku.groupActivityId ?? groupBuy?.activityId;
       if (isGroup && !activityId) {
         message.error('拼团活动不可用');
         return false;
+      }
+      if (isGroup && teamId) {
+        const team = groupBuy?.teamList?.find((candidate) => candidate.teamId === teamId);
+        const teamActivityId = team?.activityId ?? groupBuy?.activityId;
+        if (!team || (teamActivityId != null && teamActivityId !== activityId)) {
+          message.error('该拼团不属于当前额度包，请刷新后重试');
+          return false;
+        }
       }
 
       const key = `${sku.code}-${mode}${teamId ? `-${teamId}` : ''}`;
@@ -45,14 +53,15 @@ export function useTradePurchase(groupBuy: GroupBuyInfo | null) {
           message.error('下单失败，请稍后重试');
           return false;
         }
-        const amount = isGroup
-          ? (sku.groupPayPrice ?? groupBuy?.goods?.payPrice ?? sku.price)
-          : sku.price;
+        const amount =
+          order.amount ??
+          (isGroup ? (sku.groupPayPrice ?? groupBuy?.goods?.payPrice ?? sku.price) : sku.price);
         setQrPayment({
           orderId: order.orderId,
           qrCode: order.qrCode,
           title: skuDisplayName(sku),
           amount,
+          demoCompletionEnabled: order.demoCompletionEnabled,
         });
         return true;
       } catch (error) {

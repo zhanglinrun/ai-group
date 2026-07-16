@@ -14,12 +14,15 @@ import java.util.Map;
 @AllArgsConstructor
 public class GptProcessResult {
     private String status;//状态
+    @Builder.Default
     private String response = "";//增量内容回复
+    @Builder.Default
     private String responseAll = "";//全量内容回复
     private boolean finished;//是否结束
     private long useTimes;
     private long useTokens;
     private Map<String, Object> resultMap;//结构化输出结果
+    @Builder.Default
     private String responseType = "markdown";//大模型响应内容类型
     private String traceId;//会话ID
     private String reqId;//请求ID
@@ -31,9 +34,12 @@ public class GptProcessResult {
      * result: 问答结果类型
      * heartbeat: 心跳
      */
+    @Builder.Default
     private String packageType = "result";
     /**
      * 失败信息
      */
     private String errorMsg;
+    private String errorCode;
+    private String errorMessage;
 }

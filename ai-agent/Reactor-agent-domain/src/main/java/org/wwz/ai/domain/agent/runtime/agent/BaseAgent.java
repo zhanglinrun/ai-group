@@ -112,7 +112,8 @@ public abstract class BaseAgent {
         List<String> results = new ArrayList<>();
         try {
             while (currentStep < maxSteps && state != AgentState.FINISHED) {
-                // 客户端断开（SSE 关闭）时提前终止，避免继续空跑烧 token；标记 run 失败使配额按失败结算（释放）。
+                // 客户端断开（SSE 关闭）时在步骤边界终止，避免继续发起调用；
+                // 标记 run 失败供审计，当前在途 LLM 仍由调用级结算处理。
                 if (isDownstreamAborted()) {
                     log.info("{} {} downstream aborted, stop agent loop at step {}",
                             context == null ? null : context.getRequestId(), getName(), currentStep);
@@ -419,8 +420,10 @@ public abstract class BaseAgent {
             args = mapper.readValue(normalizeToolPayload(command.getFunction().getArguments()), Object.class);
         } catch (Exception parseEx) {
             // 参数校验：入参不是合法 JSON 时，给出结构化纠错反馈让模型修正参数，而不是笼统报错。
-            log.warn("{} tool {} arguments parse failed, args={}", context.getRequestId(), toolName,
-                    command.getFunction().getArguments());
+            String rawArguments = command.getFunction().getArguments();
+            log.warn("{} tool arguments parse failed tool={} argsChars={} errorType={}",
+                    context.getRequestId(), toolName,
+                    rawArguments == null ? 0 : rawArguments.length(), parseEx.getClass().getSimpleName());
             String msg = "工具 " + toolName + " 参数解析失败：入参必须为合法 JSON，请检查后用正确参数重试。";
             return ToolExecutionOutcome.failure(msg, msg, null, "invalid tool arguments: " + parseEx.getMessage());
         }
@@ -428,6 +431,7 @@ public abstract class BaseAgent {
         int attempts = Math.max(1, toolMaxAttempts);
         Exception lastError = null;
         for (int attempt = 1; attempt <= attempts; attempt++) {
+            long attemptStartedAt = System.nanoTime();
             try {
                 ToolArtifactSource artifactSource = ToolArtifactSource.builder()
                         .sessionId(context.getSessionId())
@@ -444,7 +448,10 @@ public abstract class BaseAgent {
                     context.clearCurrentToolArtifactSource();
                 }
 
-                log.info("{} execute tool: {} {} result {}", context.getRequestId(), toolName, args, resultObject);
+                log.info("{} execute tool completed tool={} attempt={} resultType={} durationMs={}",
+                        context.getRequestId(), toolName, attempt,
+                        resultObject == null ? "null" : resultObject.getClass().getSimpleName(),
+                        (System.nanoTime() - attemptStartedAt) / 1_000_000L);
 
                 if (resultObject == null) {
                     // 返回空视为确定性失败，不重试；保持既有可识别文案。
@@ -473,11 +480,15 @@ public abstract class BaseAgent {
                 // 仅对抛异常的瞬时失败做有界重试（网络/超时类）。
                 lastError = e;
                 if (attempt < attempts) {
-                    log.warn("{} execute tool {} failed on attempt {}/{}, retrying", context.getRequestId(),
-                            toolName, attempt, attempts, e);
+                    log.warn("{} execute tool failed tool={} attempt={}/{} retrying errorType={} durationMs={}",
+                            context.getRequestId(), toolName, attempt, attempts,
+                            e.getClass().getSimpleName(),
+                            (System.nanoTime() - attemptStartedAt) / 1_000_000L);
                     continue;
                 }
-                log.error("{} execute tool {} failed after {} attempt(s)", context.getRequestId(), toolName, attempts, e);
+                log.error("{} execute tool failed tool={} attempts={} errorType={} durationMs={}",
+                        context.getRequestId(), toolName, attempts, e.getClass().getSimpleName(),
+                        (System.nanoTime() - attemptStartedAt) / 1_000_000L);
             }
         }
         return ToolExecutionOutcome.failure(

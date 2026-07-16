@@ -11,6 +11,7 @@ import org.wwz.ai.domain.agent.runtime.agent.AgentContext;
 import org.wwz.ai.domain.agent.runtime.agent.ExecutorAgent;
 import org.wwz.ai.domain.agent.runtime.dto.Message;
 import org.wwz.ai.domain.agent.runtime.dto.tool.ToolCall;
+import org.wwz.ai.domain.agent.runtime.dto.tool.McpToolInfo;
 import org.wwz.ai.domain.agent.runtime.enums.RoleType;
 import org.wwz.ai.domain.agent.runtime.llm.LLM;
 import org.wwz.ai.domain.agent.runtime.llm.LLMSettings;
@@ -103,6 +104,48 @@ public class ExecutorAgentResultContractTest {
                 ReflectionTestUtils.invokeMethod(agent, "resolveExecutorToolChoice"));
 
         agent.getContext().setQuery("不调用联网工具，直接基于已有信息回答");
+        Assert.assertEquals(ToolChoice.AUTO,
+                ReflectionTestUtils.invokeMethod(agent, "resolveExecutorToolChoice"));
+
+        agent.setExplicitToolRequirementSatisfied(false);
+        agent.getContext().setQuery("必须使用 report_tool 生成 HTML 报告");
+        agent.getContext().setTask("先梳理报告结构");
+        Assert.assertEquals(ToolChoice.AUTO,
+                ReflectionTestUtils.invokeMethod(agent, "resolveExecutorToolChoice"));
+        agent.getContext().setTask("调用 report_tool 生成文件");
+        Assert.assertEquals(ToolChoice.REQUIRED,
+                ReflectionTestUtils.invokeMethod(agent, "resolveExecutorToolChoice"));
+    }
+
+    @Test
+    public void shouldHideSingleUseToolAfterSuccessfulInvocation() {
+        ExecutorAgent agent = newExecutorAgent();
+        agent.getContext().setQuery(
+                "深度模式验收：必须调用 MCP 工具 utility_estimate_llm_quota：输入 token 1000、"
+                        + "请求输出 token 512、实际输出 token 100、输入单价 5、输出单价 30（单位均为 microcredits），"
+                        + "并明确列出工具名、预留额度、最低预留额度和实际结算额度。整个运行中只调用这一个工具一次。"
+                        + "\n\n[输出格式要求] 最终交付物请调用 report_tool 生成 Markdown 文档报告（fileType=markdown）。");
+        agent.getContext().getToolCollection().addMcpTool(McpToolInfo.builder()
+                .mcpId("agent-utility")
+                .name("utility_estimate_llm_quota")
+                .desc("quota")
+                .parameters("{}")
+                .build());
+        agent.getContext().setTask("你的任务是：调用 utility_estimate_llm_quota 工具，传入上述参数");
+
+        ToolCollection firstTurn = ReflectionTestUtils.invokeMethod(agent, "resolveToolsForCurrentTurn");
+        Assert.assertNotNull(firstTurn);
+        Assert.assertTrue(firstTurn.getMcpToolMap().containsKey("utility_estimate_llm_quota"));
+
+        ReflectionTestUtils.invokeMethod(agent, "markSingleUseToolSatisfied", "utility_estimate_llm_quota");
+        agent.getContext().setTask("你的任务是：解析工具返回结果，提取并核验四项关键字段");
+
+        ToolCollection scoped = ReflectionTestUtils.invokeMethod(agent, "resolveToolsForCurrentTurn");
+
+        Assert.assertNotNull(scoped);
+        Assert.assertFalse(scoped.getMcpToolMap().containsKey("utility_estimate_llm_quota"));
+        Assert.assertTrue(agent.getContext().getToolCollection().getMcpToolMap()
+                .containsKey("utility_estimate_llm_quota"));
         Assert.assertEquals(ToolChoice.AUTO,
                 ReflectionTestUtils.invokeMethod(agent, "resolveExecutorToolChoice"));
     }

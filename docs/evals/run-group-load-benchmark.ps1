@@ -51,8 +51,19 @@ if ($ConcurrencyLevels.Count -eq 0 -or @($ConcurrencyLevels | Where-Object { $_ 
 New-Item -ItemType Directory -Path $reports -Force | Out-Null
 
 function Invoke-Mysql([string]$Sql) {
-    $output = $Sql | docker exec -i -e "MYSQL_PWD=$MysqlPassword" $MysqlContainer mysql -uroot -N -B
-    if ($LASTEXITCODE -ne 0) { throw "mysql statement failed with exit code $LASTEXITCODE" }
+    $previousMysqlPassword = $env:MYSQL_PWD
+    try {
+        $env:MYSQL_PWD = $MysqlPassword
+        $output = $Sql | docker exec -i -e MYSQL_PWD $MysqlContainer mysql -uroot -N -B
+        $mysqlExitCode = $LASTEXITCODE
+    } finally {
+        if ($null -eq $previousMysqlPassword) {
+            Remove-Item Env:MYSQL_PWD -ErrorAction SilentlyContinue
+        } else {
+            $env:MYSQL_PWD = $previousMysqlPassword
+        }
+    }
+    if ($mysqlExitCode -ne 0) { throw "mysql statement failed with exit code $mysqlExitCode" }
     return @($output)
 }
 

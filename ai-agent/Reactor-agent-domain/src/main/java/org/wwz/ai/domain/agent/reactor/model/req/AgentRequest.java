@@ -30,6 +30,8 @@ public class AgentRequest {
     private String ownerId;
     private String erp;
     private String query;
+    /** 追加 outputStyle 指令前的用户原始问题，用于 checkpoint 可重复恢复。 */
+    private String originalQuery;
     private Integer agentType;
     private String basePrompt;
     private String sopPrompt;
@@ -49,6 +51,10 @@ public class AgentRequest {
      * 用户选择的模型 ID（可空）。贯穿到 AgentContext.modelIdOverride，供运行时按 modelId 覆盖模型。
      */
     private String modelId;
+    /** Plan-Solve 显式恢复点；仅由同 owner、同 session 的新请求消费。 */
+    private String resumeCheckpointId;
+    /** SAFE_ONLY（默认）或 RESTART_FROM_CHECKPOINT。 */
+    private String resumeDecision;
 
     @Data
     @Builder

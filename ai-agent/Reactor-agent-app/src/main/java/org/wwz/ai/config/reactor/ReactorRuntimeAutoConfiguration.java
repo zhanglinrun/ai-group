@@ -9,6 +9,7 @@ import org.wwz.ai.domain.agent.adapter.port.FileArtifactPort;
 import org.wwz.ai.domain.agent.adapter.port.ModelCatalogPort;
 import org.wwz.ai.domain.agent.adapter.port.RemoteHttpPort;
 import org.wwz.ai.domain.agent.adapter.port.RemoteStreamPort;
+import org.wwz.ai.domain.agent.adapter.port.QuotaBillingPort;
 import org.wwz.ai.domain.agent.runtime.llm.DomainMessageConverter;
 import org.wwz.ai.domain.agent.runtime.llm.LlmChatModelResolver;
 import org.wwz.ai.domain.agent.runtime.llm.LlmChatResponseMapper;
@@ -56,6 +57,7 @@ public class ReactorRuntimeAutoConfiguration {
                                                                  RemoteStreamPort remoteStreamPort,
                                                                  FileArtifactPort fileArtifactPort,
                                                                  ModelCatalogPort modelCatalogPort,
+                                                                 QuotaBillingPort quotaBillingPort,
                                                                  @Qualifier(AgentExecutorNames.LLM_EXECUTOR) Executor llmExecutor,
                                                                  @Qualifier(AgentExecutorNames.TASK_EXECUTOR) Executor taskExecutor,
                                                                  @Qualifier(AgentExecutorNames.TOOL_EXECUTOR) Executor toolExecutor,
@@ -70,6 +72,7 @@ public class ReactorRuntimeAutoConfiguration {
                 .remoteStreamPort(remoteStreamPort)
                 .fileArtifactPort(fileArtifactPort)
                 .modelCatalogPort(modelCatalogPort)
+                .quotaBillingPort(quotaBillingPort)
                 .llmExecutor(llmExecutor)
                 .taskExecutor(taskExecutor)
                 .toolExecutor(toolExecutor)

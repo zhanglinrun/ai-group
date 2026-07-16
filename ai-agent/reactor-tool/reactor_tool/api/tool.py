@@ -10,6 +10,7 @@ import contextvars
 import json
 import math
 import os
+import re
 import threading
 import time
 
@@ -40,7 +41,11 @@ from reactor_tool.model.protocal import (
 from reactor_tool.tool.web_fetcher import WebFetcher
 from reactor_tool.tool.code_interpreter_policy import CodeExecutionPermissionError
 from reactor_tool.util.file_util import upload_file
-from reactor_tool.util.report_file_util import sanitize_report_html_content
+from reactor_tool.util.report_file_util import (
+    render_strict_query_markdown,
+    sanitize_report_html_content,
+    sanitize_strict_grounded_markdown,
+)
 from reactor_tool.util.prompt_util import get_prompt
 from reactor_tool.util.middleware_util import RequestHandlerRoute
 load_dotenv()
@@ -245,6 +250,63 @@ async def post_report(
     body: ReportRequest,
 ):
     from reactor_tool.tool.report import report
+    from reactor_tool.tool.report import _requires_strict_grounding
+
+    def _looks_like_nested_tool_call(content: str) -> bool:
+        normalized = (content or "").strip()
+        if not normalized:
+            return True
+        compact = re.sub(r"\s+", " ", normalized).lower()
+        without_fences = re.sub(r"```(?:tool_code|json|python)?|```", "", compact).strip()
+        return (
+            len(normalized) < 256
+            and (
+                "tool_code" in compact
+                or re.fullmatch(r"report_tool\s*\([^)]*\)\s*", without_fences) is not None
+            )
+        )
+
+    async def _collect_report_chunks(task: str):
+        chunks = []
+        async for chunk in report(
+            task=task,
+            original_query=body.query,
+            file_names=body.file_names,
+            file_type=body.file_type,
+            template_type=body.template_type,
+        ):
+            chunks.append(chunk)
+        return chunks
+
+    async def _generate_report_chunks():
+        has_markdown_bullets = any(
+            line.strip().startswith(("- ", "* "))
+            for line in (body.query or "").splitlines()
+        )
+        if (
+            body.file_type == "markdown"
+            and not body.file_names
+            and has_markdown_bullets
+            and _requires_strict_grounding(body.query, body.task)
+        ):
+            try:
+                return [render_strict_query_markdown(body.query or "", body.file_name)]
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+        chunks = await _collect_report_chunks(body.task)
+        content = "".join(chunks)
+        if _looks_like_nested_tool_call(content):
+            retry_task = (
+                f"{body.task}\n\n"
+                "上一次输出被判定为嵌套工具调用，不是报告。"
+                "你已处于 report_tool 内部；不得输出 report_tool(...) 或 tool_code，"
+                "请立即输出完整的报告正文。"
+            )
+            chunks = await _collect_report_chunks(retry_task)
+            content = "".join(chunks)
+        if _looks_like_nested_tool_call(content):
+            raise RuntimeError("报告生成模型连续返回嵌套工具调用，已拒绝上传伪报告产物")
+        return chunks
 
     # 处理文件路径
     if body.file_names:
@@ -257,12 +319,7 @@ async def post_report(
         acc_content = ""
         acc_token = 0
         acc_time = time.time()
-        async for chunk in report(
-            task=body.task,
-            file_names=body.file_names,
-            file_type=body.file_type,
-            template_type=body.template_type,
-        ):
+        for chunk in await _generate_report_chunks():
             content += chunk
             acc_content += chunk
             acc_token += 1
@@ -307,6 +364,8 @@ async def post_report(
                                 ensure_ascii=False))
         if body.file_type in ["ppt", "html"]:
             content = sanitize_report_html_content(content)
+        elif body.file_type == "markdown" and _requires_strict_grounding(body.query, body.task):
+            content = sanitize_strict_grounded_markdown(content)
         file_info = [await upload_file(content=content, file_name=body.file_name, request_id=body.request_id,
                                  file_type="html" if body.file_type == "ppt" else body.file_type)]
         yield ServerSentEvent(data=json.dumps(
@@ -321,16 +380,11 @@ async def post_report(
             ping=15,
         )
     else:
-        content = ""
-        async for chunk in report(
-            task=body.task,
-            file_names=body.file_names,
-            file_type=body.file_type,
-            template_type=body.template_type,
-        ):
-            content += chunk
+        content = "".join(await _generate_report_chunks())
         if body.file_type in ["ppt", "html"]:
             content = sanitize_report_html_content(content)
+        elif body.file_type == "markdown" and _requires_strict_grounding(body.query, body.task):
+            content = sanitize_strict_grounded_markdown(content)
         file_info = [await upload_file(content=content, file_name=body.file_name, request_id=body.request_id,
                                  file_type="html" if body.file_type == "ppt" else body.file_type)]
         return {"code": 200, "data": content, "fileInfo": file_info, "requestId": body.request_id}

@@ -47,6 +47,7 @@ public class OrderRepository implements IOrderRepository {
         order.setProductId(productEntity.getProductId());
         order.setProductCode(orderEntity.getProductCode());
         order.setProductName(productEntity.getProductName());
+        order.setBaseQuotaSnapshot(orderEntity.getBaseQuotaSnapshot());
         order.setOrderId(orderEntity.getOrderId());
         order.setOrderTime(orderEntity.getOrderTime());
         order.setTotalAmount(productEntity.getPrice());
@@ -77,6 +78,7 @@ public class OrderRepository implements IOrderRepository {
                 .productId(order.getProductId())
                 .productCode(order.getProductCode())
                 .productName(order.getProductName())
+                .baseQuotaSnapshot(order.getBaseQuotaSnapshot())
                 .orderId(order.getOrderId())
                 .orderStatusVO(OrderStatusVO.valueOf(order.getStatus()))
                 .orderTime(order.getOrderTime())
@@ -226,6 +228,7 @@ public class OrderRepository implements IOrderRepository {
                 .productId(payOrder.getProductId())
                 .productCode(payOrder.getProductCode())
                 .productName(payOrder.getProductName())
+                .baseQuotaSnapshot(payOrder.getBaseQuotaSnapshot())
                 .orderId(payOrder.getOrderId())
                 .orderTime(payOrder.getOrderTime())
                 .totalAmount(payOrder.getTotalAmount())
@@ -250,6 +253,7 @@ public class OrderRepository implements IOrderRepository {
                 .productId(payOrder.getProductId())
                 .productCode(payOrder.getProductCode())
                 .productName(payOrder.getProductName())
+                .baseQuotaSnapshot(payOrder.getBaseQuotaSnapshot())
                 .orderId(payOrder.getOrderId())
                 .orderTime(payOrder.getOrderTime())
                 .totalAmount(payOrder.getTotalAmount())
@@ -273,6 +277,7 @@ public class OrderRepository implements IOrderRepository {
                 .productId(payOrder.getProductId())
                 .productCode(payOrder.getProductCode())
                 .productName(payOrder.getProductName())
+                .baseQuotaSnapshot(payOrder.getBaseQuotaSnapshot())
                 .orderId(payOrder.getOrderId())
                 .orderTime(payOrder.getOrderTime())
                 .totalAmount(payOrder.getTotalAmount())

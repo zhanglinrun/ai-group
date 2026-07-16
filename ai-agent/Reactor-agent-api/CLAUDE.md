@@ -1,4 +1,4 @@
-[根目录](../CLAUDE.md) > **ai-agent-station-study-api**
+[Agent 项目说明](../README.md) > **Reactor-agent-api**
 
 # ai-agent-station-study-api 模块
 

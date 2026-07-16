@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Loader2, RefreshCw, ShoppingBag, Sparkles, Users, Wallet } from 'lucide-react';
+import { Loader2, RefreshCw, Users, Wallet } from 'lucide-react';
 import { message } from 'antd';
 import ShellNav from '@/components/ShellNav';
 import StatCard from '@/components/trade/StatCard';
@@ -24,7 +24,7 @@ import {
 import { paymentOutcomeMessage, resolvePaymentOutcome } from '@/utils/paymentStatus';
 import { submitAlipayForm } from '@/utils/payForm';
 import { ROUTES } from '@/router/routes';
-import { isMemberSku, isTopupSku } from '@/utils/tradeDisplay';
+import { formatMicroQuota } from '@/utils/tradeDisplay';
 
 type TradeTab = 'packages' | 'orders';
 
@@ -114,8 +114,11 @@ const PricingPage = memo(() => {
   const switchTab = useCallback(
     (tab: TradeTab) => {
       setSearchParams({ tab });
+      if (tab === 'orders') {
+        void loadTradeData();
+      }
     },
-    [setSearchParams],
+    [loadTradeData, setSearchParams],
   );
 
   const refreshGroupTeams = useCallback(async (activityId: number) => {
@@ -176,11 +179,7 @@ const PricingPage = memo(() => {
     }
   }, []);
 
-  const memberSkus = useMemo(
-    () => skus.filter((sku) => isMemberSku(sku) && sku.code !== 'FREE'),
-    [skus],
-  );
-  const topupSkus = useMemo(() => skus.filter(isTopupSku), [skus]);
+  const quotaSkus = useMemo(() => skus.filter((sku) => (sku.baseQuota ?? 0) > 0), [skus]);
   const canGroupBuy = groupBuy?.activityId != null;
 
   return (
@@ -190,11 +189,11 @@ const PricingPage = memo(() => {
         <div className="flex flex-col gap-4 rounded-3xl border border-[var(--chat-border)] bg-[var(--chat-surface)]/90 p-6 shadow-[var(--shadow-md)] lg:flex-row lg:items-center lg:justify-between">
           <div>
             <h1 className="font-[family-name:var(--font-display)] text-3xl font-normal tracking-tight">
-              {activeTab === 'packages' ? '购买中心' : '订单与到账'}
+              {activeTab === 'packages' ? '购买额度' : '订单与到账'}
             </h1>
             <p className="mt-1 text-sm text-[var(--chat-text-soft)]">
               {activeTab === 'packages'
-                ? '支持直接购买与拼团购买，会员套餐与额度包一站选购。'
+                ? '直购与拼团同价；直购立即到账，拼团人数越多赠送额度越多。'
                 : '查看支付状态、拼团进度与配额到账情况。'}
             </p>
           </div>
@@ -261,9 +260,9 @@ const PricingPage = memo(() => {
         ) : null}
 
         <div className="mt-6 grid gap-4 md:grid-cols-4">
-          <StatCard label="可用配额" value={`${workspace.availableQuota} 点`} />
-          <StatCard label="周期配额余额" value={`${workspace.periodQuota} 点`} />
-          <StatCard label="拼团订单" value={`${workspace.groupOrders} 单`} />
+          <StatCard label="可用额度" value={formatMicroQuota(workspace.availableQuota)} />
+          <StatCard label="本月免费" value={formatMicroQuota(workspace.freeQuota)} />
+          <StatCard label="永久付费" value={formatMicroQuota(workspace.paidQuota)} />
           <StatCard
             label="待成团"
             value={`${workspace.waitingGroupOrders} 单`}
@@ -288,29 +287,27 @@ const PricingPage = memo(() => {
           <div className="mt-6 space-y-8">
             <section>
               <div className="mb-4 flex items-center gap-2">
-                <Sparkles className="h-4 w-4 text-violet-600" />
-                <h2 className="text-lg font-medium">会员套餐</h2>
+                <Wallet className="h-4 w-4 text-emerald-600" />
+                <h2 className="text-lg font-medium">额度包</h2>
               </div>
               <div className="mb-4 rounded-2xl border border-violet-100 bg-violet-50/60 px-4 py-3 text-sm text-violet-900">
-                同一套餐支持两种方式：
-                <span className="font-medium">直接购买</span> 支付后立即开通；
-                <span className="font-medium">拼团购买</span> 享优惠价格，成团后自动发放权益。
+                <span className="font-medium">直接购买</span> 支付成功后立即到账；
+                <span className="font-medium">拼团购买</span>{' '}
+                同价，成团后按人数赠送额度。付费额度永久有效。
               </div>
               {loading ? (
                 <div className="flex justify-center py-16">
                   <Loader2 className="h-8 w-8 animate-spin text-[var(--chat-text-soft)]" />
                 </div>
-              ) : memberSkus.length === 0 ? (
-                <EmptyLine text="暂无可用会员套餐" />
+              ) : quotaSkus.length === 0 ? (
+                <EmptyLine text="暂无额度包商品" />
               ) : (
-                <div className="grid gap-4 md:grid-cols-2">
-                  {memberSkus.map((sku, index) => (
+                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                  {quotaSkus.map((sku, index) => (
                     <PackageCard
                       key={sku.code}
                       sku={sku}
-                      highlight={index === 0}
-                      groupPrice={sku.groupPayPrice ?? groupBuy?.goods?.payPrice}
-                      deductionPrice={sku.groupDeductionPrice ?? groupBuy?.goods?.deductionPrice}
+                      highlight={index === 1}
                       buyingKey={buyingKey}
                       onDirectBuy={() => void handleDirectBuy(sku)}
                       onGroupBuy={
@@ -323,46 +320,9 @@ const PricingPage = memo(() => {
                 </div>
               )}
             </section>
-
-            <section>
-              <div className="mb-4 flex items-center gap-2">
-                <Wallet className="h-4 w-4 text-emerald-600" />
-                <h2 className="text-lg font-medium">额度包</h2>
-              </div>
-              <p className="mb-4 text-sm text-[var(--chat-text-soft)]">
-                单独购买加油包额度，支付成功后立即到账，可与会员周期配额叠加使用；也支持拼团购买享优惠价。
-              </p>
-              {loading ? (
-                <div className="flex justify-center py-10">
-                  <Loader2 className="h-6 w-6 animate-spin text-[var(--chat-text-soft)]" />
-                </div>
-              ) : topupSkus.length === 0 ? (
-                <EmptyLine text="暂无额度包商品" />
-              ) : (
-                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                  {topupSkus.map((sku) => (
-                    <PackageCard
-                      key={sku.code}
-                      sku={sku}
-                      groupPrice={sku.groupPayPrice}
-                      deductionPrice={sku.groupDeductionPrice}
-                      buyingKey={buyingKey}
-                      onDirectBuy={() => void handleDirectBuy(sku)}
-                      onGroupBuy={
-                        sku.groupActivityId != null ? () => void openGroupPreview(sku) : undefined
-                      }
-                    />
-                  ))}
-                </div>
-              )}
-            </section>
-
-            {skus.some((sku) => sku.code === 'FREE') && (
-              <div className="rounded-2xl border border-dashed border-[var(--chat-border)] px-4 py-4 text-sm text-[var(--chat-text-soft)]">
-                <ShoppingBag className="mb-2 h-4 w-4" />
-                Free 套餐注册即享，无需购买。
-              </div>
-            )}
+            <div className="rounded-2xl border border-dashed border-[var(--chat-border)] px-4 py-4 text-sm text-[var(--chat-text-soft)]">
+              每位用户每月另享 5 点免费额度，月底清零；消费时优先扣免费额度。
+            </div>
           </div>
         ) : (
           <div className="mt-6 grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
@@ -396,7 +356,7 @@ const PricingPage = memo(() => {
                         <div className="flex flex-wrap items-start justify-between gap-3">
                           <div className="min-w-0">
                             <div className="truncate text-sm font-medium">
-                              {order.productName || '会员订单'}
+                              {order.productName || '额度订单'}
                             </div>
                             <div className="mt-1 text-xs text-[var(--chat-text-soft)]">
                               {order.orderId}
@@ -439,31 +399,25 @@ const PricingPage = memo(() => {
             </section>
 
             <section className="rounded-3xl border border-[var(--chat-border)] bg-[var(--chat-surface)]/90 p-6 shadow-[var(--shadow-sm)]">
-              <div className="mb-4 text-base font-medium">会员状态</div>
+              <div className="mb-4 text-base font-medium">额度余额</div>
               {summary ? (
                 <div className="space-y-3 text-sm">
                   <div className="flex justify-between">
-                    <span className="text-[var(--chat-text-soft)]">等级</span>
-                    <span>{summary.tier || 'FREE'}</span>
+                    <span className="text-[var(--chat-text-soft)]">本月免费</span>
+                    <span>{formatMicroQuota(summary.freeQuotaBalance)}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-[var(--chat-text-soft)]">可用配额</span>
-                    <span>{summary.availableQuota ?? summary.periodQuotaBalance ?? 0} 点</span>
+                    <span>{formatMicroQuota(summary.availableQuota)}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-[var(--chat-text-soft)]">加油包余额</span>
-                    <span>{summary.topupQuotaBalance ?? 0} 点</span>
+                    <span className="text-[var(--chat-text-soft)]">永久付费</span>
+                    <span>{formatMicroQuota(summary.paidQuotaBalance)}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-[var(--chat-text-soft)]">冻结配额</span>
-                    <span>{summary.frozenBalance ?? 0} 点</span>
+                    <span>{formatMicroQuota(summary.frozenBalance)}</span>
                   </div>
-                  {summary.expireAt && (
-                    <div className="flex justify-between">
-                      <span className="text-[var(--chat-text-soft)]">到期时间</span>
-                      <span>{summary.expireAt}</span>
-                    </div>
-                  )}
                   {(summary.pendingGroupOrders?.length ?? 0) > 0 && (
                     <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
                       有 {summary.pendingGroupOrders?.length} 笔订单等待成团
@@ -471,13 +425,13 @@ const PricingPage = memo(() => {
                   )}
                 </div>
               ) : (
-                <EmptyLine text="会员信息加载中..." />
+                <EmptyLine text="额度信息加载中..." />
               )}
               <Link
                 to={ROUTES.ACCOUNT}
                 className="mt-5 inline-flex rounded-full border border-[var(--chat-border)] px-4 py-2 text-sm text-[var(--chat-text-soft)]"
               >
-                查看会员中心
+                查看额度中心
               </Link>
             </section>
           </div>

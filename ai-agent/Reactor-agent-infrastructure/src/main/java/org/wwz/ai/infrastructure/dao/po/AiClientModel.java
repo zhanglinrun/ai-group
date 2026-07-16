@@ -47,6 +47,10 @@ public class AiClientModel {
      */
     private String modelUsage;
 
+    private Long inputCreditsPerMillion;
+
+    private Long outputCreditsPerMillion;
+
     /**
      * 状态：0-禁用，1-启用
      */

@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   Check,
   Clock3,
-  Crown,
+  Coins,
   Loader2,
   ShieldCheck,
   Sparkles,
@@ -14,13 +14,12 @@ import {
 import ShellNav from '@/components/ShellNav';
 import GroupTeamCard from '@/components/trade/GroupTeamCard';
 import PaymentQrDialog from '@/components/trade/PaymentQrDialog';
-import { bffApi, type GroupBuyInfo, type SkuItem } from '@/services/bff';
+import { bffApi, type GroupBuyInfo, type GroupBuyTeam, type SkuItem } from '@/services/bff';
 import { useTradePurchase } from '@/hooks/useTradePurchase';
 import { ROUTES } from '@/router/routes';
 import {
   formatPrice,
   formatQuota,
-  isMemberSku,
   isTieredSku,
   quotaLadder,
   skuDescription,
@@ -45,6 +44,7 @@ const GroupBuyPage = memo(() => {
       setLoading(false);
       return;
     }
+    setLoading(true);
     bffApi
       .getGroupBuy(activityId)
       .then((data) => {
@@ -55,19 +55,19 @@ const GroupBuyPage = memo(() => {
       .finally(() => setLoading(false));
   }, [activityId]);
 
-  const memberSkus = useMemo(() => skus.filter((sku) => isMemberSku(sku)), [skus]);
+  const quotaSkus = useMemo(() => skus.filter((sku) => (sku.baseQuota ?? 0) > 0), [skus]);
 
   const selectedSku = useMemo(() => {
     if (selectedCode) {
-      const matched = memberSkus.find((sku) => sku.code === selectedCode);
+      const matched = quotaSkus.find((sku) => sku.code === selectedCode);
       if (matched) return matched;
     }
     if (preferredSkuCode) {
-      const matched = memberSkus.find((sku) => sku.code === preferredSkuCode);
+      const matched = quotaSkus.find((sku) => sku.code === preferredSkuCode);
       if (matched) return matched;
     }
-    return memberSkus[0] ?? null;
-  }, [selectedCode, preferredSkuCode, memberSkus]);
+    return quotaSkus[0] ?? null;
+  }, [selectedCode, preferredSkuCode, quotaSkus]);
 
   useEffect(() => {
     if (selectedSku && !selectedCode) {
@@ -75,9 +75,8 @@ const GroupBuyPage = memo(() => {
     }
   }, [selectedSku, selectedCode]);
 
-  const theme = skuTheme(selectedSku?.code || 'PRO_MONTH');
-  const groupPrice = groupBuy?.goods?.payPrice ?? selectedSku?.price;
-  const originPrice = groupBuy?.goods?.originalPrice ?? selectedSku?.price;
+  const theme = skuTheme(selectedSku?.code || 'QUOTA_STANDARD');
+  const groupPrice = selectedSku?.price;
   const ladder = selectedSku ? quotaLadder(selectedSku) : [];
   const tiered = isTieredSku(selectedSku);
 
@@ -98,6 +97,27 @@ const GroupBuyPage = memo(() => {
     },
     [selectedSku, handleBuy],
   );
+
+  const selectSku = useCallback(
+    (sku: SkuItem) => {
+      setSelectedCode(sku.code);
+      if (sku.groupActivityId != null && sku.groupActivityId !== activityId) {
+        navigate(`${ROUTES.GROUP_BUY_HALL}/${sku.groupActivityId}`, {
+          replace: true,
+          state: { skuCode: sku.code },
+        });
+      }
+    },
+    [activityId, navigate],
+  );
+
+  const visibleTeams = useMemo<GroupBuyTeam[]>(() => {
+    if (!selectedSku) return [];
+    const expectedActivityId = selectedSku.groupActivityId ?? groupBuy?.activityId;
+    return (groupBuy?.teamList ?? []).filter(
+      (team) => team.activityId == null || team.activityId === expectedActivityId,
+    );
+  }, [groupBuy, selectedSku]);
 
   if (!Number.isFinite(activityId)) {
     return (
@@ -158,7 +178,7 @@ const GroupBuyPage = memo(() => {
                   <div
                     className={`flex h-12 w-12 items-center justify-center rounded-2xl text-white ${theme.accent}`}
                   >
-                    <Crown className="h-6 w-6" />
+                    <Coins className="h-6 w-6" />
                   </div>
                   <div>
                     <h2 className="text-2xl font-semibold">{skuDisplayName(selectedSku)}</h2>
@@ -172,43 +192,37 @@ const GroupBuyPage = memo(() => {
                   <div className="text-4xl font-semibold tracking-tight">
                     {formatPrice(groupPrice)}
                   </div>
-                  {originPrice != null && groupPrice != null && originPrice > groupPrice ? (
-                    <div className="pb-1 text-sm text-[var(--chat-text-soft)] line-through">
-                      {formatPrice(originPrice)}
-                    </div>
-                  ) : null}
+                  <div className="pb-1 text-sm text-[var(--chat-text-soft)]">直购 / 拼团同价</div>
                 </div>
                 <div className="mt-2 flex flex-wrap gap-2 text-sm">
-                  {selectedSku.periodQuota != null ? (
+                  {selectedSku.baseQuota != null ? (
                     <span
                       className={`rounded-full px-3 py-1 ${theme.accentSoft} ${theme.accentText}`}
                     >
-                      含 {formatQuota(selectedSku.periodQuota)}
+                      含 {formatQuota(selectedSku.baseQuota)}
                     </span>
                   ) : null}
-                  {selectedSku.memberDays != null ? (
-                    <span className="rounded-full bg-[var(--chat-surface-soft)] px-3 py-1 text-[var(--chat-text-soft)]">
-                      有效期 {selectedSku.memberDays} 天
-                    </span>
-                  ) : null}
+                  <span className="rounded-full bg-[var(--chat-surface-soft)] px-3 py-1 text-[var(--chat-text-soft)]">
+                    永久有效
+                  </span>
                 </div>
 
                 <div className="mt-8 grid gap-3 sm:grid-cols-3">
                   {[
                     {
                       icon: Zap,
-                      title: '立即开通',
-                      desc: '成团后自动生效',
+                      title: '自动发放',
+                      desc: '成团后额度到账',
                     },
                     {
                       icon: ShieldCheck,
-                      title: '权益保障',
+                      title: '规则快照',
                       desc: '支付安全可追溯',
                     },
                     {
                       icon: Sparkles,
-                      title: '拼团优惠',
-                      desc: '人数达标享优惠价',
+                      title: '拼团赠额',
+                      desc: '人数越多赠送越多',
                     },
                   ].map((item) => {
                     const Icon = item.icon;
@@ -229,7 +243,9 @@ const GroupBuyPage = memo(() => {
                   <div className="mt-6 overflow-hidden rounded-2xl border border-white/60 bg-white/70 backdrop-blur-sm dark:bg-white/10">
                     <div className="flex items-center justify-between border-b border-white/60 px-4 py-2.5 text-sm font-medium">
                       <span>额度阶梯</span>
-                      <span className={`inline-flex items-center gap-1 text-xs ${theme.accentText}`}>
+                      <span
+                        className={`inline-flex items-center gap-1 text-xs ${theme.accentText}`}
+                      >
                         人数越多额度越高
                         <TrendingUp className="h-3.5 w-3.5" />
                       </span>
@@ -261,15 +277,15 @@ const GroupBuyPage = memo(() => {
             </section>
 
             <section className="rounded-3xl border border-[var(--chat-border)] bg-[var(--chat-surface)]/90 p-6 shadow-[var(--shadow-md)]">
-              <div className="text-base font-medium">选择套餐</div>
+              <div className="text-base font-medium">选择额度包</div>
               <div className="mt-3 space-y-2">
-                {memberSkus.map((sku) => {
+                {quotaSkus.map((sku) => {
                   const active = sku.code === selectedSku.code;
                   return (
                     <button
                       key={sku.code}
                       type="button"
-                      onClick={() => setSelectedCode(sku.code)}
+                      onClick={() => selectSku(sku)}
                       className={`flex w-full items-center justify-between rounded-2xl border px-4 py-3 text-left transition ${
                         active
                           ? `border-transparent ring-2 ${skuTheme(sku.code).ring}`
@@ -279,7 +295,7 @@ const GroupBuyPage = memo(() => {
                       <div>
                         <div className="font-medium">{skuDisplayName(sku)}</div>
                         <div className="mt-0.5 text-xs text-[var(--chat-text-soft)]">
-                          {formatQuota(sku.periodQuota)} · {sku.memberDays} 天
+                          {formatQuota(sku.baseQuota)} · 永久有效
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
@@ -302,7 +318,7 @@ const GroupBuyPage = memo(() => {
                 ) : (
                   <ul className="mt-2 space-y-1.5 text-[var(--chat-text-soft)]">
                     <li>· 拼团支付成功后需等待成团，未成团将按规则处理。</li>
-                    <li>· 成团后自动开通 Pro 会员并发放周期配额。</li>
+                    <li>· 成团后按当前人数档位发放永久额度。</li>
                     <li>· 也可选择直接购买，支付后立即生效。</li>
                   </ul>
                 )}
@@ -339,22 +355,21 @@ const GroupBuyPage = memo(() => {
 
               <div className="mt-4 flex items-center gap-2 text-xs text-[var(--chat-text-soft)]">
                 <Clock3 className="h-3.5 w-3.5" />
-                支付跳转支付宝沙箱，完成后请到订单记录查看状态
+                下单后弹出支付二维码，完成后请到订单记录查看状态
               </div>
             </section>
           </div>
         )}
 
-        {!loading && groupBuy?.teamList && groupBuy.teamList.length > 0 && selectedSku ? (
+        {!loading && visibleTeams.length > 0 && selectedSku ? (
           <section className="mt-8">
             <h3 className="mb-4 text-lg font-medium">可加入的拼团</h3>
             <div className="grid gap-4 md:grid-cols-2">
-              {groupBuy.teamList.map((team) => (
+              {visibleTeams.map((team) => (
                 <GroupTeamCard
                   key={team.teamId}
                   team={team}
                   sku={selectedSku}
-                  groupPrice={groupBuy.goods?.payPrice}
                   buyingKey={buyingKey}
                   onJoin={handleJoinTeam}
                 />

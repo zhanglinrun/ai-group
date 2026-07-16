@@ -17,8 +17,8 @@ import jakarta.annotation.Resource;
 import java.util.Date;
 
 /**
- * @author Fuzhengwei bugstack.cn @???
- * @description ?????????????????
+ * @author Fuzhengwei (bugstack.cn)
+ * @description 拼团交易结算可执行规则过滤器
  * @create 2025-01-29 09:38
  */
 @Slf4j
@@ -32,10 +32,10 @@ public class SettableRuleFilter implements ILogicHandler<TradeSettlementRuleComm
     public TradeSettlementRuleFilterBackEntity apply(TradeSettlementRuleCommandEntity requestParameter, TradeSettlementRuleFilterFactory.DynamicContext dynamicContext) throws Exception {
         log.info("settlement rule filter - settable check, userId:{} outTradeNo:{}", requestParameter.getUserId(), requestParameter.getOutTradeNo());
 
-        // ????????
+        // 获取支付订单上下文
         MarketPayOrderEntity marketPayOrderEntity = dynamicContext.getMarketPayOrderEntity();
 
-        // ??????
+        // 查询拼团队伍
         GroupBuyTeamEntity groupBuyTeamEntity = repository.queryGroupBuyTeamByTeamId(marketPayOrderEntity.getTeamId());
 
         // B2: reject settlement early when the team already reached a terminal state
@@ -48,16 +48,16 @@ public class SettableRuleFilter implements ILogicHandler<TradeSettlementRuleComm
             throw new AppException(ResponseCode.E0107);
         }
 
-        // ?????? - ????????????????????????????
+        // 获取外部交易时间，用于校验支付是否发生在拼团有效期内
         Date outTradeTime = requestParameter.getOutTradeTime();
 
-        // ??????????????????????????
+        // 交易时间不得晚于或等于拼团截止时间
         if (!outTradeTime.before(groupBuyTeamEntity.getValidEndTime())) {
             log.error("order trade time outside group valid window");
             throw new AppException(ResponseCode.E0106);
         }
 
-        // ?????
+        // 将拼团队伍保存到动态上下文
         dynamicContext.setGroupBuyTeamEntity(groupBuyTeamEntity);
 
         return next(requestParameter, dynamicContext);

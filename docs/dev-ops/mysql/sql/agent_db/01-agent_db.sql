@@ -113,6 +113,8 @@ create table if not exists ai_client_model (
   model_name varchar(64) not null comment '模型名称',
   model_type varchar(64) default null comment '模型类型',
   model_usage varchar(64) default null comment '模型用途',
+  input_credits_per_million bigint not null default 5 comment '每百万输入token消耗额度',
+  output_credits_per_million bigint not null default 30 comment '每百万输出token消耗额度',
   api_id varchar(64) default null comment 'API配置ID',
   status tinyint(1) default 1 comment '状态(0:禁用,1:启用)',
   create_time datetime default current_timestamp comment '创建时间',
@@ -121,6 +123,21 @@ create table if not exists ai_client_model (
   unique key uk_model_id (model_id),
   key idx_api_id (api_id)
 ) engine=InnoDB default charset=utf8mb4 comment='AI模型配置表';
+
+-- Existing development databases also need the billing columns. Keep this script
+-- re-runnable so 02-dev-seed.sql can safely reference them without dropping model data.
+set @ddl = if((select count(*) from information_schema.columns
+               where table_schema = database() and table_name = 'ai_client_model'
+                 and column_name = 'input_credits_per_million') = 0,
+  'alter table ai_client_model add column input_credits_per_million bigint not null default 5 comment ''每百万输入token消耗额度'' after model_usage',
+  'select 1');
+prepare stmt from @ddl; execute stmt; deallocate prepare stmt;
+set @ddl = if((select count(*) from information_schema.columns
+               where table_schema = database() and table_name = 'ai_client_model'
+                 and column_name = 'output_credits_per_million') = 0,
+  'alter table ai_client_model add column output_credits_per_million bigint not null default 30 comment ''每百万输出token消耗额度'' after input_credits_per_million',
+  'select 1');
+prepare stmt from @ddl; execute stmt; deallocate prepare stmt;
 
 create table if not exists ai_client_rag_order (
   id bigint not null auto_increment comment '主键ID',
@@ -213,6 +230,32 @@ create table if not exists dialogue_run (
   key idx_run_uid (run_uid)
 ) engine=InnoDB default charset=utf8mb4 comment='单次对话执行总账';
 
+create table if not exists agent_run_checkpoint (
+  id bigint not null auto_increment comment '主键',
+  checkpoint_id varchar(64) not null comment '对外不可猜测的恢复点ID',
+  run_id bigint not null comment '来源run',
+  request_id varchar(64) not null comment '来源请求ID',
+  session_id varchar(64) not null comment '会话ID',
+  owner_id varchar(64) not null comment '所有权边界',
+  sequence_no int not null comment 'run内递增序号',
+  phase varchar(32) not null comment 'READY_FOR_STEP/BEFORE_SUMMARY',
+  step_index int default null comment '恢复后的下一步骤索引',
+  snapshot_json longtext not null comment '受限且脱敏的最小状态快照',
+  snapshot_hash char(64) not null comment '快照SHA-256',
+  resumable tinyint(1) not null default 1 comment '是否允许恢复',
+  resumed_by_request_id varchar(64) default null comment '消费该恢复点的新请求',
+  resume_decision varchar(32) default null comment 'SAFE_ONLY/RESTART_FROM_CHECKPOINT',
+  resumed_at datetime default null comment '恢复认领时间',
+  created_at datetime not null default current_timestamp comment '创建时间',
+  updated_at datetime not null default current_timestamp on update current_timestamp comment '更新时间',
+  deleted tinyint(1) not null default 0 comment '逻辑删除',
+  primary key (id),
+  unique key uk_checkpoint_id (checkpoint_id),
+  unique key uk_run_sequence (run_id, sequence_no),
+  key idx_owner_session_created (owner_id, session_id, created_at),
+  key idx_resume_request (resumed_by_request_id)
+) engine=InnoDB default charset=utf8mb4 comment='Plan-Solve安全恢复点';
+
 create table if not exists llm_invocation (
   id bigint not null auto_increment comment '主键',
   run_id bigint not null comment '所属run',
@@ -227,6 +270,10 @@ create table if not exists llm_invocation (
   prompt_tokens int default 0 comment 'prompt token',
   completion_tokens int default 0 comment 'completion token',
   total_tokens int default 0 comment 'total token',
+  input_rate_snapshot bigint default null comment '输入费率快照(额度/百万token)',
+  output_rate_snapshot bigint default null comment '输出费率快照(额度/百万token)',
+  usage_source varchar(16) default null comment 'PROVIDER或ESTIMATED',
+  charged_microcredits bigint default 0 comment '实扣微额度',
   finish_reason varchar(64) default null comment '完成原因',
   status int default null comment '状态',
   error_msg longtext comment '错误信息',
@@ -239,6 +286,31 @@ create table if not exists llm_invocation (
   primary key (id),
   key idx_run_seq (run_id, invocation_seq)
 ) engine=InnoDB default charset=utf8mb4 comment='单次LLM调用账本';
+
+set @ddl = if((select count(*) from information_schema.columns
+               where table_schema = database() and table_name = 'llm_invocation'
+                 and column_name = 'input_rate_snapshot') = 0,
+  'alter table llm_invocation add column input_rate_snapshot bigint default null comment ''输入费率快照(额度/百万token)'' after total_tokens',
+  'select 1');
+prepare stmt from @ddl; execute stmt; deallocate prepare stmt;
+set @ddl = if((select count(*) from information_schema.columns
+               where table_schema = database() and table_name = 'llm_invocation'
+                 and column_name = 'output_rate_snapshot') = 0,
+  'alter table llm_invocation add column output_rate_snapshot bigint default null comment ''输出费率快照(额度/百万token)'' after input_rate_snapshot',
+  'select 1');
+prepare stmt from @ddl; execute stmt; deallocate prepare stmt;
+set @ddl = if((select count(*) from information_schema.columns
+               where table_schema = database() and table_name = 'llm_invocation'
+                 and column_name = 'usage_source') = 0,
+  'alter table llm_invocation add column usage_source varchar(16) default null comment ''PROVIDER或ESTIMATED'' after output_rate_snapshot',
+  'select 1');
+prepare stmt from @ddl; execute stmt; deallocate prepare stmt;
+set @ddl = if((select count(*) from information_schema.columns
+               where table_schema = database() and table_name = 'llm_invocation'
+                 and column_name = 'charged_microcredits') = 0,
+  'alter table llm_invocation add column charged_microcredits bigint default 0 comment ''实扣微额度'' after usage_source',
+  'select 1');
+prepare stmt from @ddl; execute stmt; deallocate prepare stmt;
 
 create table if not exists tool_invocation (
   id bigint not null auto_increment comment '主键',

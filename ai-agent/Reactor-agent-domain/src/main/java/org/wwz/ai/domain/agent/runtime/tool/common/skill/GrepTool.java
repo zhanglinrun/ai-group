@@ -104,13 +104,19 @@ public class GrepTool extends AbstractSkillPathTool {
             }
             return result.toString();
         } catch (SkillLoadException e) {
-            log.warn("{} grep_tool failed, input={}", requestId(), input, e);
+            log.warn("{} grep_tool failed inputType={} inputChars={} errorType={}",
+                    requestId(), input == null ? "null" : input.getClass().getSimpleName(),
+                    input == null ? 0 : String.valueOf(input).length(), e.getClass().getSimpleName(), e);
             return e.getMessage();
         } catch (IOException e) {
-            log.error("{} grep_tool io error, input={}", requestId(), input, e);
+            log.error("{} grep_tool io error inputType={} inputChars={} errorType={}",
+                    requestId(), input == null ? "null" : input.getClass().getSimpleName(),
+                    input == null ? 0 : String.valueOf(input).length(), e.getClass().getSimpleName(), e);
             return "grep_tool execute failed";
         } catch (Exception e) {
-            log.error("{} grep_tool error, input={}", requestId(), input, e);
+            log.error("{} grep_tool error inputType={} inputChars={} errorType={}",
+                    requestId(), input == null ? "null" : input.getClass().getSimpleName(),
+                    input == null ? 0 : String.valueOf(input).length(), e.getClass().getSimpleName(), e);
             return "grep_tool execute failed";
         }
     }

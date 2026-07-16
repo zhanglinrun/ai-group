@@ -40,21 +40,24 @@ public class BenefitEventServiceTest {
                 .userId("10001")
                 .orderId("order-001")
                 .productId("9890001")
-                .productCode("PRO_MONTH")
+                .productCode("QUOTA_LIGHT")
+                .baseQuotaSnapshot(60L)
                 .marketType(MarketTypeVO.GROUP_BUY_MARKET.getCode())
                 .build();
         when(orderRepository.queryOrderByOrderId("order-001")).thenReturn(order);
         when(benefitEventRepository.findByOrderIdAndEventType("order-001", BenefitEventType.GROUP_BUY_COMPLETED.name()))
                 .thenReturn(null);
 
-        benefitEventService.publishGroupBuyCompletedEvents(Collections.singletonList("order-001"), 100);
+        benefitEventService.publishGroupBuyCompletedEvents(Collections.singletonList("order-001"), 18L);
 
         ArgumentCaptor<TradeCompletedEvent> eventCaptor = ArgumentCaptor.forClass(TradeCompletedEvent.class);
         verify(benefitEventPort).publishTradeCompleted(eventCaptor.capture());
         TradeCompletedEvent event = eventCaptor.getValue();
         assertEquals(Long.valueOf(10001L), event.getUserId());
         assertEquals("order-001", event.getOrderId());
-        assertEquals("PRO_MONTH", event.getProductCode());
+        assertEquals("QUOTA_LIGHT", event.getProductCode());
+        assertEquals(Long.valueOf(60L), event.getBaseQuota());
+        assertEquals(Long.valueOf(18L), event.getBonusQuota());
         assertEquals(BenefitEventType.GROUP_BUY_COMPLETED.name(), event.getEventType());
         verify(benefitEventRepository).markPublished(any(String.class));
     }
@@ -67,7 +70,8 @@ public class BenefitEventServiceTest {
                 .userId("10001")
                 .orderId("order-002")
                 .productId("9890002")
-                .productCode("PRO_MONTH")
+                .productCode("QUOTA_LIGHT")
+                .baseQuotaSnapshot(60L)
                 .marketType(MarketTypeVO.NO_MARKET.getCode())
                 .build();
         when(orderRepository.queryOrderByOrderId("order-002")).thenReturn(order);
@@ -78,7 +82,8 @@ public class BenefitEventServiceTest {
 
         ArgumentCaptor<TradeCompletedEvent> eventCaptor = ArgumentCaptor.forClass(TradeCompletedEvent.class);
         verify(benefitEventPort).publishTradeCompleted(eventCaptor.capture());
-        assertEquals("PRO_MONTH", eventCaptor.getValue().getProductCode());
+        assertEquals("QUOTA_LIGHT", eventCaptor.getValue().getProductCode());
+        assertEquals(Long.valueOf(60L), eventCaptor.getValue().getBaseQuota());
         verify(benefitEventRepository).insert(any(BenefitEventEntity.class));
     }
 
@@ -89,7 +94,8 @@ public class BenefitEventServiceTest {
                 .eventType(BenefitEventType.GROUP_BUY_COMPLETED.name())
                 .userId(10001L)
                 .orderId("order-003")
-                .productCode("PRO_MONTH")
+                .productCode("QUOTA_LIGHT")
+                .baseQuota(60L)
                 .eventPublished(false)
                 .build();
         when(benefitEventRepository.queryUnpublished(BenefitEventType.GROUP_BUY_COMPLETED.name(), 50))

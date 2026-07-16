@@ -39,21 +39,32 @@ public class RegistryBackedToolCallback implements ToolCallback {
 
     @Override
     public String call(String toolInput) {
-        return execute(toolInput);
+        return execute(toolInput, null);
     }
 
     @Override
     public String call(String toolInput, ToolContext toolContext) {
-        return execute(toolInput);
+        return execute(toolInput, toolContext);
     }
 
     /**
      * 将 Spring AI 的工具调用统一路由到 registry。
      */
-    private String execute(String toolInput) {
+    private String execute(String toolInput, ToolContext toolContext) {
+        WorkflowToolTraceContext trace = WorkflowToolTraceContext.from(toolContext);
+        WorkflowToolTraceContext.TraceInvocation invocation = trace == null
+                ? null
+                : trace.begin(toolInfo.getName(), toolInput, toolContext);
         try {
-            return mcpRegistry.executeTool(toolInfo.getMcpId(), toolInfo.getName(), toolInput);
+            String result = mcpRegistry.executeTool(toolInfo.getMcpId(), toolInfo.getName(), toolInput);
+            if (trace != null) {
+                trace.finishSuccess(invocation, result);
+            }
+            return result;
         } catch (RuntimeException e) {
+            if (trace != null) {
+                trace.finishFailure(invocation, e);
+            }
             log.error("Registry ToolCallback 调用失败: mcpId={}, toolName={}, reason={}",
                     toolInfo.getMcpId(), toolInfo.getName(), e.getMessage(), e);
             throw e;

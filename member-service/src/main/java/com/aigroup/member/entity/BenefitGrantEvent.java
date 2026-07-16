@@ -18,9 +18,6 @@ public class BenefitGrantEvent {
     private String eventType;
     private String productCode;
     private String status;
-    private Integer memberDaysDelta;
-    private Integer periodQuotaGranted;
-    private Integer topupQuotaGranted;
-    private String tierEffect;
+    private Long grantedQuota;
     private LocalDateTime createdAt;
 }

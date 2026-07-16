@@ -16,8 +16,8 @@ import org.springframework.util.StringUtils;
 @Profile("prod")
 public class ProductionSecurityValidator {
 
-    private static final String DEV_JWT_SECRET = "ai-group-dev-jwt-secret-2026-k8m3p9x2v7n4q1w6-change-in-prod";
-    private static final String DEV_INTERNAL_TOKEN = "ai-group-dev-internal-token-change-in-prod";
+    private static final String DEV_JWT_SECRET = "change-me-to-a-long-random-secret";
+    private static final String DEV_INTERNAL_TOKEN = "change-me-to-a-long-random-internal-token";
 
     @Value("${jwt.secret:}")
     private String jwtSecret;

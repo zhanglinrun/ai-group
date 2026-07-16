@@ -1,7 +1,6 @@
 package org.wwz.ai.domain.agent.runtime.printer;
 
 
-import com.alibaba.fastjson.JSON;
 import lombok.extern.slf4j.Slf4j;
 import org.wwz.ai.domain.agent.runtime.enums.AgentType;
 import org.wwz.ai.domain.agent.reactor.model.req.AgentRequest;
@@ -28,10 +27,15 @@ public class LogPrinter implements Printer {
                      Map<String, Object> extraResultMap,
                      String digitalEmployee,
                      Boolean isFinal) {
-        if ("deep_search".equals(messageType)) {
-            message = JSON.toJSONString(message);
-        }
-        log.info("{} {} {} {} {} {} {}", request.getRequestId(), messageId, messageType, message, extraResultMap, digitalEmployee, isFinal);
+        log.info("{} agent message sent messageId={} messageType={} messageClass={} messageChars={} extraKeyCount={} hasDigitalEmployee={} isFinal={}",
+                request.getRequestId(),
+                messageId,
+                messageType,
+                message == null ? "null" : message.getClass().getSimpleName(),
+                message == null ? 0 : String.valueOf(message).length(),
+                extraResultMap == null ? 0 : extraResultMap.size(),
+                digitalEmployee != null && !digitalEmployee.isBlank(),
+                isFinal);
     }
 
     @Override

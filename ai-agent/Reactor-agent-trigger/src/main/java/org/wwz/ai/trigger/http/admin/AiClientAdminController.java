@@ -35,7 +35,7 @@ public class AiClientAdminController implements IAiClientAdminService {
     @PostMapping("/create")
     public Response<Boolean> createAiClient(@RequestBody AiClientRequestDTO request) {
         try {
-            log.info("创建AI客户端配置请求：{}", request);
+            log.info("创建AI客户端配置请求");
 
             // DTO转PO
             AiClient aiClient = convertToAiClient(request);
@@ -63,7 +63,7 @@ public class AiClientAdminController implements IAiClientAdminService {
     @PutMapping("/update-by-id")
     public Response<Boolean> updateAiClientById(@RequestBody AiClientRequestDTO request) {
         try {
-            log.info("根据ID更新AI客户端配置请求：{}", request);
+            log.info("根据ID更新AI客户端配置请求");
 
             if (request.getId() == null) {
                 return Response.<Boolean>builder()
@@ -98,7 +98,7 @@ public class AiClientAdminController implements IAiClientAdminService {
     @PutMapping("/update-by-client-id")
     public Response<Boolean> updateAiClientByClientId(@RequestBody AiClientRequestDTO request) {
         try {
-            log.info("根据客户端ID更新AI客户端配置请求：{}", request);
+            log.info("根据客户端ID更新AI客户端配置请求");
 
             if (!StringUtils.hasText(request.getClientId())) {
                 return Response.<Boolean>builder()
@@ -274,7 +274,7 @@ public class AiClientAdminController implements IAiClientAdminService {
     @PostMapping("/query-list")
     public Response<List<AiClientResponseDTO>> queryAiClientList(@RequestBody AiClientQueryRequestDTO request) {
         try {
-            log.info("根据条件查询AI客户端配置列表请求：{}", request);
+            log.info("根据条件查询AI客户端配置列表请求");
 
             List<AiClient> aiClients;
 

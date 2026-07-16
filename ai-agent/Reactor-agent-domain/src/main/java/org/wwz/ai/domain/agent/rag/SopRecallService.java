@@ -11,6 +11,7 @@ import org.wwz.ai.domain.agent.adapter.port.RemoteHttpRequest;
 import org.wwz.ai.domain.agent.runtime.dto.SopRecallRequest;
 import org.wwz.ai.domain.agent.runtime.dto.SopRecallResponse;
 import org.wwz.ai.domain.agent.reactor.config.ReactorConfig;
+import org.wwz.ai.domain.agent.reactor.config.ReactorToolRequestHeaders;
 
 /**
  * SOP召回服务
@@ -32,6 +33,7 @@ public class SopRecallService {
      * @return SOP召回结果
      */
     public SopRecallResponse sopRecall(String requestId, String query) {
+        long startedAt = System.nanoTime();
         try {
             String knowledgeBaseUrl = StringUtils.trimToEmpty(reactorConfig.getAutoBotsKnowledgeUrl());
             if (knowledgeBaseUrl.isEmpty()) {
@@ -48,11 +50,12 @@ public class SopRecallService {
             
             // 发送HTTP请求
             String requestBody = JSON.toJSONString(request);
-            log.info("{} 发送SOP召回请求：url={}, body={}", requestId, sopRecallUrl, requestBody);
+            log.info("{} SOP recall request started queryChars={} bodyChars={}",
+                    requestId, query == null ? 0 : query.length(), requestBody.length());
             String responseBody = remoteHttpPort.execute(RemoteHttpRequest.builder()
                     .method("POST")
                     .url(sopRecallUrl)
-                    .headers(java.util.Map.of("Content-Type", "application/json"))
+                    .headers(ReactorToolRequestHeaders.json(reactorConfig))
                     .body(requestBody)
                     .build());
             
@@ -61,7 +64,9 @@ public class SopRecallService {
                 return null;
             }
             
-            log.info("{} SOP召回服务响应：{}", requestId, responseBody);
+            log.info("{} SOP recall response received responseChars={} durationMs={}",
+                    requestId, responseBody.length(),
+                    (System.nanoTime() - startedAt) / 1_000_000L);
             
             // 解析响应
             SopRecallResponse response = JSON.parseObject(responseBody, SopRecallResponse.class);
@@ -74,7 +79,9 @@ public class SopRecallService {
             return response;
             
         } catch (Exception e) {
-            log.error("{} 调用SOP召回服务异常：", requestId, e);
+            log.error("{} SOP recall failed errorType={} durationMs={}",
+                    requestId, e.getClass().getSimpleName(),
+                    (System.nanoTime() - startedAt) / 1_000_000L);
             return null;
         }
     }

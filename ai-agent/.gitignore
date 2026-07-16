@@ -8,6 +8,7 @@ coverage/
 *.log
 .env
 .env.*
+!reactor-tool/.env.example
 
 ### IntelliJ IDEA ###
 .idea/modules.xml
@@ -85,6 +86,4 @@ Thumbs.db
 /Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/service/execute/auto/step/
 /Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/service/execute/auto1/step/
 /.playwright-mcp/
-/.codegraph/
-/.codegraph/
 /.codegraph/

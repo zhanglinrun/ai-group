@@ -50,10 +50,9 @@ public class MemberAdminController {
     public Result<Void> adjustQuota(@RequestBody Map<String, Object> body) {
         requireAdmin();
         Long userId = Long.valueOf(body.get("userId").toString());
-        int periodDelta = Integer.parseInt(body.getOrDefault("periodDelta", 0).toString());
-        int topupDelta = Integer.parseInt(body.getOrDefault("topupDelta", 0).toString());
-        String remark = body.getOrDefault("remark", "admin adjust").toString();
-        memberService.adminAdjustQuota(userId, periodDelta, topupDelta, remark);
+        long paidDelta = Long.parseLong(body.getOrDefault("paidDelta", 0).toString());
+        String remark = requiredString(body, "remark");
+        memberService.adminAdjustQuota(userId, paidDelta, remark);
         return Result.success();
     }
 
@@ -86,15 +85,12 @@ public class MemberAdminController {
         sku.setCode(code);
         sku.setName(requiredString(body, "name"));
         sku.setPrice(decimal(body, "price", BigDecimal.ZERO));
-        sku.setPeriodQuota(integer(body, "periodQuota", 0));
-        sku.setTopupQuota(integer(body, "topupQuota", 0));
-        sku.setMemberDays(integer(body, "memberDays", 0));
-        sku.setTier(string(body, "tier", "FREE").toUpperCase());
-        sku.setSkuType(string(body, "skuType", "MEMBER").toUpperCase());
+        sku.setBaseQuota(longValue(body, "baseQuota", 0L));
         sku.setStatus(integer(body, "status", 1));
         sku.setGroupGoodsId(nullableString(body.get("groupGoodsId")));
         String activityId = nullableString(body.get("groupActivityId"));
         sku.setGroupActivityId(activityId == null ? null : Long.valueOf(activityId));
+        validateSku(sku);
         productSkuMapper.insert(sku);
         return Result.success(sku);
     }
@@ -107,7 +103,7 @@ public class MemberAdminController {
         return Result.success();
     }
 
-    /** 运营端：按 code 更新 SKU（价格/配额/有效期/状态/拼团映射；null 字段不更新） */
+    /** 运营端：按 code 更新额度包（价格/基础额度/状态/拼团映射；null 字段不更新） */
     @PutMapping("/skus/{code}")
     public Result<ProductSku> updateSku(@PathVariable String code, @RequestBody Map<String, Object> body) {
         requireAdmin();
@@ -122,23 +118,11 @@ public class MemberAdminController {
         if (body.get("price") != null) {
             sku.setPrice(new BigDecimal(String.valueOf(body.get("price"))));
         }
-        if (body.get("periodQuota") != null) {
-            sku.setPeriodQuota(Integer.valueOf(String.valueOf(body.get("periodQuota"))));
-        }
-        if (body.get("topupQuota") != null) {
-            sku.setTopupQuota(Integer.valueOf(String.valueOf(body.get("topupQuota"))));
-        }
-        if (body.get("memberDays") != null) {
-            sku.setMemberDays(Integer.valueOf(String.valueOf(body.get("memberDays"))));
+        if (body.get("baseQuota") != null) {
+            sku.setBaseQuota(Long.valueOf(String.valueOf(body.get("baseQuota"))));
         }
         if (body.get("status") != null) {
             sku.setStatus(Integer.valueOf(String.valueOf(body.get("status"))));
-        }
-        if (body.get("tier") != null) {
-            sku.setTier(String.valueOf(body.get("tier")).toUpperCase());
-        }
-        if (body.get("skuType") != null) {
-            sku.setSkuType(String.valueOf(body.get("skuType")).toUpperCase());
         }
         if (body.containsKey("groupGoodsId")) {
             Object goodsId = body.get("groupGoodsId");
@@ -149,6 +133,7 @@ public class MemberAdminController {
             sku.setGroupActivityId(activityId == null || String.valueOf(activityId).isBlank()
                     ? null : Long.valueOf(String.valueOf(activityId)));
         }
+        validateSku(sku);
         productSkuMapper.updateById(sku);
         return Result.success(sku);
     }
@@ -168,19 +153,28 @@ public class MemberAdminController {
         return String.valueOf(value).trim();
     }
 
-    private String string(Map<String, Object> body, String key, String fallback) {
-        String value = nullableString(body.get(key));
-        return value == null ? fallback : value;
-    }
-
     private Integer integer(Map<String, Object> body, String key, Integer fallback) {
         String value = nullableString(body.get(key));
         return value == null ? fallback : Integer.valueOf(value);
     }
 
+    private Long longValue(Map<String, Object> body, String key, Long fallback) {
+        String value = nullableString(body.get(key));
+        return value == null ? fallback : Long.valueOf(value);
+    }
+
     private BigDecimal decimal(Map<String, Object> body, String key, BigDecimal fallback) {
         String value = nullableString(body.get(key));
         return value == null ? fallback : new BigDecimal(value);
+    }
+
+    private void validateSku(ProductSku sku) {
+        if (sku.getPrice() == null || sku.getPrice().signum() < 0) {
+            throw new BusinessException("price cannot be negative");
+        }
+        if (sku.getBaseQuota() == null || sku.getBaseQuota() <= 0) {
+            throw new BusinessException("baseQuota must be positive");
+        }
     }
 
     private void requireAdmin() {

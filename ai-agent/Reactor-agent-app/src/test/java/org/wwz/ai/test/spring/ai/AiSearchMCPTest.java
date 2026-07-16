@@ -46,7 +46,7 @@ public class AiSearchMCPTest {
                         .build())
                 .defaultOptions(OpenAiChatOptions.builder()
                         .model("deepseek-v3.2")
-                        .toolCallbacks(new SyncMcpToolCallbackProvider(sseMcpClient()).getToolCallbacks())
+                        .toolCallbacks(SyncMcpToolCallbackProvider.builder().mcpClients(sseMcpClient()).build().getToolCallbacks())
                         .build())
                 .build();
 

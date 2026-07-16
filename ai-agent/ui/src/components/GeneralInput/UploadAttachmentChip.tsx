@@ -8,9 +8,9 @@ import {
   XIcon,
 } from 'lucide-react';
 
-import { usePromptInputAttachments } from '@/components/ai-elements/prompt-input';
 import { cn } from '@/lib/utils';
 import type { PromptInputAttachmentItem } from '@/components/ai-elements/prompt-input';
+import { usePromptInputAttachments } from '@/components/ai-elements/prompt-input/context';
 import type { UploadAttachmentState } from './uploadQueue';
 
 function formatAttachmentSize(size?: number) {
@@ -28,7 +28,7 @@ function formatAttachmentSize(size?: number) {
   return `${currentSize.toFixed(2)} ${units[unitIndex]}`;
 }
 
-export function resolveUploadStatusLabel(uploadState?: UploadAttachmentState) {
+function resolveUploadStatusLabel(uploadState?: UploadAttachmentState) {
   if (!uploadState) {
     return '';
   }

@@ -1,6 +1,5 @@
 package org.wwz.ai.infrastructure.gateway;
 
-import com.alibaba.fastjson.JSON;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -50,8 +49,8 @@ public class HttpUtils {
     }
 
     public static String postReq(String url, Map<String, String> headers, String params, int timeout) {
-
-        // log.info("发送http请求：url:{}, timeout:{}, headers:{}, body:{}", url, timeout, JSON.toJSONString(headers), params);
+        log.debug("http request start method=POST timeoutMs={} headerCount={} bodyChars={}",
+                timeout, headers == null ? 0 : headers.size(), params == null ? 0 : params.length());
         HttpPost httpPost = new HttpPost(url);
         RequestConfig requestConfig = RequestConfig.custom().setConnectTimeout(timeout).setConnectionRequestTimeout(timeout).setSocketTimeout(timeout).build();
         httpPost.setConfig(requestConfig);
@@ -71,8 +70,8 @@ public class HttpUtils {
             response = HttpClient.INS.getHttpClient().execute(httpPost);
             HttpEntity entity2 = response.getEntity();
             return EntityUtils.toString(entity2, "UTF-8");
-        } catch (Exception var16) {
-            log.error(var16.getMessage(), var16);
+        } catch (Exception exception) {
+            log.error("http request failed method=POST errorType={}", exception.getClass().getSimpleName());
         } finally {
             close(response);
         }
@@ -98,7 +97,8 @@ public class HttpUtils {
             response = HttpClient.INS.getHttpClient().execute(httpReq);
             return EntityUtils.toString(response.getEntity());
         } catch (Exception e) {
-            log.error("http请求失败！", e);
+            log.error("http request failed method={} errorType={}",
+                    StringUtils.defaultIfBlank(type, "GET").toUpperCase(), e.getClass().getSimpleName());
         } finally {
             close(response);
         }
@@ -106,7 +106,9 @@ public class HttpUtils {
     }
 
     public static String httpReqThrowException(String url, String type, Map<String, String> headers, String body, int timeout) {
-        log.debug("发送http请求：url:{}, type:{}, headers:{}, body:{}", url, type, JSON.toJSONString(headers), body);
+        log.debug("http request start method={} timeoutMs={} headerCount={} bodyChars={}",
+                StringUtils.defaultIfBlank(type, "GET").toUpperCase(), timeout,
+                headers == null ? 0 : headers.size(), body == null ? 0 : body.length());
         HttpRequestBase httpReq = getHttpRequest(type, url);
         RequestConfig requestConfig = RequestConfig.custom().setConnectTimeout(timeout).setConnectionRequestTimeout(timeout).setSocketTimeout(timeout).build();
         httpReq.setConfig(requestConfig);
@@ -126,10 +128,12 @@ public class HttpUtils {
             String responseEntityStr = EntityUtils.toString(response.getEntity());
             return Objects.requireNonNull(responseEntityStr);
         } catch (NullPointerException e) {
-            log.error("httpReq请求失败：url:{}", url, e);
+            log.error("http request returned empty entity method={} errorType={}",
+                    StringUtils.defaultIfBlank(type, "GET").toUpperCase(), e.getClass().getSimpleName());
             throw new RuntimeException("返回结果为空！", e);
         } catch (Exception e) {
-            log.error("httpReq请求失败：url:{}", url, e);
+            log.error("http request failed method={} errorType={}",
+                    StringUtils.defaultIfBlank(type, "GET").toUpperCase(), e.getClass().getSimpleName());
             throw new RuntimeException(e);
         } finally {
             close(response);
@@ -186,7 +190,7 @@ public class HttpUtils {
                 response.close();
             }
         } catch (IOException e) {
-            log.error("关闭CloseableHttpResponse失败！", e);
+            log.error("close http response failed errorType={}", e.getClass().getSimpleName());
         }
     }
 
@@ -224,7 +228,7 @@ public class HttpUtils {
 
             return false;
         } catch (Exception e) {
-            log.error("http链接校验失败，{}", JSON.toJSONString(urlObj), e);
+            log.error("http url validation failed errorType={}", e.getClass().getSimpleName());
             return true;
         }
     }
@@ -261,5 +265,4 @@ public class HttpUtils {
         }
     }
 }
-
 

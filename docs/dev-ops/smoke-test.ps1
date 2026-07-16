@@ -1,4 +1,4 @@
-# Platform smoke test: register -> login -> profile -> pricing -> member summary
+# Platform smoke test: register -> login -> profile -> pricing -> quota account summary
 param(
     [string]$Gateway = "http://127.0.0.1:8080",
     [string]$Username = "smoke_user_$(Get-Random -Maximum 99999)",
@@ -36,10 +36,16 @@ Write-Host "SKU count: $($pricing.data.skus.Count)"
 Write-Host "==> Account summary"
 $summary = Invoke-Api GET "/api/bff/account/summary" $null $token
 if ($summary.code -ne 200) { throw "account summary failed: $($summary.message)" }
-$tier = $summary.data.tier
-$quota = $summary.data.periodQuotaBalance
-Write-Host "Tier: $tier, period quota: $quota"
-if ($tier -ne "FREE") { throw "expected FREE tier after register, got: $tier" }
-if ($quota -ne 20) { throw "expected 20 period quota after register, got: $quota" }
+$freeQuota = [long]$summary.data.freeQuotaBalance
+$paidQuota = [long]$summary.data.paidQuotaBalance
+$frozenQuota = [long]$summary.data.frozenBalance
+$availableQuota = [long]$summary.data.availableQuota
+Write-Host "Quota (microcredits): free=$freeQuota, paid=$paidQuota, frozen=$frozenQuota, available=$availableQuota"
+if ($freeQuota -ne 5000000L) {
+    throw "expected 5000000 free microcredits after register, got: $freeQuota"
+}
+if ($paidQuota -ne 0L -or $frozenQuota -ne 0L -or $availableQuota -ne 5000000L) {
+    throw "unexpected initial quota account: paid=$paidQuota frozen=$frozenQuota available=$availableQuota"
+}
 
 Write-Host "SMOKE OK"

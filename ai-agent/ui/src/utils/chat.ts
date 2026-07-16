@@ -55,9 +55,7 @@ export function normalizeEventData(eventData: unknown): MESSAGE.EventData | unde
  * 从最终帧（result）的 resultMap 中提取展示级 run 元数据。
  * 缺失或非法字段一律忽略，返回 undefined 表示无可展示元数据。
  */
-export function extractRunMetrics(
-  raw: unknown,
-): CHAT.ChatItem['metrics'] | undefined {
+export function extractRunMetrics(raw: unknown): CHAT.ChatItem['metrics'] | undefined {
   if (!isRecord(raw)) {
     return undefined;
   }

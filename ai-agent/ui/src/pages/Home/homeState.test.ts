@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { deriveConversationMetaFromInput, shouldHydrateConversationHistory } from './homeState';
+import {
+  deriveConversationMetaFromInput,
+  resolveNewConversationMode,
+  shouldHydrateConversationHistory,
+} from './homeState';
 
 describe('homeState', () => {
   it('切到 dataAgent 时应清空角色并关闭 deepThink', () => {
@@ -24,6 +28,30 @@ describe('homeState', () => {
       productType: 'dataAgent',
       deepThink: false,
       role: null,
+    });
+  });
+
+  it('聊天输出应保留用户选择的深度思考标志', () => {
+    const role = {
+      agentId: 'agent-1',
+      agentName: '默认角色',
+      available: true,
+      defaultRole: true,
+    };
+
+    expect(
+      deriveConversationMetaFromInput(
+        { outputStyle: 'chat', deepThink: true },
+        { productType: 'chat', currentRole: role },
+      ),
+    ).toEqual({ productType: 'chat', deepThink: true, role });
+  });
+
+  it('新聊天默认普通聊天，不应回落到网页报告模式', () => {
+    expect(resolveNewConversationMode()).toEqual({ productType: 'chat', deepThink: false });
+    expect(resolveNewConversationMode({ productType: 'html', deepThink: true })).toEqual({
+      productType: 'html',
+      deepThink: true,
     });
   });
 

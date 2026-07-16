@@ -1,9 +1,11 @@
 from typing import Optional, List
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ImageChunkModel(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     kb_id: str = Field(..., description="知识库的ID")
     page_id: Optional[str] = Field(None, description="来源文档的ID")
     doc_id: Optional[str] = Field(None, description="所属页的chunk_id")
@@ -17,6 +19,3 @@ class ImageChunkModel(BaseModel):
     image_url: Optional[str] = Field(None, description="图片的URL")
     md5sum: Optional[str] = Field(None, description="图片的MD5值")
     image_type: Optional[str] = Field(None, description="图片的类型")
-
-    class Config:
-        extra = "allow"

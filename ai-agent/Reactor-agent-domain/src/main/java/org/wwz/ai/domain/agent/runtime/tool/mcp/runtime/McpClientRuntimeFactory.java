@@ -8,7 +8,7 @@ import io.modelcontextprotocol.client.transport.StdioClientTransport;
 import io.modelcontextprotocol.client.transport.WebClientStreamableHttpTransport;
 import io.modelcontextprotocol.client.transport.WebFluxSseClientTransport;
 import io.modelcontextprotocol.json.McpJsonMapper;
-import io.modelcontextprotocol.json.jackson.JacksonMcpJsonMapper;
+import io.modelcontextprotocol.json.jackson2.JacksonMcpJsonMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Component;
@@ -74,8 +74,8 @@ public class McpClientRuntimeFactory {
             descriptor.setEndpoint(endpoint);
             return createHttpRuntime(descriptor, transport, "SSE");
         } catch (Exception e) {
-            log.error("MCP SSE 客户端初始化失败: serverKey={}, serverUrl={}, reason={}",
-                    descriptor.resolveServerKey(), descriptor.getServerUrl(), e.getMessage(), e);
+            log.error("MCP client initialization failed transport=SSE serverKey={} errorType={}",
+                    descriptor.resolveServerKey(), e.getClass().getSimpleName());
             throw new IllegalStateException("Failed to create SSE MCP runtime for " + descriptor.getServerUrl(), e);
         }
     }
@@ -102,16 +102,18 @@ public class McpClientRuntimeFactory {
 
             syncClient.initialize();
 
-            log.info("MCP STDIO 客户端初始化成功: serverKey={}, command={}",
-                    descriptor.resolveServerKey(), descriptor.getCommand());
+            log.info("MCP client initialized transport=STDIO serverKey={} argCount={} envVarCount={}",
+                    descriptor.resolveServerKey(),
+                    descriptor.getArgs() == null ? 0 : descriptor.getArgs().size(),
+                    descriptor.getEnv() == null ? 0 : descriptor.getEnv().size());
 
             return McpClientRuntime.builder()
                     .descriptor(descriptor)
                     .syncClient(syncClient)
                     .build();
         } catch (Exception e) {
-            log.error("MCP STDIO 客户端初始化失败: serverKey={}, command={}, reason={}",
-                    descriptor.resolveServerKey(), descriptor.getCommand(), e.getMessage(), e);
+            log.error("MCP client initialization failed transport=STDIO serverKey={} errorType={}",
+                    descriptor.resolveServerKey(), e.getClass().getSimpleName());
             throw new IllegalStateException("Failed to create STDIO MCP runtime for " + descriptor.resolveServerKey(), e);
         }
     }
@@ -138,8 +140,8 @@ public class McpClientRuntimeFactory {
                         "Streamable HTTP");
             } catch (Exception e) {
                 if (shouldFallbackToLazyConnection(descriptor, openConnectionOnStartup, e)) {
-                    log.warn("MCP Streamable HTTP 预连接不兼容，降级为按需连接模式: serverKey={}, serverUrl={}",
-                            descriptor.resolveServerKey(), descriptor.getServerUrl());
+                    log.warn("MCP preconnect incompatible, switching to lazy mode transport=STREAMABLE_HTTP serverKey={}",
+                            descriptor.resolveServerKey());
                     descriptor.setOpenConnectionOnStartup(false);
                     return createHttpRuntime(descriptor,
                             buildStreamableHttpTransport(descriptor, false),
@@ -148,8 +150,8 @@ public class McpClientRuntimeFactory {
                 throw e;
             }
         } catch (Exception e) {
-            log.error("MCP Streamable HTTP 客户端初始化失败: serverKey={}, serverUrl={}, reason={}",
-                    descriptor.resolveServerKey(), descriptor.getServerUrl(), e.getMessage(), e);
+            log.error("MCP client initialization failed transport=STREAMABLE_HTTP serverKey={} errorType={}",
+                    descriptor.resolveServerKey(), e.getClass().getSimpleName());
             throw new IllegalStateException("Failed to create Streamable HTTP MCP runtime for " + descriptor.getServerUrl(), e);
         }
     }
@@ -168,8 +170,8 @@ public class McpClientRuntimeFactory {
 
         syncClient.initialize();
 
-        log.info("MCP {} 客户端初始化成功: serverKey={}, baseUri={}, endpoint={}",
-                transportName, descriptor.resolveServerKey(), descriptor.getBaseUri(), descriptor.getEndpoint());
+        log.info("MCP client initialized transport={} serverKey={} requestTimeoutSeconds={}",
+                transportName, descriptor.resolveServerKey(), requestTimeout);
 
         return McpClientRuntime.builder()
                 .descriptor(descriptor)

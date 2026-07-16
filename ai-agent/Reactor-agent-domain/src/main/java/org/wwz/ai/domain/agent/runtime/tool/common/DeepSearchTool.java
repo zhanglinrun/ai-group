@@ -10,6 +10,7 @@ import org.wwz.ai.domain.agent.adapter.port.RemoteStreamListener;
 import org.wwz.ai.domain.agent.adapter.port.RemoteStreamPort;
 import org.wwz.ai.domain.agent.adapter.port.RemoteStreamRequest;
 import org.wwz.ai.domain.agent.adapter.port.RemoteStreamSession;
+import org.wwz.ai.domain.agent.adapter.port.QuotaBillingPort;
 import org.wwz.ai.domain.agent.runtime.agent.AgentContext;
 import org.wwz.ai.domain.agent.runtime.artifact.ToolArtifactSource;
 import org.wwz.ai.domain.agent.runtime.dto.DeepSearchRequest;
@@ -19,6 +20,7 @@ import org.wwz.ai.domain.agent.runtime.tool.BaseTool;
 import org.wwz.ai.domain.agent.runtime.tool.ToolResultPayload;
 import org.wwz.ai.domain.agent.runtime.util.StringUtil;
 import org.wwz.ai.domain.agent.reactor.config.ReactorConfig;
+import org.wwz.ai.domain.agent.reactor.config.ReactorToolRequestHeaders;
 import org.wwz.ai.domain.agent.ledger.model.tooloutput.DeepSearchToolOutput;
 
 import java.io.IOException;
@@ -92,6 +94,7 @@ public class DeepSearchTool implements BaseTool {
     @Override
     public Object execute(Object input) {
         long startTime = System.currentTimeMillis();
+        QuotaBillingPort.Reservation reservation = null;
 
         try {
             ReactorConfig reactorConfig = requireReactorConfig();
@@ -112,24 +115,60 @@ public class DeepSearchTool implements BaseTool {
                     .content_stream(agentContext.getIsStream())
                     .build();
             ToolArtifactSource artifactSource = agentContext.requireCurrentToolArtifactSource(getName());
+            reservation = reserveSurcharge(artifactSource);
 
             // 调用流式 API
             Future<ToolResultPayload> future = callDeepSearchStream(request, artifactSource);
-            Object object = future.get(DEEP_SEARCH_TIMEOUT_MINUTES, TimeUnit.MINUTES);
-
-            return object;
+            ToolResultPayload result = future.get(DEEP_SEARCH_TIMEOUT_MINUTES, TimeUnit.MINUTES);
+            if (Boolean.TRUE.equals(result.getFailed())) {
+                releaseSurcharge(reservation);
+            } else {
+                settleSurcharge(reservation);
+            }
+            return result;
         } catch (TimeoutException e) {
+            releaseSurcharge(reservation);
             if (activeStreamSession != null) {
                 activeStreamSession.cancel();
             }
-            log.error("{} deep_search timeout after {} minutes", agentContext.getRequestId(), DEEP_SEARCH_TIMEOUT_MINUTES, e);
+            log.error("{} deep_search timeout after {} minutes errorType={}",
+                    agentContext.getRequestId(), DEEP_SEARCH_TIMEOUT_MINUTES, e.getClass().getSimpleName());
             return buildFailurePayload("deep_search执行超时，已终止本次搜索，请基于当前已获取的信息继续处理。");
         } catch (Exception e) {
+            releaseSurcharge(reservation);
 
-            log.error("{} deep_search agent error", agentContext.getRequestId(), e);
+            log.error("{} deep_search execute failed errorType={}",
+                    agentContext.getRequestId(), e.getClass().getSimpleName());
             return buildFailurePayload("deep_search执行失败：" + StringUtils.defaultIfBlank(e.getMessage(), "未知异常"));
         } finally {
             activeStreamSession = null;
+        }
+    }
+
+    private QuotaBillingPort.Reservation reserveSurcharge(ToolArtifactSource source) {
+        if (agentContext.getOwnerId() == null || agentContext.getRuntimeDependencies().getQuotaBillingPort() == null) {
+            return null;
+        }
+        long amount = Math.max(0L, requireReactorConfig().getDeepSearchMicrocredits());
+        if (amount == 0L) {
+            return null;
+        }
+        return agentContext.getRuntimeDependencies().getQuotaBillingPort().reserve(
+                agentContext.getOwnerId(), amount, amount,
+                agentContext.getRequestId() + ":tool:deep_search:"
+                        + (source == null ? "unknown" : source.getToolCallId()));
+    }
+
+    private void settleSurcharge(QuotaBillingPort.Reservation reservation) {
+        if (reservation != null) {
+            agentContext.getRuntimeDependencies().getQuotaBillingPort()
+                    .settle(reservation.freezeId(), reservation.reservedMicrocredits());
+        }
+    }
+
+    private void releaseSurcharge(QuotaBillingPort.Reservation reservation) {
+        if (reservation != null) {
+            agentContext.getRuntimeDependencies().getQuotaBillingPort().release(reservation.freezeId());
         }
     }
 
@@ -142,7 +181,10 @@ public class DeepSearchTool implements BaseTool {
         try {
             ReactorConfig reactorConfig = requireReactorConfig();
             String url = reactorConfig.getDeepSearchUrl() + "/v1/tool/deepsearch";
-            log.info("{} deep_search request {}", agentContext.getRequestId(), JSONObject.toJSONString(searchRequest));
+            log.info("{} deep_search request started queryChars={} stream={} contentStream={}",
+                    agentContext.getRequestId(),
+                    searchRequest.getQuery() == null ? 0 : searchRequest.getQuery().length(),
+                    searchRequest.getStream(), searchRequest.getContent_stream());
 
             String[] interval = reactorConfig.getMessageInterval().getOrDefault("search", "5,20").split(",");
             int firstInterval = Integer.parseInt(interval[0]);
@@ -158,11 +200,7 @@ public class DeepSearchTool implements BaseTool {
             activeStreamSession = requireRemoteStreamPort().openStream(RemoteStreamRequest.builder()
                     .method("POST")
                     .url(url)
-                    .headers(Map.of(
-                            "Accept", "text/event-stream",
-                            "Cache-Control", "no-cache",
-                            "Content-Type", "application/json"
-                    ))
+                    .headers(ReactorToolRequestHeaders.sse(reactorConfig))
                     .body(JSONObject.toJSONString(searchRequest))
                     .connectTimeoutSeconds(DEEP_SEARCH_CONNECT_TIMEOUT_SECONDS)
                     .readTimeoutSeconds(TimeUnit.MINUTES.toSeconds(DEEP_SEARCH_IO_TIMEOUT_MINUTES))
@@ -189,7 +227,8 @@ public class DeepSearchTool implements BaseTool {
                         }
                         int currentIndex = index.get();
                         if (currentIndex == 1 || currentIndex % 100 == 0) {
-                            log.info("{} deep_search recv data: {}", agentContext.getRequestId(), data);
+                            log.debug("{} deep_search event received sequence={} payloadChars={}",
+                                    agentContext.getRequestId(), currentIndex, data.length());
                         }
                         DeepSearchrResponse searchResponse = JSONObject.parseObject(data, DeepSearchrResponse.class);
                         searchResponse.setToolCallId(toolCallId);
@@ -263,7 +302,8 @@ public class DeepSearchTool implements BaseTool {
                             index.incrementAndGet();
                         }
                     } catch (Exception e) {
-                            log.error("{} deep_search request error", agentContext.getRequestId(), e);
+                            log.error("{} deep_search event handling failed errorType={}",
+                                    agentContext.getRequestId(), e.getClass().getSimpleName());
                             if (!future.isDone()) {
                                 future.completeExceptionally(e);
                             }
@@ -290,8 +330,10 @@ public class DeepSearchTool implements BaseTool {
                         }
                         return;
                     }
-                    log.error("{} deep_search on failure, statusCode={}, body={}",
-                            agentContext.getRequestId(), statusCode, responseBody, throwable);
+                    log.error("{} deep_search upstream failed statusCode={} responseChars={} errorType={}",
+                            agentContext.getRequestId(), statusCode,
+                            responseBody == null ? 0 : responseBody.length(),
+                            throwable == null ? "unknown" : throwable.getClass().getSimpleName());
                     if (!future.isDone()) {
                         future.completeExceptionally(throwable instanceof Exception
                                 ? (Exception) throwable
@@ -300,7 +342,8 @@ public class DeepSearchTool implements BaseTool {
                 }
             });
         } catch (Exception e) {
-            log.error("{} deep_search request error", agentContext.getRequestId(), e);
+            log.error("{} deep_search request failed errorType={}",
+                    agentContext.getRequestId(), e.getClass().getSimpleName());
             future.completeExceptionally(e);
         }
 

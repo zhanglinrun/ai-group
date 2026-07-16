@@ -32,7 +32,7 @@ Write-Host "OK: direct pay rejected (code=$($payload.code), info=$($payload.info
 
 Write-Host "1.1) Direct pay with spoofed gateway headers (missing internal token) should fail"
 $spoofHeaders = @{ "X-Gateway-Request" = "true"; "X-User-Id" = "10001" }
-$spoofBody = '{"userId":"10001","productId":"9890001","productCode":"PRO_MONTH","activityId":10001,"marketType":1}'
+$spoofBody = '{"userId":"10001","productId":"9890002","productCode":"QUOTA_LIGHT","activityId":100201,"marketType":1}'
 $spoof = Invoke-HttpPost -Uri "$PayBase/api/v1/alipay/create_pay_order" -Body $spoofBody -Headers $spoofHeaders
 $spoofPayload = $spoof.Content | ConvertFrom-Json
 if ($spoofPayload.code -eq "0000") {
@@ -44,12 +44,18 @@ Write-Host "2) group_buy_notify without internal token should fail"
 $notify = '{"teamId":"t1","outTradeNoList":["order-1"]}'
 try {
     $result = Invoke-HttpPost -Uri "$PayBase/api/v1/alipay/group_buy_notify" -Body $notify
-    if ($result.Content -eq "success") {
-        throw "unsigned group notify should not succeed"
+    $notifyBody = $result.Content.Trim()
+    if ($result.StatusCode -ne 200 -or $notifyBody -ne "error") {
+        throw "unexpected unsigned group notify response: status=$($result.StatusCode) body=$notifyBody"
     }
-    Write-Host "OK: unsigned group notify rejected (response=$($result.Content))"
+    Write-Host "OK: unsigned group notify rejected (response=$notifyBody)"
 } catch {
-    Write-Host "OK: unsigned group notify rejected"
+    $statusCode = if ($_.Exception.Response) { [int]$_.Exception.Response.StatusCode } else { 0 }
+    if ($statusCode -in @(401, 403)) {
+        Write-Host "OK: unsigned group notify rejected with HTTP $statusCode"
+    } else {
+        throw
+    }
 }
 
 Write-Host "3) Direct group trade without/wrong internal token should be forbidden"

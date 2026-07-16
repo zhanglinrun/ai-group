@@ -16,6 +16,7 @@ import org.wwz.ai.domain.agent.runtime.dto.WebFetchResponse;
 import org.wwz.ai.domain.agent.runtime.tool.BaseTool;
 import org.wwz.ai.domain.agent.runtime.tool.ToolResultPayload;
 import org.wwz.ai.domain.agent.reactor.config.ReactorConfig;
+import org.wwz.ai.domain.agent.reactor.config.ReactorToolRequestHeaders;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -111,7 +112,12 @@ public class WebFetchTool implements BaseTool {
             emitFileMessage(response, artifactSource);
             return buildSuccessPayload(response);
         } catch (Exception e) {
-            log.error("{} web_fetch execute error, input={}", requestId(), input, e);
+            log.error("{} web_fetch execute error inputType={} inputChars={} errorType={}",
+                    requestId(),
+                    input == null ? "null" : input.getClass().getSimpleName(),
+                    input == null ? 0 : String.valueOf(input).length(),
+                    e.getClass().getSimpleName(),
+                    e);
             return buildFailurePayload("web_fetch 执行失败：" + StringUtils.defaultIfBlank(e.getMessage(), "未知异常"));
         }
     }
@@ -123,7 +129,7 @@ public class WebFetchTool implements BaseTool {
             responseText = requireRemoteHttpPort().execute(RemoteHttpRequest.builder()
                     .method("POST")
                     .url(normalizeBaseUrl(reactorConfig.getWebFetchUrl()) + "/v1/tool/web_fetch")
-                    .headers(Map.of("Content-Type", "application/json"))
+                    .headers(ReactorToolRequestHeaders.json(reactorConfig))
                     .body(JSON.toJSONString(request))
                     .connectTimeoutSeconds(30L)
                     .readTimeoutSeconds((long) request.getTimeoutSeconds())

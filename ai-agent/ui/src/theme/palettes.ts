@@ -18,7 +18,13 @@ export interface PaletteMeta {
 export const PALETTES: PaletteMeta[] = [
   { id: 'warm', label: '默认', category: 'warm', brand: '#c2683c', brandDark: '#d17a4e' },
   { id: 'azure', label: 'azure', category: 'cool', brand: '#2f80ed', brandDark: '#4a94f5' },
-  { id: 'graphite', label: 'graphite', category: 'neutral', brand: '#52525b', brandDark: '#a1a1aa' },
+  {
+    id: 'graphite',
+    label: 'graphite',
+    category: 'neutral',
+    brand: '#52525b',
+    brandDark: '#a1a1aa',
+  },
   { id: 'sepia', label: 'sepia', category: 'warm', brand: '#a06a43', brandDark: '#c08a5e' },
 ];
 

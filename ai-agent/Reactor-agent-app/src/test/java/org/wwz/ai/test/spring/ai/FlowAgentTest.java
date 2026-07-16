@@ -11,7 +11,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.chat.client.advisor.PromptChatMemoryAdvisor;
+import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
 import org.springframework.ai.chat.memory.MessageWindowChatMemory;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.mcp.SyncMcpToolCallbackProvider;
@@ -69,7 +69,7 @@ public class FlowAgentTest {
                 .defaultOptions(OpenAiChatOptions.builder()
                         .model("gpt-4.1-mini")
                         .maxTokens(5000)
-                        .toolCallbacks(new SyncMcpToolCallbackProvider(sseMcpClient_BaiduSearch(), sseMcpClient_csdn(), sseMcpClient02_weixin()).getToolCallbacks())
+                        .toolCallbacks(SyncMcpToolCallbackProvider.builder().mcpClients(sseMcpClient_BaiduSearch(), sseMcpClient_csdn(), sseMcpClient02_weixin()).build().getToolCallbacks())
                         .build())
                 .build();
 
@@ -109,7 +109,7 @@ public class FlowAgentTest {
                         今天是 {current_date}。
                         """)
                 .defaultAdvisors(
-                        PromptChatMemoryAdvisor.builder(
+                        MessageChatMemoryAdvisor.builder(
                                 MessageWindowChatMemory.builder()
                                         .maxMessages(50)
                                         .build()
@@ -173,7 +173,7 @@ public class FlowAgentTest {
                         今天是 {current_date}。
                         """)
                 .defaultAdvisors(
-                        PromptChatMemoryAdvisor.builder(
+                        MessageChatMemoryAdvisor.builder(
                                 MessageWindowChatMemory.builder()
                                         .maxMessages(20)
                                         .build()
@@ -235,7 +235,7 @@ public class FlowAgentTest {
                         - 兼容性：[版本要求和环境依赖]
                         """)
                 .defaultAdvisors(
-                        PromptChatMemoryAdvisor.builder(
+                        MessageChatMemoryAdvisor.builder(
                                 MessageWindowChatMemory.builder()
                                         .maxMessages(30)
                                         .build()

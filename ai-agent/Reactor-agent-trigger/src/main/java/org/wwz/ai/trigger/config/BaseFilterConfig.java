@@ -40,7 +40,7 @@ public class BaseFilterConfig {
 
 	@Bean
 	public FilterRegistrationBean<GatewayUserContextFilter> gatewayUserContextFilter(
-			@Value("${ai-group.internal.token:ai-group-dev-internal-token-change-in-prod}") String token) {
+			@Value("${ai-group.internal.token:change-me-to-a-long-random-internal-token}") String token) {
 		return this.creatAllFilter(new GatewayUserContextFilter(token), 2);
 	}
 

@@ -15,11 +15,8 @@ public class ProductSku {
     private String code;
     private String name;
     private BigDecimal price;
-    private Integer periodQuota;
-    private Integer topupQuota;
-    private Integer memberDays;
-    private String tier;
-    private String skuType;
+    /** Human-readable whole credits; account balances use microcredits. */
+    private Long baseQuota;
     private Integer status;
     /** 拼团映射：group_buy_market 商品ID（NULL=不支持拼团） */
     private String groupGoodsId;

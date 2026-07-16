@@ -15,7 +15,6 @@ import com.aigroup.paymall.domain.order.model.valobj.MarketTypeVO;
 import com.aigroup.paymall.domain.order.model.valobj.OrderStatusVO;
 import com.aigroup.paymall.domain.order.service.IOrderService;
 import com.aigroup.paymall.trigger.http.support.GatewayUserResolver;
-import com.aigroup.paymall.trigger.http.support.GoodsSkuBindingProperties;
 import com.aigroup.paymall.trigger.http.support.InternalCallbackAuthSupport;
 import com.aigroup.paymall.types.common.Constants;
 import com.alibaba.fastjson.JSON;
@@ -27,6 +26,8 @@ import com.alipay.api.internal.util.AlipaySignature;
 import com.alipay.api.request.AlipayTradeQueryRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.env.Environment;
+import org.springframework.core.env.Profiles;
 import org.springframework.web.bind.annotation.*;
 
 import jakarta.annotation.Resource;
@@ -63,7 +64,10 @@ public class AliPayController {
     private GatewayUserResolver gatewayUserResolver;
 
     @Resource
-    private GoodsSkuBindingProperties goodsSkuBindingProperties;
+    private Environment environment;
+
+    @Value("${ai-group.pay.demo-complete-enabled:false}")
+    private boolean demoCompleteEnabled;
 
     /**
      * http://localhost:8080/api/v1/alipay/create_pay_order
@@ -78,17 +82,13 @@ public class AliPayController {
                                            HttpServletRequest servletRequest) {
         try {
             String userId = gatewayUserResolver.resolveUserId(servletRequest, createPayRequestDTO.getUserId());
-            log.info("?????????ID????????userId:{} productId:{}", userId, createPayRequestDTO.getProductId());
+            log.info("创建支付订单请求，userId:{} productId:{}", userId, createPayRequestDTO.getProductId());
             String productId = createPayRequestDTO.getProductId();
             String teamId = createPayRequestDTO.getTeamId();
             Integer marketType = createPayRequestDTO.getMarketType();
             String productCode = createPayRequestDTO.getProductCode();
 
-            if (!goodsSkuBindingProperties.isSkuAllowed(productId, productCode)) {
-                throw new IllegalArgumentException("illegal product binding: goodsId=" + productId + ", skuCode=" + productCode);
-            }
-
-            // ??
+            // 创建订单
             PayOrderEntity payOrderEntity = orderService.createOrder(ShopCartEntity.builder()
                     .userId(userId)
                     .productId(productId)
@@ -98,20 +98,20 @@ public class AliPayController {
                     .activityId(createPayRequestDTO.getActivityId())
                     .build());
 
-            log.info("?????????ID????????userId:{} productId:{} orderId:{}", userId, productId, payOrderEntity.getOrderId());
+            log.info("支付订单创建成功，userId:{} productId:{} orderId:{}", userId, productId, payOrderEntity.getOrderId());
             return Response.<String>builder()
                     .code(Constants.ResponseCode.SUCCESS.getCode())
                     .info(Constants.ResponseCode.SUCCESS.getInfo())
                     .data(payOrderEntity.getPayUrl())
                     .build();
         } catch (IllegalArgumentException e) {
-            log.warn("??????????: {}", e.getMessage());
+            log.warn("创建支付订单参数非法: {}", e.getMessage());
             return Response.<String>builder()
                     .code(Constants.ResponseCode.ILLEGAL_PARAMETER.getCode())
                     .info(e.getMessage())
                     .build();
         } catch (Exception e) {
-            log.error("?????????ID????????userId:{} productId:{}", createPayRequestDTO.getUserId(), createPayRequestDTO.getProductId(), e);
+            log.error("创建支付订单失败，userId:{} productId:{}", createPayRequestDTO.getUserId(), createPayRequestDTO.getProductId(), e);
             return Response.<String>builder()
                     .code(Constants.ResponseCode.UN_ERROR.getCode())
                     .info(Constants.ResponseCode.UN_ERROR.getInfo())
@@ -133,10 +133,6 @@ public class AliPayController {
             Integer marketType = createPayRequestDTO.getMarketType();
             String productCode = createPayRequestDTO.getProductCode();
 
-            if (!goodsSkuBindingProperties.isSkuAllowed(productId, productCode)) {
-                throw new IllegalArgumentException("illegal product binding: goodsId=" + productId + ", skuCode=" + productCode);
-            }
-
             PayOrderEntity payOrderEntity = orderService.createOrder(ShopCartEntity.builder()
                     .userId(userId)
                     .productId(productId)
@@ -147,14 +143,17 @@ public class AliPayController {
                     .build());
 
             String qrCode = orderService.prepareTradeQrCode(payOrderEntity.getOrderId());
+            OrderEntity persistedOrder = orderService.queryOrderByOrderId(payOrderEntity.getOrderId());
 
             return Response.<CreatePayQrResponseDTO>builder()
                     .code(Constants.ResponseCode.SUCCESS.getCode())
                     .info(Constants.ResponseCode.SUCCESS.getInfo())
                     .data(CreatePayQrResponseDTO.builder()
-                            .orderId(payOrderEntity.getOrderId())
-                            .qrCode(qrCode)
-                            .build())
+                             .orderId(payOrderEntity.getOrderId())
+                             .qrCode(qrCode)
+                             .amount(resolveDisplayAmount(persistedOrder))
+                             .demoCompletionEnabled(isDemoCompletionAvailable())
+                             .build())
                     .build();
         } catch (IllegalArgumentException e) {
             log.warn("create pay qrcode illegal param: {}", e.getMessage());
@@ -192,7 +191,7 @@ public class AliPayController {
      */
     @RequestMapping(value = "alipay_notify_url", method = RequestMethod.POST)
     public String payNotify(HttpServletRequest request) throws AlipayApiException, ParseException {
-        log.info("??????????{}", request.getParameter("trade_status"));
+        log.info("收到支付宝异步通知，交易状态:{}", request.getParameter("trade_status"));
 
         if (!"TRADE_SUCCESS".equals(request.getParameter("trade_status"))) {
             return "false";
@@ -210,22 +209,22 @@ public class AliPayController {
 
         String sign = params.get("sign");
         String content = AlipaySignature.getSignCheckContentV1(params);
-        boolean checkSignature = AlipaySignature.rsa256CheckContent(content, sign, alipayPublicKey, "UTF-8"); // ????
-        // ??????
+        boolean checkSignature = AlipaySignature.rsa256CheckContent(content, sign, alipayPublicKey, "UTF-8"); // 验证签名
+        // 签名验证失败时拒绝通知
         if (!checkSignature) {
             return "false";
         }
 
-        // ????
-        log.info("?????????? {}", params.get("subject"));
-        log.info("?????????? {}", params.get("trade_status"));
-        log.info("?????????????? {}", params.get("trade_no"));
-        log.info("??????????: {}", params.get("out_trade_no"));
-        log.info("?????????? {}", params.get("total_amount"));
-        log.info("?????????????id: {}", params.get("buyer_id"));
-        log.info("???????????? {}", params.get("gmt_payment"));
-        log.info("???????????? {}", params.get("buyer_pay_amount"));
-        log.info("?????????????? {}", tradeNo);
+        // 记录回调中的关键支付信息
+        log.info("订单标题: {}", params.get("subject"));
+        log.info("交易状态: {}", params.get("trade_status"));
+        log.info("支付宝交易号: {}", params.get("trade_no"));
+        log.info("商户订单号: {}", params.get("out_trade_no"));
+        log.info("订单金额: {}", params.get("total_amount"));
+        log.info("买家支付宝用户 ID: {}", params.get("buyer_id"));
+        log.info("支付时间: {}", params.get("gmt_payment"));
+        log.info("买家实付金额: {}", params.get("buyer_pay_amount"));
+        log.info("开始处理支付成功订单: {}", tradeNo);
 
         OrderEntity order = orderService.queryOrderByOrderId(tradeNo);
         if (order == null) {
@@ -266,21 +265,21 @@ public class AliPayController {
                                                                  HttpServletRequest servletRequest) {
         try {
             String userId = gatewayUserResolver.resolveUserId(servletRequest, requestDTO.getUserId());
-            log.info("???????????userId:{} lastId:{} pageSize:{}", userId, requestDTO.getLastId(), requestDTO.getPageSize());
+            log.info("查询用户订单列表，userId:{} lastId:{} pageSize:{}", userId, requestDTO.getLastId(), requestDTO.getPageSize());
 
             Long lastId = requestDTO.getLastId();
             Integer pageSize = requestDTO.getPageSize();
             
-            // ?????????????????????????
+            // 多查询一条记录，用于判断是否还有下一页
             List<OrderEntity> orderList = orderService.queryUserOrderList(userId, lastId, pageSize + 1);
             
-            // ??????????
+            // 判断是否还有更多记录
             boolean hasMore = orderList.size() > pageSize;
             if (hasMore) {
                 orderList = orderList.subList(0, pageSize);
             }
             
-            // ????????
+            // 转换为接口响应对象
             List<QueryOrderListResponseDTO.OrderInfo> orderInfoList = orderList.stream().map(order -> {
                 QueryOrderListResponseDTO.OrderInfo orderInfo = new QueryOrderListResponseDTO.OrderInfo();
                 orderInfo.setId(order.getId());
@@ -308,20 +307,20 @@ public class AliPayController {
             responseDTO.setHasMore(hasMore);
             responseDTO.setLastId(!orderList.isEmpty() ? orderList.get(orderList.size() - 1).getId() : null);
             
-            log.info("?????????? userId:{} ??????:{} hasMore:{}", userId, orderInfoList.size(), hasMore);
+            log.info("用户订单列表查询完成，userId:{} 返回数量:{} hasMore:{}", userId, orderInfoList.size(), hasMore);
             return Response.<QueryOrderListResponseDTO>builder()
                     .code(Constants.ResponseCode.SUCCESS.getCode())
                     .info(Constants.ResponseCode.SUCCESS.getInfo())
                     .data(responseDTO)
                     .build();
         } catch (IllegalArgumentException e) {
-            log.warn("??????????????: {}", e.getMessage());
+            log.warn("查询用户订单列表参数非法: {}", e.getMessage());
             return Response.<QueryOrderListResponseDTO>builder()
                     .code(Constants.ResponseCode.ILLEGAL_PARAMETER.getCode())
                     .info(e.getMessage())
                     .build();
         } catch (Exception e) {
-            log.error("?????????? userId:{}", requestDTO.getUserId(), e);
+            log.error("查询用户订单列表失败，userId:{}", requestDTO.getUserId(), e);
             return Response.<QueryOrderListResponseDTO>builder()
                     .code(Constants.ResponseCode.UN_ERROR.getCode())
                     .info(Constants.ResponseCode.UN_ERROR.getInfo())
@@ -343,9 +342,9 @@ public class AliPayController {
         try {
             String userId = gatewayUserResolver.resolveUserId(servletRequest, requestDTO.getUserId());
             String orderId = requestDTO.getOrderId();
-            log.info("???????userId:{} orderId:{}", userId, orderId);
+            log.info("申请订单退款，userId:{} orderId:{}", userId, orderId);
             
-            // ???????
+            // 执行订单退款
             boolean success = orderService.refundMarketOrder(userId, orderId);
             
             RefundOrderResponseDTO responseDTO = new RefundOrderResponseDTO();
@@ -353,14 +352,14 @@ public class AliPayController {
             responseDTO.setOrderId(orderId);
             responseDTO.setMessage(success ? "refund success" : "refund failed: order not found, closed, or not owned by user");
             
-            log.info("???????userId:{} orderId:{} success:{}", userId, orderId, success);
+            log.info("订单退款处理完成，userId:{} orderId:{} success:{}", userId, orderId, success);
             return Response.<RefundOrderResponseDTO>builder()
                     .code(Constants.ResponseCode.SUCCESS.getCode())
                     .info(Constants.ResponseCode.SUCCESS.getInfo())
                     .data(responseDTO)
                     .build();
         } catch (IllegalArgumentException e) {
-            log.warn("??????????? {}", e.getMessage());
+            log.warn("订单退款参数非法: {}", e.getMessage());
             RefundOrderResponseDTO responseDTO = new RefundOrderResponseDTO();
             responseDTO.setSuccess(false);
             responseDTO.setOrderId(requestDTO.getOrderId());
@@ -371,12 +370,12 @@ public class AliPayController {
                     .data(responseDTO)
                     .build();
         } catch (Exception e) {
-            log.error("???????userId:{} orderId:{}", requestDTO.getUserId(), requestDTO.getOrderId(), e);
+            log.error("订单退款处理失败，userId:{} orderId:{}", requestDTO.getUserId(), requestDTO.getOrderId(), e);
             
             RefundOrderResponseDTO responseDTO = new RefundOrderResponseDTO();
             responseDTO.setSuccess(false);
             responseDTO.setOrderId(requestDTO.getOrderId());
-            responseDTO.setMessage("?????????");
+            responseDTO.setMessage("退款失败，请稍后重试");
             
             return Response.<RefundOrderResponseDTO>builder()
                     .code(Constants.ResponseCode.UN_ERROR.getCode())
@@ -389,7 +388,7 @@ public class AliPayController {
     /**
      * 支付回跳同步结算（用户侧）：支付宝同步回跳后由前端调用，
      * 主动向支付宝查单（alipay.trade.query），TRADE_SUCCESS 即触发与异步 notify 相同的结算逻辑。
-     * 用途：本地/演示环境公网 notify_url 打不到本机时，靠该接口完成「支付→开通会员」闭环。
+     * 用途：本地/演示环境公网 notify_url 打不到本机时，靠该接口完成「支付→发放额度」闭环。
      * 安全：经网关身份头解析用户并校验订单归属；结算幂等（重复调用/与异步 notify 双触发均安全）。
      */
     @RequestMapping(value = "sync_settle", method = RequestMethod.POST)
@@ -421,7 +420,20 @@ public class AliPayController {
             bizModel.setOutTradeNo(outTradeNo);
             AlipayTradeQueryRequest queryRequest = new AlipayTradeQueryRequest();
             queryRequest.setBizModel(bizModel);
-            String body = alipayClient.execute(queryRequest).getBody();
+            String body;
+            try {
+                body = alipayClient.execute(queryRequest).getBody();
+            } catch (Exception queryError) {
+                // 支付宝沙箱偶发 504/网关超时时，订单真相仍是本地 PAY_WAIT。
+                // 对用户侧轮询返回稳定 UNPAID，避免每三秒触发一次全局错误提示。
+                log.warn("sync settle alipay query temporarily unavailable outTradeNo={} reason={}",
+                        outTradeNo, queryError.getMessage());
+                return Response.<String>builder()
+                        .code(Constants.ResponseCode.SUCCESS.getCode())
+                        .info(Constants.ResponseCode.SUCCESS.getInfo())
+                        .data("UNPAID:QUERY_TEMPORARILY_UNAVAILABLE")
+                        .build();
+            }
             log.info("sync settle trade query outTradeNo={} response={}", outTradeNo, body);
 
             JSONObject queryResponse = JSON.parseObject(body).getJSONObject("alipay_trade_query_response");
@@ -468,10 +480,23 @@ public class AliPayController {
         }
     }
 
+    private BigDecimal resolveDisplayAmount(OrderEntity order) {
+        if (order == null) {
+            return null;
+        }
+        // The QR request, callback verification and refunds all use the persisted pay_amount.
+        // Never reconstruct the amount from a market preview because preview discounts can be stale.
+        return order.getPayAmount() != null ? order.getPayAmount() : order.getTotalAmount();
+    }
+
+    private boolean isDemoCompletionAvailable() {
+        return demoCompleteEnabled && environment != null && environment.acceptsProfiles(Profiles.of("dev"));
+    }
+
     /**
-     * ?????? - ????????????
-     * @param outTradeNo ??????
-     * @return ????
+     * 主动查询支付宝交易状态，并在支付成功时更新本地订单。
+     * @param outTradeNo 商户订单号
+     * @return 查询和处理结果
      */
     @RequestMapping(value = "active_pay_notify", method = RequestMethod.POST)
     public Response<String> activePayNotify(@RequestParam String outTradeNo, HttpServletRequest servletRequest) {
@@ -484,20 +509,20 @@ public class AliPayController {
                     .build();
         }
         try {
-            log.info("?????????????? {}", outTradeNo);
+            log.info("主动查询支付宝订单状态，outTradeNo:{}", outTradeNo);
             
-            // ????????????
+            // 构建支付宝交易查询请求
             AlipayTradeQueryModel bizModel = new AlipayTradeQueryModel();
             bizModel.setOutTradeNo(outTradeNo);
             
             AlipayTradeQueryRequest queryRequest = new AlipayTradeQueryRequest();
             queryRequest.setBizModel(bizModel);
             
-            // ?????API???????
+            // 调用支付宝交易查询 API
             String body = alipayClient.execute(queryRequest).getBody();
-            log.info("???????? {}", body);
+            log.info("支付宝交易查询响应: {}", body);
             
-            // ??????
+            // 解析查询结果
             JSONObject responseJson = JSON.parseObject(body);
             JSONObject queryResponse = responseJson.getJSONObject("alipay_trade_query_response");
             
@@ -507,50 +532,50 @@ public class AliPayController {
                 String totalAmount = queryResponse.getString("total_amount");
                 String gmtPayment = queryResponse.getString("send_pay_date");
                 
-                log.info("???? - ????? {}, ??????: {}, ??: {}, ????: {}", 
+                log.info("查询成功，交易状态:{} 支付宝交易号:{} 订单金额:{} 支付时间:{}",
                         tradeStatus, tradeNo, totalAmount, gmtPayment);
                 
-                // ????????????????
+                // 支付成功时更新本地订单状态
                 if ("TRADE_SUCCESS".equals(tradeStatus)) {
-                    log.info("?????????????????? {}", outTradeNo);
+                    log.info("支付宝订单支付成功，开始更新本地订单，outTradeNo:{}", outTradeNo);
                     
-                    // ?????????????
+                    // 将本地订单更新为支付成功
                     SimpleDateFormat payDateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
                     payDateFormat.setTimeZone(TimeZone.getTimeZone("Asia/Shanghai"));
                     orderService.changeOrderPaySuccess(outTradeNo,
                             gmtPayment != null ? payDateFormat.parse(gmtPayment) : new Date());
                     
-                    log.info("????????????? {}", outTradeNo);
+                    log.info("本地订单支付状态更新成功，outTradeNo:{}", outTradeNo);
                     
                     return Response.<String>builder()
                             .code(Constants.ResponseCode.SUCCESS.getCode())
                             .info(Constants.ResponseCode.SUCCESS.getInfo())
-                            .data("????????????")
+                            .data("支付成功，订单状态已更新")
                             .build();
                 } else {
-                    log.info("?????????? {}, ???? {}", tradeStatus, outTradeNo);
+                    log.info("支付宝订单尚未支付，tradeStatus:{} outTradeNo:{}", tradeStatus, outTradeNo);
                     return Response.<String>builder()
                             .code(Constants.ResponseCode.SUCCESS.getCode())
                             .info(Constants.ResponseCode.SUCCESS.getInfo())
-                            .data("????? " + tradeStatus)
+                            .data("当前交易状态: " + tradeStatus)
                             .build();
                 }
             } else {
-                String errorMsg = queryResponse != null ? queryResponse.getString("msg") : "????";
-                log.error("???????? {}, ???? {}", errorMsg, outTradeNo);
+                String errorMsg = queryResponse != null ? queryResponse.getString("msg") : "查询失败";
+                log.error("支付宝交易查询失败，errorMsg:{} outTradeNo:{}", errorMsg, outTradeNo);
                 return Response.<String>builder()
                         .code(Constants.ResponseCode.UN_ERROR.getCode())
                         .info(Constants.ResponseCode.UN_ERROR.getInfo())
-                        .data("????: " + errorMsg)
+                        .data("查询失败: " + errorMsg)
                         .build();
             }
             
         } catch (Exception e) {
-            log.error("????????????: {}", outTradeNo, e);
+            log.error("主动查询支付宝订单状态异常，outTradeNo:{}", outTradeNo, e);
             return Response.<String>builder()
                     .code(Constants.ResponseCode.UN_ERROR.getCode())
                     .info(Constants.ResponseCode.UN_ERROR.getInfo())
-                    .data("????: " + e.getMessage())
+                    .data("查询异常: " + e.getMessage())
                     .build();
         }
     }

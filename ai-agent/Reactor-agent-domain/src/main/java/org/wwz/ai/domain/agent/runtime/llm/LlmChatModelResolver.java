@@ -68,8 +68,10 @@ public class LlmChatModelResolver {
                         .build())
                 .build();
 
-        log.info("初始化 Spring AI ChatModel: model={}, baseUrl={}, completionsPath={}",
-                settings.getModel(), baseUrl, completionsPath);
+        boolean apiKeyConfigured = StringUtils.isNotBlank(settings.getApiKey());
+        boolean endpointConfigured = StringUtils.isNotBlank(baseUrl);
+        log.info("初始化 Spring AI ChatModel: model={} endpointConfigured={} apiKeyConfigured={}",
+                settings.getModel(), endpointConfigured, apiKeyConfigured);
         return chatModel;
     }
 }

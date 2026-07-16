@@ -32,6 +32,10 @@ public class LlmInvocationFinishRecord {
 
     private Integer totalTokens;
 
+    private String usageSource;
+
+    private Long chargedMicrocredits;
+
     private String finishReason;
 
     private String errorMsg;

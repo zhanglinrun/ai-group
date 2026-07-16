@@ -3,6 +3,7 @@ package org.wwz.ai.domain.agent.runtime.agent;
 import org.apache.commons.lang3.StringUtils;
 import org.wwz.ai.domain.agent.runtime.dto.tool.ToolChoice;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
 
@@ -27,6 +28,9 @@ public final class ExplicitToolChoicePolicy {
     private static final List<String> NETWORK_SOURCES = List.of(
             "官方文档", "官网", "github", "网页", "http://", "https://"
     );
+    private static final List<String> SINGLE_USE_DIRECTIVES = List.of(
+            "一次", "1次", "1 次", "one time", "once", "exactly one"
+    );
 
     private ExplicitToolChoicePolicy() {
     }
@@ -40,7 +44,7 @@ public final class ExplicitToolChoicePolicy {
             return ToolChoice.AUTO;
         }
 
-        boolean namesTool = normalized.contains("工具") || normalized.contains(" tool");
+        boolean namesTool = normalized.contains("工具") || normalized.contains(" tool") || normalized.contains("_tool");
         boolean explicitToolRequest = namesTool && containsAny(normalized, EXPLICIT_DIRECTIVES);
         boolean explicitSkillLoad = normalized.contains("skill")
                 && (normalized.contains("加载") || normalized.contains("load "));
@@ -61,6 +65,131 @@ public final class ExplicitToolChoicePolicy {
             return false;
         }
         return containsAny(query.toLowerCase(Locale.ROOT), NEGATIVE_DIRECTIVES);
+    }
+
+    public static ToolChoice resolveForCurrentTask(String originalQuery,
+                                                   String currentTask,
+                                                   int currentStep) {
+        if (prohibitsToolUse(StringUtils.defaultString(originalQuery) + "\n"
+                + StringUtils.defaultString(currentTask))) {
+            return ToolChoice.AUTO;
+        }
+        String scopedQuery = StringUtils.isNotBlank(currentTask) ? currentTask : originalQuery;
+        ToolChoice resolved = resolve(scopedQuery, currentStep);
+        return resolved == ToolChoice.AUTO && currentStep <= 1 && isImperativePlanToolTask(currentTask)
+                ? ToolChoice.REQUIRED
+                : resolved;
+    }
+
+    /**
+     * Resolves one explicitly requested tool to its canonical available name.
+     * Ambiguous, unavailable, embedded, and prohibited names remain unforced.
+     */
+    public static String resolveRequiredToolName(String query,
+                                                 int currentStep,
+                                                 Collection<String> availableToolNames) {
+        if (resolve(query, currentStep) != ToolChoice.REQUIRED
+                || availableToolNames == null || availableToolNames.isEmpty()) {
+            return null;
+        }
+        return matchAvailableToolName(query, availableToolNames);
+    }
+
+    private static String matchAvailableToolName(String query, Collection<String> availableToolNames) {
+        String normalizedQuery = StringUtils.defaultString(query).toLowerCase(Locale.ROOT);
+        String matched = null;
+        for (String toolName : availableToolNames) {
+            if (StringUtils.isBlank(toolName)
+                    || !containsIdentifier(normalizedQuery, toolName.toLowerCase(Locale.ROOT))) {
+                continue;
+            }
+            if (matched != null && !matched.equals(toolName)) {
+                return null;
+            }
+            matched = toolName;
+        }
+        return matched;
+    }
+
+    public static String resolveRequiredToolNameForCurrentTask(String originalQuery,
+                                                               String currentTask,
+                                                               int currentStep,
+                                                               Collection<String> availableToolNames) {
+        if (prohibitsToolUse(StringUtils.defaultString(originalQuery) + "\n"
+                + StringUtils.defaultString(currentTask))) {
+            return null;
+        }
+        String scopedQuery = StringUtils.isNotBlank(currentTask) ? currentTask : originalQuery;
+        return resolveForCurrentTask(originalQuery, currentTask, currentStep) == ToolChoice.REQUIRED
+                && availableToolNames != null && !availableToolNames.isEmpty()
+                ? matchAvailableToolName(scopedQuery, availableToolNames)
+                : null;
+    }
+
+    /**
+     * Resolves an explicitly named tool whose user request also limits it to one call in the run.
+     */
+    public static String resolveSingleUseRequiredToolName(String query,
+                                                          Collection<String> availableToolNames) {
+        String normalized = StringUtils.defaultString(query).toLowerCase(Locale.ROOT);
+        int constraintEnd = resolveLastDirectiveEnd(normalized, SINGLE_USE_DIRECTIVES);
+        if (constraintEnd < 0) {
+            return null;
+        }
+        // Output-style instructions are appended after the user's original query and may name
+        // another delivery tool (for example report_tool). Only the text up to the single-use
+        // constraint belongs to that budget; later system-appended tool names must not make it
+        // look ambiguous and silently disable the run-level guard.
+        return resolveRequiredToolName(normalized.substring(0, constraintEnd), 1, availableToolNames);
+    }
+
+    private static int resolveLastDirectiveEnd(String value, List<String> directives) {
+        int lastEnd = -1;
+        for (String directive : directives) {
+            int index = value.lastIndexOf(directive);
+            if (index < 0) {
+                continue;
+            }
+            int end = index + directive.length();
+            if (end > lastEnd) {
+                lastEnd = end;
+            }
+        }
+        return lastEnd;
+    }
+
+    private static boolean isImperativePlanToolTask(String currentTask) {
+        if (StringUtils.isBlank(currentTask)) {
+            return false;
+        }
+        String normalized = currentTask.trim().toLowerCase(Locale.ROOT);
+        boolean namesTool = normalized.contains("工具") || normalized.contains(" tool")
+                || normalized.contains("_tool");
+        return namesTool && (normalized.startsWith("调用")
+                || normalized.contains("任务是：调用")
+                || normalized.contains("任务是:调用")
+                || normalized.startsWith("call ")
+                || normalized.contains("task is to call "));
+    }
+
+    private static boolean containsIdentifier(String value, String identifier) {
+        int index = value.indexOf(identifier);
+        while (index >= 0) {
+            int end = index + identifier.length();
+            boolean leftBoundary = index == 0 || !isIdentifierCharacter(value.charAt(index - 1));
+            boolean rightBoundary = end == value.length() || !isIdentifierCharacter(value.charAt(end));
+            if (leftBoundary && rightBoundary) {
+                return true;
+            }
+            index = value.indexOf(identifier, index + 1);
+        }
+        return false;
+    }
+
+    private static boolean isIdentifierCharacter(char value) {
+        return value >= 'a' && value <= 'z'
+                || value >= '0' && value <= '9'
+                || value == '_' || value == '-';
     }
 
     private static boolean containsAny(String value, List<String> candidates) {

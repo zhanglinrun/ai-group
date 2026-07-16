@@ -89,6 +89,12 @@ public class ReactorConfig {
     @Value("${autobots.autoagent.tool.deep_search_tool.desc:}")
     private String deepSearchToolDesc;
 
+    @Value("${ai-group.billing.tools.deep-search-microcredits:200000}")
+    private long deepSearchMicrocredits;
+
+    @Value("${ai-group.billing.tools.image-generation-microcredits:1000000}")
+    private long imageGenerationMicrocredits;
+
     @Value("${autobots.autoagent.tool.web_fetch_tool.desc:}")
     private String webFetchToolDesc;
 
@@ -279,6 +285,9 @@ public class ReactorConfig {
 
     @Value("${autobots.autoagent.code_interpreter_url:}")
     private String codeInterpreterUrl;
+
+    @Value("${autobots.autoagent.reactor_tool_token:${AGENT_GROUP_REACTOR_TOOL_TOKEN:${AI_GROUP_INTERNAL_TOKEN:${ai-group.internal.token:}}}}")
+    private String reactorToolToken;
 
     @Value("${autobots.autoagent.deep_search_url:}")
     private String deepSearchUrl;

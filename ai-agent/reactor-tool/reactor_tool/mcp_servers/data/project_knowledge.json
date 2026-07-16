@@ -1,0 +1,127 @@
+{
+  "entries": [
+    {
+      "id": "memory-architecture",
+      "title": "三层记忆与跨会话长期记忆",
+      "keywords": ["长期记忆", "跨会话", "Qdrant", "working memory", "episodic memory", "semantic memory", "procedural memory"],
+      "summary": "运行时区分工作上下文、会话执行证据和结构化长期记忆；长期层使用 Qdrant 召回，并按 owner 隔离。",
+      "highlights": [
+        "Working Context 在 Token 预算内保留最近对话和当前任务状态",
+        "Episodic Evidence 从执行账本重建同会话运行、工具调用和产物",
+        "Semantic/Procedural Memory 只接收明确的偏好、事实和流程，带稳定键、版本、置信度与 TTL",
+        "召回结果进入提示词前仍受 owner、类型、阈值和数量上限约束"
+      ]
+    },
+    {
+      "id": "mcp-integration",
+      "title": "MCP 外部工具接入",
+      "keywords": ["MCP", "FastMCP", "STDIO", "SSE", "Streamable HTTP", "工具发现", "动态工具"],
+      "summary": "Java Agent 通过 MCP 客户端完成初始化、工具发现和动态注册；演示服务使用官方 FastMCP STDIO 实现。",
+      "highlights": [
+        "服务配置与业务代码解耦，运行时发现工具 schema",
+        "支持 STDIO、SSE 与 Streamable HTTP 三类传输适配",
+        "本地演示工具统一使用 project_ 和 utility_ 命名空间避免碰撞",
+        "示例服务只读、参数有界、单次结果不超过 8 KB"
+      ]
+    },
+    {
+      "id": "agent-runtime",
+      "title": "Agent 执行编排",
+      "keywords": ["Agent", "ReAct", "Plan-Solve", "Workflow", "状态机", "循环上限", "tool calling"],
+      "summary": "项目保留自研 Agent Harness，覆盖 ReAct、Plan-Solve 和 Workflow，并对循环、工具与上下文做显式治理。",
+      "highlights": [
+        "ReAct 适合动态推理与工具选择，Plan-Solve 适合先规划再逐步执行",
+        "循环次数、上下文 Token 和工具输出都有硬上限",
+        "工具调用经过统一注册、参数 schema、事件记录和失败回传",
+        "SSE 暴露计划、任务、工具、评估、检查点和最终结果等生命周期事件"
+      ]
+    },
+    {
+      "id": "checkpoint-resume",
+      "title": "Plan-Solve 检查点与安全恢复",
+      "keywords": ["checkpoint", "resume", "检查点", "恢复", "幂等", "副作用"],
+      "summary": "Plan-Solve 提供最小节点级 checkpoint/resume，以所有者隔离、快照哈希和原子认领限制恢复边界。",
+      "highlights": [
+        "检查点记录阶段、步骤序号和必要状态快照",
+        "恢复时校验 owner、session 与 SHA-256 快照哈希",
+        "数据库条件更新保证同一检查点只能被原子认领一次",
+        "检查点后的非重放安全工具会触发 fail-closed，而不是静默重放副作用"
+      ]
+    },
+    {
+      "id": "execution-governance",
+      "title": "执行账本与额度结算",
+      "keywords": ["execution ledger", "执行账本", "quota", "额度", "microcredits", "Token", "可观测性"],
+      "summary": "每次运行、模型调用和工具调用都写入执行账本；LLM 额度采用整数微额度预留与按实际 Token 结算。",
+      "highlights": [
+        "requestId 和 invocation 序号支撑幂等与调用关联",
+        "模型调用保存费率快照、估算或供应商 usage、耗时和状态",
+        "额度先预留再结算，避免浮点金额误差和并发超扣",
+        "供应商 usage 缺失时显式回退本地 Token 估算并标注来源"
+      ]
+    },
+    {
+      "id": "purchase-chat-journey",
+      "title": "从购买到 Agent 对话的业务闭环",
+      "keywords": ["购买", "拼团", "支付", "支付宝沙箱", "会员", "额度", "对话", "Gateway"],
+      "summary": "演示链路串联登录、商品购买、支付宝沙箱回调、会员额度入账、Gateway 鉴权与 Agent 流式对话。",
+      "highlights": [
+        "支付通知以业务单号幂等处理并驱动订单状态迁移",
+        "会员额度账本记录入账和 Agent 消耗，余额更新使用并发保护",
+        "Gateway 统一校验身份并向内部服务传递可信用户上下文",
+        "Agent 对话通过 SSE 返回执行事件并在结束后完成额度结算"
+      ]
+    }
+  ],
+  "flows": {
+    "purchase_to_chat": {
+      "title": "购买到对话端到端流程",
+      "steps": [
+        "用户登录后经 Gateway 获得可信身份上下文",
+        "创建商品或拼团订单并生成待支付记录",
+        "支付宝沙箱完成支付，异步通知通过验签与幂等校验",
+        "订单完成后会员服务把购买额度写入账户与额度账本",
+        "用户发起 Agent 请求，运行时先预留本次 LLM 额度",
+        "Agent 通过 SSE 输出推理生命周期事件并按需调用本地或 MCP 工具",
+        "执行结束后按实际 Token 结算，执行账本与会话历史可查询"
+      ],
+      "boundary": "秋招本地演示可保留支付模拟开关；真实支付宝沙箱需要应用凭据与公网回调条件。"
+    },
+    "agent_execution": {
+      "title": "Agent 单次执行流程",
+      "steps": [
+        "校验 owner、session、模型与额度参数",
+        "创建 run 和 LLM invocation 执行账本记录",
+        "在 Token 预算内组装工作上下文、会话证据与长期记忆",
+        "按 ReAct、Plan-Solve 或 Workflow 策略执行并限制最大循环",
+        "调用工具前校验 schema，调用后限制结果并记录事件",
+        "输出最终结果，结算实际额度并关闭本次 run"
+      ],
+      "boundary": "该项目是可讲清治理边界的学习型 Harness，不宣称达到大厂生产级分布式 durable execution。"
+    },
+    "long_term_memory": {
+      "title": "跨会话长期记忆流程",
+      "steps": [
+        "从用户明确表达中抽取 PREFERENCE、FACT 或 PROCEDURE 候选",
+        "生成 owner 隔离的稳定 memory key，并写入 source、confidence、version 与 TTL",
+        "通过 embedding 服务生成向量并 upsert 到 Qdrant",
+        "新会话按 owner、类型和相似度阈值召回有限条目",
+        "将召回记忆作为可追踪上下文注入提示词，而不是覆盖当前用户输入",
+        "通过固定数据集评估 precision、recall 与 Token 成本，并支持过期和删除"
+      ],
+      "boundary": "长期记忆依赖 Qdrant 和 embedding 服务；只有基础设施健康且开关显式启用时才参与主链路。"
+    },
+    "mcp_tool_call": {
+      "title": "MCP 动态工具调用流程",
+      "steps": [
+        "Agent 启动时读取启用的 MCP 服务配置",
+        "客户端按传输类型建立连接并完成 initialize 握手",
+        "调用 tools/list 获取名称、描述和输入 schema",
+        "将发现的工具动态注册到 Agent 工具目录并处理重名",
+        "模型选择工具后由 MCP 客户端执行 tools/call",
+        "结果经过大小限制、异常映射和执行账本记录后返回 Agent"
+      ],
+      "boundary": "演示服务采用只读白名单数据与纯计算工具；高风险外部 MCP 仍需额外认证、授权、超时和审计。"
+    }
+  }
+}

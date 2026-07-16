@@ -27,13 +27,8 @@ import org.wwz.ai.domain.agent.model.valobj.AiAgentVO;
 import org.wwz.ai.types.agent.config.AgentExecutorNames;
 import org.wwz.ai.types.agent.config.AgentExecutorProperties;
 import org.wwz.ai.types.agent.exception.AgentExecutorBusyException;
-import org.wwz.ai.application.agent.quota.AgentRunSettlementService;
-import org.wwz.ai.application.agent.quota.MemberQuotaBillingService;
-import org.wwz.ai.application.agent.quota.QuotaInsufficientException;
-import org.wwz.ai.application.agent.stream.QuotaBillingAgentSessionStream;
 import org.wwz.ai.types.agent.owner.OwnerRequestContext;
 import org.wwz.ai.types.enums.ResponseCode;
-import com.alibaba.fastjson.JSON;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import org.wwz.ai.trigger.http.reactor.support.SseLifecycleSupport;
@@ -82,12 +77,6 @@ public class AiAgentController implements IAiAgentService {
     private Executor dispatchExecutor;
 
     @Resource
-    private MemberQuotaBillingService memberQuotaBillingService;
-
-    @Resource
-    private AgentRunSettlementService agentRunSettlementService;
-
-    @Resource
     @Qualifier(AgentExecutorNames.HEARTBEAT_SCHEDULER)
     private TaskScheduler heartbeatScheduler;
 
@@ -100,12 +89,14 @@ public class AiAgentController implements IAiAgentService {
     @PostMapping("/AutoAgent")
     public SseEmitter AutoAgent(@RequestBody AgentRequest request) throws UnsupportedEncodingException {
 
-        log.info("{} auto agent request: {}", request.getRequestId(), JSON.toJSONString(request));
+        log.info("{} auto agent request accepted agentType={} stream={} fileCount={} resumeRequested={}",
+                request.getRequestId(), request.getAgentType(), request.getIsStream(),
+                request.getSessionFiles() == null ? 0 : request.getSessionFiles().size(),
+                StringUtils.isNotBlank(request.getResumeCheckpointId()));
 
         Long AUTO_AGENT_SSE_TIMEOUT = 600 * 1000L;
 
         SseEmitter emitter = SseLifecycleSupport.createEmitter(AUTO_AGENT_SSE_TIMEOUT);
-        String freezeId = null;
         try {
             Long ownerId = resolveOwnerId(request);
             request.setOwnerId(String.valueOf(ownerId));
@@ -114,13 +105,9 @@ public class AiAgentController implements IAiAgentService {
                     request.getSessionId(),
                     request.getQuery()
             );
-            freezeId = memberQuotaBillingService.freezeForAgentRun(ownerId, request);
-        } catch (QuotaInsufficientException e) {
-            log.warn("{} quota rejected auto agent request", request.getRequestId(), e);
-            emitter.completeWithError(e);
-            return emitter;
         } catch (Exception e) {
-            log.warn("{} reject auto agent request before dispatch", request.getRequestId(), e);
+            log.warn("{} reject auto agent request before dispatch errorType={}",
+                    request.getRequestId(), e.getClass().getSimpleName());
             emitter.completeWithError(e);
             return emitter;
         }
@@ -134,33 +121,26 @@ public class AiAgentController implements IAiAgentService {
 
         SseLifecycleSupport.registerLifecycle(emitter, request.getRequestId(), heartbeatFuture, log);
 
-        final String quotaFreezeId = freezeId;
         try {
             AgentExecutorSupport.execute(dispatchExecutor, "dispatch", () -> {
-                // 结算统一收口到 QuotaBillingAgentSessionStream：settled 保护保证 confirm/release 至多发生一次，
-                // confirm 自身异常也不会再触发 release。
-                QuotaBillingAgentSessionStream billingStream = new QuotaBillingAgentSessionStream(
-                        new SseEmitterAgentSessionStream(emitter), memberQuotaBillingService, quotaFreezeId);
+                SseEmitterAgentSessionStream sessionStream = new SseEmitterAgentSessionStream(emitter);
                 try {
-                    agentDispatchService.dispatch(request, billingStream);
-                    // dispatch 正常返回不代表执行成功（agent 失败分支会吞异常），以账本 run 终态决定 confirm/release。
-                    if (agentRunSettlementService.shouldReleaseAfterDispatch(request.getRequestId())) {
-                        billingStream.completeWithFailureSettlement();
-                    } else {
-                        billingStream.complete();
-                    }
+                    agentDispatchService.dispatch(request, sessionStream);
+                    sessionStream.complete();
                 } catch (Exception e) {
-                    log.error("{} auto agent error", request.getRequestId(), e);
+                    log.error("{} auto agent error errorType={}",
+                            request.getRequestId(), e.getClass().getSimpleName());
                     try {
-                        billingStream.completeWithError(e);
+                        sessionStream.completeWithError(e);
                     } catch (Exception ex) {
-                        log.warn("{} emitter completeWithError failed", request.getRequestId(), ex);
+                        log.warn("{} emitter completeWithError failed errorType={}",
+                                request.getRequestId(), ex.getClass().getSimpleName());
                     }
                 }
             });
         } catch (AgentExecutorBusyException e) {
-            memberQuotaBillingService.release(quotaFreezeId);
-            log.warn("{} dispatch rejected", request.getRequestId(), e);
+            log.warn("{} dispatch rejected errorType={}",
+                    request.getRequestId(), e.getClass().getSimpleName());
             emitter.completeWithError(e);
         }
 
@@ -190,7 +170,7 @@ public class AiAgentController implements IAiAgentService {
      */
     @RequestMapping(value = "/web/api/v1/gpt/queryAgentStreamIncr", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter queryAgentStreamIncr(@RequestBody GptQueryReq params) {
-        // 与 /AutoAgent 对齐：冻结配额在 Servlet 线程同步完成（配额不足立即返回），
+        // 与 /AutoAgent 对齐：请求校验在 Servlet 线程同步完成，
         // 真正的 agent 执行提交到 dispatch 线程池异步跑并开启心跳，避免长连接钉死 Tomcat 线程、且首字节前不再全程缓冲。
         SseEmitter emitter = SseLifecycleSupport.createEmitter(TimeUnit.HOURS.toMillis(1));
 
@@ -198,7 +178,8 @@ public class AiAgentController implements IAiAgentService {
         try {
             ownerId = OwnerRequestContext.requireOwnerIdAsString();
         } catch (Exception e) {
-            log.warn("{} reject gpt stream request: owner unresolved", params.getRequestId(), e);
+            log.warn("{} reject gpt stream request: owner unresolved errorType={}",
+                    params.getRequestId(), e.getClass().getSimpleName());
             emitter.completeWithError(e);
             return emitter;
         }
@@ -212,14 +193,10 @@ public class AiAgentController implements IAiAgentService {
         GptQueryIngressService.PreparedGptQuery prepared;
         try {
             prepared = gptQueryIngressService.prepare(params, new SseEmitterAgentSessionStream(emitter));
-        } catch (QuotaInsufficientException e) {
-            perUserConcurrencyLimiter.release(ownerId);
-            log.warn("{} quota rejected gpt stream request", params.getRequestId(), e);
-            emitter.completeWithError(e);
-            return emitter;
         } catch (Exception e) {
             perUserConcurrencyLimiter.release(ownerId);
-            log.warn("{} reject gpt stream request before dispatch", params.getRequestId(), e);
+            log.warn("{} reject gpt stream request before dispatch errorType={}",
+                    params.getRequestId(), e.getClass().getSimpleName());
             emitter.completeWithError(e);
             return emitter;
         }
@@ -239,27 +216,27 @@ public class AiAgentController implements IAiAgentService {
         try {
             AgentExecutorSupport.execute(dispatchExecutor, "gptQuery", () -> {
                 try {
-                    // 异步路径：dispatch 异常不再向上抛，统一落到流的 completeWithError（前端可见、配额释放）。
+                    // 异步路径：dispatch 异常不再向上抛，统一落到流的 completeWithError（前端可见）。
                     gptQueryIngressService.dispatchAndSettle(preparedQuery, false);
                 } catch (Exception e) {
-                    log.error("{} gpt stream dispatch error", requestId, e);
+                    log.error("{} gpt stream dispatch error errorType={}",
+                            requestId, e.getClass().getSimpleName());
                 } finally {
                     perUserConcurrencyLimiter.release(limiterOwnerId);
                 }
             });
         } catch (AgentExecutorBusyException e) {
-            // 线程池拒绝：任务未执行，需在此释放并发名额，并通过结算流收口（completeWithError 释放冻结配额）。
+            // 线程池拒绝：任务未执行，需在此释放并发名额并关闭响应流。
             perUserConcurrencyLimiter.release(ownerId);
-            log.warn("{} gpt stream dispatch rejected", requestId, e);
-            preparedQuery.billingStream().completeWithError(e);
+            log.warn("{} gpt stream dispatch rejected errorType={}",
+                    requestId, e.getClass().getSimpleName());
+            preparedQuery.stream().completeWithError(e);
         }
         return emitter;
     }
 
 //    @RequestMapping(value = "auto_agent1", method = RequestMethod.POST)
 //    public ResponseBodyEmitter autoAgent(@RequestBody AutoAgentRequestDTO request, HttpServletResponse response) {
-//        log.info("AutoAgent流式执行请求开始，请求信息：{}", JSON.toJSONString(request));
-//
 //        try {
 //            // 设置SSE响应头
 //            response.setContentType("text/event-stream");
@@ -284,13 +261,11 @@ public class AiAgentController implements IAiAgentService {
 //            return emitter;
 //
 //        } catch (Exception e) {
-//            log.error("AutoAgent请求处理异常：{}", e.getMessage(), e);
 //            ResponseBodyEmitter errorEmitter = new ResponseBodyEmitter();
 //            try {
 //                errorEmitter.send("请求处理异常：" + e.getMessage());
 //                errorEmitter.complete();
 //            } catch (Exception ex) {
-//                log.error("发送错误信息失败：{}", ex.getMessage(), ex);
 //            }
 //            return errorEmitter;
 //        }
@@ -300,7 +275,7 @@ public class AiAgentController implements IAiAgentService {
     @RequestMapping(value = "armory_agent", method = RequestMethod.POST)
     @Override
     public Response<Boolean> armoryAgent(@RequestBody ArmoryAgentRequestDTO request) {
-        log.info("装配智能体请求开始，请求信息：{}", JSON.toJSONString(request));
+        log.info("装配智能体请求开始，agentId={}", request == null ? null : request.getAgentId());
 
         try {
             // 参数校验
@@ -324,8 +299,8 @@ public class AiAgentController implements IAiAgentService {
                     .build();
 
         } catch (Exception e) {
-            log.error("装配智能体失败，agentId：{}，错误信息：{}",
-                    request != null ? request.getAgentId() : "null", e.getMessage(), e);
+            log.error("装配智能体失败，agentId={}，errorType={}",
+                    request != null ? request.getAgentId() : "null", e.getClass().getSimpleName());
             return Response.<Boolean>builder()
                     .code(ResponseCode.UN_ERROR.getCode())
                     .info("装配失败：" + e.getMessage())
@@ -365,7 +340,7 @@ public class AiAgentController implements IAiAgentService {
                     .build();
 
         } catch (Exception e) {
-            log.error("查询可用智能体列表失败，错误信息：{}", e.getMessage(), e);
+            log.error("查询可用智能体列表失败，errorType={}", e.getClass().getSimpleName());
             return Response.<List<AiAgentResponseDTO>>builder()
                     .code(ResponseCode.UN_ERROR.getCode())
                     .info("查询失败：" + e.getMessage())
@@ -377,7 +352,7 @@ public class AiAgentController implements IAiAgentService {
     @RequestMapping(value = "armory_api", method = RequestMethod.POST)
     @Override
     public Response<Boolean> armoryApi(@RequestBody ArmoryApiRequestDTO request) {
-        log.info("装配API请求开始，请求信息：{}", JSON.toJSONString(request));
+        log.info("装配API请求开始，apiId={}", request == null ? null : request.getApiId());
 
         try {
             // 参数校验
@@ -401,8 +376,8 @@ public class AiAgentController implements IAiAgentService {
                     .build();
 
         } catch (Exception e) {
-            log.error("装配API失败，apiId：{}，错误信息：{}",
-                    request != null ? request.getApiId() : "null", e.getMessage(), e);
+            log.error("装配API失败，apiId={}，errorType={}",
+                    request != null ? request.getApiId() : "null", e.getClass().getSimpleName());
             return Response.<Boolean>builder()
                     .code(ResponseCode.UN_ERROR.getCode())
                     .info("装配失败：" + e.getMessage())

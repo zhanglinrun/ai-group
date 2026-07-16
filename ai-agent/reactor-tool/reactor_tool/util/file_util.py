@@ -116,8 +116,12 @@ async def upload_file(
         }
         async with aiohttp.ClientSession() as session:
             async with session.post(
-                f"{storage_target}/upload_file", json=body, timeout=99999
+                f"{storage_target}/upload_file",
+                json=body,
+                headers=_internal_file_service_headers(),
+                timeout=99999,
             ) as response:
+                response.raise_for_status()
                 result = json.loads(await response.text())
         return {
             "fileName": file_name,
@@ -164,8 +168,12 @@ async def upload_file_by_path(
         )
         async with aiohttp.ClientSession() as session:
             async with session.post(
-                f"{storage_target}/upload_file_data", data=data, timeout=99999
+                f"{storage_target}/upload_file_data",
+                data=data,
+                headers=_internal_file_service_headers(),
+                timeout=99999,
             ) as response:
+                response.raise_for_status()
                 result = json.loads(await response.text())
         return {
             "fileName": file_name,
@@ -273,6 +281,12 @@ def _is_http_endpoint(storage_target: str) -> bool:
     """判断当前文件存储目标是否为 HTTP 文件服务。"""
     lowered = storage_target.lower()
     return lowered.startswith("http://") or lowered.startswith("https://")
+
+
+def _internal_file_service_headers() -> Dict[str, str]:
+    """Authenticate reactor-tool's internal file-service mutations when a token is configured."""
+    token = (os.getenv("REACTOR_TOOL_TOKEN") or os.getenv("AI_GROUP_INTERNAL_TOKEN") or "").strip()
+    return {"X-Tool-Token": token} if token else {}
 
 
 def _is_local_file_reference(file_name: str) -> bool:
