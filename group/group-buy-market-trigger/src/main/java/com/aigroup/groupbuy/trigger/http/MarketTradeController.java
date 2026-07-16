@@ -13,7 +13,6 @@ import com.aigroup.groupbuy.domain.trade.model.entity.*;
 import com.aigroup.groupbuy.domain.trade.model.valobj.GroupBuyProgressVO;
 import com.aigroup.groupbuy.domain.trade.model.valobj.NotifyConfigVO;
 import com.aigroup.groupbuy.domain.trade.model.valobj.NotifyTypeEnumVO;
-import com.aigroup.groupbuy.domain.trade.model.valobj.TradeOrderStatusEnumVO;
 import com.aigroup.groupbuy.domain.trade.service.ITradeLockOrderService;
 import com.aigroup.groupbuy.domain.trade.service.ITradeRefundOrderService;
 import com.aigroup.groupbuy.domain.trade.service.ITradeSettlementOrderService;
@@ -41,6 +40,9 @@ import java.util.Objects;
 @RequestMapping("/api/v1/gbm/trade/")
 public class MarketTradeController implements IMarketTradeService {
 
+    private static final int IDEMPOTENCY_RECOVERY_ATTEMPTS = 4;
+    private static final long IDEMPOTENCY_RECOVERY_BACKOFF_MILLIS = 20L;
+
     @Resource
     private IIndexGroupBuyMarketService indexGroupBuyMarketService;
     @Resource
@@ -57,6 +59,9 @@ public class MarketTradeController implements IMarketTradeService {
     @Override
     public Response<LockMarketPayOrderResponseDTO> lockMarketPayOrder(@RequestBody LockMarketPayOrderRequestDTO requestDTO) {
         try {
+            if (requestDTO == null) {
+                return illegalLockRequest();
+            }
             // 参数
             String userId = requestDTO.getUserId();
             String source = requestDTO.getSource();
@@ -69,30 +74,20 @@ public class MarketTradeController implements IMarketTradeService {
 
             log.info("营销交易锁单:{} LockMarketPayOrderRequestDTO:{}", userId, JSON.toJSONString(requestDTO));
 
-            if (StringUtils.isBlank(userId) || StringUtils.isBlank(source) || StringUtils.isBlank(channel) || StringUtils.isBlank(goodsId) || null == activityId || ("HTTP".equals(notifyConfigVO.getNotifyType()) && StringUtils.isBlank(notifyConfigVO.getNotifyUrl()))) {
-                return Response.<LockMarketPayOrderResponseDTO>builder()
-                        .code(ResponseCode.ILLEGAL_PARAMETER.getCode())
-                        .info(ResponseCode.ILLEGAL_PARAMETER.getInfo())
-                        .build();
+            if (StringUtils.isBlank(userId) || StringUtils.isBlank(source) || StringUtils.isBlank(channel)
+                    || StringUtils.isBlank(goodsId) || null == activityId || StringUtils.isBlank(outTradeNo)
+                    || notifyConfigVO == null || StringUtils.isBlank(notifyConfigVO.getNotifyType())
+                    || (!("MQ".equals(notifyConfigVO.getNotifyType()) || "HTTP".equals(notifyConfigVO.getNotifyType())))
+                    || ("HTTP".equals(notifyConfigVO.getNotifyType()) && StringUtils.isBlank(notifyConfigVO.getNotifyUrl()))) {
+                return illegalLockRequest();
             }
 
-            // 查询 outTradeNo 是否已经存在交易记录
-            MarketPayOrderEntity marketPayOrderEntity = tradeOrderService.queryNoPayMarketPayOrderByOutTradeNo(userId, outTradeNo);
-            if (null != marketPayOrderEntity && TradeOrderStatusEnumVO.CREATE.equals(marketPayOrderEntity.getTradeOrderStatusEnumVO())) {
-                LockMarketPayOrderResponseDTO lockMarketPayOrderResponseDTO = LockMarketPayOrderResponseDTO.builder()
-                        .orderId(marketPayOrderEntity.getOrderId())
-                        .originalPrice(marketPayOrderEntity.getOriginalPrice())
-                        .deductionPrice(marketPayOrderEntity.getDeductionPrice())
-                        .payPrice(marketPayOrderEntity.getPayPrice())
-                        .tradeOrderStatus(marketPayOrderEntity.getTradeOrderStatusEnumVO().getCode())
-                        .build();
-
+            // The full tuple matches uq_sc_out_trade_no. Return the original/current resource for every
+            // duplicate state so a retry can never create a second team after an ambiguous response.
+            MarketPayOrderEntity marketPayOrderEntity = queryExistingLock(requestDTO);
+            if (null != marketPayOrderEntity) {
                 log.info("交易锁单记录(存在):{} marketPayOrderEntity:{}", userId, JSON.toJSONString(marketPayOrderEntity));
-                return Response.<LockMarketPayOrderResponseDTO>builder()
-                        .code(ResponseCode.SUCCESS.getCode())
-                        .info(ResponseCode.SUCCESS.getInfo())
-                        .data(lockMarketPayOrderResponseDTO)
-                        .build();
+                return successfulLockResponse(marketPayOrderEntity);
             }
 
             // 判断拼团锁单是否完成了目标
@@ -178,31 +173,103 @@ public class MarketTradeController implements IMarketTradeService {
             log.info("交易锁单记录(新):{} marketPayOrderEntity:{}", userId, JSON.toJSONString(marketPayOrderEntity));
 
             // 返回结果
-            return Response.<LockMarketPayOrderResponseDTO>builder()
-                    .code(ResponseCode.SUCCESS.getCode())
-                    .info(ResponseCode.SUCCESS.getInfo())
-                    .data(LockMarketPayOrderResponseDTO.builder()
-                            .orderId(marketPayOrderEntity.getOrderId())
-                            .originalPrice(marketPayOrderEntity.getOriginalPrice())
-                            .deductionPrice(marketPayOrderEntity.getDeductionPrice())
-                            .payPrice(marketPayOrderEntity.getPayPrice())
-                            .tradeOrderStatus(marketPayOrderEntity.getTradeOrderStatusEnumVO().getCode())
-                            .teamId(marketPayOrderEntity.getTeamId())
-                            .build())
-                    .build();
+            return successfulLockResponse(marketPayOrderEntity);
         } catch (AppException e) {
-            log.error("营销交易锁单业务异常:{} LockMarketPayOrderRequestDTO:{}", requestDTO.getUserId(), JSON.toJSONString(requestDTO), e);
+            // Concurrent requests with the same idempotency key can both pass the pre-read. The unique
+            // index selects a winner; after the losing transaction rolls back, resolve and return it.
+            if (ResponseCode.INDEX_EXCEPTION.getCode().equals(e.getCode())) {
+                MarketPayOrderEntity existing = recoverExistingLock(requestDTO);
+                if (existing != null) {
+                    log.info("交易锁单唯一键竞态已恢复:{} outTradeNo:{}", requestDTO.getUserId(), requestDTO.getOutTradeNo());
+                    return successfulLockResponse(existing);
+                }
+            }
+            log.error("营销交易锁单业务异常:{} LockMarketPayOrderRequestDTO:{}",
+                    requestDTO == null ? null : requestDTO.getUserId(), JSON.toJSONString(requestDTO), e);
             return Response.<LockMarketPayOrderResponseDTO>builder()
                     .code(e.getCode())
                     .info(e.getInfo())
                     .build();
         } catch (Exception e) {
-            log.error("营销交易锁单服务失败:{} LockMarketPayOrderRequestDTO:{}", requestDTO.getUserId(), JSON.toJSONString(requestDTO), e);
+            log.error("营销交易锁单服务失败:{} LockMarketPayOrderRequestDTO:{}",
+                    requestDTO == null ? null : requestDTO.getUserId(), JSON.toJSONString(requestDTO), e);
             return Response.<LockMarketPayOrderResponseDTO>builder()
                     .code(ResponseCode.UN_ERROR.getCode())
                     .info(ResponseCode.UN_ERROR.getInfo())
                     .build();
         }
+    }
+
+    @RequestMapping(value = "query_market_pay_order", method = RequestMethod.POST)
+    @Override
+    public Response<LockMarketPayOrderResponseDTO> queryMarketPayOrder(@RequestBody QueryMarketPayOrderRequestDTO requestDTO) {
+        if (requestDTO == null || StringUtils.isAnyBlank(requestDTO.getUserId(), requestDTO.getSource(),
+                requestDTO.getChannel(), requestDTO.getOutTradeNo())) {
+            return illegalLockRequest();
+        }
+
+        MarketPayOrderEntity existing = tradeOrderService.queryMarketPayOrderByBusinessKey(
+                requestDTO.getUserId(), requestDTO.getSource(), requestDTO.getChannel(), requestDTO.getOutTradeNo());
+        if (existing == null) {
+            return Response.<LockMarketPayOrderResponseDTO>builder()
+                    .code(ResponseCode.E0104.getCode())
+                    .info(ResponseCode.E0104.getInfo())
+                    .build();
+        }
+        return successfulLockResponse(existing);
+    }
+
+    private MarketPayOrderEntity queryExistingLock(LockMarketPayOrderRequestDTO requestDTO) {
+        if (requestDTO == null) return null;
+        return tradeOrderService.queryMarketPayOrderByBusinessKey(requestDTO.getUserId(), requestDTO.getSource(),
+                requestDTO.getChannel(), requestDTO.getOutTradeNo());
+    }
+
+    private MarketPayOrderEntity recoverExistingLock(LockMarketPayOrderRequestDTO requestDTO) {
+        for (int attempt = 1; attempt <= IDEMPOTENCY_RECOVERY_ATTEMPTS; attempt++) {
+            try {
+                MarketPayOrderEntity existing = queryExistingLock(requestDTO);
+                if (existing != null) return existing;
+            } catch (Exception recoveryError) {
+                log.warn("交易锁单唯一键竞态查询失败:{} outTradeNo:{} attempt:{}",
+                        requestDTO == null ? null : requestDTO.getUserId(),
+                        requestDTO == null ? null : requestDTO.getOutTradeNo(), attempt, recoveryError);
+            }
+            if (attempt < IDEMPOTENCY_RECOVERY_ATTEMPTS && !pauseBeforeRecoveryRetry(attempt)) return null;
+        }
+        return null;
+    }
+
+    private boolean pauseBeforeRecoveryRetry(int attempt) {
+        try {
+            Thread.sleep(IDEMPOTENCY_RECOVERY_BACKOFF_MILLIS * attempt);
+            return true;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
+    }
+
+    private Response<LockMarketPayOrderResponseDTO> successfulLockResponse(MarketPayOrderEntity order) {
+        return Response.<LockMarketPayOrderResponseDTO>builder()
+                .code(ResponseCode.SUCCESS.getCode())
+                .info(ResponseCode.SUCCESS.getInfo())
+                .data(LockMarketPayOrderResponseDTO.builder()
+                        .orderId(order.getOrderId())
+                        .originalPrice(order.getOriginalPrice())
+                        .deductionPrice(order.getDeductionPrice())
+                        .payPrice(order.getPayPrice())
+                        .tradeOrderStatus(order.getTradeOrderStatusEnumVO().getCode())
+                        .teamId(order.getTeamId())
+                        .build())
+                .build();
+    }
+
+    private Response<LockMarketPayOrderResponseDTO> illegalLockRequest() {
+        return Response.<LockMarketPayOrderResponseDTO>builder()
+                .code(ResponseCode.ILLEGAL_PARAMETER.getCode())
+                .info(ResponseCode.ILLEGAL_PARAMETER.getInfo())
+                .build();
     }
 
     @RequestMapping(value = "settlement_market_pay_order", method = RequestMethod.POST)

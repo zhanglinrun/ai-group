@@ -33,6 +33,14 @@ public class TradeLockOrderService implements ITradeLockOrderService {
     }
 
     @Override
+    public MarketPayOrderEntity queryMarketPayOrderByBusinessKey(String userId, String source, String channel,
+                                                                 String outTradeNo) {
+        log.info("query group lock result userId:{} source:{} channel:{} outTradeNo:{}",
+                userId, source, channel, outTradeNo);
+        return repository.queryMarketPayOrderEntityByBusinessKey(userId, source, channel, outTradeNo);
+    }
+
+    @Override
     public GroupBuyProgressVO queryGroupBuyProgress(String teamId) {
         log.info("鎷煎洟浜ゆ槗-鏌ヨ鎷煎崟杩涘害:{}", teamId);
         return repository.queryGroupBuyProgress(teamId);

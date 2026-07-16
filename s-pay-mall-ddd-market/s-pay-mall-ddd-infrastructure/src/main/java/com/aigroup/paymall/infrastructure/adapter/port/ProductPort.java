@@ -7,13 +7,13 @@ import com.aigroup.paymall.infrastructure.gateway.IGroupBuyMarketService;
 import com.aigroup.paymall.infrastructure.gateway.ProductRPC;
 import com.aigroup.paymall.infrastructure.gateway.dto.*;
 import com.aigroup.paymall.infrastructure.gateway.response.Response;
-import com.aigroup.paymall.types.exception.AppException;
 import com.alibaba.fastjson.JSON;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import retrofit2.Call;
 
+import java.io.IOException;
 import java.util.Date;
 
 @Slf4j
@@ -26,6 +26,10 @@ public class ProductPort implements IProductPort {
     private String chanel;
     @Value("${app.config.group-buy-market.notify-url}")
     private String notifyUrl;
+    @Value("${app.config.group-buy-market.lock-max-attempts:3}")
+    private int lockMaxAttempts = 3;
+    @Value("${app.config.group-buy-market.lock-retry-backoff-millis:100}")
+    private long lockRetryBackoffMillis = 100L;
 
     private final ProductRPC productRPC;
 
@@ -65,31 +69,101 @@ public class ProductPort implements IProductPort {
 //        requestDTO.setNotifyUrl(notifyUrl);
         requestDTO.setNotifyMQ();
 
-        try {
-            // 营销锁单
-            Call<Response<LockMarketPayOrderResponseDTO>> call = groupBuyMarketService.lockMarketPayOrder(requestDTO);
-
-            // 获取结果
-            Response<LockMarketPayOrderResponseDTO> response = call.execute().body();
-            log.info("营销锁单{} requestDTO:{} responseDTO:{}", userId, JSON.toJSONString(requestDTO), JSON.toJSONString(response));
-            if (null == response) return null;
-
-            // 异常判断
-            if (!"0000".equals(response.getCode())) {
-                throw new AppException(response.getCode(), response.getInfo());
+        Exception lastFailure = null;
+        int attempts = Math.max(1, lockMaxAttempts);
+        for (int attempt = 1; attempt <= attempts; attempt++) {
+            try {
+                retrofit2.Response<Response<LockMarketPayOrderResponseDTO>> transport =
+                        groupBuyMarketService.lockMarketPayOrder(requestDTO).execute();
+                if (!transport.isSuccessful()) {
+                    if (transport.code() < 500) {
+                        log.error("营销锁单 HTTP 拒绝 userId:{} orderId:{} status:{}", userId, orderId, transport.code());
+                        return null;
+                    }
+                    lastFailure = new IOException("group lock HTTP " + transport.code());
+                } else {
+                    Response<LockMarketPayOrderResponseDTO> response = transport.body();
+                    log.info("营销锁单{} attempt:{} requestDTO:{} responseDTO:{}", userId, attempt,
+                            JSON.toJSONString(requestDTO), JSON.toJSONString(response));
+                    if (response == null) {
+                        lastFailure = new IOException("group lock returned an empty body");
+                    } else if ("0000".equals(response.getCode())) {
+                        return toMarketPayDiscount(userId, orderId, response.getData());
+                    } else if ("0003".equals(response.getCode())) {
+                        // A concurrent request may have committed the same unique business key.
+                        lastFailure = new IOException("group lock unique-key race");
+                    } else {
+                        log.error("营销锁单业务拒绝 userId:{} orderId:{} code:{} info:{}",
+                                userId, orderId, response.getCode(), response.getInfo());
+                        return null;
+                    }
+                }
+            } catch (IOException e) {
+                lastFailure = e;
+                log.warn("营销锁单结果不确定 userId:{} orderId:{} attempt:{}/{} reason:{}",
+                        userId, orderId, attempt, attempts, e.getMessage());
             }
 
-            LockMarketPayOrderResponseDTO responseDTO = response.getData();
+            LockMarketPayOrderResponseDTO recovered = queryExistingLock(requestDTO);
+            if (recovered != null) {
+                log.info("营销锁单通过结果查询恢复 userId:{} orderId:{} attempt:{}", userId, orderId, attempt);
+                return toMarketPayDiscount(userId, orderId, recovered);
+            }
 
-            // 获取拼团优惠
-            return MarketPayDiscountEntity.builder()
-                    .originalPrice(responseDTO.getOriginalPrice())
-                    .deductionPrice(responseDTO.getDeductionPrice())
-                    .payPrice(responseDTO.getPayPrice())
-                    .build();
-        } catch (Exception e) {
-            log.error("营销锁单失败{}", userId, e);
+            if (attempt < attempts && !pauseBeforeLockRetry()) {
+                return null;
+            }
+        }
+
+        log.error("营销锁单恢复耗尽 userId:{} orderId:{} attempts:{}", userId, orderId, attempts, lastFailure);
+        return null;
+    }
+
+    private LockMarketPayOrderResponseDTO queryExistingLock(LockMarketPayOrderRequestDTO lockRequest) {
+        QueryMarketPayOrderRequestDTO query = new QueryMarketPayOrderRequestDTO();
+        query.setUserId(lockRequest.getUserId());
+        query.setSource(lockRequest.getSource());
+        query.setChannel(lockRequest.getChannel());
+        query.setOutTradeNo(lockRequest.getOutTradeNo());
+        try {
+            retrofit2.Response<Response<LockMarketPayOrderResponseDTO>> transport =
+                    groupBuyMarketService.queryMarketPayOrder(query).execute();
+            if (!transport.isSuccessful() || transport.body() == null
+                    || !"0000".equals(transport.body().getCode())) {
+                return null;
+            }
+            return transport.body().getData();
+        } catch (IOException e) {
+            log.debug("营销锁单结果查询暂不可用 orderId:{} reason:{}", lockRequest.getOutTradeNo(), e.getMessage());
             return null;
+        }
+    }
+
+    private MarketPayDiscountEntity toMarketPayDiscount(String userId, String orderId,
+                                                         LockMarketPayOrderResponseDTO response) {
+        if (response == null || !Integer.valueOf(0).equals(response.getTradeOrderStatus())
+                || response.getOriginalPrice() == null || response.getDeductionPrice() == null
+                || response.getPayPrice() == null) {
+            log.error("营销锁单结果不可用于预支付 userId:{} orderId:{} response:{}",
+                    userId, orderId, JSON.toJSONString(response));
+            return null;
+        }
+        return MarketPayDiscountEntity.builder()
+                .originalPrice(response.getOriginalPrice())
+                .deductionPrice(response.getDeductionPrice())
+                .payPrice(response.getPayPrice())
+                .build();
+    }
+
+    private boolean pauseBeforeLockRetry() {
+        long delay = Math.min(2000L, Math.max(0L, lockRetryBackoffMillis));
+        if (delay == 0) return true;
+        try {
+            Thread.sleep(delay);
+            return true;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
         }
     }
 

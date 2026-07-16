@@ -20,6 +20,12 @@ public interface ITradeLockOrderService {
     MarketPayOrderEntity queryNoPayMarketPayOrderByOutTradeNo(String userId, String outTradeNo);
 
     /**
+     * Query with the same source/channel/outTradeNo tuple protected by the database unique key.
+     */
+    MarketPayOrderEntity queryMarketPayOrderByBusinessKey(String userId, String source, String channel,
+                                                          String outTradeNo);
+
+    /**
      * 查询拼团进度
      *
      * @param teamId 拼团ID

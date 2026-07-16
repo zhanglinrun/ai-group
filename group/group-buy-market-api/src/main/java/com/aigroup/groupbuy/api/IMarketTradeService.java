@@ -2,6 +2,7 @@ package com.aigroup.groupbuy.api;
 
 import com.aigroup.groupbuy.api.dto.LockMarketPayOrderRequestDTO;
 import com.aigroup.groupbuy.api.dto.LockMarketPayOrderResponseDTO;
+import com.aigroup.groupbuy.api.dto.QueryMarketPayOrderRequestDTO;
 import com.aigroup.groupbuy.api.dto.RefundMarketPayOrderRequestDTO;
 import com.aigroup.groupbuy.api.dto.RefundMarketPayOrderResponseDTO;
 import com.aigroup.groupbuy.api.dto.SettlementMarketPayOrderRequestDTO;
@@ -22,6 +23,11 @@ public interface IMarketTradeService {
      * @return 锁单结果信息
      */
     Response<LockMarketPayOrderResponseDTO> lockMarketPayOrder(LockMarketPayOrderRequestDTO requestDTO);
+
+    /**
+     * Resolve a lock result after the caller received an ambiguous transport outcome.
+     */
+    Response<LockMarketPayOrderResponseDTO> queryMarketPayOrder(QueryMarketPayOrderRequestDTO requestDTO);
 
     /**
      * 营销结算

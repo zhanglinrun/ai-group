@@ -17,6 +17,8 @@ public interface IGroupBuyOrderListDao {
 
     GroupBuyOrderList queryGroupBuyOrderRecordByOutTradeNo(GroupBuyOrderList groupBuyOrderListReq);
 
+    GroupBuyOrderList queryGroupBuyOrderRecordByBusinessKey(GroupBuyOrderList groupBuyOrderListReq);
+
     Integer queryOrderCountByActivityId(GroupBuyOrderList groupBuyOrderListReq);
 
     int updateOrderStatus2COMPLETE(GroupBuyOrderList groupBuyOrderListReq);

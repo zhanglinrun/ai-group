@@ -79,15 +79,30 @@ public class TradeRepository implements ITradeRepository {
         groupBuyOrderListReq.setUserId(userId);
         groupBuyOrderListReq.setOutTradeNo(outTradeNo);
         GroupBuyOrderList groupBuyOrderListRes = groupBuyOrderListDao.queryGroupBuyOrderRecordByOutTradeNo(groupBuyOrderListReq);
-        if (null == groupBuyOrderListRes) return null;
+        return toMarketPayOrderEntity(groupBuyOrderListRes);
+    }
+
+    @Override
+    public MarketPayOrderEntity queryMarketPayOrderEntityByBusinessKey(String userId, String source, String channel,
+                                                                       String outTradeNo) {
+        GroupBuyOrderList request = new GroupBuyOrderList();
+        request.setUserId(userId);
+        request.setSource(source);
+        request.setChannel(channel);
+        request.setOutTradeNo(outTradeNo);
+        return toMarketPayOrderEntity(groupBuyOrderListDao.queryGroupBuyOrderRecordByBusinessKey(request));
+    }
+
+    private MarketPayOrderEntity toMarketPayOrderEntity(GroupBuyOrderList order) {
+        if (null == order) return null;
 
         return MarketPayOrderEntity.builder()
-                .teamId(groupBuyOrderListRes.getTeamId())
-                .orderId(groupBuyOrderListRes.getOrderId())
-                .originalPrice(groupBuyOrderListRes.getOriginalPrice())
-                .deductionPrice(groupBuyOrderListRes.getDeductionPrice())
-                .payPrice(groupBuyOrderListRes.getPayPrice())
-                .tradeOrderStatusEnumVO(TradeOrderStatusEnumVO.valueOf(groupBuyOrderListRes.getStatus()))
+                .teamId(order.getTeamId())
+                .orderId(order.getOrderId())
+                .originalPrice(order.getOriginalPrice())
+                .deductionPrice(order.getDeductionPrice())
+                .payPrice(order.getPayPrice())
+                .tradeOrderStatusEnumVO(TradeOrderStatusEnumVO.valueOf(order.getStatus()))
                 .build();
     }
 

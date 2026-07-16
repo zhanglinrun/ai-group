@@ -22,6 +22,9 @@ public interface IGroupBuyMarketService {
     @POST("api/v1/gbm/trade/lock_market_pay_order")
     Call<Response<LockMarketPayOrderResponseDTO>> lockMarketPayOrder(@Body LockMarketPayOrderRequestDTO requestDTO);
 
+    @POST("api/v1/gbm/trade/query_market_pay_order")
+    Call<Response<LockMarketPayOrderResponseDTO>> queryMarketPayOrder(@Body QueryMarketPayOrderRequestDTO requestDTO);
+
     /**
      * 营销结算
      *

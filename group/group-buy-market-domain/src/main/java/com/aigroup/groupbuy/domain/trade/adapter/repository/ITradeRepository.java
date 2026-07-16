@@ -21,6 +21,9 @@ public interface ITradeRepository {
 
     MarketPayOrderEntity queryMarketPayOrderEntityByOutTradeNo(String userId, String outTradeNo);
 
+    MarketPayOrderEntity queryMarketPayOrderEntityByBusinessKey(String userId, String source, String channel,
+                                                                String outTradeNo);
+
     MarketPayOrderEntity lockMarketPayOrder(GroupBuyOrderAggregate groupBuyOrderAggregate);
 
     GroupBuyProgressVO queryGroupBuyProgress(String teamId);

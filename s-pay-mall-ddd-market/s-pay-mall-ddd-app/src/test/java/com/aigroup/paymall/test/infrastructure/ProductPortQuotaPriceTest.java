@@ -31,6 +31,7 @@ public class ProductPortQuotaPriceTest {
         groupQuote.setOriginalPrice(new BigDecimal("12.00"));
         groupQuote.setDeductionPrice(BigDecimal.ZERO);
         groupQuote.setPayPrice(new BigDecimal("12.00"));
+        groupQuote.setTradeOrderStatus(0);
         when(call.execute()).thenReturn(retrofit2.Response.success(Response.<LockMarketPayOrderResponseDTO>builder()
                 .code("0000").data(groupQuote).build()));
 

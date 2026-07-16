@@ -13,6 +13,10 @@ param(
     [int]$SourceActivityId = 100201,
     [int]$LoadActivityId = 199901,
     [string]$GoodsId = "9890002",
+    [decimal]$OrderPrice = 12.00,
+    [int]$LockMaxAttempts = 3,
+    [int]$RetryBackoffMillis = 100,
+    [int]$RequestTimeoutSeconds = 30,
     [string]$K6Image = "grafana/k6:latest",
     [string]$ReportName = "group-load-benchmark.json"
 )
@@ -47,6 +51,13 @@ if ($WarmupSeconds -lt 1 -or $SteadySeconds -lt 1 -or $Repeats -lt 1) {
 if ($ConcurrencyLevels.Count -eq 0 -or @($ConcurrencyLevels | Where-Object { $_ -lt 1 }).Count -gt 0) {
     throw "ConcurrencyLevels must contain positive integers"
 }
+if ($LockMaxAttempts -lt 1 -or $LockMaxAttempts -gt 10 -or $RetryBackoffMillis -lt 0 -or $RetryBackoffMillis -gt 2000) {
+    throw "LockMaxAttempts must be 1..10 and RetryBackoffMillis must be 0..2000"
+}
+if ($RequestTimeoutSeconds -lt 1 -or $RequestTimeoutSeconds -gt 120) {
+    throw "RequestTimeoutSeconds must be 1..120"
+}
+if ($OrderPrice -le 0) { throw "OrderPrice must be positive" }
 
 New-Item -ItemType Directory -Path $reports -Force | Out-Null
 
@@ -254,6 +265,7 @@ function Invoke-LoadRun([int]$Concurrency, [int]$Repeat) {
     $startedAt = (Get-Date).ToUniversalTime()
 
     $env:INTERNAL_TOKEN = $InternalToken
+    $orderPriceInvariant = $OrderPrice.ToString([Globalization.CultureInfo]::InvariantCulture)
     $dockerArgs = @(
         "run", "--rm",
         "-e", "INTERNAL_TOKEN",
@@ -264,6 +276,10 @@ function Invoke-LoadRun([int]$Concurrency, [int]$Repeat) {
         "-e", "STEADY_SECONDS=$SteadySeconds",
         "-e", "ACTIVITY_ID=$LoadActivityId",
         "-e", "GOODS_ID=$GoodsId",
+        "-e", "ORDER_PRICE=$orderPriceInvariant",
+        "-e", "LOCK_MAX_ATTEMPTS=$LockMaxAttempts",
+        "-e", "RETRY_BACKOFF_MILLIS=$RetryBackoffMillis",
+        "-e", "REQUEST_TIMEOUT_SECONDS=$RequestTimeoutSeconds",
         "-e", "REPORT_FILE=$summaryName",
         "-v", "${k6Scripts}:/scripts:ro",
         "-v", "${reports}:/results",
@@ -314,9 +330,19 @@ function Invoke-LoadRun([int]$Concurrency, [int]$Repeat) {
     $steadyTimeout = Get-MetricValues $summary "lock_transport_timeout{phase:steady}"
     $steadyHttpError = Get-MetricValues $summary "lock_transport_http_error{phase:steady}"
     $steadyOtherTransportError = Get-MetricValues $summary "lock_transport_other_error{phase:steady}"
+    $steadyLockAttempts = Get-MetricValues $summary "lock_attempts{phase:steady}"
+    $steadyQueryAttempts = Get-MetricValues $summary "lock_result_query_attempts{phase:steady}"
+    $steadyAmbiguousOutcomes = Get-MetricValues $summary "lock_ambiguous_outcomes{phase:steady}"
+    $steadyQueryRecoveries = Get-MetricValues $summary "lock_query_recoveries{phase:steady}"
+    $steadyRetryRecoveries = Get-MetricValues $summary "lock_retry_recoveries{phase:steady}"
+    $steadyQueryTransportFailures = Get-MetricValues $summary "lock_result_query_transport_failures{phase:steady}"
     $steadyLocks = Get-MetricValues $summary "successful_locks{phase:steady}"
     $allLocks = Get-MetricValues $summary "successful_locks"
-    if (-not $steadyDuration -or -not $steadySuccess -or -not $steadyLocks) {
+    $allLockAttempts = Get-MetricValues $summary "lock_attempts"
+    $allQueryAttempts = Get-MetricValues $summary "lock_result_query_attempts"
+    $allQueryRecoveries = Get-MetricValues $summary "lock_query_recoveries"
+    $allRetryRecoveries = Get-MetricValues $summary "lock_retry_recoveries"
+    if (-not $steadyDuration -or -not $steadySuccess -or -not $steadyLocks -or -not $steadyLockAttempts) {
         throw "k6 summary is missing steady-state tagged metrics"
     }
 
@@ -364,6 +390,18 @@ function Invoke-LoadRun([int]$Concurrency, [int]$Repeat) {
         steadyBusinessSuccessRatePct = [Math]::Round(100.0 * [double](Get-Value $steadySuccess "rate" 0), 4)
         steadyBusinessFailureRatePct = [Math]::Round(100.0 * [double](Get-Value $steadyBusinessFailure "rate" 0), 4)
         steadyTransportFailureRatePct = [Math]::Round(100.0 * [double](Get-Value $steadyTransportFailure "rate" 0), 4)
+        recovery = [ordered]@{
+            totalLockAttempts = [long](Get-Value $allLockAttempts "count" 0)
+            steadyLockAttempts = [long](Get-Value $steadyLockAttempts "count" 0)
+            totalQueryAttempts = [long](Get-Value $allQueryAttempts "count" 0)
+            steadyQueryAttempts = [long](Get-Value $steadyQueryAttempts "count" 0)
+            steadyAmbiguousOutcomes = [long](Get-Value $steadyAmbiguousOutcomes "count" 0)
+            totalQueryRecoveries = [long](Get-Value $allQueryRecoveries "count" 0)
+            steadyQueryRecoveries = [long](Get-Value $steadyQueryRecoveries "count" 0)
+            totalRetryRecoveries = [long](Get-Value $allRetryRecoveries "count" 0)
+            steadyRetryRecoveries = [long](Get-Value $steadyRetryRecoveries "count" 0)
+            steadyQueryTransportFailures = [long](Get-Value $steadyQueryTransportFailures "count" 0)
+        }
         latencyMs = [ordered]@{
             average = [Math]::Round([double](Get-Value $steadyDuration "avg" 0), 2)
             p50 = [Math]::Round([double](Get-Value $steadyDuration "med" 0), 2)
@@ -432,9 +470,10 @@ function Invoke-LoadRun([int]$Concurrency, [int]$Repeat) {
             stderr = [IO.Path]::GetFileName($stderrPath)
         }
     }
-    Write-Host ("  result success={0} QPS={1} P95={2}ms P99={3}ms businessError={4}% transportError={5}% dbReconciled={6} internalUnique={7}" -f `
+    Write-Host ("  result success={0} QPS={1} P95={2}ms P99={3}ms queryRecovery={4} retryRecovery={5} businessError={6}% transportError={7}% dbReconciled={8} internalUnique={9}" -f `
             $steadySuccesses, $run.steadySuccessfulLockQps, $run.latencyMs.p95,
-            $run.latencyMs.p99, $run.steadyBusinessFailureRatePct,
+            $run.latencyMs.p99, $run.recovery.steadyQueryRecoveries,
+            $run.recovery.steadyRetryRecoveries, $run.steadyBusinessFailureRatePct,
             $run.steadyTransportFailureRatePct, $clientDatabaseReconciled, $internalUniqueState)
     Remove-LoadData
     Start-Sleep -Seconds ([Math]::Min(30, [Math]::Max(2, $SampleIntervalSeconds)))
@@ -469,6 +508,12 @@ function Build-Aggregates($Runs) {
             transportTimeouts = [long]((@($items | ForEach-Object { $_.transportFailureCounts.timeout }) | Measure-Object -Sum).Sum)
             transportHttpErrors = [long]((@($items | ForEach-Object { $_.transportFailureCounts.httpError }) | Measure-Object -Sum).Sum)
             transportOtherErrors = [long]((@($items | ForEach-Object { $_.transportFailureCounts.other }) | Measure-Object -Sum).Sum)
+            lockAttempts = [long]((@($items | ForEach-Object { $_.recovery.steadyLockAttempts }) | Measure-Object -Sum).Sum)
+            resultQueryAttempts = [long]((@($items | ForEach-Object { $_.recovery.steadyQueryAttempts }) | Measure-Object -Sum).Sum)
+            ambiguousOutcomes = [long]((@($items | ForEach-Object { $_.recovery.steadyAmbiguousOutcomes }) | Measure-Object -Sum).Sum)
+            queryRecoveries = [long]((@($items | ForEach-Object { $_.recovery.steadyQueryRecoveries }) | Measure-Object -Sum).Sum)
+            retryRecoveries = [long]((@($items | ForEach-Object { $_.recovery.steadyRetryRecoveries }) | Measure-Object -Sum).Sum)
+            resultQueryTransportFailures = [long]((@($items | ForEach-Object { $_.recovery.steadyQueryTransportFailures }) | Measure-Object -Sum).Sum)
             appCpuAveragePct = Get-Average @($items.resources.appCpuAveragePct) 2
             appCpuPeakPct = Get-Maximum @($items.resources.appCpuMaxPct) 2
             mysqlCpuAveragePct = Get-Average @($items.resources.mysqlCpuAveragePct) 2
@@ -525,7 +570,7 @@ try {
 $aggregates = @(Build-Aggregates $runs)
 $totalSteady = [long](($runs | Measure-Object steadySuccessfulLocks -Sum).Sum)
 $report = [ordered]@{
-    schemaVersion = 2
+    schemaVersion = 3
     generatedAt = (Get-Date).ToUniversalTime().ToString("o")
     benchmarkType = "local-k6-steady-successful-new-team-lock"
     environment = [ordered]@{
@@ -546,22 +591,28 @@ $report = [ordered]@{
     }
     profile = [ordered]@{
         endpoint = "/api/v1/gbm/trade/lock_market_pay_order"
-        workload = "Every request creates a new team and must return HTTP 200, business code 0000, and teamId. No capacity-rejection responses are counted as successful throughput."
+        workload = "Every logical request creates a new team. Ambiguous lock outcomes are resolved by querying the committed result before a bounded same-key retry. Only client-confirmed results with business code 0000 and teamId count as success."
         loadModel = "closed-loop constant virtual users"
         concurrencyLevels = $ConcurrencyLevels
         repeatsPerLevel = $Repeats
         warmupSecondsPerRun = $WarmupSeconds
         steadySecondsPerRun = $SteadySeconds
         resourceSampleIntervalSeconds = $SampleIntervalSeconds
+        lockMaxAttempts = $LockMaxAttempts
+        retryBackoffMillis = $RetryBackoffMillis
+        requestTimeoutSeconds = $RequestTimeoutSeconds
         dedicatedActivityId = $LoadActivityId
+        goodsId = $GoodsId
+        orderPrice = $OrderPrice
         totalSteadySuccessfulLocks = $totalSteady
     }
     results = $aggregates
     runs = $runs
     metricSemantics = [ordered]@{
-        qps = "Steady-phase responses with HTTP 200, business code 0000, and non-empty teamId divided by configured steady seconds."
-        latency = "k6 client wall-clock duration for successful steady-phase lock requests only."
-        error = "Transport failures and non-0000 business responses are reported separately and excluded from successful-lock QPS."
+        qps = "Steady-phase client-confirmed logical results with business code 0000 and non-empty teamId divided by configured steady seconds."
+        latency = "k6 client wall-clock duration for the complete logical lock operation, including result queries, retry backoff, and same-key retries."
+        error = "Final logical transport failures and non-0000 business responses are reported separately and excluded from successful-lock QPS. Raw HTTP attempt failures can still be recovered by result query or same-key retry."
+        recovery = "lockAttempts counts outbound lock calls; resultQueryAttempts counts post-ambiguity lookups; queryRecoveries and retryRecoveries identify which mechanism confirmed the committed result."
         consistency = "clientDatabaseReconciled compares all client-confirmed successes with committed rows. Positive commitOutcomeDelta means the server committed transactions whose responses the client did not confirm. internalUniqueState checks team/order/trade uniqueness independently."
         resources = "10-second samples from Spring Boot Prometheus metrics and Docker stats; averages are sampled averages, peaks are observed sample maxima."
     }

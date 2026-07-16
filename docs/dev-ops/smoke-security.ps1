@@ -1,10 +1,21 @@
 # Security smoke checks (requires running gateway + pay + member)
 param(
     [string]$GatewayBase = "http://127.0.0.1:8080",
-    [string]$PayBase = "http://127.0.0.1:8070"
+    [string]$PayBase = "http://127.0.0.1:8070",
+    [string]$InternalToken = $env:AI_GROUP_INTERNAL_TOKEN
 )
 
 $ErrorActionPreference = "Stop"
+$root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+if (-not $InternalToken) {
+    $envFile = Join-Path $root ".env"
+    if (Test-Path -LiteralPath $envFile) {
+        $tokenLine = Get-Content -LiteralPath $envFile -Encoding UTF8 |
+            Where-Object { $_ -match '^AI_GROUP_INTERNAL_TOKEN=' } |
+            Select-Object -First 1
+        if ($tokenLine) { $InternalToken = ($tokenLine -split '=', 2)[1].Trim().Trim('"') }
+    }
+}
 
 function Invoke-HttpPost($Uri, $Body, $Headers = @{}) {
     $params = @{
@@ -61,30 +72,39 @@ try {
 Write-Host "3) Direct group trade without/wrong internal token should be forbidden"
 $GroupBase = if ($env:GROUP_BASE) { $env:GROUP_BASE } else { "http://127.0.0.1:8091" }
 $tradeBody = '{"userId":"1","source":"s01","channel":"c01","goodsId":"9890001","activityId":10001,"outTradeNo":"smoke-security-out"}'
-try {
-    $null = Invoke-HttpPost -Uri "$GroupBase/api/v1/gbm/trade/lock_market_pay_order" -Body $tradeBody
-    throw "expected group trade without token to return HTTP 403"
-} catch {
-    if ($_.Exception.Response -and [int]$_.Exception.Response.StatusCode -eq 403) {
-        Write-Host "OK: group trade without token rejected with 403"
-    } elseif ($_.Exception.Message -match "403") {
-        Write-Host "OK: group trade without token rejected with 403"
-    } else {
-        throw
-    }
-}
 $wrongHeaders = @{ "X-Internal-Token" = "wrong-token" }
-try {
-    $null = Invoke-HttpPost -Uri "$GroupBase/api/v1/gbm/trade/lock_market_pay_order" -Body $tradeBody -Headers $wrongHeaders
-    throw "expected group trade with wrong token to return HTTP 403"
-} catch {
-    if ($_.Exception.Response -and [int]$_.Exception.Response.StatusCode -eq 403) {
-        Write-Host "OK: group trade with wrong token rejected with 403"
-    } elseif ($_.Exception.Message -match "403") {
-        Write-Host "OK: group trade with wrong token rejected with 403"
-    } else {
-        throw
+$queryBody = '{"userId":"1","source":"s01","channel":"c01","outTradeNo":"smoke-security-out"}'
+$protectedCalls = @(
+    @{ Name = "lock"; Uri = "$GroupBase/api/v1/gbm/trade/lock_market_pay_order"; Body = $tradeBody },
+    @{ Name = "query"; Uri = "$GroupBase/api/v1/gbm/trade/query_market_pay_order"; Body = $queryBody }
+)
+foreach ($call in $protectedCalls) {
+    foreach ($case in @(
+            @{ Name = "without token"; Headers = @{} },
+            @{ Name = "with wrong token"; Headers = $wrongHeaders }
+        )) {
+        try {
+            $null = Invoke-HttpPost -Uri $call.Uri -Body $call.Body -Headers $case.Headers
+            throw "expected group $($call.Name) $($case.Name) to return HTTP 403"
+        } catch {
+            if ($_.Exception.Response -and [int]$_.Exception.Response.StatusCode -eq 403) {
+                Write-Host "OK: group $($call.Name) $($case.Name) rejected with 403"
+            } elseif ($_.Exception.Message -match "403") {
+                Write-Host "OK: group $($call.Name) $($case.Name) rejected with 403"
+            } else {
+                throw
+            }
+        }
     }
 }
+if (-not $InternalToken) { throw "AI_GROUP_INTERNAL_TOKEN is required for the positive group query probe" }
+$validHeaders = @{ "X-Internal-Token" = $InternalToken }
+$mappedQuery = Invoke-HttpPost -Uri "$GroupBase/api/v1/gbm/trade/query_market_pay_order" `
+    -Body $queryBody -Headers $validHeaders
+$mappedPayload = $mappedQuery.Content | ConvertFrom-Json
+if ($mappedQuery.StatusCode -ne 200 -or $mappedPayload.code -ne "E0104") {
+    throw "expected mapped group query to return E0104, got HTTP $($mappedQuery.StatusCode) code=$($mappedPayload.code)"
+}
+Write-Host "OK: group query with correct token reached the mapped endpoint (code=E0104)"
 Write-Host "Note: formal pay->group lock remains covered by verify-e2e / create_pay_order through gateway."
 Write-Host "All security smoke checks passed."

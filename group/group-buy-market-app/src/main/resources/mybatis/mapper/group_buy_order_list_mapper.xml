@@ -45,6 +45,19 @@
         where out_trade_no = #{outTradeNo} and user_id = #{userId}
     </select>
 
+    <select id="queryGroupBuyOrderRecordByBusinessKey"
+            parameterType="com.aigroup.groupbuy.infrastructure.dao.po.GroupBuyOrderList" resultMap="dataMap">
+        select user_id, team_id, order_id, activity_id, start_time,
+        end_time, goods_id, source, channel, original_price, deduction_price, pay_price, status,
+        out_trade_no
+        from group_buy_order_list
+        where source = #{source}
+          and channel = #{channel}
+          and out_trade_no = #{outTradeNo}
+          and user_id = #{userId}
+        limit 1
+    </select>
+
     <select id="queryOrderCountByActivityId" parameterType="com.aigroup.groupbuy.infrastructure.dao.po.GroupBuyOrderList"
             resultType="java.lang.Integer">
         select count(id) from group_buy_order_list

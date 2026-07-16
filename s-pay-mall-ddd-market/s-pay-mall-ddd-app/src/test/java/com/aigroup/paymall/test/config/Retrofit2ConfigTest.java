@@ -3,6 +3,7 @@ package com.aigroup.paymall.test.config;
 import com.aigroup.paymall.config.Retrofit2Config;
 import com.aigroup.paymall.infrastructure.gateway.IGroupBuyMarketService;
 import com.aigroup.paymall.infrastructure.gateway.dto.LockMarketPayOrderRequestDTO;
+import com.aigroup.paymall.infrastructure.gateway.dto.QueryMarketPayOrderRequestDTO;
 import com.aigroup.paymall.infrastructure.gateway.dto.RefundMarketPayOrderRequestDTO;
 import com.aigroup.paymall.infrastructure.gateway.dto.SettlementMarketPayOrderRequestDTO;
 import okhttp3.mockwebserver.MockResponse;
@@ -38,7 +39,8 @@ public class Retrofit2ConfigTest {
     }
 
     @Test
-    public void shouldAttachSingleInternalTokenOnLockSettlementAndRefund() throws Exception {
+    public void shouldAttachSingleInternalTokenOnLockQuerySettlementAndRefund() throws Exception {
+        enqueueOk();
         enqueueOk();
         enqueueOk();
         enqueueOk();
@@ -48,6 +50,13 @@ public class Retrofit2ConfigTest {
         LockMarketPayOrderRequestDTO lock = new LockMarketPayOrderRequestDTO();
         lock.setUserId("u1");
         service.lockMarketPayOrder(lock).execute();
+
+        QueryMarketPayOrderRequestDTO query = new QueryMarketPayOrderRequestDTO();
+        query.setUserId("u1");
+        query.setSource("s01");
+        query.setChannel("c01");
+        query.setOutTradeNo("o1");
+        service.queryMarketPayOrder(query).execute();
 
         SettlementMarketPayOrderRequestDTO settlement = new SettlementMarketPayOrderRequestDTO();
         settlement.setUserId("u1");
@@ -61,6 +70,7 @@ public class Retrofit2ConfigTest {
                 .build()).execute();
 
         assertTokenOn(server.takeRequest(), "/api/v1/gbm/trade/lock_market_pay_order");
+        assertTokenOn(server.takeRequest(), "/api/v1/gbm/trade/query_market_pay_order");
         assertTokenOn(server.takeRequest(), "/api/v1/gbm/trade/settlement_market_pay_order");
         assertTokenOn(server.takeRequest(), "/api/v1/gbm/trade/refund_market_pay_order");
     }
