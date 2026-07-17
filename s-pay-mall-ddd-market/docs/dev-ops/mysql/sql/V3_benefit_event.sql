@@ -47,8 +47,9 @@ CREATE TABLE IF NOT EXISTS `benefit_event` (
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_event_id` (`event_id`),
     UNIQUE KEY `uk_order_event_type` (`order_id`, `event_type`),
-    KEY `idx_event_published` (`event_type`, `event_published`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='权益事件发布追踪';
+    KEY `idx_event_published` (`event_type`, `event_published`),
+    KEY `idx_outbox_publish_scan` (`event_published`, `id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='支付交易本地消息表（履约/权益 outbox）';
 
 SET @benefit_base_col_exists = (
     SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS

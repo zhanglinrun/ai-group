@@ -1,13 +1,13 @@
 param(
-    [string]$ReportName = "offline-benchmark.json"
+    [string]$ReportName = "memory-skills-benchmark.json"
 )
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $agentRoot = Join-Path $root "ai-agent"
-$app = Join-Path $agentRoot "Reactor-agent-app"
+$app = Join-Path $agentRoot "ai-agent-app"
 $reports = Join-Path $PSScriptRoot "reports"
-$targetReport = Join-Path $app "target/resume-evals/offline-benchmark.json"
+$targetReport = Join-Path $app "target/agent-harness-evals/memory-skills-benchmark.json"
 $finalReport = Join-Path $reports $ReportName
 
 New-Item -ItemType Directory -Path $reports -Force | Out-Null
@@ -15,7 +15,7 @@ New-Item -ItemType Directory -Path $reports -Force | Out-Null
 Push-Location $agentRoot
 try {
     mvn test `
-        "-Dtest=org.wwz.ai.test.eval.ResumeOfflineBenchmarkTest" `
+        "-Dtest=com.linrun.agent.test.eval.HarnessMemoryOfflineBenchmarkTest" `
         "-Dsurefire.failIfNoSpecifiedTests=false"
     if ($LASTEXITCODE -ne 0) {
         throw "offline benchmark test failed with exit code $LASTEXITCODE"
@@ -31,7 +31,7 @@ if (-not (Test-Path $targetReport)) {
 Copy-Item -LiteralPath $targetReport -Destination $finalReport -Force
 $report = Get-Content -LiteralPath $finalReport -Raw | ConvertFrom-Json
 
-Write-Host "Offline benchmark report: $finalReport"
+Write-Host "Agent Harness memory/skills benchmark report: $finalReport"
 Write-Host ("Memory recall: {0}% -> {1}%" -f `
         $report.memory.hardTruncationBaseline.averageKeyFactRecallRatePct,
         $report.memory.rollingSummaryStrategy.averageKeyFactRecallRatePct)

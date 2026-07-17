@@ -1,6 +1,6 @@
 /**
  * Markdown 展示规范化作用域。
- * `structured_summary` 只用于 REACT / PLAN_SOLVE 的最终总结，
+ * `structured_summary` 用于 Agent Loop 的最终总结，
  * 会在默认轻量修复的基础上，额外处理常见的“近似 Markdown”输出。
  */
 export type MarkdownNormalizationScope = 'default' | 'structured_summary';

@@ -12,8 +12,6 @@ export { default as AttachmentList } from './AttachmentList';
 
 export { GeneralInput, LoadingDot, Logo };
 
-export * from './PlanView';
-
 export * from './ActionPanel';
 
 export * from './ActionView';

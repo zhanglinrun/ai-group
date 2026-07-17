@@ -31,6 +31,9 @@ export default defineConfig(({ mode }) => {
     },
     css: { preprocessorOptions: { less: { javascriptEnabled: true } } },
     optimizeDeps: {
+      // PaymentQrDialog lives behind a lazy route. Pre-bundle qrcode on startup so the first
+      // post-registration navigation cannot hit Vite's transient "Outdated Optimize Dep" 504.
+      include: ['qrcode'],
       exclude: ['clsx', 'nanoid', 'radix-ui', 'lucide-react', 'tailwind-merge'],
     },
     server: {

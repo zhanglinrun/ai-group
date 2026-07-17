@@ -74,23 +74,22 @@ export interface GroupBuyInfo {
   };
 }
 
+export interface BffMeta {
+  degraded?: boolean;
+  errors?: Array<{ service?: string; code?: string; message?: string }>;
+}
+
 export interface PricingResponse {
   skus: SkuItem[];
   groupBuy?: GroupBuyInfo;
-  meta?: {
-    degraded?: boolean;
-    errors?: Array<{ service?: string; code?: string; message?: string }>;
-  };
+  meta?: BffMeta;
 }
 
 export interface GroupBuyResponse {
   activityId?: number;
   groupBuy?: GroupBuyInfo;
   skus?: SkuItem[];
-  meta?: {
-    degraded?: boolean;
-    errors?: Array<{ service?: string; code?: string; message?: string }>;
-  };
+  meta?: BffMeta;
 }
 
 export interface PendingGroupOrder {
@@ -119,10 +118,7 @@ export interface AccountSummary {
   availableQuota?: number;
   quotaLedger?: QuotaLedgerEntry[];
   pendingGroupOrders?: PendingGroupOrder[];
-  meta?: {
-    degraded?: boolean;
-    errors?: Array<{ service?: string; code?: string; message?: string }>;
-  };
+  meta?: BffMeta;
 }
 
 export interface OrderItem {
@@ -140,10 +136,7 @@ export interface OrderItem {
 
 export interface OrdersResponse {
   items: OrderItem[];
-  meta?: {
-    degraded?: boolean;
-    errors?: Array<{ service?: string; code?: string; message?: string }>;
-  };
+  meta?: BffMeta;
 }
 
 export const bffApi = {

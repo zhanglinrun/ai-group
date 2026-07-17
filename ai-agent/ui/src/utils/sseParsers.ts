@@ -51,6 +51,24 @@ function isRecord(value: unknown): value is RecordValue {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+function firstFiniteNumber(...values: unknown[]): number | undefined {
+  for (const value of values) {
+    const parsed = typeof value === 'number' ? value : Number(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return undefined;
+}
+
+function stablePositiveHash(value: string): number {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash * 31 + value.charCodeAt(index)) | 0;
+  }
+  return (hash >>> 0) || 1;
+}
+
 function buildAgentResponsePayload(raw: RecordValue): RecordValue {
   const messageType = String(raw.messageType || '');
   const resultMap = isRecord(raw.resultMap) ? raw.resultMap : {};
@@ -65,7 +83,18 @@ function buildAgentResponsePayload(raw: RecordValue): RecordValue {
 
   // 兼容直接下发 AgentResponse 的入口：终态字段不能在 envelope 转换时丢失，
   // 否则 FAILED/STOPPED 会再次被 finish=true 误写成 success。
-  const passthroughFields = ['runStatus', 'status', 'errorCode', 'errorMessage', 'errorMsg'];
+  const passthroughFields = [
+    'runStatus',
+    'status',
+    'stopReason',
+    'completionGatePassed',
+    'errorCode',
+    'errorMessage',
+    'errorMsg',
+    'retryable',
+    'retryAfterMillis',
+    'existingRunId',
+  ];
   passthroughFields.forEach((field) => {
     const value = resultMap[field] ?? raw[field];
     if (value !== undefined && value !== null && value !== '') {
@@ -89,16 +118,6 @@ function buildAgentResponsePayload(raw: RecordValue): RecordValue {
       if (Object.keys(resultMap).length) {
         payload.resultMap = resultMap;
       }
-      break;
-    case 'plan_thought':
-      payload.planThought = raw.planThought;
-      break;
-    case 'plan':
-      payload.title = isRecord(raw.plan) ? raw.plan.title : undefined;
-      payload.stages = isRecord(raw.plan) ? raw.plan.stages : undefined;
-      payload.steps = isRecord(raw.plan) ? raw.plan.steps : undefined;
-      payload.stepStatus = isRecord(raw.plan) ? raw.plan.stepStatus : undefined;
-      payload.notes = isRecord(raw.plan) ? raw.plan.notes : undefined;
       break;
     case 'tool_result':
       payload.toolResult = raw.toolResult;
@@ -126,10 +145,6 @@ function buildAgentResponsePayload(raw: RecordValue): RecordValue {
       break;
   }
 
-  if (isRecord(raw.resultMap) && typeof raw.resultMap.plannerRoundId === 'string') {
-    payload.plannerRoundId = raw.resultMap.plannerRoundId;
-  }
-
   return payload;
 }
 
@@ -140,12 +155,30 @@ function normalizeAgentResponseFrame(raw: unknown): unknown {
 
   const messageType = String(raw.messageType || '');
   const finished = Boolean(raw.finish);
+  const rawResultMap = isRecord(raw.resultMap) ? raw.resultMap : {};
+  const messageId = String(
+    raw.messageId ||
+      `${raw.requestId || 'message'}-${messageType}-${raw.messageTime || Date.now()}`,
+  );
+  const explicitMessageOrder = firstFiniteNumber(
+    raw.messageOrder,
+    rawResultMap.messageOrder,
+    raw.sequence,
+    rawResultMap.sequence,
+  );
+  const messageOrder = explicitMessageOrder ?? stablePositiveHash(messageId);
+  const taskOrder = firstFiniteNumber(
+    raw.taskOrder,
+    rawResultMap.taskOrder,
+    rawResultMap.dispatchIndex,
+    messageOrder,
+  ) ?? 0;
   const eventData = {
-    messageOrder: 1,
-    messageType: messageType === 'plan' || messageType === 'plan_thought' ? messageType : 'task',
-    messageId: String(raw.messageId || `${raw.requestId || 'message'}-${messageType}`),
+    messageOrder,
+    messageType: 'agent_event',
+    messageId,
     taskId: String(raw.requestId || raw.messageId || 'agent-task'),
-    taskOrder: 1,
+    taskOrder,
     resultMap: buildAgentResponsePayload(raw),
   };
 
@@ -165,7 +198,6 @@ function normalizeAgentResponseFrame(raw: unknown): unknown {
           ? raw.errorMessage
           : '',
     resultMap: {
-      agentType: isRecord(raw.resultMap) ? raw.resultMap.agentType : undefined,
       eventData,
     },
   };

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.linrun.agent.infrastructure.dao.reactor.IToolOutputDeepSearchDao">
+
+    <insert id="insert" parameterType="map">
+        INSERT INTO tool_output_deep_search (
+            tool_invocation_id, run_id, request_id, request_source, session_id, tool_call_id, status, error_msg,
+            query, answer_summary, stages_json
+        ) VALUES (
+            #{row.toolInvocationId}, #{row.runId}, #{row.requestId}, #{row.requestSource}, #{row.sessionId}, #{row.toolCallId}, #{row.status}, #{row.errorMsg},
+            #{row.query}, #{row.answerSummary}, #{row.stagesJson}
+        )
+    </insert>
+
+    <select id="queryByToolInvocationId" parameterType="java.lang.Long" resultType="map">
+        SELECT * FROM tool_output_deep_search
+        WHERE tool_invocation_id = #{toolInvocationId}
+        LIMIT 1
+    </select>
+
+    <select id="queryByRequestToolCall" resultType="map">
+        SELECT * FROM tool_output_deep_search
+        WHERE request_id = #{requestId} AND tool_call_id = #{toolCallId}
+        LIMIT 1
+    </select>
+
+</mapper>

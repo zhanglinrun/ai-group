@@ -1,0 +1,11 @@
+spring:
+  cloud:
+    nacos:
+      discovery:
+        enabled: false
+
+ai-group:
+  bff-service:
+    base-url: http://127.0.0.1:8083
+  member-service:
+    base-url: http://127.0.0.1:18082

@@ -81,13 +81,18 @@ CREATE TABLE IF NOT EXISTS `quota_freeze` (
     `free_amount` BIGINT NOT NULL,
     `paid_amount` BIGINT NOT NULL,
     `settled_amount` BIGINT NOT NULL DEFAULT 0,
+    `requested_amount` BIGINT DEFAULT NULL,
+    `min_amount` BIGINT DEFAULT NULL,
     `ability_code` VARCHAR(64) NOT NULL,
     `status` VARCHAR(32) NOT NULL,
     `request_id` VARCHAR(64) DEFAULT NULL,
+    `request_fingerprint` VARCHAR(64) DEFAULT NULL,
+    `owner_service` VARCHAR(64) DEFAULT NULL,
     `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`freeze_id`),
-    UNIQUE KEY `uk_user_request` (`user_id`, `request_id`)
+    UNIQUE KEY `uk_user_request` (`user_id`, `request_id`),
+    KEY `idx_managed_expiry` (`owner_service`, `status`, `created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 INSERT IGNORE INTO `product_sku`

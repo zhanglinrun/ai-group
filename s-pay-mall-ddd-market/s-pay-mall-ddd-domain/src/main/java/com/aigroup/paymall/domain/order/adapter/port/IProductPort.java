@@ -16,7 +16,7 @@ public interface IProductPort {
      * 通知拼团系统结算（登记该成员已支付）。
      * 返回 group 是否确认登记成功；成功后调用方置结算确认位，补偿任务不再重扫（区分"未结算"与"未成团"）。
      */
-    boolean settlementMarketPayOrder(String userId, String orderId, Date orderTime);
+    MarketSettlementResult settlementMarketPayOrder(String userId, String orderId, Date orderTime);
 
     /**
      * 通知拼团系统退单（释放组队库存）。

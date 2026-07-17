@@ -116,7 +116,7 @@ function Invoke-AgentSse {
         sessionId   = $SessionId
         requestId   = $RequestId
         query       = $Query
-        deepThink   = 0
+        executionMode = 'STANDARD'
         outputStyle = 'chat'
     } | ConvertTo-Json -Compress
 

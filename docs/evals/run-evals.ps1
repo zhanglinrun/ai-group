@@ -1,14 +1,14 @@
 #Requires -Version 7.0
-# Live Agent evaluation through Gateway SSE. This runner keeps keyword/tool
-# assertions, ledger terminal state, evaluator telemetry, and provider-reported
-# token usage as separate metrics so the report cannot overstate quality.
+# Live unified Agent Loop evaluation through Gateway SSE. This runner keeps
+# keyword/tool assertions, canonical lifecycle verification, ledger terminal
+# state, and provider-reported token usage as separate metrics.
 param(
     [string]$Gateway = "http://127.0.0.1:8080",
     [int]$Limit = 0,
     [int]$TimeoutSec = 180,
     [switch]$Judge,
     [string]$CasesFile = "cases.jsonl",
-    [long]$EvaluationQuota = 5000000,
+    [long]$BenchmarkQuota = 5000000,
     [string]$MysqlContainer = "ai-group-mysql",
     [string]$MysqlPassword = $(if ($env:MYSQL_ROOT_PASSWORD) { $env:MYSQL_ROOT_PASSWORD } else { "123456" }),
     [string]$ReportName = ""
@@ -67,12 +67,12 @@ function Invoke-Json($Method, $Path, $Body, $Token) {
     return Invoke-RestMethod @parameters
 }
 
-function Invoke-AgentSse($Token, $Query, $Mode, $SessionId, $RequestId, $DeepThink) {
+function Invoke-AgentSse($Token, $Query, $Mode, $SessionId, $RequestId, $ExecutionMode) {
     $body = @{
         query = $Query
         sessionId = $SessionId
         requestId = $RequestId
-        deepThink = $DeepThink
+        executionMode = $ExecutionMode
         outputStyle = $Mode
     } | ConvertTo-Json -Depth 8 -Compress
     $request = [System.Net.Http.HttpRequestMessage]::new(
@@ -88,8 +88,17 @@ function Invoke-AgentSse($Token, $Query, $Mode, $SessionId, $RequestId, $DeepThi
     )
     $client = [System.Net.Http.HttpClient]::new()
     $client.Timeout = [TimeSpan]::FromSeconds($TimeoutSec)
-    $answer = [System.Text.StringBuilder]::new()
-    $evaluations = [System.Collections.Generic.List[object]]::new()
+    $streamAnswer = [System.Text.StringBuilder]::new()
+    $terminalAnswer = ""
+    $verificationStarted = [System.Collections.Generic.List[object]]::new()
+    $verificationResults = [System.Collections.Generic.List[object]]::new()
+    $completionBlocked = [System.Collections.Generic.List[object]]::new()
+    $eventTypes = [System.Collections.Generic.HashSet[string]]::new(
+        [System.StringComparer]::OrdinalIgnoreCase
+    )
+    $runFinished = $null
+    $runFinishedBeforeResult = $false
+    $terminalResultMap = $null
     $finalMetrics = $null
     $finalSeen = $false
     $response = $null
@@ -112,9 +121,8 @@ function Invoke-AgentSse($Token, $Query, $Mode, $SessionId, $RequestId, $DeepThi
                 continue
             }
 
-            # Gateway currently forwards AgentSessionEvent directly. Keep the
-            # legacy eventData envelope readable so old deployments remain
-            # benchmarkable with the same runner.
+            # Gateway wraps the canonical Agent event in eventData/resultMap;
+            # direct Agent endpoints may return the AgentResponse itself.
             $payload = $event
             if ($event.resultMap -and $event.resultMap.eventData) {
                 $payload = $event.resultMap.eventData
@@ -125,35 +133,40 @@ function Invoke-AgentSse($Token, $Query, $Mode, $SessionId, $RequestId, $DeepThi
             $logicalType = Get-PropertyValue $payload "messageType" ""
             $innerResult = Get-PropertyValue $payload "result" ""
             $logicalResultMap = Get-PropertyValue $payload "resultMap"
-
-            if ($logicalType -eq "agent_stream" -and $innerResult) {
-                [void]$answer.Append([string]$innerResult)
-            } elseif ($logicalType -eq "result" -and $innerResult -and $answer.Length -eq 0) {
-                # The terminal result is the complete answer, not another
-                # stream delta. Use it only when no incremental frame arrived.
-                [void]$answer.Append([string]$innerResult)
-            } elseif ($event.response) {
-                [void]$answer.Append([string]$event.response)
+            if ($logicalType) {
+                [void]$eventTypes.Add([string]$logicalType)
             }
 
-            if ($logicalType -eq "evaluation") {
-                $evaluationPayload = $logicalResultMap
-                if ($evaluationPayload) {
-                    $evaluations.Add($evaluationPayload)
+            if ($logicalType -eq "agent_stream" -and $innerResult) {
+                [void]$streamAnswer.Append([string]$innerResult)
+            }
+
+            switch ($logicalType) {
+                "verification_started" {
+                    if ($logicalResultMap) { [void]$verificationStarted.Add($logicalResultMap) }
+                }
+                "verification_result" {
+                    if ($logicalResultMap) { [void]$verificationResults.Add($logicalResultMap) }
+                }
+                "completion_blocked" {
+                    if ($logicalResultMap) { [void]$completionBlocked.Add($logicalResultMap) }
+                }
+                "run_finished" {
+                    $runFinished = $logicalResultMap
                 }
             }
             if ($logicalType -eq "result") {
                 $finalSeen = $true
-                $candidateMetrics = Get-PropertyValue $payload "metrics"
-                if (-not $candidateMetrics) {
-                    $candidateMetrics = Get-PropertyValue $logicalResultMap "metrics"
+                $runFinishedBeforeResult = $null -ne $runFinished
+                $terminalResultMap = $logicalResultMap
+                if ($innerResult) {
+                    $terminalAnswer = [string]$innerResult
+                } elseif ($logicalResultMap) {
+                    $terminalAnswer = [string](Get-PropertyValue $logicalResultMap "taskSummary" "")
+                } elseif ($event.response) {
+                    $terminalAnswer = [string]$event.response
                 }
-                if ($candidateMetrics) {
-                    $finalMetrics = $candidateMetrics
-                }
-            }
-            if ([bool](Get-PropertyValue $payload "finish" $false) -or
-                [bool](Get-PropertyValue $event "finished" $false)) {
+                $finalMetrics = Get-PropertyValue $logicalResultMap "metrics"
                 break
             }
         }
@@ -164,8 +177,14 @@ function Invoke-AgentSse($Token, $Query, $Mode, $SessionId, $RequestId, $DeepThi
         $client.Dispose()
     }
     return [pscustomobject]@{
-        text = $answer.ToString()
-        evaluations = @($evaluations)
+        text = if ([string]::IsNullOrWhiteSpace($terminalAnswer)) { $streamAnswer.ToString() } else { $terminalAnswer }
+        eventTypes = @($eventTypes)
+        verificationStarted = @($verificationStarted)
+        verificationResults = @($verificationResults)
+        completionBlocked = @($completionBlocked)
+        runFinished = $runFinished
+        runFinishedBeforeResult = $runFinishedBeforeResult
+        terminalResultMap = $terminalResultMap
         finalMetrics = $finalMetrics
         finalSeen = $finalSeen
     }
@@ -189,8 +208,6 @@ SELECT r.id,
        IFNULL((SELECT GROUP_CONCAT(DISTINCT l.model_name ORDER BY l.model_name SEPARATOR ',')
                FROM agent_db.llm_invocation l WHERE l.run_id = r.id),''),
        (SELECT COUNT(*) FROM agent_db.llm_invocation l
-        WHERE l.run_id = r.id AND l.call_kind = 'evaluate'),
-       (SELECT COUNT(*) FROM agent_db.llm_invocation l
         WHERE l.run_id = r.id AND l.total_tokens > 0)
 FROM agent_db.dialogue_run r
 WHERE r.session_id = '$safeSessionId'
@@ -200,7 +217,7 @@ LIMIT 1;
     $output = @(Invoke-Mysql $query)
     if ($output.Count -eq 0 -or -not $output[0]) { return $null }
     $columns = $output[0].ToString().Split("`t")
-    if ($columns.Length -lt 15) { return $null }
+    if ($columns.Length -lt 14) { return $null }
     return [pscustomobject]@{
         id = [long]$columns[0]
         runUid = $columns[1]
@@ -215,8 +232,7 @@ LIMIT 1;
         durationMs = [long]$columns[10]
         errorCode = $columns[11]
         modelNames = $columns[12]
-        evaluatorLlmCalls = [int]$columns[13]
-        providerUsageCalls = [int]$columns[14]
+        providerUsageCalls = [int]$columns[13]
     }
 }
 
@@ -255,7 +271,7 @@ function Invoke-Judge($Token, $Query, $Answer, $Expect) {
         "`n答复：$Answer`n分数："
     try {
         $judgeSse = Invoke-AgentSse $Token $prompt "chat" "eval-judge-$([guid]::NewGuid().ToString('N'))" `
-            "req-judge-$([guid]::NewGuid().ToString('N'))" 0
+            "req-judge-$([guid]::NewGuid().ToString('N'))" "STANDARD"
         $match = [regex]::Match($judgeSse.text, '(?<!\d)[0-5](?!\d)')
         if ($match.Success) { return [int]$match.Value }
     } catch {
@@ -284,18 +300,18 @@ Invoke-Json POST "/api/auth/register" @{
 $login = Invoke-Json POST "/api/auth/login" @{ username = $username; password = $password } $null
 $token = $login.data.accessToken
 $userId = [long]$login.data.user.id
-if (-not $token -or $userId -le 0) { throw "evaluation login failed" }
+if (-not $token -or $userId -le 0) { throw "benchmark login failed" }
 
 $quotaRows = @(Invoke-Mysql "SELECT COUNT(*) FROM member_db.quota_account WHERE user_id = $userId;")
 if ($quotaRows.Count -ne 1 -or [int]$quotaRows[0] -ne 1) {
-    throw "evaluation member quota account was not initialized for userId=$userId"
+    throw "benchmark member quota account was not initialized for userId=$userId"
 }
-Invoke-Mysql "UPDATE member_db.quota_account SET free_quota_balance = $EvaluationQuota, paid_quota_balance = 0, frozen_balance = 0 WHERE user_id = $userId;" | Out-Null
-Write-Host "Evaluation user: $username (userId=$userId, isolated quota=$EvaluationQuota)"
+Invoke-Mysql "UPDATE member_db.quota_account SET free_quota_balance = $BenchmarkQuota, paid_quota_balance = 0, frozen_balance = 0 WHERE user_id = $userId;" | Out-Null
+Write-Host "Benchmark user: $username (userId=$userId, isolated quota=$BenchmarkQuota)"
 
 $cases = @(Get-Content -LiteralPath $casesPath | Where-Object { $_.Trim() } | ForEach-Object { $_ | ConvertFrom-Json })
 if ($Limit -gt 0) { $cases = @($cases | Select-Object -First $Limit) }
-if ($cases.Count -eq 0) { throw "no evaluation cases selected" }
+if ($cases.Count -eq 0) { throw "no benchmark cases selected" }
 
 $results = @()
 $latencies = @()
@@ -303,7 +319,11 @@ $judgeScores = @()
 foreach ($case in $cases) {
     $sessionId = "eval-$($case.id)-$([guid]::NewGuid().ToString('N').Substring(0, 8))"
     $requestId = "req-$([guid]::NewGuid().ToString('N'))"
-    $deepThink = [int](Get-PropertyValue $case "deepThink" 0)
+    $executionMode = [string](Get-PropertyValue $case "executionMode" "STANDARD")
+    $executionMode = $executionMode.Trim().ToUpperInvariant()
+    if (@("AUTO", "STANDARD", "DEEP") -notcontains $executionMode) {
+        throw "case '$($case.id)' has invalid executionMode '$executionMode'"
+    }
     $suite = [string](Get-PropertyValue $case "suite" $(if ($casesPath -like '*tools*') { "tool" } else { "deterministic" }))
     $text = ""
     $sse = $null
@@ -311,7 +331,7 @@ foreach ($case in $cases) {
     $failReason = $null
     $watch = [System.Diagnostics.Stopwatch]::StartNew()
     try {
-        $sse = Invoke-AgentSse $token $case.query $case.mode $sessionId $requestId $deepThink
+        $sse = Invoke-AgentSse $token $case.query $case.mode $sessionId $requestId $executionMode
         $text = $sse.text
         $expected = @(Get-PropertyValue $case "expect" @())
         $expectedAll = @(Get-PropertyValue $case "expectAll" @())
@@ -341,7 +361,20 @@ foreach ($case in $cases) {
     $latencyMs = [long]$watch.ElapsedMilliseconds
     $latencies += $latencyMs
 
-    $runMetrics = if ($case.mode -ne "chat") { Wait-RunMetrics $sessionId } else { $null }
+    $requiredEvents = @("run_started", "verification_started", "verification_result", "run_finished", "result")
+    $missingCanonicalEvents = if ($sse) {
+        @($requiredEvents | Where-Object { $sse.eventTypes -notcontains $_ })
+    } else {
+        $requiredEvents
+    }
+    $canonicalLifecyclePassed = [bool]($sse -and $sse.finalSeen -and
+        $sse.runFinishedBeforeResult -and $missingCanonicalEvents.Count -eq 0)
+    if (-not $canonicalLifecyclePassed) {
+        $assertionPassed = $false
+        if (-not $failReason) { $failReason = "canonical-lifecycle-miss" }
+    }
+
+    $runMetrics = Wait-RunMetrics $sessionId
     $toolNames = if ($runMetrics) { @(Get-RunToolNames $runMetrics.id) } else { @() }
     $expectTools = @(Get-PropertyValue $case "expectTools" @())
     if ($expectTools.Count -gt 0) {
@@ -368,31 +401,45 @@ foreach ($case in $cases) {
         if (-not $failReason) { $failReason = "tool-count-miss" }
     }
 
-    $ledgerSucceeded = if ($case.mode -eq "chat") { $null } else { [bool]($runMetrics -and $runMetrics.status -eq 1) }
-    if ($case.mode -ne "chat" -and -not $runMetrics -and -not $failReason) { $failReason = "ledger-missing" }
+    $ledgerSucceeded = [bool]($runMetrics -and $runMetrics.status -eq 1)
+    if (-not $runMetrics -and -not $failReason) { $failReason = "ledger-missing" }
     if ($runMetrics -and $runMetrics.status -ne 1 -and -not $failReason) { $failReason = "ledger-non-success" }
-    $endToEndPassed = $assertionPassed -and ($case.mode -eq "chat" -or $ledgerSucceeded)
 
-    $evaluationFrames = if ($sse) { @($sse.evaluations) } else { @() }
+    $verificationStartedFrames = if ($sse) { @($sse.verificationStarted) } else { @() }
+    $verificationResultFrames = if ($sse) { @($sse.verificationResults) } else { @() }
+    $completionBlockedFrames = if ($sse) { @($sse.completionBlocked) } else { @() }
     $finalMetrics = if ($sse) { $sse.finalMetrics } else { $null }
-    $evaluationCount = [int](Get-PropertyValue $finalMetrics "evaluationCount" $evaluationFrames.Count)
-    $replanCountValue = Get-PropertyValue $finalMetrics "replanCount"
-    if ($null -eq $replanCountValue) {
-        $rounds = @($evaluationFrames | ForEach-Object { Get-PropertyValue $_ "replanRound" 0 })
-        $replanCountValue = if ($rounds.Count -gt 0) { ($rounds | Measure-Object -Maximum).Maximum } else { 0 }
-    }
-    $replanCount = [int]$replanCountValue
-    $reflectionTokens = Get-PropertyValue $finalMetrics "reflectionTokens"
-    if ($null -eq $reflectionTokens -and $evaluationFrames.Count -gt 0) {
-        $reflectionTokens = Get-PropertyValue $evaluationFrames[-1] "reflectionTokens" 0
-    }
-    $qualityScore = Get-PropertyValue $finalMetrics "qualityScore"
-    if ($null -eq $qualityScore -and $evaluationFrames.Count -gt 0) {
-        $qualityScore = Get-PropertyValue $evaluationFrames[-1] "overallScore"
-    }
-    $evaluatorAccepted = if ($evaluationFrames.Count -gt 0) {
-        [bool](Get-PropertyValue $evaluationFrames[-1] "accepted" $false)
+    $completionAttempts = [int](Get-PropertyValue $finalMetrics "completionAttempts" $verificationStartedFrames.Count)
+    $completionBlockedCount = [int](Get-PropertyValue $finalMetrics "completionBlocked" $completionBlockedFrames.Count)
+    $finalVerifierCount = [int](Get-PropertyValue $finalMetrics "finalVerifierCount" 0)
+    $lastVerification = if ($verificationResultFrames.Count -gt 0) { $verificationResultFrames[-1] } else { $null }
+    $verificationAccepted = if ($lastVerification) {
+        [bool](Get-PropertyValue $lastVerification "accepted" $false)
     } else { $null }
+    $verifierExecuted = if ($lastVerification) {
+        [bool](Get-PropertyValue $lastVerification "verifierExecuted" $false)
+    } else { $null }
+    $terminalResultMap = if ($sse) { $sse.terminalResultMap } else { $null }
+    $runFinished = if ($sse) { $sse.runFinished } else { $null }
+    $terminalStatus = [string](Get-PropertyValue $terminalResultMap "runStatus" "")
+    if (-not $terminalStatus) { $terminalStatus = [string](Get-PropertyValue $terminalResultMap "status" "") }
+    if (-not $terminalStatus) { $terminalStatus = [string](Get-PropertyValue $runFinished "runStatus" "") }
+    if (-not $terminalStatus) { $terminalStatus = [string](Get-PropertyValue $runFinished "status" "") }
+    $completionGateValue = Get-PropertyValue $terminalResultMap "completionGatePassed"
+    if ($null -eq $completionGateValue) {
+        $completionGateValue = Get-PropertyValue $runFinished "completionGatePassed"
+    }
+    $completionGatePassed = if ($null -eq $completionGateValue) { $null } else { [bool]$completionGateValue }
+    $stopReason = [string](Get-PropertyValue $terminalResultMap "stopReason" "")
+    if (-not $stopReason) { $stopReason = [string](Get-PropertyValue $runFinished "stopReason" "") }
+    if (-not $stopReason -and $runMetrics) { $stopReason = [string]$runMetrics.errorCode }
+
+    if ($completionGatePassed -ne $true -and -not $failReason) { $failReason = "completion-gate-failed" }
+    if ($terminalStatus -ne "SUCCESS" -and -not $failReason) { $failReason = "terminal-status-failed" }
+    if ($stopReason -ne "COMPLETED" -and -not $failReason) { $failReason = "stop-reason-non-completed" }
+    $endToEndPassed = [bool]($assertionPassed -and $ledgerSucceeded -and
+        $canonicalLifecyclePassed -and $completionGatePassed -eq $true -and
+        $terminalStatus -eq "SUCCESS" -and $stopReason -eq "COMPLETED")
 
     $judgeScore = $null
     if ($Judge) {
@@ -404,12 +451,15 @@ foreach ($case in $cases) {
         id = $case.id
         suite = $suite
         mode = $case.mode
-        deepThink = $deepThink
+        executionMode = $executionMode
         query = $case.query
         expected = @(Get-PropertyValue $case "expect" @())
         expectedAll = @(Get-PropertyValue $case "expectAll" @())
         answer = $text
         finalFrameSeen = [bool]($sse -and $sse.finalSeen)
+        canonicalLifecyclePassed = $canonicalLifecyclePassed
+        missingCanonicalEvents = $missingCanonicalEvents
+        eventTypes = if ($sse) { @($sse.eventTypes) } else { @() }
         assertionPassed = $assertionPassed
         ledgerSucceeded = $ledgerSucceeded
         endToEndPassed = $endToEndPassed
@@ -419,7 +469,6 @@ foreach ($case in $cases) {
         entryAgent = if ($runMetrics) { $runMetrics.entryAgent } else { $null }
         modelNames = if ($runMetrics) { $runMetrics.modelNames } else { Get-PropertyValue $finalMetrics "modelName" }
         llmCalls = if ($runMetrics) { $runMetrics.llm } else { $null }
-        evaluatorLlmCalls = if ($runMetrics) { $runMetrics.evaluatorLlmCalls } else { $null }
         toolCalls = if ($runMetrics) { $runMetrics.tool } else { $null }
         artifactCount = if ($runMetrics) { $runMetrics.artifact } else { $null }
         promptTokens = if ($runMetrics -and $runMetrics.providerUsageCalls -gt 0) { $runMetrics.promptTokens } else { $null }
@@ -431,11 +480,18 @@ foreach ($case in $cases) {
         latencyMs = $latencyMs
         ledgerDurationMs = if ($runMetrics) { $runMetrics.durationMs } else { $null }
         tools = $toolNames
-        evaluationCount = $evaluationCount
-        replanCount = $replanCount
-        reflectionTokensEstimate = $reflectionTokens
-        qualityScore = $qualityScore
-        evaluatorAccepted = $evaluatorAccepted
+        terminalStatus = $terminalStatus
+        completionGatePassed = $completionGatePassed
+        stopReason = $stopReason
+        verificationStartedCount = $verificationStartedFrames.Count
+        verificationResultCount = $verificationResultFrames.Count
+        verificationAccepted = $verificationAccepted
+        verifierExecuted = $verifierExecuted
+        completionAttempts = $completionAttempts
+        completionBlocked = $completionBlockedCount
+        finalVerifierCount = $finalVerifierCount
+        verificationFailureReasons = if ($lastVerification) { @(Get-PropertyValue $lastVerification "failureReasons" @()) } else { @() }
+        requiredActions = if ($lastVerification) { @(Get-PropertyValue $lastVerification "requiredActions" @()) } else { @() }
         judgeScore = $judgeScore
     }
     $tag = if ($endToEndPassed) { "PASS" } else { "FAIL" }
@@ -452,19 +508,25 @@ $withLedger = @($results | Where-Object { $null -ne $_.ledgerStatus })
 $ledgerSuccesses = @($withLedger | Where-Object { $_.ledgerStatus -eq 1 }).Count
 $providerUsageRuns = @($results | Where-Object { $null -ne $_.providerReportedTokens })
 $toolRuns = @($results | Where-Object { $_.toolCalls -gt 0 }).Count
-$evaluationRuns = @($results | Where-Object { $_.evaluationCount -gt 0 })
-$evaluationFramesTotal = ($evaluationRuns | Measure-Object -Property evaluationCount -Sum).Sum
-$acceptedEvaluations = @($evaluationRuns | Where-Object { $_.evaluatorAccepted -eq $true }).Count
-$replannedRuns = @($evaluationRuns | Where-Object { $_.replanCount -gt 0 }).Count
+$canonicalLifecyclePasses = @($results | Where-Object canonicalLifecyclePassed).Count
+$verificationRuns = @($results | Where-Object { $_.verificationResultCount -gt 0 })
+$verificationFramesTotal = ($verificationRuns | Measure-Object -Property verificationResultCount -Sum).Sum
+$acceptedVerifications = @($verificationRuns | Where-Object { $_.verificationAccepted -eq $true }).Count
+$completionGatePasses = @($results | Where-Object { $_.completionGatePassed -eq $true }).Count
+$completionBlockedRuns = @($results | Where-Object { $_.completionBlocked -gt 0 })
+$completionBlockedTotal = ($completionBlockedRuns | Measure-Object -Property completionBlocked -Sum).Sum
+$verifierExecutedRuns = @($results | Where-Object { $_.verifierExecuted -eq $true }).Count
 $failureBreakdown = @($results | Where-Object { -not $_.endToEndPassed -and $_.failReason } |
     Group-Object failReason | ForEach-Object { [ordered]@{ reason = $_.Name; count = $_.Count } })
+$stopReasonBreakdown = @($results | Where-Object { $_.stopReason } |
+    Group-Object stopReason | ForEach-Object { [ordered]@{ reason = $_.Name; count = $_.Count } })
 $modelNames = @($results.modelNames | Where-Object { $_ } | ForEach-Object { $_ -split ',' } |
     ForEach-Object { $_.Trim() } | Where-Object { $_ } | Sort-Object -Unique)
 
 $report = [ordered]@{
-    schemaVersion = 2
+    schemaVersion = 3
     generatedAt = (Get-Date).ToUniversalTime().ToString("o")
-    benchmarkType = "live-llm-gateway-sse"
+    benchmarkType = "live-agent-loop-gateway-sse"
     environment = [ordered]@{
         os = [System.Environment]::OSVersion.VersionString
         powershell = $PSVersionTable.PSVersion.ToString()
@@ -477,9 +539,12 @@ $report = [ordered]@{
         totalCases = $total
         deterministicCases = @($results | Where-Object { $_.suite -eq "deterministic" }).Count
         toolCases = @($results | Where-Object { $_.suite -eq "tool" }).Count
-        planSolveCases = @($results | Where-Object { $_.deepThink -eq 1 }).Count
+        deepAgentLoopCases = @($results | Where-Object { $_.suite -eq "deep-agent-loop" }).Count
+        standardModeCases = @($results | Where-Object { $_.executionMode -eq "STANDARD" }).Count
+        autoModeCases = @($results | Where-Object { $_.executionMode -eq "AUTO" }).Count
+        deepModeCases = @($results | Where-Object { $_.executionMode -eq "DEEP" }).Count
         llmJudgeEnabled = [bool]$Judge
-        evaluationQuota = $EvaluationQuota
+        benchmarkQuota = $BenchmarkQuota
     }
     results = [ordered]@{
         keywordAndToolAssertionPassRatePct = [Math]::Round(100.0 * $assertionPassed / $total, 1)
@@ -495,21 +560,29 @@ $report = [ordered]@{
         latencyP50Ms = Get-Percentile $latencies 50
         latencyP95Ms = Get-Percentile $latencies 95
         toolUsedRuns = $toolRuns
-        evaluationRuns = $evaluationRuns.Count
-        evaluationFrames = if ($null -eq $evaluationFramesTotal) { 0 } else { [int]$evaluationFramesTotal }
-        evaluatorFinalAcceptanceRatePct = if ($evaluationRuns.Count -gt 0) { [Math]::Round(100.0 * $acceptedEvaluations / $evaluationRuns.Count, 1) } else { $null }
-        replannedRuns = $replannedRuns
-        averageTargetedReplanRounds = Get-Average @($evaluationRuns.replanCount) 2
-        averageFinalQualityScore = Get-Average @($evaluationRuns.qualityScore) 1
-        averageReflectionTokensEstimate = Get-Average @($evaluationRuns.reflectionTokensEstimate) 0
+        canonicalLifecyclePassRatePct = [Math]::Round(100.0 * $canonicalLifecyclePasses / $total, 1)
+        canonicalLifecyclePassedRuns = $canonicalLifecyclePasses
+        verificationRuns = $verificationRuns.Count
+        verificationFrames = if ($null -eq $verificationFramesTotal) { 0 } else { [int]$verificationFramesTotal }
+        verificationFinalAcceptanceRatePct = if ($verificationRuns.Count -gt 0) { [Math]::Round(100.0 * $acceptedVerifications / $verificationRuns.Count, 1) } else { $null }
+        completionGatePassRatePct = [Math]::Round(100.0 * $completionGatePasses / $total, 1)
+        completionGatePassedRuns = $completionGatePasses
+        completionBlockedRuns = $completionBlockedRuns.Count
+        completionBlockedFrames = if ($null -eq $completionBlockedTotal) { 0 } else { [int]$completionBlockedTotal }
+        averageCompletionAttempts = Get-Average @($results.completionAttempts) 2
+        finalVerifierExecutedRuns = $verifierExecutedRuns
+        averageFinalVerifierCount = Get-Average @($results.finalVerifierCount) 2
         averageLlmJudgeScore = Get-Average $judgeScores 2
         failureBreakdown = $failureBreakdown
+        stopReasonBreakdown = $stopReasonBreakdown
     }
     metricSemantics = [ordered]@{
         assertions = "Declared any/all keyword policy plus tool trajectory/count checks; this is a deterministic correctness proxy, not human semantic grading."
-        endToEndSuccess = "Assertions pass and, for ReAct/Plan-Solve cases, dialogue_run reaches STATUS_SUCCESS."
+        endToEndSuccess = "Assertions pass, the canonical Agent Loop lifecycle is complete, CompletionGate passes with stopReason=COMPLETED, and dialogue_run reaches STATUS_SUCCESS."
+        verification = "verification_started/result are CompletionGate lifecycle events. verifierExecuted distinguishes an independent final verifier from deterministic gate checks."
+        completionBlocked = "Number of same-loop completion rejections that returned required actions to the model before another turn."
+        stopReason = "Typed terminal reason emitted by run_finished/result; successful runs must end with COMPLETED."
         tokens = "Provider-reported usage persisted from Spring AI response metadata; runs without provider usage are excluded, never replaced by TokenCounter.countText()."
-        reflectionTokens = "Conservative evaluator/replan estimate used for the run budget; not provider-reported billing usage."
         latency = "Client wall-clock time from Gateway request start through the terminal SSE frame."
     }
     cases = $results
@@ -524,7 +597,9 @@ Write-Host ("end-to-end success        : {0}/{1} ({2}%)" -f $endToEndPassed, $to
 Write-Host ("ledger terminal success   : {0}/{1} ({2}%)" -f $ledgerSuccesses, $withLedger.Count, $report.results.ledgerTerminalSuccessRatePct)
 Write-Host ("provider token samples     : {0}/{1}; average={2}" -f $providerUsageRuns.Count, $total, $report.results.averageProviderReportedTokens)
 Write-Host ("latency p50 / p95 (ms)     : {0} / {1}" -f $report.results.latencyP50Ms, $report.results.latencyP95Ms)
-Write-Host ("evaluator runs / replanned : {0} / {1}; avg rounds={2}" -f $evaluationRuns.Count, $replannedRuns, $report.results.averageTargetedReplanRounds)
+Write-Host ("canonical lifecycle       : {0}/{1} ({2}%)" -f $canonicalLifecyclePasses, $total, $report.results.canonicalLifecyclePassRatePct)
+Write-Host ("completion gate passed    : {0}/{1} ({2}%); blocked runs={3}" -f `
+        $completionGatePasses, $total, $report.results.completionGatePassRatePct, $completionBlockedRuns.Count)
 Write-Host "report written: $reportPath"
 Write-Host "======================================================"
 

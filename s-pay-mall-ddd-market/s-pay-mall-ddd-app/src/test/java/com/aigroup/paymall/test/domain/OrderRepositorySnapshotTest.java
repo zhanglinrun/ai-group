@@ -4,6 +4,7 @@ import com.aigroup.paymall.domain.order.model.aggregate.CreateOrderAggregate;
 import com.aigroup.paymall.domain.order.model.entity.OrderEntity;
 import com.aigroup.paymall.domain.order.model.entity.ProductEntity;
 import com.aigroup.paymall.domain.order.model.valobj.MarketTypeVO;
+import com.aigroup.paymall.domain.order.model.valobj.OrderCreateStage;
 import com.aigroup.paymall.domain.order.model.valobj.OrderStatusVO;
 import com.aigroup.paymall.infrastructure.adapter.repository.OrderRepository;
 import com.aigroup.paymall.infrastructure.dao.IOrderDao;
@@ -39,13 +40,17 @@ public class OrderRepositorySnapshotTest {
                 .productCode(product.getProductCode())
                 .productName(product.getProductName())
                 .baseQuotaSnapshot(product.getBaseQuota())
+                .clientRequestId("request-1")
+                .requestFingerprint("fingerprint-1")
+                .createStage(OrderCreateStage.LOCAL_CREATED)
+                .createOwnerToken("owner-1")
                 .orderId("order-1")
                 .orderTime(new Date())
                 .orderStatusVO(OrderStatusVO.CREATE)
                 .marketType(MarketTypeVO.NO_MARKET.getCode())
                 .build();
 
-        repository.doSaveOrder(CreateOrderAggregate.builder()
+        repository.saveOrderIfAbsent(CreateOrderAggregate.builder()
                 .userId("10001").productEntity(product).orderEntity(order).build());
 
         product.setPrice(new BigDecimal("99.00"));

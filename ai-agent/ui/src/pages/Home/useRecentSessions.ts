@@ -27,9 +27,14 @@ export function useRecentSessions() {
       });
   }, []);
 
+  const removeRecentSession = useCallback((sessionId: string) => {
+    setRecentSessions((sessions) => sessions.filter((session) => session.sessionId !== sessionId));
+  }, []);
+
   return {
     recentSessions,
     recentSessionsLoading,
     refreshRecentSessions,
+    removeRecentSession,
   };
 }

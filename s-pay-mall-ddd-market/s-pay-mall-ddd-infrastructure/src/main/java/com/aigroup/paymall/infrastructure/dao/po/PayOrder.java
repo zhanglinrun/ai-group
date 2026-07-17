@@ -16,6 +16,14 @@ public class PayOrder {
 
     // 自增ID
     private Long id;
+    // 客户端购买请求号，同一用户内唯一
+    private String clientRequestId;
+    // 规范化请求载荷 SHA-256
+    private String requestFingerprint;
+    // durable 创建状态与当前 owner 租约
+    private String createStage;
+    private String createOwnerToken;
+    private Date createLeaseUntil;
     // 用户ID
     private String userId;
     // 商品ID
@@ -40,6 +48,9 @@ public class PayOrder {
     private Date payTime;
     // 营销类型；0无营销、1拼团营销
     private Integer marketType;
+    // 下单时固化的拼团活动与队伍
+    private Long groupActivityId;
+    private String groupTeamId;
     // 营销金额；优惠金额
     private BigDecimal marketDeductionAmount;
     // 支付金额

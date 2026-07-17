@@ -1,0 +1,196 @@
+package com.linrun.agent.test.domain;
+
+import org.junit.Assert;
+import org.junit.Test;
+import org.mockito.Mockito;
+import com.linrun.agent.api.response.Response;
+import com.linrun.agent.domain.agent.reactor.model.imagegeneration.WorkspaceImageFile;
+import com.linrun.agent.domain.agent.reactor.model.imagegeneration.WorkspaceImageGenerationCommand;
+import com.linrun.agent.domain.agent.reactor.model.imagegeneration.WorkspaceImageGenerationHistoryBatch;
+import com.linrun.agent.domain.agent.reactor.model.imagegeneration.WorkspaceImageGenerationHistoryPage;
+import com.linrun.agent.domain.agent.reactor.model.imagegeneration.WorkspaceImageGenerationResult;
+import com.linrun.agent.domain.agent.reactor.service.IWorkspaceImageGenerationService;
+import com.linrun.agent.domain.agent.adapter.port.QuotaBillingPort;
+import com.linrun.agent.trigger.http.agent.AgentImageGenerationController;
+import com.linrun.agent.trigger.http.agent.vo.PageRespVO;
+import com.linrun.agent.trigger.http.agent.vo.WorkspaceImageGenerationReqVO;
+import com.linrun.agent.trigger.http.agent.vo.WorkspaceImageGenerationRespVO;
+import com.linrun.agent.trigger.http.agent.vo.WorkspaceImageHistoryBatchRespVO;
+import com.linrun.agent.types.agent.owner.OwnerRequestContext;
+import com.linrun.agent.types.enums.ResponseCode;
+
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
+
+public class AgentImageGenerationControllerTest {
+
+    @org.junit.After
+    public void tearDown() {
+        OwnerRequestContext.clear();
+    }
+
+    private QuotaBillingPort stubBillingService() {
+        QuotaBillingPort billingService = Mockito.mock(QuotaBillingPort.class);
+        Mockito.when(billingService.reserve(Mockito.anyLong(), Mockito.anyLong(), Mockito.anyLong(),
+                        Mockito.eq("image_generation"), Mockito.anyString()))
+                .thenReturn(new QuotaBillingPort.Reservation("freeze-test", 1_000_000L));
+        Mockito.doNothing().when(billingService).settle(Mockito.anyString(), Mockito.anyLong());
+        Mockito.doNothing().when(billingService).release(Mockito.anyString());
+        return billingService;
+    }
+
+    @Test
+    public void test_generateRejectsMissingPrompt() {
+        OwnerRequestContext.bind(1001L);
+        AgentImageGenerationController controller = new AgentImageGenerationController(
+                new StubWorkspaceImageGenerationService(),
+                stubBillingService());
+
+        WorkspaceImageGenerationReqVO reqVO = new WorkspaceImageGenerationReqVO();
+
+        Response<WorkspaceImageGenerationRespVO> response = controller.generate(reqVO);
+
+        Assert.assertEquals(ResponseCode.ILLEGAL_PARAMETER.getCode(), response.getCode());
+        Assert.assertEquals("prompt不能为空", response.getInfo());
+    }
+
+    @Test
+    public void test_generateWrapsServiceResponse() {
+        OwnerRequestContext.bind(1001L);
+        AtomicReference<WorkspaceImageGenerationCommand> capturedCommand = new AtomicReference<>();
+        AgentImageGenerationController controller = new AgentImageGenerationController(
+                new StubWorkspaceImageGenerationService(capturedCommand),
+                stubBillingService());
+
+        WorkspaceImageGenerationReqVO reqVO = new WorkspaceImageGenerationReqVO();
+        reqVO.setRequestId("req-001");
+        reqVO.setPrompt("生成一张风景图");
+        reqVO.setMode("images");
+        reqVO.setModel("gpt-image-2");
+        reqVO.setN(1);
+
+        Response<WorkspaceImageGenerationRespVO> response = controller.generate(reqVO);
+
+        Assert.assertEquals(ResponseCode.SUCCESS.getCode(), response.getCode());
+        Assert.assertNotNull(response.getData());
+        Assert.assertEquals("req-001", response.getData().getRequestId());
+        Assert.assertEquals(1, response.getData().getFileInfo().size());
+        Assert.assertEquals("https://file.example.com/result.png", response.getData().getFileInfo().get(0).getPreviewUrl());
+        Assert.assertNotNull(capturedCommand.get());
+        Assert.assertEquals("gpt-image-2", capturedCommand.get().getModel());
+    }
+
+    @Test
+    public void test_generateReleasesSurchargeWhenLocalFallbackIsUsed() {
+        OwnerRequestContext.bind(1001L);
+        QuotaBillingPort billingService = stubBillingService();
+        IWorkspaceImageGenerationService generationService = Mockito.mock(IWorkspaceImageGenerationService.class);
+        Mockito.when(generationService.generate(Mockito.any())).thenReturn(
+                WorkspaceImageGenerationResult.builder()
+                        .requestId("req-fallback")
+                        .mode("images")
+                        .usedFallback(true)
+                        .data("本地兜底")
+                        .fileInfo(List.of())
+                        .build());
+        AgentImageGenerationController controller = new AgentImageGenerationController(
+                generationService, billingService);
+        WorkspaceImageGenerationReqVO reqVO = new WorkspaceImageGenerationReqVO();
+        reqVO.setRequestId("req-fallback");
+        reqVO.setPrompt("生成兜底图片");
+
+        Response<WorkspaceImageGenerationRespVO> response = controller.generate(reqVO);
+
+        Assert.assertEquals(ResponseCode.SUCCESS.getCode(), response.getCode());
+        Mockito.verify(billingService).release("freeze-test");
+        Mockito.verify(billingService, Mockito.never()).settle(Mockito.anyString(), Mockito.anyLong());
+    }
+
+    @Test
+    public void test_historyWrapsBatchPageWithoutDeviceHeader() {
+        OwnerRequestContext.bind(1001L);
+        AgentImageGenerationController controller = new AgentImageGenerationController(
+                new StubWorkspaceImageGenerationService(),
+                Mockito.mock(QuotaBillingPort.class));
+
+        Response<PageRespVO<WorkspaceImageHistoryBatchRespVO>> response = controller.history(1, 10);
+
+        Assert.assertEquals(ResponseCode.SUCCESS.getCode(), response.getCode());
+        Assert.assertNotNull(response.getData());
+        Assert.assertEquals(1, response.getData().getTotal());
+        Assert.assertEquals(1, response.getData().getList().size());
+        Assert.assertEquals("history-001", response.getData().getList().get(0).getRequestId());
+        Assert.assertEquals(1, response.getData().getList().get(0).getImages().size());
+    }
+
+    private static class StubWorkspaceImageGenerationService implements IWorkspaceImageGenerationService {
+
+        private final AtomicReference<WorkspaceImageGenerationCommand> capturedCommand;
+
+        private StubWorkspaceImageGenerationService() {
+            this(null);
+        }
+
+        private StubWorkspaceImageGenerationService(AtomicReference<WorkspaceImageGenerationCommand> capturedCommand) {
+            this.capturedCommand = capturedCommand;
+        }
+
+        @Override
+        public WorkspaceImageGenerationResult generate(WorkspaceImageGenerationCommand command) {
+            if (command == null || command.getPrompt() == null || command.getPrompt().isBlank()) {
+                throw new IllegalArgumentException("prompt不能为空");
+            }
+            if (capturedCommand != null) {
+                capturedCommand.set(command);
+            }
+            return WorkspaceImageGenerationResult.builder()
+                    .data("生成完成")
+                    .requestId(command.getRequestId())
+                    .mode(command.getMode())
+                    .usedFallback(false)
+                    .fileInfo(List.of(
+                            WorkspaceImageFile.builder()
+                                    .fileName("result.png")
+                                    .previewUrl("https://file.example.com/result.png")
+                                    .downloadUrl("https://file.example.com/download/result.png")
+                                    .mimeType("image/png")
+                                    .build()
+                    ))
+                    .build();
+        }
+
+        @Override
+        public WorkspaceImageGenerationHistoryPage queryHistory(Long ownerId, int pageNo, int pageSize) {
+            return WorkspaceImageGenerationHistoryPage.builder()
+                    .total(1)
+                    .list(List.of(
+                            WorkspaceImageGenerationHistoryBatch.builder()
+                                    .requestId("history-001")
+                                    .prompt("历史图片")
+                                    .mode("images")
+                                    .size("1024x1024")
+                                    .batchCount(1)
+                                    .sourceImageCount(0)
+                                    .maskImageCount(0)
+                                    .usedFallback(false)
+                                    .createdAt(LocalDateTime.of(2026, 4, 26, 12, 0, 0))
+                                    .images(List.of(
+                                            WorkspaceImageFile.builder()
+                                                    .fileName("history.png")
+                                                    .previewUrl("https://file.example.com/history.png")
+                                                    .downloadUrl("https://file.example.com/download/history.png")
+                                                    .mimeType("image/png")
+                                                    .build()
+                                    ))
+                                    .build()
+                    ))
+                    .build();
+        }
+
+        @Override
+        public boolean deleteHistory(Long ownerId, String requestId) {
+            return true;
+        }
+    }
+}

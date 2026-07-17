@@ -10,7 +10,8 @@ export default function RequireAuth(props: RequireAuthProps) {
   const location = useLocation();
 
   if (!isAuthenticated()) {
-    return <Navigate to={ROUTES.LOGIN} replace state={{ from: location.pathname }} />;
+    const from = `${location.pathname}${location.search}${location.hash}`;
+    return <Navigate to={ROUTES.LOGIN} replace state={{ from }} />;
   }
 
   return <>{props.children}</>;

@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ChatView from '@/components/ChatView';
-import WorkspaceMRag from '@/pages/WorkspaceMRag';
 import WorkspaceImageGeneration from '@/pages/WorkspaceImageGeneration';
+import UserExtensions from '@/pages/UserExtensions';
 import { defaultProduct, productList } from '@/utils/constants';
 import { createSessionId, getUniqId, peekSessionId, setSessionId } from '@/utils';
 import {
@@ -24,7 +24,7 @@ import { Loading } from '@/components';
 
 type HomeProps = Record<string, never>;
 
-type SidebarView = 'chat' | 'mrag' | 'image-generation';
+type SidebarView = 'chat' | 'extensions' | 'image-generation';
 
 type InitialState = {
   productType: string;
@@ -34,7 +34,7 @@ const OUTPUT_TYPES = ['html', 'docs', 'ppt', 'table'];
 const CHAT_MODEL_STORAGE_KEY = 'ai_group_chat_model';
 const EMPTY_INPUT: CHAT.TInputInfo = {
   message: '',
-  deepThink: false,
+  executionMode: 'STANDARD',
 };
 
 const toConversationRole = (
@@ -67,7 +67,7 @@ const createConversation = (
     sessionId: partial.sessionId || createSessionId(),
     title: partial.title || '新对话',
     productType: partial.productType || 'chat',
-    deepThink: Boolean(partial.deepThink),
+    executionMode: partial.executionMode || 'STANDARD',
     role: partial.role || null,
     createdAt: partial.createdAt ?? now,
     updatedAt: partial.updatedAt ?? now,
@@ -93,7 +93,8 @@ const Home: ReactorType.FC<HomeProps> = memo(() => {
     }
     return window.localStorage.getItem(CHAT_MODEL_STORAGE_KEY) || undefined;
   });
-  const { recentSessions, recentSessionsLoading, refreshRecentSessions } = useRecentSessions();
+  const { recentSessions, recentSessionsLoading, refreshRecentSessions, removeRecentSession } =
+    useRecentSessions();
   const [activeView, setActiveView] = useState<SidebarView>('chat');
   const [inputInfo, setInputInfo] = useState<CHAT.TInputInfo>(EMPTY_INPUT);
   const [product, setProduct] = useState(
@@ -278,7 +279,7 @@ const Home: ReactorType.FC<HomeProps> = memo(() => {
           ...override,
           sessionId: nextSessionId,
           productType: nextProductType,
-          deepThink: nextMode.deepThink,
+          executionMode: nextMode.executionMode,
           role:
             override?.role ||
             (nextProductType === 'chat' ? toConversationRole(defaultFixRole) : null),
@@ -327,6 +328,24 @@ const Home: ReactorType.FC<HomeProps> = memo(() => {
     [resetInput],
   );
 
+  const handleDeleteRecentSession = useCallback(
+    (session: ConversationSessionItem) => {
+      conversationHistoryApi
+        .deleteSession(session.sessionId)
+        .then(() => {
+          removeRecentSession(session.sessionId);
+          if (currentConversation.sessionId === session.sessionId) {
+            createNewChat();
+          }
+        })
+        .catch((error) => {
+          console.error('删除会话失败', error);
+          window.alert('删除会话失败，请稍后重试');
+        });
+    },
+    [createNewChat, currentConversation.sessionId, removeRecentSession],
+  );
+
   useEffect(() => {
     if (conversationBootstrapLoading) {
       return;
@@ -346,7 +365,7 @@ const Home: ReactorType.FC<HomeProps> = memo(() => {
       setInputInfo({
         ...info,
         outputStyle: nextMeta.productType,
-        deepThink: nextMeta.deepThink,
+        executionMode: nextMeta.executionMode,
         aiAgentId: nextMeta.productType === 'chat' ? currentConversationRole?.agentId : undefined,
       });
     },
@@ -356,10 +375,10 @@ const Home: ReactorType.FC<HomeProps> = memo(() => {
   const handleInputSelectionChange = useCallback(
     ({
       product: nextProduct,
-      deepThink: nextDeepThink,
+      executionMode: nextExecutionMode,
     }: {
       product: CHAT.Product;
-      deepThink: boolean;
+      executionMode: CHAT.ExecutionMode;
     }) => {
       setProduct(nextProduct);
       if (OUTPUT_TYPES.includes(nextProduct.type)) {
@@ -368,7 +387,7 @@ const Home: ReactorType.FC<HomeProps> = memo(() => {
 
       updateCurrentConversationMeta({
         productType: nextProduct.type,
-        deepThink: nextProduct.type === 'dataAgent' ? false : nextDeepThink,
+        executionMode: nextProduct.type === 'dataAgent' ? 'STANDARD' : nextExecutionMode,
         role:
           nextProduct.type === 'chat'
             ? currentConversation.role || toConversationRole(defaultFixRole)
@@ -387,7 +406,7 @@ const Home: ReactorType.FC<HomeProps> = memo(() => {
       if (hasConversationContent(currentConversation)) {
         createNewChat({
           productType: 'chat',
-          deepThink: false,
+          executionMode: 'STANDARD',
           role: nextRole,
         });
         return;
@@ -396,7 +415,7 @@ const Home: ReactorType.FC<HomeProps> = memo(() => {
       // 空会话：就地切到聊天模式并应用所选角色。
       updateCurrentConversationMeta({
         productType: 'chat',
-        deepThink: false,
+        executionMode: 'STANDARD',
         role: nextRole,
       });
       setProduct(chatProduct);
@@ -410,7 +429,7 @@ const Home: ReactorType.FC<HomeProps> = memo(() => {
       changeInputInfo({
         message: query.label,
         outputStyle: 'dataAgent',
-        deepThink: query.type === 2,
+        executionMode: 'STANDARD',
       });
     },
     [changeInputInfo],
@@ -429,15 +448,16 @@ const Home: ReactorType.FC<HomeProps> = memo(() => {
         selectedSessionId={currentConversation.sessionId}
         onNewChat={createNewChat}
         onSelectSession={handleSelectRecentSession}
+        onDeleteSession={handleDeleteRecentSession}
         onChangeView={setActiveView}
       />
 
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <div className={contentContainerClassName}>
-          {activeView === 'mrag' ? (
-            <WorkspaceMRag embedded />
-          ) : activeView === 'image-generation' ? (
+          {activeView === 'image-generation' ? (
             <WorkspaceImageGeneration embedded />
+          ) : activeView === 'extensions' ? (
+            <UserExtensions />
           ) : canRenderChatView ? (
             <ChatView
               inputInfo={inputInfo}

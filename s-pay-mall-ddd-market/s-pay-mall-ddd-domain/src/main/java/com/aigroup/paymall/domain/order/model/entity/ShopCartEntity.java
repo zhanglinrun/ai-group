@@ -12,6 +12,9 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 public class ShopCartEntity {
 
+    // 客户端单次购买尝试的稳定请求号
+    private String requestId;
+
     // 用户ID
     private String userId;
 

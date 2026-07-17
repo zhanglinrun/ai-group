@@ -3,17 +3,34 @@ package com.aigroup.paymall.domain.order.adapter.repository;
 import com.aigroup.paymall.domain.order.model.aggregate.CreateOrderAggregate;
 import com.aigroup.paymall.domain.order.model.entity.OrderEntity;
 import com.aigroup.paymall.domain.order.model.entity.PayOrderEntity;
-import com.aigroup.paymall.domain.order.model.entity.ShopCartEntity;
 
 import java.util.Date;
 import java.util.List;
+import java.math.BigDecimal;
 
 public interface IOrderRepository {
-    void doSaveOrder(CreateOrderAggregate orderAggregate);
+    /**
+     * 插入成功返回 {@code null}；若同一 userId + clientRequestId 已由并发请求插入，返回赢家订单。
+     * 其他唯一键冲突必须继续抛出，不能误判为幂等命中。
+     */
+    OrderEntity saveOrderIfAbsent(CreateOrderAggregate orderAggregate);
 
-    OrderEntity queryUnPayOrder(ShopCartEntity shopCartEntity);
+    OrderEntity queryOrderByClientRequestId(String userId, String clientRequestId);
 
-    void updateOrderPayInfo(PayOrderEntity payOrderEntity);
+    boolean claimOrderCreation(String orderId, String ownerToken);
+
+    void releaseOrderCreationClaim(String orderId, String ownerToken);
+
+    boolean markGroupLocked(String orderId, String ownerToken, Integer marketType,
+                            BigDecimal marketDeductionAmount, BigDecimal payAmount);
+
+    boolean markProviderStarted(String orderId, String ownerToken);
+
+    boolean completeOrderPrepay(PayOrderEntity payOrderEntity, String ownerToken);
+
+    void markOrderCreationManualReview(String orderId, String ownerToken);
+
+    void updateOrderPayUrl(String orderId, String payUrl);
 
     void changeOrderPaySuccess(String orderId, Date payTime);
 

@@ -1,0 +1,58 @@
+server:
+  port: 8090
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      show-details: when_authorized
+  metrics:
+    tags:
+      application: ${spring.application.name}
+
+spring:
+  application:
+    name: agent
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 60MB
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
+  cloud:
+    compatibility-verifier:
+      enabled: false
+    nacos:
+      discovery:
+        server-addr: ${NACOS_HOST:127.0.0.1}:${NACOS_PORT:8848}
+        namespace: public
+  ai:
+    openai:
+      api-key: ${AGENT_GROUP_LLM_API_KEY:${DASHSCOPE_API_KEY:${OPENAI_API_KEY:}}}
+      base-url: ${AGENT_GROUP_LLM_BASE_URL:${OPENAI_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}}
+      chat:
+        options:
+          model: ${AGENT_GROUP_LLM_CHAT_MODEL:qwen-plus}
+  autoconfigure:
+    exclude:
+      - org.springframework.ai.model.openai.autoconfigure.OpenAiAudioSpeechAutoConfiguration
+      - org.springframework.ai.model.openai.autoconfigure.OpenAiAudioTranscriptionAutoConfiguration
+      - org.springframework.ai.model.openai.autoconfigure.OpenAiImageAutoConfiguration
+
+jwt:
+  secret: ${JWT_SECRET:change-me-to-a-long-random-secret}
+
+ai-agent:
+  debug-endpoints:
+    enabled: false
+
+ai-group:
+  bff-service:
+    base-url: ${AI_GROUP_BFF_URL:http://127.0.0.1:8083}
+  member-service:
+    base-url: ${AI_GROUP_MEMBER_URL:http://127.0.0.1:18082}
+  internal:
+    token: ${AI_GROUP_INTERNAL_TOKEN:change-me-to-a-long-random-internal-token}

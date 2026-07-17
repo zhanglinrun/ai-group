@@ -18,6 +18,9 @@ export const api = {
   put: <T>(url: string, data?: any, config?: AxiosRequestConfig) =>
     request.put<ApiResponse<T>>(url, data, config),
 
+  patch: <T>(url: string, data?: any, config?: AxiosRequestConfig) =>
+    request.patch<ApiResponse<T>>(url, data, config),
+
   delete: <T>(url: string, params?: any, config?: AxiosRequestConfig) =>
     request.delete<ApiResponse<T>>(url, { ...config, params }),
 };

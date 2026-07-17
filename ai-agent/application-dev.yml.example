@@ -17,7 +17,7 @@ spring:
   ai:
     agent:
       auto-config:
-        enabled: ${REACTOR_AGENT_AUTO_CONFIG_ENABLED:false}
+        enabled: ${AI_AGENT_AUTO_CONFIG_ENABLED:false}
     openai:
       base-url: ${AGENT_GROUP_LLM_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}
       api-key: ${AGENT_GROUP_LLM_API_KEY:${DASHSCOPE_API_KEY:${AI_BAILIAN_API_KEY:not-configured}}}
@@ -55,8 +55,11 @@ spring:
 
 # member-service 内部配额 API（freeze / confirm / release）
 ai-group:
+  # platform_context 只读工具使用；身份来自 AgentContext，内部令牌沿用 AI_GROUP_INTERNAL_TOKEN。
+  bff-service:
+    base-url: ${AI_GROUP_BFF_URL:http://127.0.0.1:8083}
   member-service:
-    base-url: ${MEMBER_SERVICE_BASE_URL:http://127.0.0.1:8082}
+    base-url: ${MEMBER_SERVICE_BASE_URL:http://127.0.0.1:18082}
 
 llm:
   default:
@@ -73,28 +76,25 @@ autobots:
   execution:
     heartbeat:
       interval-millis: 10000
+    run-recovery:
+      enabled: ${AGENT_RUN_RECOVERY_ENABLED:true}
+      scan-interval-millis: ${AGENT_RUN_RECOVERY_SCAN_INTERVAL_MILLIS:60000}
+      deadline-grace-millis: ${AGENT_RUN_RECOVERY_DEADLINE_GRACE_MILLIS:300000}
+      heartbeat-timeout-millis: ${AGENT_RUN_RECOVERY_HEARTBEAT_TIMEOUT_MILLIS:60000}
+      batch-limit: ${AGENT_RUN_RECOVERY_BATCH_LIMIT:200}
     cors:
       allowed-origins:
         - http://localhost:5173
         - http://127.0.0.1:5173
   autoagent:
-    planner:
-      model_name: ${AGENT_GROUP_LLM_CHAT_MODEL:qwen-plus}
-    evaluator:
-      enabled: ${AGENT_EVALUATOR_ENABLED:true}
-      llm_judge_enabled: ${AGENT_EVALUATOR_LLM_JUDGE_ENABLED:true}
-      model_name: ${AGENT_EVALUATOR_MODEL:${AGENT_GROUP_LLM_CHAT_MODEL:qwen-plus}}
-      score_threshold: ${AGENT_EVALUATOR_SCORE_THRESHOLD:75}
-      max_replan_rounds: ${AGENT_EVALUATOR_MAX_REPLAN_ROUNDS:2}
-      reflection_token_budget: ${AGENT_EVALUATOR_REFLECTION_TOKEN_BUDGET:6000}
-      judge_timeout_seconds: ${AGENT_EVALUATOR_TIMEOUT_SECONDS:60}
-      max_input_chars: ${AGENT_EVALUATOR_MAX_INPUT_CHARS:12000}
-      max_judge_response_tokens: ${AGENT_EVALUATOR_MAX_RESPONSE_TOKENS:600}
-      temperature: ${AGENT_EVALUATOR_TEMPERATURE:0.0}
-    executor:
-      model_name: ${AGENT_GROUP_LLM_CHAT_MODEL:qwen-plus}
-    react:
-      model_name: ${AGENT_GROUP_LLM_CHAT_MODEL:qwen-plus}
+    agent-loop:
+      model-name: ${AGENT_GROUP_LLM_CHAT_MODEL:qwen-plus}
+      max-turns: ${AGENT_LOOP_MAX_TURNS:40}
+      max-tool-calls: ${AGENT_LOOP_MAX_TOOL_CALLS:64}
+      max-completion-attempts: ${AGENT_LOOP_MAX_COMPLETION_ATTEMPTS:3}
+      max-duration-seconds: ${AGENT_LOOP_MAX_DURATION_SECONDS:900}
+      max-total-tokens: ${AGENT_LOOP_MAX_TOTAL_TOKENS:200000}
+      max-microcredits: ${AGENT_LOOP_MAX_MICROCREDITS:10000000}
     max-concurrent-dialogues-per-user: ${AGENT_MAX_CONCURRENT_DIALOGUES_PER_USER:3}
     tool:
       max_attempts: ${AGENT_TOOL_MAX_ATTEMPTS:2}
@@ -116,15 +116,12 @@ autobots:
       enabled: ${AGENT_SKILLS_ENABLED:true}
       directories:
         - ${AGENT_SKILLS_DIRECTORY:runtime/skills}
-      react-enabled: ${AGENT_SKILLS_REACT_ENABLED:true}
-      plan-solve-enabled: ${AGENT_SKILLS_PLAN_SOLVE_ENABLED:true}
+      agent-loop-enabled: ${AGENT_SKILLS_AGENT_LOOP_ENABLED:true}
       max-read-chars: ${AGENT_SKILLS_MAX_READ_CHARS:12000}
       max-list-entries: ${AGENT_SKILLS_MAX_LIST_ENTRIES:200}
       max-glob-results: ${AGENT_SKILLS_MAX_GLOB_RESULTS:100}
       max-grep-matches: ${AGENT_SKILLS_MAX_GREP_MATCHES:100}
       default-script-timeout-seconds: ${AGENT_SKILLS_SCRIPT_TIMEOUT_SECONDS:120}
-    dispatch_url: ${AGENT_GROUP_AGENT_DISPATCH_URL:http://127.0.0.1:8090/AutoAgent}
-    knowledge_url: ${AGENT_GROUP_REACTOR_TOOL_BASE_URL:http://127.0.0.1:1601}
     code_interpreter_url: ${AGENT_GROUP_REACTOR_TOOL_BASE_URL:http://127.0.0.1:1601}
     reactor_tool_token: ${AGENT_GROUP_REACTOR_TOOL_TOKEN:${AI_GROUP_INTERNAL_TOKEN:${ai-group.internal.token:}}}
     deep_search_url: ${AGENT_GROUP_REACTOR_TOOL_BASE_URL:http://127.0.0.1:1601}

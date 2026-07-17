@@ -2,6 +2,7 @@ package com.aigroup.paymall.domain.order.service;
 
 import com.aigroup.paymall.domain.benefit.service.IBenefitEventService;
 import com.aigroup.paymall.domain.order.adapter.port.IProductPort;
+import com.aigroup.paymall.domain.order.adapter.port.MarketSettlementResult;
 import com.aigroup.paymall.domain.order.adapter.repository.IOrderRepository;
 import com.aigroup.paymall.domain.order.model.aggregate.CreateOrderAggregate;
 import com.aigroup.paymall.domain.order.model.entity.MarketPayDiscountEntity;
@@ -67,8 +68,8 @@ public class OrderService extends AbstractOrderService {
     }
 
     @Override
-    protected void doSaveOrder(CreateOrderAggregate orderAggregate) {
-        repository.doSaveOrder(orderAggregate);
+    protected OrderEntity doSaveOrder(CreateOrderAggregate orderAggregate) {
+        return repository.saveOrderIfAbsent(orderAggregate);
     }
 
     @Override
@@ -99,7 +100,6 @@ public class OrderService extends AbstractOrderService {
             payOrderEntity.setMarketType(null == marketPayDiscountEntity ? MarketTypeVO.NO_MARKET.getCode() : MarketTypeVO.GROUP_BUY_MARKET.getCode());
             payOrderEntity.setMarketDeductionAmount(null == marketPayDiscountEntity ? BigDecimal.ZERO : marketPayDiscountEntity.getDeductionPrice());
             payOrderEntity.setPayAmount(payAmount);
-            repository.updateOrderPayInfo(payOrderEntity);
             return payOrderEntity;
         }
 
@@ -142,8 +142,6 @@ public class OrderService extends AbstractOrderService {
         payOrderEntity.setMarketType(null == marketPayDiscountEntity ? MarketTypeVO.NO_MARKET.getCode() : MarketTypeVO.GROUP_BUY_MARKET.getCode());
         payOrderEntity.setMarketDeductionAmount(null == marketPayDiscountEntity ? BigDecimal.ZERO : marketPayDiscountEntity.getDeductionPrice());
         payOrderEntity.setPayAmount(payAmount);
-
-        repository.updateOrderPayInfo(payOrderEntity);
 
         return payOrderEntity;
     }
@@ -206,6 +204,7 @@ public class OrderService extends AbstractOrderService {
                     orderId, response.getCode(), response.getSubCode(), response.getSubMsg());
             return null;
         }
+        repository.updateOrderPayUrl(orderId, response.getQrCode());
         log.info("alipay precreate ok orderId:{} amount:{} qrCode:{}", orderId, payAmount, response.getQrCode());
         return response.getQrCode();
     }
@@ -258,16 +257,28 @@ public class OrderService extends AbstractOrderService {
             repository.changeMarketOrderPaySuccess(orderId);
             // 通知 group 结算（登记本成员已支付)。成功则置结算确认位：补偿任务只重试"通知丢失"(未置位)的单，
             // 正常等待成团的单不再被每分钟重扫，消除错误刷屏与扫描窗口饥饿。
-            boolean settled = port.settlementMarketPayOrder(orderEntity.getUserId(), orderId, payTime);
-            if (settled) {
+            MarketSettlementResult settlementResult = port.settlementMarketPayOrder(orderEntity.getUserId(), orderId, payTime);
+            if (MarketSettlementResult.ACKNOWLEDGED.equals(settlementResult)) {
                 repository.markSettlementNotified(orderId);
+            } else if (MarketSettlementResult.TERMINAL_REJECTED.equals(settlementResult)) {
+                refundTerminalRejectedPayment(orderEntity.getUserId(), orderId);
             }
         } else {
-            repository.changeOrderPaySuccess(orderId, payTime);
-            // 直购单支付成功即发放永久付费额度。
-            // 拼团单的权益在成团回调 changeOrderMarketSettlement 里发放；此处发放幂等（按 order+eventType 去重）。
-            // 直购单无阶梯加赠，bonusQuota 传 null。
-            benefitEventService.publishGroupBuyCompletedEvents(Collections.singletonList(orderId), null);
+            // Direct-purchase status and both durable outbox rows commit atomically.
+            // No MQ call occurs inside this transaction; OutboxEventPublishJob can
+            // only observe the rows after commit. Replayed successful callbacks also
+            // repair legacy PAY_SUCCESS/DEAL_DONE orders that predate the outbox.
+            transactionTemplate.executeWithoutResult(status -> {
+                repository.changeOrderPaySuccess(orderId, payTime);
+                OrderEntity paidOrder = repository.queryOrderByOrderId(orderId);
+                if (isFulfillableDirectOrder(paidOrder)) {
+                    benefitEventService.enqueueCompletedOrderEvents(
+                            Collections.singletonList(orderId), null);
+                } else {
+                    log.info("skip direct purchase outbox, order is not paid orderId={} status={}",
+                            orderId, paidOrder == null ? null : paidOrder.getOrderStatusVO());
+                }
+            });
         }
 
     }
@@ -298,10 +309,13 @@ public class OrderService extends AbstractOrderService {
                 // group settlement is idempotent; order stays PAY_SUCCESS until the
                 // team_success MQ callback moves it to MARKET, so retrying is safe.
                 // 通知成功后置确认位，从后续扫描集合中移除（此处扫到的都是首次通知丢失的单）。
-                boolean settled = port.settlementMarketPayOrder(order.getUserId(), order.getOrderId(),
+                MarketSettlementResult settlementResult = port.settlementMarketPayOrder(order.getUserId(), order.getOrderId(),
                         null != order.getPayTime() ? order.getPayTime() : new Date());
-                if (settled) {
+                if (MarketSettlementResult.ACKNOWLEDGED.equals(settlementResult)) {
                     repository.markSettlementNotified(order.getOrderId());
+                    count++;
+                } else if (MarketSettlementResult.TERMINAL_REJECTED.equals(settlementResult)) {
+                    refundTerminalRejectedPayment(order.getUserId(), order.getOrderId());
                     count++;
                 }
             } catch (Exception e) {
@@ -309,6 +323,25 @@ public class OrderService extends AbstractOrderService {
             }
         }
         return count;
+    }
+
+    private void refundTerminalRejectedPayment(String userId, String orderId) {
+        try {
+            if (!refundPayOrder(userId, orderId)) {
+                throw new IllegalStateException("terminal group rejection refund was not accepted, orderId=" + orderId);
+            }
+            log.info("terminal group settlement rejection refunded userId:{} orderId:{}", userId, orderId);
+        } catch (AlipayApiException e) {
+            throw new IllegalStateException("terminal group rejection refund failed, orderId=" + orderId, e);
+        }
+    }
+
+    private boolean isFulfillableDirectOrder(OrderEntity order) {
+        if (order == null || order.getOrderStatusVO() == null) {
+            return false;
+        }
+        return OrderStatusVO.PAY_SUCCESS.equals(order.getOrderStatusVO())
+                || OrderStatusVO.DEAL_DONE.equals(order.getOrderStatusVO());
     }
 
     @Override
@@ -346,8 +379,9 @@ public class OrderService extends AbstractOrderService {
         // 未支付/已关闭订单即使出现在回调列表里也不发额度。
         List<String> settledOrderIds = repository.changeOrderMarketSettlement(outTradeNoList);
         if (null != settledOrderIds && !settledOrderIds.isEmpty()) {
-            // 阶梯拼团：把成团所达档位的加赠额度随权益事件透传给 member（在基础额度上叠加发放）
-            benefitEventService.publishGroupBuyCompletedEvents(settledOrderIds,
+            // The order transition and both fulfillment/benefit outbox rows share
+            // this transaction. The independent publisher sends them after commit.
+            benefitEventService.enqueueCompletedOrderEvents(settledOrderIds,
                     bonusQuota == null ? null : bonusQuota.longValue());
         }
     }
@@ -411,6 +445,10 @@ public class OrderService extends AbstractOrderService {
         AlipayTradeRefundRequest request = new AlipayTradeRefundRequest();
         AlipayTradeRefundModel refundModel = new AlipayTradeRefundModel();
         refundModel.setOutTradeNo(orderEntity.getOrderId());
+        // Deterministic idempotency key: if Alipay completed the refund but the
+        // response/local transaction was lost, retrying this request returns the
+        // same refund result instead of attempting a second refund.
+        refundModel.setOutRequestNo("refund-" + orderEntity.getOrderId());
         refundModel.setRefundAmount(orderEntity.getPayAmount().toString());
         refundModel.setRefundReason("\u4ea4\u6613\u9000\u6b3e");
         request.setBizModel(refundModel);
@@ -420,11 +458,11 @@ public class OrderService extends AbstractOrderService {
         AlipayTradeRefundResponse execute = alipayClient.execute(request);
         if (!execute.isSuccess()) return false;
 
-        // 原子更新本地订单状态并发布权益撤销事件
-        // local DB updates (order close + revoke benefit event) committed atomically
+        // 原子更新本地订单状态并写入权益撤销 outbox；独立发布器在提交后发送。
+        // local DB updates (order close + revoke outbox row) commit atomically
         transactionTemplate.executeWithoutResult(status -> {
             repository.refundOrder(userId, orderId);
-            benefitEventService.publishGroupBuyRevokedEvents(Collections.singletonList(orderId));
+            benefitEventService.enqueueRevokedBenefitEvents(Collections.singletonList(orderId));
         });
 
         return true;

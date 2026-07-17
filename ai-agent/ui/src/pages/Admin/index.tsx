@@ -6,6 +6,7 @@ import {
   Loader2,
   LogOut,
   Package,
+  PlugZap,
   Plus,
   RefreshCw,
   Save,
@@ -24,10 +25,11 @@ import {
   type AdminGroupTier,
   type AdminSku,
 } from '@/services/admin';
+import SystemExtensionsPanel from './SystemExtensionsPanel';
 import { clearAuthTokens, isAuthenticated } from '@/auth/token';
 import { ROUTES } from '@/router/routes';
 
-type AdminTab = 'skus' | 'groupbuy' | 'models';
+type AdminTab = 'skus' | 'groupbuy' | 'models' | 'extensions';
 
 const ADMIN_ROLE_KEY = 'ai_group_role';
 
@@ -1510,6 +1512,7 @@ const TABS: Array<{ key: AdminTab; label: string; icon: typeof Package }> = [
   { key: 'skus', label: '额度包', icon: Package },
   { key: 'groupbuy', label: '拼团活动', icon: Users },
   { key: 'models', label: '模型与费率', icon: KeyRound },
+  { key: 'extensions', label: '系统扩展', icon: PlugZap },
 ];
 
 const AdminPage = memo(() => {
@@ -1586,11 +1589,12 @@ const AdminPage = memo(() => {
           {tab === 'skus' ? <SkuPanel /> : null}
           {tab === 'groupbuy' ? <GroupBuyPanel /> : null}
           {tab === 'models' ? <ModelPanel /> : null}
+          {tab === 'extensions' ? <SystemExtensionsPanel /> : null}
         </div>
 
         <p className="mt-6 text-xs text-[var(--chat-text-soft)]">
           提示：改价/改活动保存后立即生效（拼团活动缓存已同步逐出）；模型 Key
-          读取时脱敏展示，仅在输入新 Key 时更新。
+          读取时脱敏展示，仅在输入新 Key 时更新；系统扩展仅在运营端管理。
         </p>
       </main>
     </div>

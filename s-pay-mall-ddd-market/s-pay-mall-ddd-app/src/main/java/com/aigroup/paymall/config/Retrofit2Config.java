@@ -20,11 +20,12 @@ import retrofit2.converter.jackson.JacksonConverterFactory;
 public class Retrofit2Config {
 
     public static final String HEADER_INTERNAL_TOKEN = "X-Internal-Token";
+    public static final String DEFAULT_MEMBER_SERVICE_URL = "http://127.0.0.1:18082";
 
     @Value("${app.config.group-buy-market.api-url}")
     private String groupBuyMarketApiUrl;
 
-    @Value("${app.config.member-service.api-url:http://127.0.0.1:8082}")
+    @Value("${app.config.member-service.api-url:" + DEFAULT_MEMBER_SERVICE_URL + "}")
     private String memberServiceApiUrl;
 
     @Value("${ai-group.internal.token:}")

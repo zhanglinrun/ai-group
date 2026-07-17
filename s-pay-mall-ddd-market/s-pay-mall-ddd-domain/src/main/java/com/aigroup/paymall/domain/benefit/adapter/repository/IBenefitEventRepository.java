@@ -15,6 +15,6 @@ public interface IBenefitEventRepository {
 
     List<BenefitEventEntity> queryPendingGrants(String eventType, Date since, Long lastId, int pageSize);
 
-    List<BenefitEventEntity> queryUnpublished(String eventType, int limit);
+    List<BenefitEventEntity> queryUnpublished(int limit);
 
 }

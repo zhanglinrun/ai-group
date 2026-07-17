@@ -30,10 +30,15 @@ public interface QuotaFreezeMapper extends BaseMapper<QuotaFreeze> {
             + "WHERE user_id = #{userId} AND status = 'PENDING' FOR UPDATE")
     long sumPendingPaidAmount(@Param("userId") Long userId);
 
-    /**
-     * 扫描超时仍处于 PENDING 的冻结（进程崩溃/发布重启导致 confirm/release 丢失的僵尸冻结），供兜底释放。
-     */
-    @Select("SELECT freeze_id FROM quota_freeze WHERE status = 'PENDING' AND created_at < #{cutoff} "
+    /** Scan only legacy/unmanaged PENDING freezes that member may safely release. */
+    @Select("SELECT freeze_id FROM quota_freeze WHERE status = 'PENDING' "
+            + "AND (owner_service IS NULL OR owner_service <> 'ai-agent') AND created_at < #{cutoff} "
             + "ORDER BY created_at ASC LIMIT #{limit}")
     List<String> selectExpiredPendingFreezeIds(@Param("cutoff") LocalDateTime cutoff, @Param("limit") int limit);
+
+    @Select("SELECT freeze_id FROM quota_freeze WHERE status = 'PENDING' "
+            + "AND owner_service = 'ai-agent' AND created_at < #{cutoff} "
+            + "ORDER BY created_at ASC LIMIT #{limit}")
+    List<String> selectExpiredManagedPendingFreezeIds(@Param("cutoff") LocalDateTime cutoff,
+                                                      @Param("limit") int limit);
 }

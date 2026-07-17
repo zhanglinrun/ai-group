@@ -80,6 +80,41 @@ export function formatMicroQuota(value?: number): string {
   return `${(value / 1_000_000).toLocaleString('zh-CN', { maximumFractionDigits: 6 })} 点`;
 }
 
+export type QuotaLedgerAmountView = {
+  text: string;
+  tone: 'positive' | 'negative' | 'pending' | 'neutral';
+};
+
+/**
+ * quota_ledger 的 amount 是领域流水，不全是余额增减：FREEZE 记录预留规模，
+ * RELEASE 当前以 0 记录释放动作。直接按正负号展示会把“预留”误写成额度增加。
+ */
+export function quotaLedgerAmountView(type?: string, amount?: number): QuotaLedgerAmountView {
+  const normalizedType = (type || '').toUpperCase();
+  const normalizedAmount = Number.isFinite(amount) ? Number(amount) : 0;
+
+  if (normalizedType === 'FREEZE') {
+    return {
+      text: `预留 ${formatMicroQuota(Math.abs(normalizedAmount))}`,
+      tone: 'pending',
+    };
+  }
+  if (normalizedType === 'RELEASE') {
+    return {
+      text:
+        normalizedAmount === 0
+          ? '预留已释放'
+          : `释放 ${formatMicroQuota(Math.abs(normalizedAmount))}`,
+      tone: 'neutral',
+    };
+  }
+
+  return {
+    text: `${normalizedAmount > 0 ? '+' : ''}${formatMicroQuota(normalizedAmount)}`,
+    tone: normalizedAmount > 0 ? 'positive' : normalizedAmount < 0 ? 'negative' : 'neutral',
+  };
+}
+
 export function shortTeamId(teamId?: string): string {
   if (!teamId) return '-';
   if (teamId.length <= 8) return teamId;

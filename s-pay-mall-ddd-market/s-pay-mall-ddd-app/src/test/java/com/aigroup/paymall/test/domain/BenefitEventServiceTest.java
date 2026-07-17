@@ -7,17 +7,29 @@ import com.aigroup.paymall.domain.benefit.service.BenefitEventService;
 import com.aigroup.paymall.domain.order.adapter.repository.IOrderRepository;
 import com.aigroup.paymall.domain.order.model.entity.OrderEntity;
 import com.aigroup.paymall.domain.order.model.valobj.MarketTypeVO;
-import com.aigroup.paymall.types.enums.BenefitEventType;
+import com.aigroup.paymall.types.enums.OutboxEventType;
 import com.aigroup.paymall.types.event.TradeCompletedEvent;
 import org.junit.Before;
 import org.junit.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Collections;
+import java.util.List;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 public class BenefitEventServiceTest {
 
@@ -35,77 +47,179 @@ public class BenefitEventServiceTest {
     }
 
     @Test
-    public void publishGroupBuyCompletedEvents_publishesOnGroupSettlement() {
-        OrderEntity order = OrderEntity.builder()
-                .userId("10001")
-                .orderId("order-001")
-                .productId("9890001")
-                .productCode("QUOTA_LIGHT")
-                .baseQuotaSnapshot(60L)
-                .marketType(MarketTypeVO.GROUP_BUY_MARKET.getCode())
-                .build();
+    public void enqueueCompletedOrderEvents_writesTwoOutboxRowsWithoutPublishing() {
+        OrderEntity order = order("order-001", MarketTypeVO.GROUP_BUY_MARKET, 60L);
         when(orderRepository.queryOrderByOrderId("order-001")).thenReturn(order);
-        when(benefitEventRepository.findByOrderIdAndEventType("order-001", BenefitEventType.GROUP_BUY_COMPLETED.name()))
-                .thenReturn(null);
 
-        benefitEventService.publishGroupBuyCompletedEvents(Collections.singletonList("order-001"), 18L);
+        benefitEventService.enqueueCompletedOrderEvents(Collections.singletonList("order-001"), 18L);
 
-        ArgumentCaptor<TradeCompletedEvent> eventCaptor = ArgumentCaptor.forClass(TradeCompletedEvent.class);
-        verify(benefitEventPort).publishTradeCompleted(eventCaptor.capture());
-        TradeCompletedEvent event = eventCaptor.getValue();
-        assertEquals(Long.valueOf(10001L), event.getUserId());
-        assertEquals("order-001", event.getOrderId());
-        assertEquals("QUOTA_LIGHT", event.getProductCode());
-        assertEquals(Long.valueOf(60L), event.getBaseQuota());
-        assertEquals(Long.valueOf(18L), event.getBonusQuota());
-        assertEquals(BenefitEventType.GROUP_BUY_COMPLETED.name(), event.getEventType());
-        verify(benefitEventRepository).markPublished(any(String.class));
+        ArgumentCaptor<BenefitEventEntity> eventCaptor = ArgumentCaptor.forClass(BenefitEventEntity.class);
+        verify(benefitEventRepository, times(2)).insert(eventCaptor.capture());
+        List<BenefitEventEntity> events = eventCaptor.getAllValues();
+        assertEquals(OutboxEventType.ORDER_PAY_SUCCESS.name(), events.get(0).getEventType());
+        assertEquals(OutboxEventType.GROUP_BUY_COMPLETED.name(), events.get(1).getEventType());
+        assertEquals(Long.valueOf(60L), events.get(1).getBaseQuota());
+        assertEquals(Long.valueOf(18L), events.get(1).getBonusQuota());
+        assertFalse(events.get(0).getEventPublished());
+        verifyNoInteractions(benefitEventPort);
+        verify(benefitEventRepository, never()).markPublished(any(String.class));
     }
 
     @Test
-    public void publishGroupBuyCompletedEvents_publishesForDirectPurchase() {
-        // 直购单（NO_MARKET）支付成功同样发放权益：
-        // 旧行为是直接跳过，导致「直接购买」永远不开通会员（详见 OrderService.changeOrderPaySuccess 直购分支）。
-        OrderEntity order = OrderEntity.builder()
-                .userId("10001")
-                .orderId("order-002")
-                .productId("9890002")
-                .productCode("QUOTA_LIGHT")
-                .baseQuotaSnapshot(60L)
-                .marketType(MarketTypeVO.NO_MARKET.getCode())
-                .build();
-        when(orderRepository.queryOrderByOrderId("order-002")).thenReturn(order);
-        when(benefitEventRepository.findByOrderIdAndEventType("order-002", BenefitEventType.GROUP_BUY_COMPLETED.name()))
-                .thenReturn(null);
-
-        benefitEventService.publishGroupBuyCompletedEvents(Collections.singletonList("order-002"), null);
-
-        ArgumentCaptor<TradeCompletedEvent> eventCaptor = ArgumentCaptor.forClass(TradeCompletedEvent.class);
-        verify(benefitEventPort).publishTradeCompleted(eventCaptor.capture());
-        assertEquals("QUOTA_LIGHT", eventCaptor.getValue().getProductCode());
-        assertEquals(Long.valueOf(60L), eventCaptor.getValue().getBaseQuota());
-        verify(benefitEventRepository).insert(any(BenefitEventEntity.class));
+    public void enqueueMethodsAreTransactionalButPublisherRunsOutsideBusinessTransaction() throws Exception {
+        assertNotNull(BenefitEventService.class
+                .getMethod("enqueueCompletedOrderEvents", List.class, Long.class)
+                .getAnnotation(Transactional.class));
+        assertNotNull(BenefitEventService.class
+                .getMethod("enqueueRevokedBenefitEvents", List.class)
+                .getAnnotation(Transactional.class));
+        Transactional publisherTransaction = BenefitEventService.class
+                .getMethod("publishPendingEvents")
+                .getAnnotation(Transactional.class);
+        assertNotNull(publisherTransaction);
+        assertEquals(Propagation.NOT_SUPPORTED, publisherTransaction.propagation());
     }
 
     @Test
-    public void republishPendingEvents_retriesUnpublished() {
-        BenefitEventEntity pending = BenefitEventEntity.builder()
-                .eventId("evt-1")
-                .eventType(BenefitEventType.GROUP_BUY_COMPLETED.name())
-                .userId(10001L)
-                .orderId("order-003")
-                .productCode("QUOTA_LIGHT")
-                .baseQuota(60L)
-                .eventPublished(false)
-                .build();
-        when(benefitEventRepository.queryUnpublished(BenefitEventType.GROUP_BUY_COMPLETED.name(), 50))
-                .thenReturn(Collections.singletonList(pending));
+    public void publishPendingEvents_publishesBenefitThenMarksRow() {
+        BenefitEventEntity pending = pending(
+                "evt-benefit", "order-002", OutboxEventType.GROUP_BUY_COMPLETED, 60L, 18L);
+        when(benefitEventRepository.queryUnpublished(100)).thenReturn(Collections.singletonList(pending));
 
-        int count = benefitEventService.republishPendingEvents();
+        int count = benefitEventService.publishPendingEvents();
 
         assertEquals(1, count);
-        verify(benefitEventPort).publishTradeCompleted(any(TradeCompletedEvent.class));
-        verify(benefitEventRepository).markPublished("evt-1");
+        ArgumentCaptor<TradeCompletedEvent> eventCaptor = ArgumentCaptor.forClass(TradeCompletedEvent.class);
+        verify(benefitEventPort).publishTradeCompleted(eventCaptor.capture());
+        assertEquals("evt-benefit", eventCaptor.getValue().getEventId());
+        assertEquals(Long.valueOf(18L), eventCaptor.getValue().getBonusQuota());
+        verify(benefitEventRepository).markPublished("evt-benefit");
     }
 
+    @Test
+    public void publishPendingEvents_publishesOrderFulfillmentThenMarksRow() {
+        BenefitEventEntity pending = pending(
+                "evt-fulfillment", "order-003", OutboxEventType.ORDER_PAY_SUCCESS, 60L, null);
+        when(benefitEventRepository.queryUnpublished(100)).thenReturn(Collections.singletonList(pending));
+
+        int count = benefitEventService.publishPendingEvents();
+
+        assertEquals(1, count);
+        verify(benefitEventPort).publishOrderPaySuccess("evt-fulfillment", 10001L, "order-003");
+        verify(benefitEventPort, never()).publishTradeCompleted(any(TradeCompletedEvent.class));
+        verify(benefitEventRepository).markPublished("evt-fulfillment");
+    }
+
+    @Test
+    public void publishPendingEvents_keepsOutboxPendingWhenBrokerConfirmationFails() {
+        BenefitEventEntity pending = pending(
+                "evt-confirm-timeout", "order-004", OutboxEventType.GROUP_BUY_COMPLETED, 60L, null);
+        when(benefitEventRepository.queryUnpublished(100)).thenReturn(Collections.singletonList(pending));
+        doThrow(new IllegalStateException("publisher confirm timeout"))
+                .when(benefitEventPort).publishTradeCompleted(any(TradeCompletedEvent.class));
+
+        int count = benefitEventService.publishPendingEvents();
+
+        assertEquals(0, count);
+        verify(benefitEventRepository, never()).markPublished("evt-confirm-timeout");
+    }
+
+    @Test
+    public void publishPendingEvents_keepsFulfillmentPendingWhenPublisherFails() {
+        BenefitEventEntity pending = pending(
+                "evt-fulfillment-timeout", "order-fulfillment-timeout",
+                OutboxEventType.ORDER_PAY_SUCCESS, 60L, null);
+        when(benefitEventRepository.queryUnpublished(100)).thenReturn(Collections.singletonList(pending));
+        doThrow(new IllegalStateException("publisher confirm timeout"))
+                .when(benefitEventPort).publishOrderPaySuccess(
+                        "evt-fulfillment-timeout", 10001L, "order-fulfillment-timeout");
+
+        int count = benefitEventService.publishPendingEvents();
+
+        assertEquals(0, count);
+        verify(benefitEventRepository, never()).markPublished("evt-fulfillment-timeout");
+    }
+
+    @Test
+    public void publishPendingEvents_publishesRevokeTombstoneWithoutCompletedBenefit() {
+        BenefitEventEntity revoke = pending(
+                "evt-revoke", "order-005", OutboxEventType.GROUP_BUY_REVOKED, 60L, null);
+        when(benefitEventRepository.queryUnpublished(100)).thenReturn(Collections.singletonList(revoke));
+
+        int count = benefitEventService.publishPendingEvents();
+
+        assertEquals(1, count);
+        ArgumentCaptor<TradeCompletedEvent> eventCaptor = ArgumentCaptor.forClass(TradeCompletedEvent.class);
+        verify(benefitEventPort).publishTradeCompleted(eventCaptor.capture());
+        assertEquals(OutboxEventType.GROUP_BUY_REVOKED.name(), eventCaptor.getValue().getEventType());
+        verify(benefitEventRepository).markPublished("evt-revoke");
+    }
+
+    @Test
+    public void publishPendingEvents_defersGrantWhenRevokeTombstoneIsStillPending() {
+        BenefitEventEntity completed = pending(
+                "evt-completed-deferred", "order-revoking",
+                OutboxEventType.GROUP_BUY_COMPLETED, 60L, null);
+        BenefitEventEntity revoke = pending(
+                "evt-revoke-pending", "order-revoking",
+                OutboxEventType.GROUP_BUY_REVOKED, 60L, null);
+        when(benefitEventRepository.queryUnpublished(100)).thenReturn(Collections.singletonList(completed));
+        when(benefitEventRepository.findByOrderIdAndEventType(
+                "order-revoking", OutboxEventType.GROUP_BUY_REVOKED.name())).thenReturn(revoke);
+
+        int count = benefitEventService.publishPendingEvents();
+
+        assertEquals(0, count);
+        verifyNoInteractions(benefitEventPort);
+        verify(benefitEventRepository, never()).markPublished("evt-completed-deferred");
+    }
+
+    @Test
+    public void enqueueCompletedOrderEvents_propagatesMissingOutboxInsertFailure() {
+        when(orderRepository.queryOrderByOrderId("order-insert-failure"))
+                .thenReturn(order("order-insert-failure", MarketTypeVO.GROUP_BUY_MARKET, 60L));
+        doThrow(new IllegalStateException("database unavailable"))
+                .when(benefitEventRepository).insert(any(BenefitEventEntity.class));
+
+        assertThrows(IllegalStateException.class, () -> benefitEventService
+                .enqueueCompletedOrderEvents(Collections.singletonList("order-insert-failure"), 18L));
+
+        verifyNoInteractions(benefitEventPort);
+    }
+
+    @Test
+    public void enqueueRevokedBenefitEvents_propagatesMissingOutboxInsertFailure() {
+        when(orderRepository.queryOrderByOrderId("order-revoke-insert-failure"))
+                .thenReturn(order("order-revoke-insert-failure", MarketTypeVO.GROUP_BUY_MARKET, 60L));
+        doThrow(new IllegalStateException("database unavailable"))
+                .when(benefitEventRepository).insert(any(BenefitEventEntity.class));
+
+        assertThrows(IllegalStateException.class, () -> benefitEventService
+                .enqueueRevokedBenefitEvents(Collections.singletonList("order-revoke-insert-failure")));
+    }
+
+    private OrderEntity order(String orderId, MarketTypeVO marketType, Long baseQuota) {
+        return OrderEntity.builder()
+                .userId("10001")
+                .orderId(orderId)
+                .productId("9890002")
+                .productCode("QUOTA_LIGHT")
+                .baseQuotaSnapshot(baseQuota)
+                .marketType(marketType.getCode())
+                .build();
+    }
+
+    private BenefitEventEntity pending(String eventId, String orderId, OutboxEventType type,
+                                       Long baseQuota, Long bonusQuota) {
+        return BenefitEventEntity.builder()
+                .eventId(eventId)
+                .eventType(type.name())
+                .userId(10001L)
+                .orderId(orderId)
+                .productCode("QUOTA_LIGHT")
+                .baseQuota(baseQuota)
+                .bonusQuota(bonusQuota)
+                .eventPublished(false)
+                .build();
+    }
 }

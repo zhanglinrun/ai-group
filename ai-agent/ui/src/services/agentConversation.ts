@@ -50,7 +50,6 @@ export interface ConversationReplayFrame {
   status: string;
   finished: boolean;
   resultMap: {
-    agentType?: string;
     multiAgent?: Record<string, unknown>;
     eventData?: MESSAGE.EventData;
   };
@@ -77,7 +76,7 @@ export interface ConversationHistoryDetail {
   title: string;
   status: string;
   outputStyle: string;
-  deepThink: boolean;
+  executionMode?: CHAT.ExecutionMode;
   role: ConversationRole | null;
   runCount: number;
   finishedRunCount: number;
@@ -101,4 +100,8 @@ export const conversationHistoryApi = {
     api.get<ConversationHistoryDetail>(
       `/api/agent/conversation/sessions/${sessionId}`,
     ) as unknown as Promise<ConversationHistoryDetail>,
+  deleteSession: (sessionId: string) =>
+    api.delete<boolean>(
+      `/api/agent/conversation/sessions/${sessionId}`,
+    ) as unknown as Promise<boolean>,
 };

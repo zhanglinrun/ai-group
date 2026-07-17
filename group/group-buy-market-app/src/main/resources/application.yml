@@ -3,3 +3,11 @@ spring:
     name: group-buy-market-app
   profiles:
     active: dev
+  rabbitmq:
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    template:
+      mandatory: true
+    config:
+      producer:
+        confirm-timeout-ms: ${RABBITMQ_PUBLISH_CONFIRM_TIMEOUT_MS:5000}

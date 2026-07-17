@@ -1,0 +1,165 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.linrun.agent.infrastructure.dao.reactor.IDialogueSessionLedgerDao">
+
+    <resultMap id="DialogueSessionMap" type="com.linrun.agent.domain.agent.ledger.entity.DialogueSession">
+        <id column="id" property="id"/>
+        <result column="session_id" property="sessionId"/>
+        <result column="owner_id" property="ownerId"/>
+        <result column="title" property="title"/>
+        <result column="status" property="status"/>
+        <result column="latest_request_id" property="latestRequestId"/>
+        <result column="latest_query_text" property="latestQueryText"/>
+        <result column="latest_summary_text" property="latestSummaryText"/>
+        <result column="run_count" property="runCount"/>
+        <result column="finished_run_count" property="finishedRunCount"/>
+        <result column="failed_run_count" property="failedRunCount"/>
+        <result column="started_at" property="startedAt"/>
+        <result column="last_active_at" property="lastActiveAt"/>
+        <result column="create_time" property="createTime"/>
+        <result column="update_time" property="updateTime"/>
+        <result column="deleted" property="deleted"/>
+    </resultMap>
+
+    <resultMap id="DialogueSessionViewMap" type="com.linrun.agent.domain.agent.ledger.model.DialogueSessionView">
+        <id column="id" property="id"/>
+        <result column="session_id" property="sessionId"/>
+        <result column="owner_id" property="ownerId"/>
+        <result column="title" property="title"/>
+        <result column="status" property="status"/>
+        <result column="latest_request_id" property="latestRequestId"/>
+        <result column="latest_query_text" property="latestQueryText"/>
+        <result column="latest_summary_text" property="latestSummaryText"/>
+        <result column="run_count" property="runCount"/>
+        <result column="finished_run_count" property="finishedRunCount"/>
+        <result column="failed_run_count" property="failedRunCount"/>
+        <result column="started_at" property="startedAt"/>
+        <result column="last_active_at" property="lastActiveAt"/>
+        <result column="create_time" property="createTime"/>
+    </resultMap>
+
+    <sql id="entityColumns">
+        id, session_id, owner_id, title, status, latest_request_id, latest_query_text, latest_summary_text,
+        run_count, finished_run_count, failed_run_count, started_at, last_active_at, create_time, update_time, deleted
+    </sql>
+
+    <sql id="viewColumns">
+        id, session_id, owner_id, title, status, latest_request_id, latest_query_text, latest_summary_text,
+        run_count, finished_run_count, failed_run_count, started_at, last_active_at, create_time
+    </sql>
+
+    <insert id="upsertSession" parameterType="com.linrun.agent.domain.agent.ledger.model.DialogueSessionUpsertRecord">
+        INSERT INTO dialogue_session (
+            session_id, owner_id, title, status, latest_request_id, latest_query_text, latest_summary_text,
+            run_count, finished_run_count, failed_run_count, started_at, last_active_at, create_time, update_time, deleted
+        ) VALUES (
+            #{sessionId}, #{ownerId}, #{title}, #{status}, #{latestRequestId}, #{latestQueryText}, #{latestSummaryText},
+            #{runCount}, #{finishedRunCount}, #{failedRunCount}, #{startedAt}, #{lastActiveAt}, NOW(), NOW(), 0
+        )
+        ON DUPLICATE KEY UPDATE
+            owner_id = VALUES(owner_id),
+            title = VALUES(title),
+            status = VALUES(status),
+            latest_request_id = VALUES(latest_request_id),
+            latest_query_text = VALUES(latest_query_text),
+            latest_summary_text = VALUES(latest_summary_text),
+            run_count = VALUES(run_count),
+            finished_run_count = VALUES(finished_run_count),
+            failed_run_count = VALUES(failed_run_count),
+            last_active_at = VALUES(last_active_at),
+            update_time = NOW()
+    </insert>
+
+    <update id="reconcileWorkerLostSessionHeads">
+        UPDATE dialogue_session session_head
+        JOIN (
+            SELECT ranked.session_id,
+                   ranked.request_id,
+                   ranked.query_text,
+                   ranked.final_summary_text,
+                   ranked.status,
+                   ranked.started_at,
+                   ranked.finished_at,
+                   ranked.error_code
+            FROM (
+                SELECT dialogue_run.*,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY dialogue_run.session_id
+                           ORDER BY COALESCE(dialogue_run.started_at, dialogue_run.create_time) DESC,
+                                    dialogue_run.id DESC
+                       ) AS row_number_in_session
+                FROM dialogue_run
+                WHERE dialogue_run.deleted = 0
+            ) ranked
+            WHERE ranked.row_number_in_session = 1
+        ) latest_run ON latest_run.session_id = session_head.session_id
+        JOIN (
+            SELECT dialogue_run.session_id,
+                   COUNT(*) AS run_count,
+                   SUM(CASE WHEN dialogue_run.status = 1 THEN 1 ELSE 0 END) AS finished_run_count,
+                   SUM(CASE WHEN dialogue_run.status IN (2, 3, 4) THEN 1 ELSE 0 END) AS failed_run_count
+            FROM dialogue_run
+            WHERE dialogue_run.deleted = 0
+            GROUP BY dialogue_run.session_id
+        ) run_totals ON run_totals.session_id = session_head.session_id
+        SET session_head.status = latest_run.status,
+            session_head.latest_request_id = latest_run.request_id,
+            session_head.latest_query_text = latest_run.query_text,
+            session_head.latest_summary_text = latest_run.final_summary_text,
+            session_head.run_count = run_totals.run_count,
+            session_head.finished_run_count = run_totals.finished_run_count,
+            session_head.failed_run_count = run_totals.failed_run_count,
+            session_head.started_at = COALESCE(session_head.started_at, latest_run.started_at),
+            session_head.last_active_at = COALESCE(latest_run.finished_at, latest_run.started_at,
+                                                   session_head.last_active_at),
+            session_head.update_time = NOW()
+        WHERE session_head.deleted = 0
+          AND session_head.status = 0
+          AND latest_run.status IN (2, 3, 4)
+          AND latest_run.error_code = #{errorCode}
+    </update>
+
+    <select id="queryBySessionId" parameterType="java.lang.String" resultMap="DialogueSessionMap">
+        SELECT <include refid="entityColumns"/>
+        FROM dialogue_session
+        WHERE session_id = #{sessionId} AND deleted = 0
+        LIMIT 1
+    </select>
+
+    <update id="softDeleteSession">
+        UPDATE dialogue_session
+        SET deleted = 1, update_time = NOW()
+        WHERE owner_id = #{ownerId} AND session_id = #{sessionId} AND deleted = 0
+    </update>
+
+    <select id="querySessionView" parameterType="java.lang.String" resultMap="DialogueSessionViewMap">
+        SELECT <include refid="viewColumns"/>
+        FROM dialogue_session
+        WHERE session_id = #{sessionId} AND deleted = 0
+        LIMIT 1
+    </select>
+
+    <select id="queryRecentSessions" parameterType="java.lang.Integer" resultMap="DialogueSessionViewMap">
+        SELECT <include refid="viewColumns"/>
+        FROM dialogue_session
+        WHERE deleted = 0
+        ORDER BY last_active_at DESC, id DESC
+        LIMIT #{limit}
+    </select>
+
+    <select id="querySessionViewByOwner" resultMap="DialogueSessionViewMap">
+        SELECT <include refid="viewColumns"/>
+        FROM dialogue_session
+        WHERE owner_id = #{ownerId} AND session_id = #{sessionId} AND deleted = 0
+        LIMIT 1
+    </select>
+
+    <select id="queryRecentSessionsByOwner" resultMap="DialogueSessionViewMap">
+        SELECT <include refid="viewColumns"/>
+        FROM dialogue_session
+        WHERE owner_id = #{ownerId} AND deleted = 0
+        ORDER BY last_active_at DESC, id DESC
+        LIMIT #{limit}
+    </select>
+
+</mapper>

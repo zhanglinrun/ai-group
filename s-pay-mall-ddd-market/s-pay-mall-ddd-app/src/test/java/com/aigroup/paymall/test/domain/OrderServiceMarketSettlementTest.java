@@ -52,8 +52,8 @@ public class OrderServiceMarketSettlementTest {
 
         orderService.changeOrderMarketSettlement(callbackList, 100);
 
-        // benefit granted for the settled order only, not the unpaid one
-        verify(benefitEventService).publishGroupBuyCompletedEvents(Collections.singletonList("order-paid"), 100L);
+        // fulfillment + benefit outbox rows are created for the settled order only
+        verify(benefitEventService).enqueueCompletedOrderEvents(Collections.singletonList("order-paid"), 100L);
     }
 
     @Test
@@ -64,7 +64,7 @@ public class OrderServiceMarketSettlementTest {
 
         orderService.changeOrderMarketSettlement(callbackList, null);
 
-        // nothing settled -> no benefit event at all (no free membership for unpaid orders)
-        verify(benefitEventService, never()).publishGroupBuyCompletedEvents(anyList(), any());
+        // nothing settled -> no outbox event at all (no fulfillment/free membership for unpaid orders)
+        verify(benefitEventService, never()).enqueueCompletedOrderEvents(anyList(), any());
     }
 }

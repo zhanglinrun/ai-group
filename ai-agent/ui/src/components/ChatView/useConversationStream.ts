@@ -13,7 +13,7 @@ import {
 } from '@/utils/chat';
 import querySSE from '@/utils/querySSE';
 import { parseAgentAnswer } from '@/utils/sseParsers';
-import { applyCheckpointControlEvent, parseCheckpointControlEvent } from '@/utils/checkpoint';
+import { isAgentLoopEvent } from '@/utils/agentEvents';
 import type {
   ActiveRunState,
   ConversationDraftController,
@@ -45,16 +45,11 @@ type UseConversationStreamResult = {
   workspaceStreamTask?: CHAT.Task;
   activeRunState?: ActiveRunState;
   setActiveRunState: Dispatch<SetStateAction<ActiveRunState | undefined>>;
-  plan?: CHAT.Plan;
   showAction: boolean;
   changeActionStatus: (status: boolean) => void;
   loading: boolean;
-  streamingThoughtMap: Record<string, string>;
   sendMessage: (inputInfo: CHAT.TInputInfo) => void;
-  resumeFromCheckpoint: (
-    sourceChat: CHAT.ChatItem,
-    decision: CHAT.CheckpointResumeDecision,
-  ) => void;
+  stopCurrentRun: () => void;
   regenerateLastMessage: () => void;
 };
 
@@ -190,8 +185,6 @@ function createRunningChat(
   inputInfo: CHAT.TInputInfo,
   sessionId: string,
   requestId: string,
-  outputStyle?: string,
-  deepThink?: boolean,
 ): CHAT.ChatItem {
   return {
     query: inputInfo.message!,
@@ -199,15 +192,14 @@ function createRunningChat(
     responseType: 'txt',
     sessionId,
     requestId,
-    agentType: outputStyle === 'chat' ? 0 : deepThink ? 1 : 2,
     loading: true,
     forceStop: false,
     tasks: [],
-    thought: '',
     response: '',
     taskStatus: 0,
     tip: '',
     multiAgent: { tasks: [] },
+    agentRun: { status: 'RUNNING', phase: 'ANALYZING', todos: [] },
     metrics: { status: 'RUNNING' },
   };
 }
@@ -221,6 +213,169 @@ export function applyGuardError(currentChat: CHAT.ChatItem, errorText: string): 
 }
 
 export type TerminalRunStatus = 'SUCCESS' | 'FAILED' | 'STOPPED' | 'TIMEOUT' | 'RUNNING';
+
+export const MAX_RUN_RECOVERY_ATTEMPTS = 12;
+export const MAX_TRANSPORT_RECOVERY_ATTEMPTS = 3;
+export const RUN_RECOVERY_DEADLINE_MILLIS = 120_000;
+export const TRANSPORT_RECOVERY_DEADLINE_MILLIS = 15_000;
+const MIN_RECOVERY_DELAY_MILLIS = 250;
+
+export type RunRecoveryDirective = {
+  retry: boolean;
+  exhausted: boolean;
+  retryable: boolean;
+  delayMillis: number;
+};
+
+type RecoveryKind = 'run' | 'transport';
+
+export function createRecoveryBudgetTracker(now: () => number = () => Date.now()) {
+  const startedAt: Record<RecoveryKind, number | null> = { run: null, transport: null };
+  const attempts: Record<RecoveryKind, number> = { run: 0, transport: 0 };
+
+  return {
+    completedAttempts: (kind: RecoveryKind) => attempts[kind],
+    elapsedMillis: (kind: RecoveryKind) =>
+      startedAt[kind] === null ? 0 : Math.max(0, now() - startedAt[kind]!),
+    recordAttempt: (kind: RecoveryKind) => {
+      if (startedAt[kind] === null) {
+        startedAt[kind] = now();
+      }
+      attempts[kind] += 1;
+    },
+  };
+}
+
+export function createStreamLifecycleController() {
+  let generation = 0;
+  let settled = false;
+  let cancelActiveTransport: (() => void) | null = null;
+
+  const invalidateActiveTransport = () => {
+    generation += 1;
+    const cancel = cancelActiveTransport;
+    cancelActiveTransport = null;
+    cancel?.();
+  };
+
+  return {
+    begin: (): number | null => {
+      if (settled) {
+        return null;
+      }
+      invalidateActiveTransport();
+      return generation;
+    },
+    attach: (targetGeneration: number, cancel: () => void) => {
+      if (settled || targetGeneration !== generation) {
+        cancel();
+        return false;
+      }
+      cancelActiveTransport = cancel;
+      return true;
+    },
+    accepts: (targetGeneration: number) => !settled && targetGeneration === generation,
+    cancel: invalidateActiveTransport,
+    settle: () => {
+      if (settled) {
+        return false;
+      }
+      settled = true;
+      invalidateActiveTransport();
+      return true;
+    },
+    isSettled: () => settled,
+  };
+}
+
+export function createRecoveryTimerController() {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+
+  return {
+    schedule: (delayMillis: number, callback: () => void) => {
+      if (timer !== null) {
+        return false;
+      }
+      timer = setTimeout(() => {
+        timer = null;
+        callback();
+      }, delayMillis);
+      return true;
+    },
+    clear: () => {
+      if (timer !== null) {
+        clearTimeout(timer);
+        timer = null;
+      }
+    },
+    hasPending: () => timer !== null,
+  };
+}
+
+export function createReplayEventDeduper(maxEntries = 2_048) {
+  const seen = new Set<string>();
+  const insertionOrder: string[] = [];
+
+  const remember = (key: string) => {
+    seen.add(key);
+    insertionOrder.push(key);
+    while (insertionOrder.length > maxEntries) {
+      const oldest = insertionOrder.shift();
+      if (oldest) {
+        seen.delete(oldest);
+      }
+    }
+  };
+
+  return {
+    accept: (eventData: MESSAGE.EventData) => {
+      const keys: string[] = [];
+      const messageId = String(eventData.messageId || '').trim();
+      if (messageId) {
+        keys.push(`message:${messageId}`);
+      }
+      if (Number.isFinite(eventData.messageOrder) && eventData.messageOrder > 0) {
+        const logicalMessageType =
+          String(eventData.resultMap?.messageType || '').trim() || eventData.messageType;
+        keys.push(
+          `order:${eventData.taskId || 'run'}:${logicalMessageType}:${eventData.messageOrder}`,
+        );
+      }
+      if (keys.some((key) => seen.has(key))) {
+        return false;
+      }
+      keys.forEach(remember);
+      return true;
+    },
+    reset: () => {
+      seen.clear();
+      insertionOrder.splice(0, insertionOrder.length);
+    },
+  };
+}
+
+export function canRegenerateChat(chat: CHAT.ChatItem | undefined) {
+  if (!chat || chat.loading) {
+    return false;
+  }
+  return !isAgentRunBlockingInput(chat.agentRun?.status);
+}
+
+export function isAgentRunBlockingInput(status: unknown) {
+  return String(status || '').trim().toUpperCase() === 'RUNNING';
+}
+
+export function createDurableRecoveryRequest<TBody extends { requestId: string }>(body: TBody) {
+  return Object.freeze({ ...body }) as Readonly<TBody>;
+}
+
+export function shouldResetForAuthoritativeReplay(
+  recoveringCurrentRun: boolean,
+  eventData: MESSAGE.EventData | undefined,
+  runRecovery: RunRecoveryDirective | null,
+) {
+  return recoveringCurrentRun && Boolean(eventData) && runRecovery === null;
+}
 
 type TerminalRunState = {
   status: TerminalRunStatus;
@@ -242,6 +397,125 @@ function firstNonBlankString(...values: unknown[]) {
   return '';
 }
 
+function firstBoolean(...values: unknown[]): boolean | undefined {
+  return values.find((value): value is boolean => typeof value === 'boolean');
+}
+
+function firstFiniteNumber(...values: unknown[]): number | undefined {
+  for (const value of values) {
+    const parsed = typeof value === 'number' ? value : Number(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Detects the durable-claim response that means another transport still owns this request.
+ * Retrying is read-only: the same requestId can only observe RUNNING or replay FINISHED.
+ */
+export function resolveRunRecoveryDirective(
+  answer: Pick<MESSAGE.Answer, 'resultMap' | 'errorMsg'>,
+  eventData: MESSAGE.EventData | undefined,
+  completedAttempts: number,
+  elapsedMillis = 0,
+): RunRecoveryDirective | null {
+  const answerMap = asRecord(answer.resultMap);
+  const eventPayload = asRecord(eventData?.resultMap);
+  const nestedPayload = asRecord(eventPayload?.resultMap);
+  const answerEvent = asRecord(answerMap?.eventData);
+  const answerEventPayload = asRecord(answerEvent?.resultMap);
+  const sources = [eventPayload, nestedPayload, answerEventPayload, answerMap].filter(
+    (source): source is Record<string, unknown> => Boolean(source),
+  );
+
+  const stopReason = firstNonBlankString(
+    ...sources.map((source) => source.stopReason),
+    ...sources.map((source) => source.errorCode),
+  );
+  if (stopReason !== 'RUN_ALREADY_IN_PROGRESS') {
+    return null;
+  }
+
+  const retryable = firstBoolean(...sources.map((source) => source.retryable)) !== false;
+  const requestedDelay = firstFiniteNumber(
+    ...sources.map((source) => source.retryAfterMillis),
+  );
+  if (!retryable) {
+    return {
+      retry: false,
+      exhausted: false,
+      retryable: false,
+      delayMillis: 0,
+    };
+  }
+
+  const remainingMillis = Math.max(0, RUN_RECOVERY_DEADLINE_MILLIS - elapsedMillis);
+  const exhausted =
+    completedAttempts >= MAX_RUN_RECOVERY_ATTEMPTS ||
+    remainingMillis < MIN_RECOVERY_DELAY_MILLIS;
+  const serverDelay = Math.min(
+    5_000,
+    Math.max(MIN_RECOVERY_DELAY_MILLIS, requestedDelay || 1_000),
+  );
+  const backoffDelay = Math.min(10_000, 1_000 * 2 ** Math.min(completedAttempts, 4));
+  const delayMillis = exhausted ? 0 : Math.min(Math.max(serverDelay, backoffDelay), remainingMillis);
+
+  return {
+    retry: !exhausted,
+    exhausted,
+    retryable: true,
+    delayMillis,
+  };
+}
+
+/** Returns a bounded delay for transport recovery, or null for fatal/exhausted errors. */
+export function isFatalTransportRecoveryError(error: unknown) {
+  const raw = error instanceof Error ? `${error.name} ${error.message}` : String(error || '');
+  const normalized = raw.toLowerCase();
+  return (
+    normalized.includes('abort') ||
+    normalized.includes('parse') ||
+    normalized.includes('unauthorized') ||
+    normalized.includes('forbidden') ||
+    normalized.includes('401') ||
+    normalized.includes('403') ||
+    normalized.includes('quota') ||
+    raw.includes('登录') ||
+    raw.includes('额度') ||
+    raw.includes('配额')
+  );
+}
+
+export function isTransportRecoveryBudgetExhausted(
+  completedAttempts: number,
+  elapsedMillis: number,
+) {
+  return (
+    completedAttempts >= MAX_TRANSPORT_RECOVERY_ATTEMPTS ||
+    TRANSPORT_RECOVERY_DEADLINE_MILLIS - elapsedMillis < MIN_RECOVERY_DELAY_MILLIS
+  );
+}
+
+export function resolveTransportRecoveryDelay(
+  error: unknown,
+  completedAttempts: number,
+  elapsedMillis = 0,
+): number | null {
+  if (isTransportRecoveryBudgetExhausted(completedAttempts, elapsedMillis)) {
+    return null;
+  }
+  if (isFatalTransportRecoveryError(error)) {
+    return null;
+  }
+  const delayMillis = Math.min(2_000, 400 * 2 ** completedAttempts);
+  const remainingMillis = TRANSPORT_RECOVERY_DEADLINE_MILLIS - elapsedMillis;
+  return remainingMillis < MIN_RECOVERY_DELAY_MILLIS
+    ? null
+    : Math.min(delayMillis, remainingMillis);
+}
+
 function normalizeTerminalRunStatus(value: unknown): TerminalRunStatus | undefined {
   const normalized = String(value || '')
     .trim()
@@ -252,11 +526,7 @@ function normalizeTerminalRunStatus(value: unknown): TerminalRunStatus | undefin
   if (normalized.includes('FAIL') || normalized === 'ERROR') {
     return 'FAILED';
   }
-  if (
-    normalized.includes('STOP') ||
-    normalized.includes('CANCEL') ||
-    normalized === 'ABORTED'
-  ) {
+  if (normalized.includes('STOP') || normalized.includes('CANCEL') || normalized === 'ABORTED') {
     return 'STOPPED';
   }
   if (normalized.includes('TIMEOUT') || normalized.includes('TIMED_OUT')) {
@@ -289,7 +559,7 @@ export function resolveTerminalRunState(
     normalizeTerminalRunStatus(nested?.status) ||
     normalizeTerminalRunStatus(metrics?.status) ||
     normalizeTerminalRunStatus(answer.status) ||
-    (answer.errorMsg ? 'FAILED' : answer.finished ? 'SUCCESS' : 'RUNNING');
+    (answer.errorMsg ? 'FAILED' : 'RUNNING');
 
   const defaultMessage =
     status === 'STOPPED'
@@ -313,6 +583,72 @@ export function resolveTerminalRunState(
   );
 
   return { status, message };
+}
+
+/**
+ * result 只承载最终内容，不能把运行升级为成功。成功必须已经由
+ * run_finished(status=SUCCESS, completionGatePassed=true) 建立。
+ */
+export function resolveAuthoritativeResultStatus(
+  currentChat: Pick<CHAT.ChatItem, 'agentRun'>,
+  resultStatus: Exclude<TerminalRunStatus, 'RUNNING'>,
+): Exclude<TerminalRunStatus, 'RUNNING'> {
+  if (resultStatus !== 'SUCCESS') {
+    return resultStatus;
+  }
+  const run = currentChat.agentRun;
+  return run?.terminalEventSeen === true &&
+    run.status === 'SUCCESS' &&
+    run.completionGatePassed === true
+    ? 'SUCCESS'
+    : 'FAILED';
+}
+
+export function applyRunRecoveryPending(
+  currentChat: CHAT.ChatItem,
+  message: string,
+  stopReason = 'RUN_ALREADY_IN_PROGRESS',
+): CHAT.ChatItem {
+  return {
+    ...currentChat,
+    loading: false,
+    forceStop: false,
+    tip: message,
+    metrics: {
+      ...(currentChat.metrics || {}),
+      status: 'RUNNING',
+    },
+    agentRun: {
+      ...(currentChat.agentRun || { todos: [] }),
+      status: 'RUNNING',
+      stopReason,
+    },
+  };
+}
+
+export function resetChatForAuthoritativeReplay(currentChat: CHAT.ChatItem): CHAT.ChatItem {
+  return {
+    ...currentChat,
+    loading: true,
+    forceStop: false,
+    tip: '',
+    response: '',
+    taskStatus: 0,
+    tasks: [],
+    multiAgent: { tasks: [] },
+    conclusion: undefined,
+    timeline: [],
+    generatedFiles: undefined,
+    startedAt: undefined,
+    finishedAt: undefined,
+    metrics: { status: 'RUNNING' },
+    agentRun: {
+      runId: currentChat.agentRun?.runId,
+      status: 'RUNNING',
+      phase: 'ANALYZING',
+      todos: [],
+    },
+  };
 }
 
 export function applyTerminalRunError(
@@ -361,6 +697,10 @@ export function applyTerminalRunError(
     tip: nextErrorText,
     metrics: {
       ...(currentChat.metrics || {}),
+      status,
+    },
+    agentRun: {
+      ...(currentChat.agentRun || { todos: [] }),
       status,
     },
     conclusion: hasVisibleConclusion ? currentChat.conclusion : fallbackConclusion,
@@ -424,10 +764,8 @@ export function useConversationStream(
   const [taskList, setTaskList] = useState<CHAT.Task[]>([]);
   const [workspaceStreamTask, setWorkspaceStreamTask] = useState<CHAT.Task>();
   const [activeRunState, setActiveRunState] = useState<ActiveRunState>();
-  const [plan, setPlan] = useState<CHAT.Plan>();
   const [showAction, setShowAction] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [streamingThoughtMap, setStreamingThoughtMap] = useState<Record<string, string>>({});
   const conversationRef = useRef(conversation);
   // 持有当前 SSE 流的中断句柄，用于切换会话/卸载时取消旧流。
   const streamAbortRef = useRef<AbortController | null>(null);
@@ -435,26 +773,6 @@ export function useConversationStream(
   const workspaceTaskThrottle = useRafThrottle<CHAT.Task | undefined>(undefined, 32, (task) =>
     setWorkspaceStreamTask(task),
   );
-  const thoughtThrottle = useRafThrottle<Record<string, string>>({}, 48, (pendingThoughtMap) => {
-    const pendingEntries = Object.entries(pendingThoughtMap);
-    if (!pendingEntries.length) {
-      return;
-    }
-
-    setStreamingThoughtMap((previous) => {
-      let changed = false;
-      const next = { ...previous };
-
-      pendingEntries.forEach(([requestId, thought]) => {
-        if (next[requestId] !== thought) {
-          next[requestId] = thought;
-          changed = true;
-        }
-      });
-
-      return changed ? next : previous;
-    });
-  });
 
   const commitConversation = useMemoizedFn(
     (conversationId: string, nextConversation: CHAT.ConversationHistory) => {
@@ -462,18 +780,6 @@ export function useConversationStream(
         ...nextConversation,
         updatedAt: Date.now(),
       });
-    },
-  );
-
-  const scheduleStreamingThought = useMemoizedFn(
-    (requestId: string, thought: string, force = false) => {
-      thoughtThrottle.schedule(
-        (current) => ({
-          ...current,
-          [requestId]: thought,
-        }),
-        force,
-      );
     },
   );
 
@@ -499,15 +805,12 @@ export function useConversationStream(
     streamAbortRef.current?.abort();
     streamAbortRef.current = null;
     workspaceTaskThrottle.reset(undefined);
-    thoughtThrottle.reset({});
     setTaskList([]);
     setWorkspaceStreamTask(undefined);
     setActiveRunState(undefined);
-    setPlan(undefined);
     setShowAction(false);
     setLoading(false);
-    setStreamingThoughtMap({});
-  }, [conversation.id, thoughtThrottle, workspaceTaskThrottle]);
+  }, [conversation.id, workspaceTaskThrottle]);
 
   useEffect(() => {
     if (!conversation.chatList.length || loading) {
@@ -519,7 +822,7 @@ export function useConversationStream(
       .find(
         (chat) =>
           (chat.multiAgent?.tasks?.length || 0) > 0 ||
-          !!chat.multiAgent?.plan ||
+          (chat.agentRun?.todos?.length || 0) > 0 ||
           !!chat.timeline?.length,
       );
 
@@ -527,23 +830,14 @@ export function useConversationStream(
       return;
     }
 
-    const conversationTaskData = buildConversationTaskData(
-      latestChatSnapshot,
-      conversation.deepThink,
-    );
+    const conversationTaskData = buildConversationTaskData(latestChatSnapshot);
     const latestTask = getLatestRenderableTask(conversationTaskData.currentChat);
 
     setTaskList(conversationTaskData.taskList);
-    setPlan(conversationTaskData.plan);
     setWorkspaceStreamTask(latestTask ? cloneWorkspaceTask(latestTask) : undefined);
     setActiveRunState(resolveLatestRunState(latestChatSnapshot));
-    setShowAction(
-      resolveActionPanelVisibility({
-        plan: conversationTaskData.plan,
-        taskList: conversationTaskData.taskList,
-      }),
-    );
-  }, [conversation.chatList, conversation.deepThink, conversation.id, loading]);
+    setShowAction(resolveActionPanelVisibility({ taskList: conversationTaskData.taskList }));
+  }, [conversation.chatList, conversation.id, loading]);
 
   useEffect(() => {
     const referenceChat = conversation.chatList[conversation.chatList.length - 1];
@@ -558,51 +852,58 @@ export function useConversationStream(
   useEffect(() => {
     return () => {
       workspaceTaskThrottle.cancel();
-      thoughtThrottle.cancel();
       // 组件卸载 / 路由离开时中断仍在进行的 SSE 流，避免泄漏与跨会话数据污染。
       streamAbortRef.current?.abort();
       streamAbortRef.current = null;
     };
-  }, [thoughtThrottle, workspaceTaskThrottle]);
+  }, [workspaceTaskThrottle]);
 
   const sendMessage = useMemoizedFn((inputInfo: CHAT.TInputInfo) => {
     const baseConversation = conversationRef.current;
     const conversationId = baseConversation.id;
-    const { message, deepThink, outputStyle } = inputInfo;
+    const { message, executionMode, online, outputStyle } = inputInfo;
     const currentOutputStyle = outputStyle || baseConversation.productType;
-    const isChatMode = currentOutputStyle === 'chat';
-    const normalizedDeepThink = Boolean(deepThink);
     const replaceLast = Boolean(
       (inputInfo as CHAT.TInputInfo & { replaceLast?: boolean }).replaceLast,
     );
+    // Every explicit send (including "regenerate") is a new execution. Only the
+    // transport recovery loop below is allowed to reuse this durable requestId.
     const requestId = getUniqId();
-    let currentChat = createRunningChat(
-      inputInfo,
-      baseConversation.sessionId,
-      requestId,
-      currentOutputStyle,
-      normalizedDeepThink,
-    );
-    let runSettled = false;
+    let currentChat = createRunningChat(inputInfo, baseConversation.sessionId, requestId);
+    let recoveringCurrentRun = false;
+    const streamLifecycle = createStreamLifecycleController();
+    const recoveryTimer = createRecoveryTimerController();
+    const recoveryBudget = createRecoveryBudgetTracker();
+    const replayDeduper = createReplayEventDeduper();
+
+    // 中断上一条仍在进行的流，并为本次请求及其同 requestId 恢复尝试建立统一取消信号。
+    streamAbortRef.current?.abort();
+    const abortController = new AbortController();
+    streamAbortRef.current = abortController;
+
     const notifyRunSettled = () => {
-      if (runSettled) {
+      if (!streamLifecycle.settle()) {
         return;
       }
-      runSettled = true;
+      recoveryTimer.clear();
+      if (streamAbortRef.current === abortController) {
+        streamAbortRef.current = null;
+      }
       onRunSettled?.(baseConversation.sessionId);
     };
-
-    if (!isChatMode && normalizedDeepThink) {
-      setStreamingThoughtMap((previous) => ({
-        ...previous,
-        [requestId]: '',
-      }));
-    }
+    abortController.signal.addEventListener(
+      'abort',
+      () => {
+        recoveryTimer.clear();
+        streamLifecycle.cancel();
+      },
+      { once: true },
+    );
 
     const initialConversation = createDraftConversation(baseConversation, {
       chatTitle: message || '',
       productType: currentOutputStyle,
-      deepThink: normalizedDeepThink,
+      executionMode,
       chatList: [
         ...(replaceLast ? baseConversation.chatList.slice(0, -1) : baseConversation.chatList),
         { ...currentChat },
@@ -631,19 +932,20 @@ export function useConversationStream(
       pendingConversation = draftController.replaceLastItem({ ...nextChat });
     };
 
-    const params = buildAgentStreamRequest({
-      sessionId: baseConversation.sessionId,
-      requestId,
-      message,
-      deepThink: normalizedDeepThink,
-      outputStyle: currentOutputStyle,
-      files: inputInfo.files,
-      aiAgentId: inputInfo.aiAgentId,
-      fallbackRoleAgentId: baseConversation.role?.agentId,
-      modelId: inputInfo.modelId,
-      resumeCheckpointId: inputInfo.resumeCheckpointId,
-      resumeDecision: inputInfo.resumeDecision,
-    });
+    const params = createDurableRecoveryRequest(
+      buildAgentStreamRequest({
+        sessionId: baseConversation.sessionId,
+        requestId,
+        message,
+        executionMode,
+        online,
+        outputStyle: currentOutputStyle,
+        files: inputInfo.files,
+        aiAgentId: inputInfo.aiAgentId,
+        fallbackRoleAgentId: baseConversation.role?.agentId,
+        modelId: inputInfo.modelId,
+      }),
+    );
     let pendingConversation: CHAT.ConversationHistory | null = null;
     let pendingTaskData: ReturnType<typeof handleTaskData> | null = null;
     let taskDataDirty = false;
@@ -660,7 +962,7 @@ export function useConversationStream(
 
       const now = performance.now();
       if (taskDataDirty && (force || now - lastTaskFlushAt >= TASK_FLUSH_INTERVAL)) {
-        pendingTaskData = handleTaskData(currentChat, normalizedDeepThink, currentChat.multiAgent);
+        pendingTaskData = handleTaskData(currentChat, currentChat.multiAgent);
         syncDerivedConversationSnapshot(pendingTaskData.currentChat);
         taskDataDirty = false;
       }
@@ -673,13 +975,7 @@ export function useConversationStream(
 
       if (shouldFlushTask && pendingTaskData) {
         setTaskList(pendingTaskData.taskList);
-        setPlan(pendingTaskData.plan);
-        setShowAction(
-          resolveActionPanelVisibility({
-            plan: pendingTaskData.plan,
-            taskList: pendingTaskData.taskList,
-          }),
-        );
+        setShowAction(resolveActionPanelVisibility({ taskList: pendingTaskData.taskList }));
         pendingTaskData = null;
         lastTaskFlushAt = now;
       }
@@ -714,9 +1010,121 @@ export function useConversationStream(
       });
     };
 
+    const scheduleRecovery = (delayMillis: number, tip: string) => {
+      if (
+        recoveryTimer.hasPending() ||
+        abortController.signal.aborted ||
+        streamLifecycle.isSettled() ||
+        !currentChat.loading
+      ) {
+        return false;
+      }
+      streamLifecycle.cancel();
+      recoveringCurrentRun = true;
+      currentChat = {
+        ...currentChat,
+        loading: true,
+        forceStop: false,
+        tip,
+        metrics: { ...(currentChat.metrics || {}), status: 'RUNNING' },
+        agentRun: {
+          ...(currentChat.agentRun || { todos: [] }),
+          status: 'RUNNING',
+          stopReason: undefined,
+        },
+      };
+      setLoading(true);
+      syncRunningConversation();
+      recoveryTimer.schedule(delayMillis, () => {
+        if (
+          !abortController.signal.aborted &&
+          !streamLifecycle.isSettled() &&
+          currentChat.loading
+        ) {
+          startStream();
+        }
+      });
+      return true;
+    };
+
+    const suspendAutomaticRecovery = (message: string, stopReason: string) => {
+      recoveryTimer.clear();
+      streamLifecycle.cancel();
+      recoveringCurrentRun = false;
+      setLoading(false);
+      currentChat = applyRunRecoveryPending(currentChat, message, stopReason);
+      const taskData = handleTaskData(currentChat, currentChat.multiAgent);
+      setTaskList(taskData.taskList);
+      draftController.commit(draftController.replaceLastItem({ ...currentChat }));
+      setActiveRunState({ status: 'RUNNING', errorMsg: message });
+      if (streamAbortRef.current === abortController) {
+        streamAbortRef.current = null;
+      }
+    };
+
+    const resetProjectionForAuthoritativeReplay = () => {
+      if (pendingFlushFrame !== null) {
+        cancelAnimationFrame(pendingFlushFrame);
+        pendingFlushFrame = null;
+      }
+      pendingConversation = null;
+      pendingTaskData = null;
+      taskDataDirty = false;
+      replayDeduper.reset();
+      recoveringCurrentRun = false;
+      currentChat = resetChatForAuthoritativeReplay(currentChat);
+      workspaceTaskThrottle.reset(undefined);
+      setWorkspaceStreamTask(undefined);
+      setTaskList([]);
+      setShowAction(false);
+      setActiveRunState({ status: 'RUNNING' });
+      setLoading(true);
+      draftController.commit(draftController.replaceLastItem({ ...currentChat }));
+    };
+
     const handleMessage = (data: MESSAGE.Answer) => {
+      if (abortController.signal.aborted || streamLifecycle.isSettled()) {
+        return;
+      }
       const { finished, resultMap, packageType, status } = data;
       const envelopeEventData = normalizeEventData(resultMap?.eventData);
+      const runRecovery = resolveRunRecoveryDirective(
+        data,
+        envelopeEventData,
+        recoveryBudget.completedAttempts('run'),
+        recoveryBudget.elapsedMillis('run'),
+      );
+      if (runRecovery?.retry) {
+        if (
+          scheduleRecovery(
+            runRecovery.delayMillis,
+            '当前运行仍在执行，正在使用原请求恢复结果…',
+          )
+        ) {
+          recoveryBudget.recordAttempt('run');
+        }
+        return;
+      }
+
+      if (runRecovery?.exhausted) {
+        const recoveryExhaustedText =
+          '当前运行仍在后台执行，自动恢复窗口已结束。请稍后重新打开该会话查看结果；为避免重复执行和扣费，当前请求不能重新生成。';
+        suspendAutomaticRecovery(recoveryExhaustedText, 'RUN_ALREADY_IN_PROGRESS');
+        return;
+      }
+
+      if (
+        shouldResetForAuthoritativeReplay(
+          recoveringCurrentRun,
+          envelopeEventData,
+          runRecovery,
+        )
+      ) {
+        resetProjectionForAuthoritativeReplay();
+      }
+      if (envelopeEventData && !replayDeduper.accept(envelopeEventData)) {
+        return;
+      }
       const envelopeTerminalState = resolveTerminalRunState(data, envelopeEventData);
       const isTerminalEnvelopeError =
         Boolean(finished) &&
@@ -732,26 +1140,8 @@ export function useConversationStream(
             : envelopeTerminalState.status;
         const errorText = envelopeTerminalState.message || '当前请求处理失败，请稍后重试';
         setLoading(false);
-
-        if (isChatMode) {
-          currentChat = {
-            ...currentChat,
-            loading: false,
-            forceStop: terminalStatus === 'STOPPED',
-            response: currentChat.response || errorText,
-            tip: errorText,
-            metrics: {
-              ...(currentChat.metrics || {}),
-              status: terminalStatus,
-            },
-          };
-          syncRunningConversation();
-          notifyRunSettled();
-          return;
-        }
-
         currentChat = applyTerminalRunError(currentChat, terminalStatus, errorText);
-        const taskData = handleTaskData(currentChat, normalizedDeepThink, currentChat.multiAgent);
+        const taskData = handleTaskData(currentChat, currentChat.multiAgent);
         setTaskList(taskData.taskList);
         draftController.commit(draftController.replaceLastItem({ ...currentChat }));
         notifyRunSettled();
@@ -759,15 +1149,11 @@ export function useConversationStream(
       }
 
       if (['roleUnavailable', 'roleSwitchRejected', 'noAvailableChatRole'].includes(status)) {
-        currentChat = {
-          ...currentChat,
-          response: data.errorMsg || '当前角色暂不可用',
-          loading: false,
-          metrics: {
-            ...(currentChat.metrics || {}),
-            status: 'FAILED',
-          },
-        };
+        currentChat = applyTerminalRunError(
+          currentChat,
+          'FAILED',
+          data.errorMsg || '当前角色暂不可用',
+        );
         setLoading(false);
         syncRunningConversation();
         notifyRunSettled();
@@ -777,16 +1163,8 @@ export function useConversationStream(
       if (status === 'tokenUseUp') {
         onTokenUseUp?.();
         const errorText = data.errorMsg || '对话额度不足，请前往额度中心查看或购买额度包';
-        currentChat = isChatMode
-          ? {
-              ...currentChat,
-              loading: false,
-              response: currentChat.response || errorText,
-              tip: errorText,
-              metrics: { ...(currentChat.metrics || {}), status: 'FAILED' },
-            }
-          : applyTerminalRunError(currentChat, 'FAILED', errorText);
-        const taskData = handleTaskData(currentChat, normalizedDeepThink, currentChat.multiAgent);
+        currentChat = applyTerminalRunError(currentChat, 'FAILED', errorText);
+        const taskData = handleTaskData(currentChat, currentChat.multiAgent);
         setLoading(false);
         setTaskList(taskData.taskList);
         draftController.commit(draftController.replaceLastItem({ ...currentChat }));
@@ -798,61 +1176,11 @@ export function useConversationStream(
         return;
       }
 
-      if (isChatMode) {
-        const eventData = envelopeEventData;
-        const inner = eventData?.resultMap;
-        const innerType = inner?.messageType;
-        if (innerType === 'agent_stream') {
-          const text = inner?.result || '';
-          if (text) {
-            currentChat.response = `${currentChat.response || ''}${text}`;
-          }
-        } else if (innerType === 'result' && !currentChat.response) {
-          currentChat.response = inner?.result || '';
-        }
-
-        if (innerType) {
-          syncRunningConversation();
-        }
-
-        if (innerType && (inner?.finish || finished)) {
-          const terminalState = resolveTerminalRunState(data, eventData);
-          const terminalStatus =
-            terminalState.status === 'RUNNING' ? 'SUCCESS' : terminalState.status;
-          currentChat.loading = false;
-          currentChat.forceStop = terminalStatus === 'STOPPED';
-          if (terminalStatus !== 'SUCCESS') {
-            currentChat.tip = terminalState.message;
-            currentChat.response = currentChat.response || terminalState.message;
-          }
-          currentChat.metrics = {
-            ...(currentChat.metrics || {}),
-            status: terminalStatus,
-            ...(extractRunMetrics(inner) || {}),
-          };
-          setLoading(false);
-          syncRunningConversation();
-          notifyRunSettled();
-        }
-        return;
-      }
-
       const eventData = envelopeEventData;
       if (!eventData) {
         return;
       }
 
-      const checkpointControlEvent = parseCheckpointControlEvent(eventData);
-      if (checkpointControlEvent) {
-        currentChat = applyCheckpointControlEvent(currentChat, checkpointControlEvent);
-        pendingConversation = draftController.replaceLastItem({ ...currentChat });
-        scheduleNonChatFlush(true);
-        return;
-      }
-
-      const isPlanThoughtEvent = eventData.messageType === 'plan_thought';
-      const isEvaluationEvent = eventData.resultMap?.messageType === 'evaluation';
-      const isPlanThoughtFinal = Boolean(eventData.resultMap?.isFinal || finished);
       currentChat = combineData(eventData, currentChat);
       // 实时收到最终 result 时，优先用结构化结果覆盖掉临时 agent_stream 结论，
       // 避免界面在当前会话里一直停留在“答案$$$文件名”的原始协议文本。
@@ -862,16 +1190,13 @@ export function useConversationStream(
       if (shouldRefreshWorkspaceTask(eventData)) {
         scheduleWorkspaceStreamTask(currentChat, finished);
       }
-      if (normalizedDeepThink && isPlanThoughtEvent) {
-        const latestThought = currentChat.thought || currentChat.multiAgent.plan_thought || '';
-        scheduleStreamingThought(currentChat.requestId, latestThought, isPlanThoughtFinal);
-      }
-      if (!isPlanThoughtEvent && !isEvaluationEvent) {
+      if (!isAgentLoopEvent(eventData)) {
         taskDataDirty = true;
       }
       if (finished) {
         const terminalState = resolveTerminalRunState(data, eventData);
-        const terminalStatus = terminalState.status === 'RUNNING' ? 'SUCCESS' : terminalState.status;
+        const resultStatus = terminalState.status === 'RUNNING' ? 'FAILED' : terminalState.status;
+        const terminalStatus = resolveAuthoritativeResultStatus(currentChat, resultStatus);
         currentChat =
           terminalStatus === 'SUCCESS'
             ? { ...currentChat, loading: false }
@@ -881,117 +1206,173 @@ export function useConversationStream(
           status: terminalStatus,
           ...(extractRunMetrics(eventData.resultMap) || {}),
         };
-        setLoading(false);
-        if (normalizedDeepThink) {
-          const finalThought = currentChat.thought || currentChat.multiAgent.plan_thought || '';
-          scheduleStreamingThought(currentChat.requestId, finalThought, true);
+        if (currentChat.agentRun) {
+          currentChat.agentRun.status = terminalStatus;
         }
+        setLoading(false);
         notifyRunSettled();
       }
 
       draftController.replaceLastItem({ ...currentChat });
-      if (!isPlanThoughtEvent || isPlanThoughtFinal) {
-        pendingConversation = draftController.getSnapshot();
-        scheduleNonChatFlush(finished);
-      }
+      pendingConversation = draftController.getSnapshot();
+      scheduleNonChatFlush(finished);
     };
 
     const handleError = (error: unknown) => {
       console.error('SSE stream error', error);
+      if (
+        abortController.signal.aborted ||
+        streamLifecycle.isSettled() ||
+        !currentChat.loading
+      ) {
+        return;
+      }
+      const completedTransportAttempts = recoveryBudget.completedAttempts('transport');
+      const recoveryElapsedMillis = recoveryBudget.elapsedMillis('transport');
+      const recoveryDelay = resolveTransportRecoveryDelay(
+        error,
+        completedTransportAttempts,
+        recoveryElapsedMillis,
+      );
+      if (
+        recoveryDelay !== null &&
+        scheduleRecovery(recoveryDelay, '连接短暂中断，正在使用原请求恢复当前运行…')
+      ) {
+        recoveryBudget.recordAttempt('transport');
+        return;
+      }
+      if (
+        !isFatalTransportRecoveryError(error) &&
+        isTransportRecoveryBudgetExhausted(
+          completedTransportAttempts,
+          recoveryElapsedMillis,
+        )
+      ) {
+        suspendAutomaticRecovery(
+          '连接恢复窗口已结束，但服务端任务可能仍在运行。请稍后重新打开该会话查看结果；为避免重复执行和扣费，当前请求不能重新生成。',
+          'TRANSPORT_RECOVERY_EXHAUSTED',
+        );
+        return;
+      }
       const errorText = resolveStreamErrorMessage(error);
       setLoading(false);
 
-      if (isChatMode) {
-        currentChat = {
-          ...currentChat,
-          loading: false,
-          response: errorText,
-          metrics: {
-            ...(currentChat.metrics || {}),
-            status: 'FAILED',
-          },
-        };
-        syncRunningConversation();
-        notifyRunSettled();
-        return;
-      }
-
       currentChat = applyGuardError(currentChat, errorText);
-      const taskData = handleTaskData(currentChat, normalizedDeepThink, currentChat.multiAgent);
+      const taskData = handleTaskData(currentChat, currentChat.multiAgent);
       setTaskList(taskData.taskList);
       draftController.commit(draftController.replaceLastItem({ ...currentChat }));
       notifyRunSettled();
     };
 
     const handleClose = () => {
-      if (currentChat.loading && !abortController.signal.aborted) {
-        const errorText = '对话连接已中断，请重试。';
-        setLoading(false);
-        if (isChatMode) {
-          currentChat = {
-            ...currentChat,
-            loading: false,
-            response: currentChat.response || errorText,
-            tip: errorText,
-            metrics: { ...(currentChat.metrics || {}), status: 'FAILED' },
-          };
-          syncRunningConversation();
-        } else {
-          currentChat = applyTerminalRunError(currentChat, 'FAILED', errorText);
-          draftController.commit(draftController.replaceLastItem({ ...currentChat }));
+      if (streamLifecycle.isSettled()) {
+        return;
+      }
+      if (abortController.signal.aborted) {
+        scheduleNonChatFlush(true);
+        return;
+      }
+      if (recoveryTimer.hasPending()) {
+        scheduleNonChatFlush(true);
+        return;
+      }
+      if (currentChat.loading) {
+        const completedTransportAttempts = recoveryBudget.completedAttempts('transport');
+        const recoveryElapsedMillis = recoveryBudget.elapsedMillis('transport');
+        const recoveryDelay = resolveTransportRecoveryDelay(
+          new Error('SSE connection closed before a terminal event'),
+          completedTransportAttempts,
+          recoveryElapsedMillis,
+        );
+        if (
+          recoveryDelay !== null &&
+          scheduleRecovery(recoveryDelay, '连接已关闭，正在使用原请求恢复当前运行…')
+        ) {
+          recoveryBudget.recordAttempt('transport');
+          scheduleNonChatFlush(true);
+          return;
         }
-        notifyRunSettled();
+        suspendAutomaticRecovery(
+          '连接恢复窗口已结束，但服务端任务可能仍在运行。请稍后重新打开该会话查看结果；为避免重复执行和扣费，当前请求不能重新生成。',
+          'TRANSPORT_RECOVERY_EXHAUSTED',
+        );
+        return;
+      }
+      if (streamAbortRef.current === abortController && !recoveryTimer.hasPending()) {
+        streamAbortRef.current = null;
       }
       scheduleNonChatFlush(true);
     };
 
-    // 中断上一条仍在进行的流，并为本次请求建立可取消的信号。
-    streamAbortRef.current?.abort();
-    const abortController = new AbortController();
-    streamAbortRef.current = abortController;
-
-    querySSE({
-      body: params,
-      parser: parseAgentAnswer,
-      handleMessage,
-      handleError,
-      handleClose,
-      signal: abortController.signal,
-    });
-  });
-
-  const resumeFromCheckpoint = useMemoizedFn(
-    (sourceChat: CHAT.ChatItem, decision: CHAT.CheckpointResumeDecision) => {
-      const checkpoint = sourceChat.checkpoint;
-      if (!checkpoint || !checkpoint.resumable || checkpoint.status !== 'AVAILABLE' || loading) {
+    function startStream() {
+      if (abortController.signal.aborted || streamLifecycle.isSettled()) {
         return;
       }
-
-      const baseConversation = conversationRef.current;
-      sendMessage({
-        message: sourceChat.query || '从检查点恢复任务',
-        files: sourceChat.files || [],
-        outputStyle: baseConversation.productType,
-        // 后端只允许 Plan-Solve 消费 checkpoint，恢复动作必须显式进入深度模式。
-        deepThink: true,
-        aiAgentId: baseConversation.role?.agentId,
-        modelId: selectedModelId,
-        resumeCheckpointId: checkpoint.checkpointId,
-        resumeDecision: decision,
+      const generation = streamLifecycle.begin();
+      if (generation === null) {
+        return;
+      }
+      const cancelTransport = querySSE({
+        body: params,
+        parser: parseAgentAnswer,
+        handleMessage: (data) => {
+          if (streamLifecycle.accepts(generation)) {
+            handleMessage(data);
+          }
+        },
+        handleError: (error) => {
+          if (streamLifecycle.accepts(generation)) {
+            handleError(error);
+          }
+        },
+        handleClose: () => {
+          if (streamLifecycle.accepts(generation)) {
+            handleClose();
+          }
+        },
+        signal: abortController.signal,
       });
-    },
-  );
+      streamLifecycle.attach(generation, cancelTransport);
+    }
+
+    startStream();
+  });
+
+  const stopCurrentRun = useMemoizedFn(() => {
+    const activeStream = streamAbortRef.current;
+    if (!activeStream) return;
+
+    // 先断开 SSE，让服务端的 downstream-abort probe 取消模型和工具 Future，
+    // 再把停止事实投影到当前对话，避免网页端一直停在 loading。
+    activeStream.abort();
+    const currentConversation = conversationRef.current;
+    const lastChat = currentConversation.chatList[currentConversation.chatList.length - 1];
+    if (!lastChat || !lastChat.loading) return;
+
+    const stoppedChat = applyTerminalRunError(
+      lastChat,
+      'STOPPED',
+      '任务已停止，已保留停止前的可见内容。',
+    );
+    onConversationChange(
+      currentConversation.id,
+      replaceConversationListLastItem(currentConversation, 'chatList', stoppedChat),
+    );
+    setLoading(false);
+    setActiveRunState({ status: 'STOPPED', errorMsg: '任务已停止' });
+    onRunSettled?.(currentConversation.sessionId);
+  });
 
   const regenerateLastMessage = useMemoizedFn(() => {
     const last = conversation.chatList[conversation.chatList.length - 1];
-    if (!last || loading) {
+    if (loading || !canRegenerateChat(last)) {
       return;
     }
 
     sendMessage({
       message: last.query,
       outputStyle: conversation.productType,
-      deepThink: conversation.deepThink,
+      executionMode: conversation.executionMode,
       aiAgentId: conversation.role?.agentId,
       modelId: selectedModelId,
       replaceLast: true,
@@ -1003,13 +1384,11 @@ export function useConversationStream(
     workspaceStreamTask,
     activeRunState,
     setActiveRunState,
-    plan,
     showAction,
     changeActionStatus,
     loading,
-    streamingThoughtMap,
     sendMessage,
-    resumeFromCheckpoint,
+    stopCurrentRun,
     regenerateLastMessage,
   };
 }

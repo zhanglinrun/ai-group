@@ -11,9 +11,23 @@ public interface IOrderDao {
 
     void insert(PayOrder payOrder);
 
-    PayOrder queryUnPayOrder(PayOrder payOrder);
+    PayOrder queryOrderByClientRequestId(@Param("userId") String userId,
+                                         @Param("clientRequestId") String clientRequestId);
 
-    void updateOrderPayInfo(PayOrder payOrder);
+    int claimOrderCreation(@Param("orderId") String orderId, @Param("ownerToken") String ownerToken);
+
+    int releaseOrderCreationClaim(@Param("orderId") String orderId, @Param("ownerToken") String ownerToken);
+
+    int markGroupLocked(PayOrder payOrder);
+
+    int markProviderStarted(@Param("orderId") String orderId, @Param("ownerToken") String ownerToken);
+
+    int completeOrderPrepay(PayOrder payOrder);
+
+    int markOrderCreationManualReview(@Param("orderId") String orderId,
+                                      @Param("ownerToken") String ownerToken);
+
+    int updateOrderPayUrl(@Param("orderId") String orderId, @Param("payUrl") String payUrl);
 
     int changeOrderPaySuccess(PayOrder payOrderReq);
 

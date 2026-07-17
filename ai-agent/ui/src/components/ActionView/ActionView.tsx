@@ -9,10 +9,9 @@ import FilePreview from './FilePreview';
 import { ActionViewItemEnum } from '@/utils';
 
 import FileList from './FileList';
-import { PlanView, PlanViewAction } from '../PlanView';
 import { PanelItemType } from '../ActionPanel';
 
-type ActionViewRef = PlanViewAction & {
+type ActionViewRef = {
   setFilePreview: (file?: CHAT.TFile) => void;
   changeActionView: (item: ActionViewItemEnum) => void;
 };
@@ -27,7 +26,6 @@ type ActionViewProps = {
   taskList?: PanelItemType[];
   activeTask?: CHAT.Task;
   streamTask?: CHAT.Task;
-  plan?: CHAT.Plan;
   runState?: {
     status?: string;
     errorMsg?: string;
@@ -46,14 +44,12 @@ const ActionViewComp: ReactorType.FC<ActionViewProps> = forwardRef((props, ref) 
     activeTask,
     streamTask,
     taskList,
-    plan,
     runState,
     isFocusMode,
     onToggleFocusMode,
   } = props;
 
   const [curFileItem, setCurFileItem] = useSafeState<CHAT.TFile>();
-  const planRef = useRef<PlanViewAction>(null);
   const { defaultActiveActionView, actionViewOptions } = useConstants();
   const [activeActionView, setActiveActionView] = useSafeState(defaultActiveActionView);
   const resolvedActiveActionView = actionViewOptions.some((item) => item.value === activeActionView)
@@ -62,7 +58,6 @@ const ActionViewComp: ReactorType.FC<ActionViewProps> = forwardRef((props, ref) 
 
   useImperativeHandle(ref, () => {
     return {
-      ...planRef.current!,
       setFilePreview: (file) => {
         setActiveActionView(ActionViewItemEnum.file);
         setCurFileItem(file);
@@ -190,7 +185,6 @@ const ActionViewComp: ReactorType.FC<ActionViewProps> = forwardRef((props, ref) 
             )}
           </AnimatePresence>
         </motion.div>
-        <PlanView plan={plan} ref={planRef} />
       </div>
     </motion.div>
   );

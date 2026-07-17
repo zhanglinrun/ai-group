@@ -68,6 +68,20 @@ class AuthGlobalFilterTest {
     }
 
     @Test
+    void activePayNotify_withOrdinaryJwtButNoInternalToken_isForbidden() {
+        MockServerHttpRequest request = MockServerHttpRequest
+                .post("/api/v1/alipay/active_pay_notify?outTradeNo=order-1")
+                .header("Authorization", "Bearer valid-user-token")
+                .build();
+        ServerWebExchange exchange = MockServerWebExchange.from(request);
+
+        StepVerifier.create(filter.filter(exchange, ex -> Mono.empty()))
+                .verifyComplete();
+
+        assertEquals(HttpStatus.FORBIDDEN, exchange.getResponse().getStatusCode());
+    }
+
+    @Test
     void userApi_withRefreshToken_isUnauthorized() {
         when(jwtUtils.validateToken("refresh-token")).thenReturn(true);
         when(jwtUtils.getTokenType("refresh-token")).thenReturn(CommonConstant.TOKEN_TYPE_REFRESH);
@@ -119,6 +133,8 @@ class AuthGlobalFilterTest {
             assertEquals("smoke_user", ex.getRequest().getHeaders().getFirst(CommonConstant.HEADER_USERNAME));
             assertEquals("USER", ex.getRequest().getHeaders().getFirst(CommonConstant.HEADER_ROLE));
             assertEquals("true", ex.getRequest().getHeaders().getFirst(CommonConstant.HEADER_GATEWAY_REQUEST));
+            assertEquals("secret-internal-token",
+                    ex.getRequest().getHeaders().getFirst(CommonConstant.HEADER_INTERNAL_TOKEN));
             return Mono.empty();
         })).verifyComplete();
 

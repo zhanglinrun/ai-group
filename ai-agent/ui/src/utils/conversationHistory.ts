@@ -44,7 +44,7 @@ export function hydrateConversationFromReplayFrames(
     sessionId: detail.sessionId,
     title,
     productType: detail.outputStyle || 'chat',
-    deepThink: Boolean(detail.deepThink),
+    executionMode: detail.executionMode || 'STANDARD',
     role: detail.role || null,
     createdAt,
     updatedAt,
@@ -65,7 +65,6 @@ function hydrateRun(
     query: run.queryText || '',
     files: [],
     responseType: 'txt',
-    agentType: resolveConversationAgentType(detail.outputStyle, detail.deepThink),
     loading: false,
     forceStop: runStatus === 'STOPPED',
     tasks: [],
@@ -104,7 +103,19 @@ function hydrateRun(
     syncConclusionFromEventData(currentChat, fallbackEventData);
   }
 
-  return buildConversationTaskData(currentChat, detail.deepThink).currentChat;
+  // 旧回放可能没有 run_finished。持久化 run 状态是历史场景的权威终态，
+  // 用它校正 canonical view，避免 Todo 回放把已结束 run 留在 RUNNING。
+  currentChat.agentRun = {
+    ...(currentChat.agentRun || { todos: [] }),
+    status: runStatus,
+    terminalEventSeen: runStatus !== 'RUNNING',
+    completionGatePassed: runStatus === 'SUCCESS',
+    ...(runStatus === 'SUCCESS' && !currentChat.agentRun?.verification
+      ? { verification: { status: 'passed' as const } }
+      : {}),
+  };
+
+  return buildConversationTaskData(currentChat).currentChat;
 }
 
 function readEventData(frame?: ConversationReplayFrame | null) {
@@ -130,18 +141,14 @@ function toTimestamp(value?: string | null, fallback = Date.now()) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-function resolveConversationAgentType(outputStyle?: string, deepThink?: boolean) {
-  if (outputStyle === 'chat') {
-    return 1;
-  }
-  return deepThink ? 2 : 1;
-}
-
-function normalizeRunStatus(status?: string | null) {
+function normalizeRunStatus(status?: string | null): CHAT.AgentRunStatus {
   const normalized = String(status || '')
     .trim()
     .toUpperCase();
-  return normalized || 'RUNNING';
+  if (['RUNNING', 'SUCCESS', 'FAILED', 'STOPPED', 'TIMEOUT'].includes(normalized)) {
+    return normalized as CHAT.AgentRunStatus;
+  }
+  return 'RUNNING';
 }
 
 function buildFallbackConclusionEventData(run: ConversationHistoryRunDetail): MESSAGE.EventData {
@@ -150,7 +157,7 @@ function buildFallbackConclusionEventData(run: ConversationHistoryRunDetail): ME
   return {
     taskId,
     taskOrder: 1,
-    messageType: 'task',
+    messageType: 'agent_event',
     messageOrder: 1,
     messageId: `${run.requestId}-summary`,
     ...(resolvedSummary.artifactRefs.length ? { artifactRefs: resolvedSummary.artifactRefs } : {}),

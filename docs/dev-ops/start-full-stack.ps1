@@ -67,7 +67,7 @@ $env:AGENT_MEMORY_LONGTERM_ENABLED = if ($env:AGENT_MEMORY_LONGTERM_ENABLED) { $
 $env:AGENT_MEMORY_LONGTERM_COLLECTION = if ($env:AGENT_MEMORY_LONGTERM_COLLECTION) { $env:AGENT_MEMORY_LONGTERM_COLLECTION } else { "agent_conversation_memory" }
 $env:SPRING_AI_OPENAI_API_KEY = $env:AGENT_GROUP_LLM_API_KEY
 $env:SPRING_PROFILES_ACTIVE = "dev"
-$env:REACTOR_AGENT_AUTO_CONFIG_ENABLED = "true"
+$env:AI_AGENT_AUTO_CONFIG_ENABLED = if ($env:AI_AGENT_AUTO_CONFIG_ENABLED) { $env:AI_AGENT_AUTO_CONFIG_ENABLED } else { "true" }
 
 function Test-PortListening($port) {
     return [bool](netstat -ano | Select-String "LISTENING" | Select-String ":$port ")
@@ -167,6 +167,12 @@ function Sync-ReactorToolEnv() {
         "REACTOR_TOOL_CORS_ORIGINS=$($env:REACTOR_TOOL_CORS_ORIGINS)",
         "SKILL_ALLOWED_RUNTIMES=$($env:SKILL_ALLOWED_RUNTIMES)",
         "SKILL_MAX_CONCURRENT_PROCESSES=2"
+        # Deep search 必须服从 Agent run budget；搜索引擎不可达时快速降级，
+        # 不能把 SSE 请求拖到客户端断开。
+        "SEARCH_TIMEOUT=20"
+        "SEARCH_PARSER_TIMEOUT=10"
+        "DEEPSEARCH_TOTAL_TIMEOUT_SECONDS=150"
+        "SEARCH_THREAD_NUM=4"
     )
     Set-Content -Path $rtEnv -Value ($lines -join "`n") -Encoding UTF8
     Write-Host "Synced reactor-tool/.env"
@@ -186,9 +192,19 @@ Write-Host "==> Init DB (idempotent)"
 Invoke-Mysql "$root/auth-service/src/main/resources/schema.sql"
 Invoke-Mysql "$root/member-service/src/main/resources/schema.sql"
 Invoke-Mysql "$root/docs/dev-ops/mysql/sql/member_db/02-platform-schema-migrate.sql"
+# Durable Agent 额度结算依赖请求指纹、真实终态查询与托管冻结标记；老库必须在 member 02 后增量升级。
+Invoke-Mysql "$root/docs/dev-ops/mysql/sql/member_db/03-durable-quota-settlement.sql"
 Invoke-Mysql "$root/docs/dev-ops/mysql/sql/agent_db/01-agent_db.sql"
-# 独立增量脚本同样纳入一键启动，确保从旧版 agent_db 升级时不会遗漏 checkpoint 表。
-Invoke-Mysql "$root/docs/dev-ops/mysql/sql/agent_db/03-agent-checkpoint-migrate.sql"
+# 独立增量脚本同样纳入一键启动，统一迁移到 Agent Loop 与 todo_write 存储结构。
+Invoke-Mysql "$root/docs/dev-ops/mysql/sql/agent_db/03-agent-loop-migrate.sql"
+# Work 任务图、固定角色快照、durable run claim 与 quota settlement command 都是当前运行时真实依赖；
+# 增量脚本均可幂等执行，必须在 seed 前补齐，保证全新数据库和已有旧库使用同一启动路径。
+Invoke-Mysql "$root/docs/dev-ops/mysql/sql/agent_db/04-task-graph.sql"
+Invoke-Mysql "$root/docs/dev-ops/mysql/sql/agent_db/05-dialogue-run-role.sql"
+Invoke-Mysql "$root/docs/dev-ops/mysql/sql/agent_db/06-dialogue-run-claim-hardening.sql"
+Invoke-Mysql "$root/docs/dev-ops/mysql/sql/agent_db/07-quota-settlement-command.sql"
+# 工具结果与模型 observation 分离持久化，保证结构化工具的实时展示和历史回放一致。
+Invoke-Mysql "$root/docs/dev-ops/mysql/sql/agent_db/08-tool-result-replay.sql"
 Invoke-Mysql "$root/docs/dev-ops/mysql/sql/agent_db/02-dev-seed.sql"
 # group/pay 为全量转储（DROP+重灌）：仅首次初始化执行，已存在则跳过以保留订单/拼团数据
 Invoke-MysqlDumpOnce "$root/group/docs/dev-ops/mysql/sql/2-29-group_buy_market.sql" -Schema "group_buy_market" -MarkerTable "group_buy_order"
@@ -200,6 +216,10 @@ Invoke-Mysql "$root/group/docs/dev-ops/mysql/sql/3-03-groupbuy-tier-settlement-m
 Invoke-MysqlDumpOnce "$root/s-pay-mall-ddd-market/docs/dev-ops/mysql/sql/s-pay-mall-ddd-market.sql" -Schema "s_pay_mall_ddd_market" -MarkerTable "pay_order" -PayBase
 Invoke-Mysql "$root/s-pay-mall-ddd-market/docs/dev-ops/mysql/sql/V3_benefit_event.sql"
 Invoke-Mysql "$root/s-pay-mall-ddd-market/docs/dev-ops/mysql/sql/V4_settlement_notified.sql"
+# 支付交易统一 outbox：履约/权益事件共用本地消息表，补齐老库索引并回填可能丢失的支付成功事件。
+Invoke-Mysql "$root/s-pay-mall-ddd-market/docs/dev-ops/mysql/sql/V5_transactional_outbox.sql"
+# 支付下单 durable 幂等键、规范化载荷指纹及拼团路径快照。
+Invoke-Mysql "$root/s-pay-mall-ddd-market/docs/dev-ops/mysql/sql/V6_pay_order_idempotency.sql"
 # 阶梯拼团：benefit_event.bonus_quota（加赠额度随权益事件透传给 member）
 Invoke-Mysql "$root/docs/dev-ops/mysql/sql/pay_db/01-benefit-event-bonus-migrate.sql"
 Invoke-Mysql "$root/docs/dev-ops/mysql/sql/xxl_job/01-xxl_job.sql"
@@ -215,7 +235,7 @@ Push-Location "$root/s-pay-mall-ddd-market"
 mvn clean install -DskipTests -q
 Pop-Location
 # ai-agent 是独立聚合工程（不在根 pom 的 modules 里）；干净 .m2 下必须先 install，
-# 否则后面直接在 Reactor-agent-app 子模块 spring-boot:run 会因缺兄弟 SNAPSHOT 依赖失败。
+# 否则后面直接在 ai-agent-app 子模块 spring-boot:run 会因缺兄弟 SNAPSHOT 依赖失败。
 Push-Location "$root/ai-agent"
 mvn clean install -DskipTests -q
 Pop-Location
@@ -254,7 +274,7 @@ Start-ServiceWindow "group-buy-market" "$root/group/group-buy-market-app" 8091 @
     AI_GROUP_DEMO_PAYMENT_ENABLED = $env:AI_GROUP_DEMO_PAYMENT_ENABLED
 }
 Start-ServiceWindow "pay-service" "$root/s-pay-mall-ddd-market/s-pay-mall-ddd-app" 8070 $payEnv
-Start-ServiceWindow "ai-agent" "$root/ai-agent/Reactor-agent-app" 8090 @{
+Start-ServiceWindow "ai-agent" "$root/ai-agent/ai-agent-app" 8090 @{
     AGENT_GROUP_LLM_API_KEY       = $env:AGENT_GROUP_LLM_API_KEY
     DASHSCOPE_API_KEY             = $env:DASHSCOPE_API_KEY
     SPRING_AI_OPENAI_API_KEY      = $env:SPRING_AI_OPENAI_API_KEY
@@ -264,11 +284,10 @@ Start-ServiceWindow "ai-agent" "$root/ai-agent/Reactor-agent-app" 8090 @{
     AGENT_GROUP_VECTOR_DIMENSION  = $env:AGENT_GROUP_VECTOR_DIMENSION
     AGENT_GROUP_REACTOR_TOOL_BASE_URL = $env:AGENT_GROUP_REACTOR_TOOL_BASE_URL
     AGENT_GROUP_REACTOR_TOOL_TOKEN = $env:AGENT_GROUP_REACTOR_TOOL_TOKEN
-    AGENT_GROUP_AGENT_DISPATCH_URL = "http://127.0.0.1:8090/AutoAgent"
     AGENT_GROUP_QDRANT_ENABLED    = if ($env:AGENT_GROUP_QDRANT_ENABLED) { $env:AGENT_GROUP_QDRANT_ENABLED } else { "false" }
     AGENT_GROUP_EMBEDDING_URL     = if ($env:AGENT_GROUP_EMBEDDING_URL) { $env:AGENT_GROUP_EMBEDDING_URL } else { "http://127.0.0.1:1601/v1/tool/embedding/text" }
     MEMBER_SERVICE_BASE_URL       = "http://127.0.0.1:$MemberPort"
-    REACTOR_AGENT_AUTO_CONFIG_ENABLED = "true"
+    AI_AGENT_AUTO_CONFIG_ENABLED = $env:AI_AGENT_AUTO_CONFIG_ENABLED
     TAVILY_API_KEY                = $env:TAVILY_API_KEY
     MINERU_API_KEY                = $env:MINERU_API_KEY
     QDRANT_URL                    = $env:QDRANT_URL

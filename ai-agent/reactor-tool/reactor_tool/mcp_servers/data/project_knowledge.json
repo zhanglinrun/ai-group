@@ -26,26 +26,14 @@
     },
     {
       "id": "agent-runtime",
-      "title": "Agent 执行编排",
-      "keywords": ["Agent", "ReAct", "Plan-Solve", "Workflow", "状态机", "循环上限", "tool calling"],
-      "summary": "项目保留自研 Agent Harness，覆盖 ReAct、Plan-Solve 和 Workflow，并对循环、工具与上下文做显式治理。",
+      "title": "统一 Agent Harness",
+      "keywords": ["Agent", "Agent Loop", "AgentRuntime", "AgentLoop", "Harness", "TodoWrite", "CompletionGate", "Workflow", "tool calling"],
+      "summary": "默认请求由 AgentRuntime 创建 run-local 上下文、工具目录和账本，再由 AgentLoop 执行一条统一模型—工具循环；TodoWrite 维护任务状态，CompletionGate 负责结束验收。",
       "highlights": [
-        "ReAct 适合动态推理与工具选择，Plan-Solve 适合先规划再逐步执行",
-        "循环次数、上下文 Token 和工具输出都有硬上限",
-        "工具调用经过统一注册、参数 schema、事件记录和失败回传",
-        "SSE 暴露计划、任务、工具、评估、检查点和最终结果等生命周期事件"
-      ]
-    },
-    {
-      "id": "checkpoint-resume",
-      "title": "Plan-Solve 检查点与安全恢复",
-      "keywords": ["checkpoint", "resume", "检查点", "恢复", "幂等", "副作用"],
-      "summary": "Plan-Solve 提供最小节点级 checkpoint/resume，以所有者隔离、快照哈希和原子认领限制恢复边界。",
-      "highlights": [
-        "检查点记录阶段、步骤序号和必要状态快照",
-        "恢复时校验 owner、session 与 SHA-256 快照哈希",
-        "数据库条件更新保证同一检查点只能被原子认领一次",
-        "检查点后的非重放安全工具会触发 fail-closed，而不是静默重放副作用"
+        "AUTO、STANDARD、DEEP 是同一循环的 executionMode，不是不同 Agent",
+        "AgentToolCollectionFactory 构建 run-local 工具目录，ToolExposurePolicy 生成每轮更小的可见工具视图",
+        "AgentRunBudget 同时限制轮次、工具调用、完成尝试、时间、Token 和额度",
+        "SSE 暴露 run、phase、todo、tool、verification、run_finished 和 result 等 canonical events"
       ]
     },
     {
@@ -93,11 +81,13 @@
         "校验 owner、session、模型与额度参数",
         "创建 run 和 LLM invocation 执行账本记录",
         "在 Token 预算内组装工作上下文、会话证据与长期记忆",
-        "按 ReAct、Plan-Solve 或 Workflow 策略执行并限制最大循环",
-        "调用工具前校验 schema，调用后限制结果并记录事件",
-        "输出最终结果，结算实际额度并关闭本次 run"
+        "为当前请求构建完整工具目录，并为当前轮生成受限工具视图",
+        "AgentLoop 经 ContextPipeline 和 ModelGateway 暴露本轮工具 Schema，模型选择后由 ToolDispatcher 校验、授权、执行并记录事件、证据与产物",
+        "复杂任务通过 TodoWrite 更新任务状态，候选答案交给 CompletionGate 验收",
+        "验收失败时把原因和修正动作写回同一循环继续执行",
+        "验收通过后依次输出 run_finished 和 result，结算实际额度并关闭本次 run"
       ],
-      "boundary": "该项目是可讲清治理边界的学习型 Harness，不宣称达到大厂生产级分布式 durable execution。"
+      "boundary": "该项目是可讲清治理边界的学习型 Harness；当前未为尚无产品入口的跨会话 TaskGraph、断点恢复、通用子 Agent/后台任务创建空壳，也未实现商业多租户沙箱。"
     },
     "long_term_memory": {
       "title": "跨会话长期记忆流程",

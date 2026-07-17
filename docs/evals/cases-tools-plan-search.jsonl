@@ -1,1 +1,0 @@
-{"id":"plan-search-1","suite":"tool","mode":"text","deepThink":1,"query":"先规划，再联网查证 Qdrant 是否支持混合检索，并用两点总结结论和来源。","expect":["Qdrant","混合","hybrid"],"expectToolsAll":["planning","deep_search"],"minToolCalls":2}

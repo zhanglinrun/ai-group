@@ -44,7 +44,8 @@ public class AuthGlobalFilter implements GlobalFilter, Ordered {
      * group -> pay must either hit pay directly (recommended) or pass through gateway with X-Internal-Token.
      */
     private static final List<String> INTERNAL_CALLBACK_PATHS = List.of(
-            "/api/v1/alipay/group_buy_notify"
+            "/api/v1/alipay/group_buy_notify",
+            "/api/v1/alipay/active_pay_notify"
     );
 
     private final JwtUtils jwtUtils;

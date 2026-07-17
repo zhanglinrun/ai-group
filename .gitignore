@@ -20,7 +20,7 @@ docs/evals/last-report.json
 .idea/
 *.iml
 
-# Agent workflow assets (local only)
+# Local agent development assets
 .cursor/
 .cursor-tmp/
 .trellis/

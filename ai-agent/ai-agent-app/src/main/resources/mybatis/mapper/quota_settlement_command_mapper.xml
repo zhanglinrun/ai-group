@@ -1,0 +1,218 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.linrun.agent.infrastructure.dao.reactor.IQuotaSettlementCommandDao">
+
+    <resultMap id="QuotaSettlementCommandMap" type="com.linrun.agent.domain.agent.quota.QuotaSettlementCommand">
+        <id column="id" property="id"/>
+        <result column="user_id" property="userId"/>
+        <result column="billing_request_id" property="billingRequestId"/>
+        <result column="request_fingerprint" property="requestFingerprint"/>
+        <result column="ability_code" property="abilityCode"/>
+        <result column="requested_microcredits" property="requestedMicrocredits"/>
+        <result column="minimum_microcredits" property="minimumMicrocredits"/>
+        <result column="freeze_id" property="freezeId"/>
+        <result column="reserved_microcredits" property="reservedMicrocredits"/>
+        <result column="intended_action" property="intendedAction"/>
+        <result column="intended_microcredits" property="intendedMicrocredits"/>
+        <result column="settled_microcredits" property="settledMicrocredits"/>
+        <result column="llm_invocation_id" property="llmInvocationId"/>
+        <result column="input_rate_snapshot" property="inputRateSnapshot"/>
+        <result column="output_rate_snapshot" property="outputRateSnapshot"/>
+        <result column="prompt_tokens" property="promptTokens"/>
+        <result column="completion_tokens" property="completionTokens"/>
+        <result column="usage_source" property="usageSource"/>
+        <result column="charged_microcredits" property="chargedMicrocredits"/>
+        <result column="state" property="state"/>
+        <result column="retry_count" property="retryCount"/>
+        <result column="next_retry_at" property="nextRetryAt"/>
+        <result column="provider_started_at" property="providerStartedAt"/>
+        <result column="lease_owner" property="leaseOwner"/>
+        <result column="lease_until" property="leaseUntil"/>
+        <result column="last_error" property="lastError"/>
+        <result column="version" property="version"/>
+        <result column="create_time" property="createTime"/>
+        <result column="update_time" property="updateTime"/>
+    </resultMap>
+
+    <sql id="columns">
+        id, user_id, billing_request_id, request_fingerprint, ability_code,
+        requested_microcredits, minimum_microcredits, freeze_id, reserved_microcredits,
+        intended_action, intended_microcredits, settled_microcredits,
+        llm_invocation_id, input_rate_snapshot, output_rate_snapshot, prompt_tokens,
+        completion_tokens, usage_source, charged_microcredits, state,
+        retry_count, next_retry_at, provider_started_at, lease_owner, lease_until, last_error, version,
+        create_time, update_time
+    </sql>
+
+    <insert id="insert" parameterType="com.linrun.agent.domain.agent.quota.QuotaSettlementCommand"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO quota_settlement_command (
+            user_id, billing_request_id, request_fingerprint, ability_code,
+            requested_microcredits, minimum_microcredits, freeze_id, reserved_microcredits,
+            intended_action, intended_microcredits, settled_microcredits,
+            llm_invocation_id, input_rate_snapshot, output_rate_snapshot, prompt_tokens,
+            completion_tokens, usage_source, charged_microcredits, state,
+            retry_count, next_retry_at, provider_started_at, lease_owner, lease_until, last_error, version,
+            create_time, update_time
+        ) VALUES (
+            #{userId}, #{billingRequestId}, #{requestFingerprint}, #{abilityCode},
+            #{requestedMicrocredits}, #{minimumMicrocredits}, #{freezeId}, #{reservedMicrocredits},
+            #{intendedAction}, #{intendedMicrocredits}, #{settledMicrocredits},
+            #{llmInvocationId}, #{inputRateSnapshot}, #{outputRateSnapshot}, #{promptTokens},
+            #{completionTokens}, #{usageSource}, #{chargedMicrocredits}, #{state},
+            #{retryCount}, DATE_ADD(NOW(3), INTERVAL 30 SECOND), #{providerStartedAt}, #{leaseOwner}, #{leaseUntil}, #{lastError}, #{version},
+            NOW(3), NOW(3)
+        )
+    </insert>
+
+    <select id="findByUserAndBillingRequestId" resultMap="QuotaSettlementCommandMap">
+        SELECT <include refid="columns"/>
+        FROM quota_settlement_command
+        WHERE user_id = #{userId} AND billing_request_id = #{billingRequestId}
+        LIMIT 1
+    </select>
+
+    <select id="findByFreezeId" resultMap="QuotaSettlementCommandMap">
+        SELECT <include refid="columns"/>
+        FROM quota_settlement_command
+        WHERE freeze_id = #{freezeId}
+        LIMIT 1
+    </select>
+
+    <update id="markReserved">
+        UPDATE quota_settlement_command SET
+            freeze_id = #{freezeId},
+            reserved_microcredits = #{reservedMicrocredits},
+            state = 'RESERVED',
+            retry_count = 0,
+            next_retry_at = DATE_ADD(NOW(3), INTERVAL 30 SECOND),
+            lease_owner = NULL,
+            lease_until = NULL,
+            last_error = NULL,
+            version = version + 1,
+            update_time = NOW(3)
+        WHERE id = #{id} AND version = #{version} AND state = 'RESERVE_PENDING'
+    </update>
+
+    <update id="markReserveFailed">
+        UPDATE quota_settlement_command SET
+            state = 'RESERVE_FAILED',
+            next_retry_at = NULL,
+            lease_owner = NULL,
+            lease_until = NULL,
+            last_error = #{lastError},
+            version = version + 1,
+            update_time = NOW(3)
+        WHERE id = #{id} AND version = #{version} AND state = 'RESERVE_PENDING'
+    </update>
+
+    <update id="markProviderStarted">
+        UPDATE quota_settlement_command SET
+            state = 'PROVIDER_STARTED',
+            provider_started_at = NOW(3),
+            next_retry_at = DATE_ADD(NOW(3), INTERVAL #{manualReviewMinutes} MINUTE),
+            lease_owner = NULL,
+            lease_until = NULL,
+            last_error = NULL,
+            version = version + 1,
+            update_time = NOW(3)
+        WHERE id = #{id} AND version = #{version} AND state = 'RESERVED'
+    </update>
+
+    <update id="persistIntent">
+        UPDATE quota_settlement_command SET
+            intended_action = #{intent},
+            intended_microcredits = #{intendedMicrocredits},
+            llm_invocation_id = #{llmInvocationId},
+            input_rate_snapshot = #{inputRateSnapshot},
+            output_rate_snapshot = #{outputRateSnapshot},
+            prompt_tokens = #{promptTokens},
+            completion_tokens = #{completionTokens},
+            usage_source = #{usageSource},
+            charged_microcredits = #{chargedMicrocredits},
+            state = 'APPLY_PENDING',
+            retry_count = 0,
+            next_retry_at = NOW(3),
+            lease_owner = NULL,
+            lease_until = NULL,
+            last_error = NULL,
+            version = version + 1,
+            update_time = NOW(3)
+        WHERE id = #{id} AND version = #{version}
+          AND (state = 'PROVIDER_STARTED' OR (state = 'RESERVED' AND #{intent} = 'RELEASE'))
+    </update>
+
+    <update id="markTerminal">
+        UPDATE quota_settlement_command SET
+            state = #{terminalState},
+            settled_microcredits = #{settledMicrocredits},
+            next_retry_at = NULL,
+            lease_owner = NULL,
+            lease_until = NULL,
+            last_error = NULL,
+            version = version + 1,
+            update_time = NOW(3)
+        WHERE id = #{id} AND version = #{version} AND state = 'APPLY_PENDING'
+    </update>
+
+    <update id="markConflict">
+        UPDATE quota_settlement_command SET
+            state = 'CONFLICT',
+            next_retry_at = NULL,
+            lease_owner = NULL,
+            lease_until = NULL,
+            last_error = #{lastError},
+            version = version + 1,
+            update_time = NOW(3)
+        WHERE id = #{id} AND version = #{version}
+          AND state NOT IN ('CONFIRMED', 'RELEASED', 'RESERVE_FAILED', 'CONFLICT')
+    </update>
+
+    <update id="markManualReview">
+        UPDATE quota_settlement_command SET
+            state = 'MANUAL_REVIEW',
+            next_retry_at = NULL,
+            lease_owner = NULL,
+            lease_until = NULL,
+            last_error = #{lastError},
+            version = version + 1,
+            update_time = NOW(3)
+        WHERE id = #{id} AND version = #{version}
+          AND state IN ('RESERVE_PENDING', 'PROVIDER_STARTED', 'APPLY_PENDING')
+    </update>
+
+    <update id="scheduleRetry">
+        UPDATE quota_settlement_command SET
+            retry_count = retry_count + 1,
+            next_retry_at = DATE_ADD(NOW(3), INTERVAL #{retryDelaySeconds} SECOND),
+            lease_owner = NULL,
+            lease_until = NULL,
+            last_error = #{lastError},
+            version = version + 1,
+            update_time = NOW(3)
+        WHERE id = #{id} AND version = #{version}
+          AND state IN ('RESERVE_PENDING', 'APPLY_PENDING')
+    </update>
+
+    <update id="claimDue">
+        UPDATE quota_settlement_command SET
+            lease_owner = #{leaseOwner},
+            lease_until = DATE_ADD(NOW(3), INTERVAL #{leaseSeconds} SECOND),
+            version = version + 1,
+            update_time = NOW(3)
+        WHERE state IN ('RESERVE_PENDING', 'RESERVED', 'PROVIDER_STARTED', 'APPLY_PENDING')
+          AND next_retry_at IS NOT NULL
+          AND next_retry_at &lt;= NOW(3)
+          AND (lease_until IS NULL OR lease_until &lt;= NOW(3))
+        ORDER BY next_retry_at ASC, id ASC
+        LIMIT #{batchLimit}
+    </update>
+
+    <select id="findByLeaseOwner" resultMap="QuotaSettlementCommandMap">
+        SELECT <include refid="columns"/>
+        FROM quota_settlement_command
+        WHERE lease_owner = #{leaseOwner}
+        ORDER BY id ASC
+    </select>
+
+</mapper>

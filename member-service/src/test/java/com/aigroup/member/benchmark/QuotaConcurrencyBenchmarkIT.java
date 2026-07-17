@@ -1,6 +1,8 @@
 package com.aigroup.member.benchmark;
 
+import com.aigroup.common.constant.CommonConstant;
 import com.aigroup.member.MemberApplication;
+import com.aigroup.member.dto.TradeCompletedEvent;
 import com.aigroup.member.job.ExpiredFreezeReleaseJob;
 import com.aigroup.member.service.MemberService;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -52,7 +54,10 @@ class QuotaConcurrencyBenchmarkIT {
     private static final long INITIAL_QUOTA = 3_000_000_000L;
     private static final int CONCURRENT_UNIQUE_REQUESTS = 100;
     private static final int CONCURRENT_DUPLICATE_REQUESTS = 100;
+    private static final int CONCURRENT_TERMINAL_RACE_REQUESTS = 100;
     private static final int ABANDONED_FREEZES = 50;
+    private static final int MANAGED_ABANDONED_FREEZES = 5;
+    private static final int CONCURRENT_BENEFIT_EVENT_RACES = 100;
 
     @Autowired
     private MemberService memberService;
@@ -83,13 +88,18 @@ class QuotaConcurrencyBenchmarkIT {
                     free_amount BIGINT NOT NULL,
                     paid_amount BIGINT NOT NULL,
                     settled_amount BIGINT NOT NULL DEFAULT 0,
+                    requested_amount BIGINT DEFAULT NULL,
+                    min_amount BIGINT DEFAULT NULL,
                     ability_code VARCHAR(64) NOT NULL,
                     status VARCHAR(32) NOT NULL,
                     request_id VARCHAR(64) DEFAULT NULL,
+                    request_fingerprint VARCHAR(64) DEFAULT NULL,
+                    owner_service VARCHAR(64) DEFAULT NULL,
                     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                     PRIMARY KEY (freeze_id),
-                    UNIQUE KEY uk_user_request (user_id, request_id)
+                    UNIQUE KEY uk_user_request (user_id, request_id),
+                    KEY idx_managed_expiry (owner_service, status, created_at)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
                 """);
         jdbcTemplate.execute("""
@@ -107,6 +117,22 @@ class QuotaConcurrencyBenchmarkIT {
                     KEY idx_freeze_id (freeze_id)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
                 """);
+        jdbcTemplate.execute("""
+                CREATE TABLE IF NOT EXISTS benefit_grant_event (
+                    id BIGINT NOT NULL AUTO_INCREMENT,
+                    idempotency_key VARCHAR(128) NOT NULL,
+                    user_id BIGINT NOT NULL,
+                    order_id VARCHAR(64) NOT NULL,
+                    event_type VARCHAR(64) NOT NULL,
+                    product_code VARCHAR(64) NOT NULL,
+                    status VARCHAR(32) NOT NULL,
+                    granted_quota BIGINT NOT NULL DEFAULT 0,
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (id),
+                    UNIQUE KEY uk_idempotency (idempotency_key)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """);
+        jdbcTemplate.update("DELETE FROM benefit_grant_event WHERE user_id = ?", USER_ID);
         jdbcTemplate.update("DELETE FROM quota_ledger WHERE user_id = ?", USER_ID);
         jdbcTemplate.update("DELETE FROM quota_freeze WHERE user_id = ?", USER_ID);
         jdbcTemplate.update("DELETE FROM quota_account WHERE user_id = ?", USER_ID);
@@ -119,6 +145,7 @@ class QuotaConcurrencyBenchmarkIT {
 
     @AfterEach
     void cleanUpRows() {
+        jdbcTemplate.update("DELETE FROM benefit_grant_event WHERE user_id = ?", USER_ID);
         jdbcTemplate.update("DELETE FROM quota_ledger WHERE user_id = ?", USER_ID);
         jdbcTemplate.update("DELETE FROM quota_freeze WHERE user_id = ?", USER_ID);
         jdbcTemplate.update("DELETE FROM quota_account WHERE user_id = ?", USER_ID);
@@ -200,6 +227,38 @@ class QuotaConcurrencyBenchmarkIT {
         long duplicateDeductions = Math.max(0L, INITIAL_QUOTA - freeBalance() - 1L);
         assertEquals(0L, duplicateDeductions);
 
+        long balanceBeforeTerminalRace = freeBalance();
+        String terminalRaceFreezeId = memberService.freeze(
+                USER_ID, 10L, 10L, "llm", "bench-confirm-release-race")
+                .get("freezeId").toString();
+        List<TimedResult<Void>> terminalRace = runConcurrent(
+                CONCURRENT_TERMINAL_RACE_REQUESTS,
+                index -> () -> {
+                    if (index % 2 == 0) {
+                        memberService.confirm(terminalRaceFreezeId, 7L);
+                    } else {
+                        memberService.release(terminalRaceFreezeId);
+                    }
+                    return null;
+                }
+        );
+        assertAllSuccessful(terminalRace);
+        String terminalRaceStatus = jdbcTemplate.queryForObject(
+                "SELECT status FROM quota_freeze WHERE freeze_id = ?",
+                String.class, terminalRaceFreezeId);
+        int terminalRaceConfirmRows = count(
+                "SELECT COUNT(*) FROM quota_ledger WHERE freeze_id = ? AND type = 'CONFIRM'",
+                terminalRaceFreezeId);
+        int terminalRaceReleaseRows = count(
+                "SELECT COUNT(*) FROM quota_ledger WHERE freeze_id = ? AND type = 'RELEASE'",
+                terminalRaceFreezeId);
+        assertEquals(1, terminalRaceConfirmRows + terminalRaceReleaseRows,
+                "confirm/release race must produce exactly one terminal ledger row");
+        long expectedRaceDeduction = "CONFIRMED".equals(terminalRaceStatus) ? 7L : 0L;
+        assertEquals(expectedRaceDeduction, balanceBeforeTerminalRace - freeBalance(),
+                "confirm/release race must mutate the balance exactly once");
+        assertEquals(0L, frozenBalance());
+
         for (int index = 0; index < ABANDONED_FREEZES; index++) {
             memberService.freeze(USER_ID, 1L, 1L, "react", "bench-abandoned-" + index);
         }
@@ -220,6 +279,62 @@ class QuotaConcurrencyBenchmarkIT {
         assertEquals(ABANDONED_FREEZES, releasedFreezes);
         assertEquals(0, frozenBalance());
 
+        List<String> managedFreezeIds = new ArrayList<>();
+        for (int index = 0; index < MANAGED_ABANDONED_FREEZES; index++) {
+            managedFreezeIds.add(memberService.freeze(
+                    USER_ID, 1L, 1L, "llm", "bench-managed-" + index, "ai-agent")
+                    .get("freezeId").toString());
+        }
+        jdbcTemplate.update("""
+                UPDATE quota_freeze
+                SET created_at = DATE_SUB(NOW(), INTERVAL 2 MINUTE)
+                WHERE user_id = ? AND request_id LIKE 'bench-managed-%'
+                """, USER_ID);
+        new ExpiredFreezeReleaseJob(memberService, 1, 100).releaseExpiredFreezes();
+        int pendingManagedFreezes = count("""
+                SELECT COUNT(*) FROM quota_freeze
+                WHERE user_id = ? AND request_id LIKE 'bench-managed-%' AND status = 'PENDING'
+                """, USER_ID);
+        assertEquals(MANAGED_ABANDONED_FREEZES, pendingManagedFreezes,
+                "ai-agent managed reservations must be reconciled by its durable settlement owner");
+        assertEquals(MANAGED_ABANDONED_FREEZES, frozenBalance());
+        for (String managedFreezeId : managedFreezeIds) {
+            memberService.release(managedFreezeId);
+        }
+        assertEquals(0, frozenBalance());
+
+        List<TimedResult<Void>> benefitEventRaces = runConcurrent(
+                CONCURRENT_BENEFIT_EVENT_RACES * 2,
+                index -> () -> {
+                    int orderIndex = index / 2;
+                    String eventType = index % 2 == 0
+                            ? CommonConstant.EVENT_GROUP_BUY_COMPLETED
+                            : CommonConstant.EVENT_GROUP_BUY_REVOKED;
+                    memberService.handleBenefitEvent(benefitEvent(
+                            "bench-benefit-race-" + orderIndex, eventType));
+                    return null;
+                }
+        );
+        assertAllSuccessful(benefitEventRaces);
+        int contradictoryBenefitOutcomes = count("""
+                SELECT COUNT(*)
+                FROM benefit_grant_event completed
+                JOIN benefit_grant_event revoked ON revoked.order_id = completed.order_id
+                WHERE completed.user_id = ?
+                  AND completed.event_type = 'GROUP_BUY_COMPLETED'
+                  AND completed.status = 'GRANTED'
+                  AND revoked.event_type = 'GROUP_BUY_REVOKED'
+                  AND revoked.status IN ('REVOKED', 'SKIPPED_REVOKED')
+                """, USER_ID);
+        assertEquals(0, contradictoryBenefitOutcomes,
+                "one order must not commit both a quota grant and a revoke tombstone");
+        int grantedBenefitOrders = count("""
+                SELECT COUNT(*) FROM benefit_grant_event
+                WHERE user_id = ? AND event_type = 'GROUP_BUY_COMPLETED' AND status = 'GRANTED'
+                """, USER_ID);
+        assertEquals(grantedBenefitOrders * 1_000_000L, paidBalance(),
+                "paid quota must equal exactly one grant for each completed-first race winner");
+
         Map<String, Object> report = new LinkedHashMap<>();
         report.put("schemaVersion", 1);
         report.put("generatedAt", Instant.now().toString());
@@ -229,7 +344,10 @@ class QuotaConcurrencyBenchmarkIT {
                 "concurrentUniqueFreezeRequests", CONCURRENT_UNIQUE_REQUESTS,
                 "concurrentDuplicateFreezeRequests", CONCURRENT_DUPLICATE_REQUESTS,
                 "concurrentDuplicateConfirmRequests", CONCURRENT_DUPLICATE_REQUESTS,
-                "abandonedFreezeFaults", ABANDONED_FREEZES
+                "concurrentConfirmReleaseRaceRequests", CONCURRENT_TERMINAL_RACE_REQUESTS,
+                "abandonedFreezeFaults", ABANDONED_FREEZES,
+                "managedAbandonedFreezeFaults", MANAGED_ABANDONED_FREEZES,
+                "concurrentBenefitEventRaceOrders", CONCURRENT_BENEFIT_EVENT_RACES
         ));
         Map<String, Object> results = new LinkedHashMap<>();
         results.put("uniqueFreezeSuccessRatePct", successRate(uniqueFreezes));
@@ -242,13 +360,30 @@ class QuotaConcurrencyBenchmarkIT {
         results.put("concurrentShortenedReservationTotal", shortenedTotal);
         results.put("confirmLedgerRows", confirmLedgerRows);
         results.put("duplicateDeductions", duplicateDeductions);
+        results.put("terminalRaceStatus", terminalRaceStatus);
+        results.put("terminalRaceLedgerRows", terminalRaceConfirmRows + terminalRaceReleaseRows);
+        results.put("terminalRaceBalanceDeduction", balanceBeforeTerminalRace - freeBalance());
         results.put("expiredFreezeReleaseSuccessRatePct",
                 round1(100d * releasedFreezes / ABANDONED_FREEZES));
         results.put("expiredFreezeRecoveryDurationMs", recoveryDurationMs);
+        results.put("managedExpiredFreezesPreserved", pendingManagedFreezes);
+        results.put("contradictoryBenefitOutcomes", contradictoryBenefitOutcomes);
+        results.put("benefitRaceGrantedOrders", grantedBenefitOrders);
         results.put("finalFrozenBalance", frozenBalance());
         report.put("results", results);
-        report.put("methodology", "Calls the transactional MemberService proxy against an isolated MySQL schema. Concurrent phases share one account to exercise row locks and the (user_id, request_id) unique guard. The production ExpiredFreezeReleaseJob is invoked after aging abandoned rows.");
+        report.put("methodology", "Calls the transactional MemberService proxy against an isolated MySQL schema. Concurrent phases share one account to exercise row locks and the (user_id, request_id) unique guard. COMPLETED/REVOKED pairs start concurrently and must serialize on quota_account before reading opposite event state. The production ExpiredFreezeReleaseJob is invoked after aging both legacy and ai-agent-managed rows; only legacy rows may be released automatically.");
         writeReport(report);
+    }
+
+    private TradeCompletedEvent benefitEvent(String orderId, String eventType) {
+        TradeCompletedEvent event = new TradeCompletedEvent();
+        event.setEventType(eventType);
+        event.setUserId(USER_ID);
+        event.setOrderId(orderId);
+        event.setProductCode("QUOTA_BENCH");
+        event.setBaseQuota(1L);
+        event.setBonusQuota(0L);
+        return event;
     }
 
     private <T> List<TimedResult<T>> runConcurrent(int count,
@@ -308,6 +443,14 @@ class QuotaConcurrencyBenchmarkIT {
     private long freeBalance() {
         return jdbcTemplate.queryForObject(
                 "SELECT free_quota_balance FROM quota_account WHERE user_id = ?", Long.class, USER_ID);
+    }
+
+    private long paidBalance() {
+        Long value = jdbcTemplate.queryForObject(
+                "SELECT paid_quota_balance FROM quota_account WHERE user_id = ?",
+                Long.class,
+                USER_ID);
+        return value == null ? 0L : value;
     }
 
     private int count(String sql, Object... args) {

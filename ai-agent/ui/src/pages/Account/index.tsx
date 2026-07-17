@@ -7,7 +7,8 @@ import QuotaOverview from '@/components/trade/QuotaOverview';
 import { bffApi, type AccountSummary } from '@/services/bff';
 import { ROUTES } from '@/router/routes';
 import { AppearanceSettings } from '@/theme';
-import { formatMicroQuota } from '@/utils/tradeDisplay';
+import { quotaLedgerAmountView } from '@/utils/tradeDisplay';
+import { bffDegradationMessage } from '@/utils/bffDegradation';
 
 const ledgerTypeLabel: Record<string, string> = {
   GRANT: '额度到账',
@@ -22,11 +23,15 @@ const ledgerTypeLabel: Record<string, string> = {
 const AccountPage = memo(() => {
   const [loading, setLoading] = useState(true);
   const [summary, setSummary] = useState<AccountSummary | null>(null);
+  const [degradationNotice, setDegradationNotice] = useState('');
 
   useEffect(() => {
     bffApi
       .getAccountSummary()
-      .then((data) => setSummary(data))
+      .then((data) => {
+        setSummary(data);
+        setDegradationNotice(bffDegradationMessage(data?.meta));
+      })
       .catch((error) => console.error('加载额度信息失败', error))
       .finally(() => setLoading(false));
   }, []);
@@ -62,6 +67,12 @@ const AccountPage = memo(() => {
           </div>
         </div>
 
+        {degradationNotice ? (
+          <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            {degradationNotice}
+          </div>
+        ) : null}
+
         {loading ? (
           <div className="flex justify-center py-20">
             <Loader2 className="h-8 w-8 animate-spin text-[var(--chat-text-soft)]" />
@@ -86,36 +97,40 @@ const AccountPage = memo(() => {
                 </div>
               ) : (
                 <div className="divide-y divide-[var(--chat-border)]">
-                  {summary.quotaLedger?.slice(0, 12).map((entry, index) => (
-                    <div
-                      key={entry.id ?? `${entry.createdAt}-${index}`}
-                      className="flex flex-wrap items-center justify-between gap-3 py-3 text-sm"
-                    >
-                      <div>
-                        <div className="font-medium">
-                          {ledgerTypeLabel[(entry.type || '').toUpperCase()] ||
-                            entry.type ||
-                            '额度变动'}
+                  {summary.quotaLedger?.slice(0, 12).map((entry, index) => {
+                    const amountView = quotaLedgerAmountView(entry.type, entry.amount);
+                    const amountClass =
+                      amountView.tone === 'positive'
+                        ? 'text-emerald-700'
+                        : amountView.tone === 'negative'
+                          ? 'text-amber-700'
+                          : amountView.tone === 'pending'
+                            ? 'text-sky-700'
+                            : 'text-[var(--chat-text-soft)]';
+                    return (
+                      <div
+                        key={entry.id ?? `${entry.createdAt}-${index}`}
+                        className="flex flex-wrap items-center justify-between gap-3 py-3 text-sm"
+                      >
+                        <div>
+                          <div className="font-medium">
+                            {ledgerTypeLabel[(entry.type || '').toUpperCase()] ||
+                              entry.type ||
+                              '额度变动'}
+                          </div>
+                          <div className="mt-1 text-xs text-[var(--chat-text-soft)]">
+                            {[entry.abilityCode, entry.remark].filter(Boolean).join(' · ') || '—'}
+                          </div>
                         </div>
-                        <div className="mt-1 text-xs text-[var(--chat-text-soft)]">
-                          {[entry.abilityCode, entry.remark].filter(Boolean).join(' · ') || '—'}
+                        <div className="text-right">
+                          <div className={amountClass}>{amountView.text}</div>
+                          <div className="mt-1 text-xs text-[var(--chat-text-soft)]">
+                            {entry.createdAt || '-'}
+                          </div>
                         </div>
                       </div>
-                      <div className="text-right">
-                        <div
-                          className={
-                            Number(entry.amount ?? 0) < 0 ? 'text-amber-700' : 'text-emerald-700'
-                          }
-                        >
-                          {Number(entry.amount ?? 0) > 0 ? '+' : ''}
-                          {formatMicroQuota(entry.amount ?? 0)}
-                        </div>
-                        <div className="mt-1 text-xs text-[var(--chat-text-soft)]">
-                          {entry.createdAt || '-'}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </section>

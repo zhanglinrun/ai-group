@@ -15,7 +15,7 @@ app:
       source: s01
       chanel: c01
     member-service:
-      api-url: ${MEMBER_SERVICE_URL:http://127.0.0.1:8082}
+      api-url: ${MEMBER_SERVICE_URL:http://127.0.0.1:18082}
 
 # 线程池配置
 thread:
@@ -66,58 +66,6 @@ spring:
           max-interval: 10000
     template:
       delivery-mode: persistent # 确保全局默认设置为持久化（可选）
-    # 消息配置
-    config:
-      # 生产者
-      producer:
-        # 主题配置
-        topic_order_pay_success:
-          # 绑定交换机
-          exchange: s_pay_mall_exchange
-          # 消费主题
-          routing_key: topic.order_pay_success
-          # 消费队列
-          queue: s_pay_mall_queue_2_order_pay_success
-        member_benefit:
-          exchange: member.benefit.exchange
-          routing_key: member.benefit.completed
-      consumer:
-        # C5: dead-letter exchange; consumer queues route rejected messages here
-        # (declared in RabbitMQDlqConfig). NOTE: pre-existing queues without the
-        # x-dead-letter arguments must be deleted once locally, see RabbitMQDlqConfig.
-        dlx_exchange: s_pay_mall_dlx
-        # 主题配置 topic 主题，team_success
-        topic_team_success:
-          # 绑定交换机 - 消息提供者的交换机
-          exchange: group_buy_market_exchange
-          # 消息主题
-          routing_key: topic.team_success
-          # 消费队列 - 每个系统有自己的消费队列
-          queue: s_pay_mall_queue_2_topic_team_success
-          # dead-letter queue + routing key (declared in RabbitMQDlqConfig)
-          dlq: s_pay_mall_queue_2_topic_team_success_dlq
-          dlq_routing_key: topic.team_success.dlq
-        topic_team_refund:
-          # 绑定交换机 - 消息提供者的交换机
-          exchange: group_buy_market_exchange
-          # 消息主题
-          routing_key: topic.team_refund
-          # 消费队列
-          queue: s_pay_mall_queue_2_topic_team_refund
-          # dead-letter queue + routing key (declared in RabbitMQDlqConfig)
-          dlq: s_pay_mall_queue_2_topic_team_refund_dlq
-          dlq_routing_key: topic.team_refund.dlq
-        # 主题配置
-        topic_order_pay_success:
-          # 绑定交换机
-          exchange: s_pay_mall_exchange
-          # 消费主题
-          routing_key: topic.order_pay_success
-          # 消费队列
-          queue: s_pay_mall_queue_2_order_pay_success
-          # dead-letter queue + routing key (declared in RabbitMQDlqConfig)
-          dlq: s_pay_mall_queue_2_order_pay_success_dlq
-          dlq_routing_key: topic.order_pay_success.dlq
 
 # MyBatis 配置【如需使用记得打开】
 mybatis:

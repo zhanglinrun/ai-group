@@ -1,20 +1,16 @@
 package com.aigroup.paymall.infrastructure.adapter.repository;
 
-import com.aigroup.paymall.domain.order.adapter.event.PaySuccessMessageEvent;
 import com.aigroup.paymall.domain.order.adapter.repository.IOrderRepository;
 import com.aigroup.paymall.domain.order.model.aggregate.CreateOrderAggregate;
 import com.aigroup.paymall.domain.order.model.entity.OrderEntity;
 import com.aigroup.paymall.domain.order.model.entity.PayOrderEntity;
 import com.aigroup.paymall.domain.order.model.entity.ProductEntity;
-import com.aigroup.paymall.domain.order.model.entity.ShopCartEntity;
 import com.aigroup.paymall.domain.order.model.valobj.MarketTypeVO;
+import com.aigroup.paymall.domain.order.model.valobj.OrderCreateStage;
 import com.aigroup.paymall.domain.order.model.valobj.OrderStatusVO;
 import com.aigroup.paymall.infrastructure.dao.IOrderDao;
 import com.aigroup.paymall.infrastructure.dao.po.PayOrder;
-import com.aigroup.paymall.infrastructure.event.EventPublisher;
-import com.aigroup.paymall.types.event.BaseEvent;
-import com.alibaba.fastjson.JSON;
-import com.google.common.eventbus.EventBus;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Repository;
 
 import jakarta.annotation.Resource;
@@ -29,20 +25,17 @@ public class OrderRepository implements IOrderRepository {
 
     @Resource
     private IOrderDao orderDao;
-    @Resource
-    private PaySuccessMessageEvent paySuccessMessageEvent;
-    @Resource
-    private EventBus eventBus;
-    @Resource
-    private EventPublisher eventPublisher;
-
     @Override
-    public void doSaveOrder(CreateOrderAggregate orderAggregate) {
+    public OrderEntity saveOrderIfAbsent(CreateOrderAggregate orderAggregate) {
         String userId = orderAggregate.getUserId();
         ProductEntity productEntity = orderAggregate.getProductEntity();
         OrderEntity orderEntity = orderAggregate.getOrderEntity();
 
         PayOrder order = new PayOrder();
+        order.setClientRequestId(orderEntity.getClientRequestId());
+        order.setRequestFingerprint(orderEntity.getRequestFingerprint());
+        order.setCreateStage(orderEntity.getCreateStage().name());
+        order.setCreateOwnerToken(orderEntity.getCreateOwnerToken());
         order.setUserId(userId);
         order.setProductId(productEntity.getProductId());
         order.setProductCode(orderEntity.getProductCode());
@@ -56,52 +49,78 @@ public class OrderRepository implements IOrderRepository {
         order.setMarketDeductionAmount(BigDecimal.ZERO);
         order.setPayAmount(productEntity.getPrice());
         order.setMarketType(orderEntity.getMarketType());
+        order.setGroupActivityId(orderEntity.getGroupActivityId());
+        order.setGroupTeamId(orderEntity.getGroupTeamId());
 
-        orderDao.insert(order);
+        try {
+            orderDao.insert(order);
+            return null;
+        } catch (DuplicateKeyException duplicateKeyException) {
+            PayOrder existing = orderDao.queryOrderByClientRequestId(userId, orderEntity.getClientRequestId());
+            if (existing == null) {
+                throw duplicateKeyException;
+            }
+            return toOrderEntity(existing);
+        }
     }
 
     @Override
-    public OrderEntity queryUnPayOrder(ShopCartEntity shopCartEntity) {
-        // 1. 封装参数
-        PayOrder orderReq = new PayOrder();
-        orderReq.setUserId(shopCartEntity.getUserId());
-        orderReq.setProductId(shopCartEntity.getProductId());
-        orderReq.setProductCode(shopCartEntity.getProductCode());
+    public OrderEntity queryOrderByClientRequestId(String userId, String clientRequestId) {
+        PayOrder payOrder = orderDao.queryOrderByClientRequestId(userId, clientRequestId);
+        return payOrder == null ? null : toOrderEntity(payOrder);
+    }
 
-        // 2. 查询到订�?
-        PayOrder order = orderDao.queryUnPayOrder(orderReq);
-        if (null == order) return null;
+    @Override
+    public boolean claimOrderCreation(String orderId, String ownerToken) {
+        return orderDao.claimOrderCreation(orderId, ownerToken) == 1;
+    }
 
-        // 3. 返回结果
-        return OrderEntity.builder()
-                .id(order.getId())
-                .productId(order.getProductId())
-                .productCode(order.getProductCode())
-                .productName(order.getProductName())
-                .baseQuotaSnapshot(order.getBaseQuotaSnapshot())
-                .orderId(order.getOrderId())
-                .orderStatusVO(OrderStatusVO.valueOf(order.getStatus()))
-                .orderTime(order.getOrderTime())
-                .totalAmount(order.getTotalAmount())
-                .payUrl(order.getPayUrl())
-                .marketType(order.getMarketType())
-                .marketDeductionAmount(order.getMarketDeductionAmount())
-                .payAmount(order.getPayAmount())
+    @Override
+    public void releaseOrderCreationClaim(String orderId, String ownerToken) {
+        orderDao.releaseOrderCreationClaim(orderId, ownerToken);
+    }
+
+    @Override
+    public boolean markGroupLocked(String orderId, String ownerToken, Integer marketType,
+                                   BigDecimal marketDeductionAmount, BigDecimal payAmount) {
+        PayOrder payOrder = PayOrder.builder()
+                .orderId(orderId)
+                .createOwnerToken(ownerToken)
+                .marketType(marketType)
+                .marketDeductionAmount(marketDeductionAmount)
+                .payAmount(payAmount)
                 .build();
+        return orderDao.markGroupLocked(payOrder) == 1;
     }
 
     @Override
-    public void updateOrderPayInfo(PayOrderEntity payOrderEntity) {
+    public boolean markProviderStarted(String orderId, String ownerToken) {
+        return orderDao.markProviderStarted(orderId, ownerToken) == 1;
+    }
+
+    @Override
+    public boolean completeOrderPrepay(PayOrderEntity payOrderEntity, String ownerToken) {
         PayOrder payOrderReq = PayOrder.builder()
                 .userId(payOrderEntity.getUserId())
                 .orderId(payOrderEntity.getOrderId())
+                .createOwnerToken(ownerToken)
                 .status(payOrderEntity.getOrderStatus().getCode())
                 .payUrl(payOrderEntity.getPayUrl())
                 .marketType(payOrderEntity.getMarketType())
                 .marketDeductionAmount(payOrderEntity.getMarketDeductionAmount())
                 .payAmount(payOrderEntity.getPayAmount())
                 .build();
-        orderDao.updateOrderPayInfo(payOrderReq);
+        return orderDao.completeOrderPrepay(payOrderReq) == 1;
+    }
+
+    @Override
+    public void markOrderCreationManualReview(String orderId, String ownerToken) {
+        orderDao.markOrderCreationManualReview(orderId, ownerToken);
+    }
+
+    @Override
+    public void updateOrderPayUrl(String orderId, String payUrl) {
+        orderDao.updateOrderPayUrl(orderId, payUrl);
     }
 
     @Override
@@ -110,24 +129,7 @@ public class OrderRepository implements IOrderRepository {
         payOrderReq.setOrderId(orderId);
         payOrderReq.setStatus(OrderStatusVO.PAY_SUCCESS.getCode());
         payOrderReq.setPayTime(payTime);
-        int updated = orderDao.changeOrderPaySuccess(payOrderReq);
-        // Only publish when this callback actually transitioned the order (CREATE/PAY_WAIT -> PAY_SUCCESS);
-        // a replayed/duplicate Alipay notify updates 0 rows and must not emit a fresh pay-success message.
-        if (updated <= 0) {
-            return;
-        }
-
-        // 不走拼团营销的直接结算发�?
-        BaseEvent.EventMessage<PaySuccessMessageEvent.PaySuccessMessage> paySuccessMessageEventMessage = paySuccessMessageEvent.buildEventMessage(
-                PaySuccessMessageEvent.PaySuccessMessage.builder()
-                        .tradeNo(orderId)
-                        .build());
-        PaySuccessMessageEvent.PaySuccessMessage paySuccessMessage = paySuccessMessageEventMessage.getData();
-
-        // 旧版发送消息方�?
-        // eventBus.post(JSON.toJSONString(paySuccessMessage));
-
-        eventPublisher.publish(paySuccessMessageEvent.topic(), JSON.toJSONString(paySuccessMessage));
+        orderDao.changeOrderPaySuccess(payOrderReq);
     }
 
     @Override
@@ -203,16 +205,6 @@ public class OrderRepository implements IOrderRepository {
         if (null == settledOrderIds || settledOrderIds.isEmpty()) {
             return new ArrayList<>();
         }
-
-        // 只对真正结算的订单发送支付成功消息（触发 DEAL_DONE 履约模拟）
-        settledOrderIds.forEach(outTradeNo -> {
-            BaseEvent.EventMessage<PaySuccessMessageEvent.PaySuccessMessage> paySuccessMessageEventMessage = paySuccessMessageEvent.buildEventMessage(
-                    PaySuccessMessageEvent.PaySuccessMessage.builder()
-                            .tradeNo(outTradeNo)
-                            .build());
-            PaySuccessMessageEvent.PaySuccessMessage paySuccessMessage = paySuccessMessageEventMessage.getData();
-            eventPublisher.publish(paySuccessMessageEvent.topic(), JSON.toJSONString(paySuccessMessage));
-        });
 
         return settledOrderIds;
     }
@@ -298,6 +290,33 @@ public class OrderRepository implements IOrderRepository {
     @Override
     public boolean refundMarketOrder(String userId, String orderId) {
         return orderDao.refundMarketOrder(userId, orderId);
+    }
+
+    private OrderEntity toOrderEntity(PayOrder payOrder) {
+        return OrderEntity.builder()
+                .id(payOrder.getId())
+                .clientRequestId(payOrder.getClientRequestId())
+                .requestFingerprint(payOrder.getRequestFingerprint())
+                .createStage(payOrder.getCreateStage() == null ? null : OrderCreateStage.valueOf(payOrder.getCreateStage()))
+                .createOwnerToken(payOrder.getCreateOwnerToken())
+                .createLeaseUntil(payOrder.getCreateLeaseUntil())
+                .userId(payOrder.getUserId())
+                .productId(payOrder.getProductId())
+                .productCode(payOrder.getProductCode())
+                .productName(payOrder.getProductName())
+                .baseQuotaSnapshot(payOrder.getBaseQuotaSnapshot())
+                .orderId(payOrder.getOrderId())
+                .orderTime(payOrder.getOrderTime())
+                .totalAmount(payOrder.getTotalAmount())
+                .orderStatusVO(payOrder.getStatus() == null ? null : OrderStatusVO.valueOf(payOrder.getStatus()))
+                .payUrl(payOrder.getPayUrl())
+                .payTime(payOrder.getPayTime())
+                .marketType(payOrder.getMarketType())
+                .groupActivityId(payOrder.getGroupActivityId())
+                .groupTeamId(payOrder.getGroupTeamId())
+                .marketDeductionAmount(payOrder.getMarketDeductionAmount())
+                .payAmount(payOrder.getPayAmount())
+                .build();
     }
 
 }

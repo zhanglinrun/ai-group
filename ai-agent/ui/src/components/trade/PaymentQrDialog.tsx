@@ -1,9 +1,9 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { Loader2, RefreshCw, X } from 'lucide-react';
-import { message } from 'antd';
 import QRCode from 'qrcode';
 import { payApi } from '@/services/pay';
 import { formatPrice } from '@/utils/tradeDisplay';
+import { showMessage } from '@/utils';
 
 export type QrPayment = {
   orderId: string;
@@ -11,6 +11,7 @@ export type QrPayment = {
   title: string;
   amount?: number;
   demoCompletionEnabled?: boolean;
+  purchaseMode?: 'direct' | 'group';
 };
 
 type PaymentQrDialogProps = {
@@ -34,6 +35,7 @@ const PaymentQrDialog = memo(({ payment, onClose, onPaid }: PaymentQrDialogProps
   const [remaining, setRemaining] = useState(PAY_WINDOW_SECONDS);
   const [checking, setChecking] = useState(false);
   const [demoCompleting, setDemoCompleting] = useState(false);
+  const [groupDemoPaid, setGroupDemoPaid] = useState(false);
   const settledRef = useRef(false);
   const statusRequestRef = useRef(false);
 
@@ -62,6 +64,7 @@ const PaymentQrDialog = memo(({ payment, onClose, onPaid }: PaymentQrDialogProps
   // 每次打开新订单重置状态
   useEffect(() => {
     settledRef.current = false;
+    setGroupDemoPaid(false);
     setRemaining(PAY_WINDOW_SECONDS);
   }, [orderId]);
 
@@ -74,15 +77,15 @@ const PaymentQrDialog = memo(({ payment, onClose, onPaid }: PaymentQrDialogProps
         const result = await payApi.syncSettle(orderId);
         if (typeof result === 'string' && result.startsWith('SETTLED')) {
           settledRef.current = true;
-          message.success('支付成功');
+          showMessage()?.success('支付成功');
           onPaid();
         } else if (!silent) {
-          message.info('尚未检测到支付，请扫码完成后再刷新');
+          showMessage()?.info('尚未检测到支付，请扫码完成后再刷新');
         }
       } catch (error) {
         if (!silent) {
           console.error('查询支付状态失败', error);
-          message.error('支付状态查询失败，请稍后重试');
+          showMessage()?.error('支付状态查询失败，请稍后重试');
         }
       } finally {
         statusRequestRef.current = false;
@@ -102,7 +105,7 @@ const PaymentQrDialog = memo(({ payment, onClose, onPaid }: PaymentQrDialogProps
         throw new Error('unexpected demo payment result');
       }
       settledRef.current = true;
-      message.success(
+      showMessage()?.success(
         result === 'GROUP_FINALIZED' ? '本地演示支付完成，拼团权益发放中' : '本地演示支付完成',
       );
       // team_success -> pay -> member 由 MQ 最终一致，给消费者一个很短的收敛窗口。
@@ -110,12 +113,60 @@ const PaymentQrDialog = memo(({ payment, onClose, onPaid }: PaymentQrDialogProps
       onPaid();
     } catch (error) {
       console.error('本地演示支付失败', error);
-      message.error('本地演示支付失败，请稍后重试');
+      showMessage()?.error('本地演示支付失败，请稍后重试');
     } finally {
       statusRequestRef.current = false;
       setDemoCompleting(false);
     }
   }, [orderId, onPaid]);
+
+  const markDemoGroupPaid = useCallback(async () => {
+    if (!orderId || settledRef.current || statusRequestRef.current) return;
+    statusRequestRef.current = true;
+    setDemoCompleting(true);
+    try {
+      const result = await payApi.markDemoGroupPaid(orderId);
+      if (result === 'GROUP_FINALIZED') {
+        settledRef.current = true;
+        showMessage()?.success('该拼团已完成结算');
+        onPaid();
+        return;
+      }
+      if (result !== 'GROUP_WAITING') {
+        throw new Error('unexpected demo group payment result');
+      }
+      setGroupDemoPaid(true);
+      showMessage()?.success('模拟支付成功，队伍继续开放参团');
+    } catch (error) {
+      console.error('本地演示拼团支付失败', error);
+      showMessage()?.error('本地演示拼团支付失败，请稍后重试');
+    } finally {
+      statusRequestRef.current = false;
+      setDemoCompleting(false);
+    }
+  }, [orderId, onPaid]);
+
+  const finalizeDemoGroup = useCallback(async () => {
+    if (!orderId || settledRef.current || statusRequestRef.current || !groupDemoPaid) return;
+    statusRequestRef.current = true;
+    setDemoCompleting(true);
+    try {
+      const result = await payApi.finalizeDemoGroup(orderId);
+      if (result !== 'GROUP_FINALIZED') {
+        throw new Error('unexpected demo group finalization result');
+      }
+      settledRef.current = true;
+      showMessage()?.success('拼团已封团，权益发放中');
+      await new Promise((resolve) => window.setTimeout(resolve, 1200));
+      onPaid();
+    } catch (error) {
+      console.error('本地演示封团失败', error);
+      showMessage()?.error('本地演示封团失败，请确认其他成员已完成参团支付');
+    } finally {
+      statusRequestRef.current = false;
+      setDemoCompleting(false);
+    }
+  }, [groupDemoPaid, orderId, onPaid]);
 
   // 轮询支付状态 + 本地倒计时
   useEffect(() => {
@@ -208,7 +259,9 @@ const PaymentQrDialog = memo(({ payment, onClose, onPaid }: PaymentQrDialogProps
           </div>
           <div className="flex justify-between">
             <span className="text-[var(--chat-text-soft)]">状态</span>
-            <span className="font-medium text-amber-700">待支付</span>
+            <span className={`font-medium ${groupDemoPaid ? 'text-emerald-700' : 'text-amber-700'}`}>
+              {groupDemoPaid ? '已支付，待封团' : '待支付'}
+            </span>
           </div>
           <div className="flex justify-between">
             <span className="text-[var(--chat-text-soft)]">支付方式</span>
@@ -243,18 +296,49 @@ const PaymentQrDialog = memo(({ payment, onClose, onPaid }: PaymentQrDialogProps
         {payment.demoCompletionEnabled ? (
           <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-amber-900">
             <div className="text-xs font-medium">本地演示模式</div>
-            <div className="mt-1 text-[11px] leading-5">
-              以下按钮模拟付款；拼团仍由真实 group 结算并通过 MQ 发放权益，不会调用支付宝。
-            </div>
-            <button
-              type="button"
-              onClick={() => void completeDemoPayment()}
-              disabled={checking || demoCompleting || expired}
-              className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-full bg-amber-700 px-4 py-2.5 text-sm font-medium text-white disabled:opacity-60"
-            >
-              {demoCompleting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-              模拟完成支付{payment.title ? '并推进业务闭环' : ''}
-            </button>
+            {payment.purchaseMode === 'group' ? (
+              <>
+                <div className="mt-1 text-[11px] leading-5">
+                  先登记当前成员已支付，队伍仍保持开放；使用第二个账号参团并支付后，再从任一已支付订单显式封团，随后由真实
+                  group 结算并通过 MQ 发放权益。
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void markDemoGroupPaid()}
+                  disabled={checking || demoCompleting || expired || groupDemoPaid}
+                  className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-full bg-amber-700 px-4 py-2.5 text-sm font-medium text-white disabled:opacity-60"
+                >
+                  {demoCompleting && !groupDemoPaid ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                  {groupDemoPaid ? '当前成员已支付' : '模拟支付并等待参团'}
+                </button>
+                {groupDemoPaid ? (
+                  <button
+                    type="button"
+                    onClick={() => void finalizeDemoGroup()}
+                    disabled={checking || demoCompleting}
+                    className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-full border border-amber-700 bg-white px-4 py-2.5 text-sm font-medium text-amber-800 disabled:opacity-60"
+                  >
+                    {demoCompleting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                    第二个成员支付后，封团并结算
+                  </button>
+                ) : null}
+              </>
+            ) : (
+              <>
+                <div className="mt-1 text-[11px] leading-5">
+                  以下按钮仅用于本地直购演示：模拟付款后进入真实订单结算与 MQ 权益发放链路，不会调用支付宝。
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void completeDemoPayment()}
+                  disabled={checking || demoCompleting || expired}
+                  className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-full bg-amber-700 px-4 py-2.5 text-sm font-medium text-white disabled:opacity-60"
+                >
+                  {demoCompleting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                  模拟完成支付并推进业务闭环
+                </button>
+              </>
+            )}
           </div>
         ) : null}
       </div>

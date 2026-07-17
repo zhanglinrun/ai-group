@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import { Clock3, Cpu, Hash, RotateCcw, ShieldCheck } from 'lucide-react';
+import { Clock3, Cpu, Hash } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 
 type Props = {
@@ -35,11 +35,8 @@ const MessageMeta = memo(({ metrics, className }: Props) => {
   const duration = formatDuration(metrics.durationMs);
   const tokens = formatTokens(metrics.totalTokens);
   const model = metrics.modelName?.trim();
-  const quality =
-    typeof metrics.qualityScore === 'number' ? Math.round(metrics.qualityScore) : undefined;
-  const replans = metrics.replanCount;
 
-  if (!model && !tokens && !duration && quality === undefined && !replans) {
+  if (!model && !tokens && !duration) {
     return null;
   }
 
@@ -64,18 +61,6 @@ const MessageMeta = memo(({ metrics, className }: Props) => {
         <Badge variant="secondary" className={chipClassName}>
           <Clock3 className="size-3" />
           {duration}
-        </Badge>
-      ) : null}
-      {quality !== undefined ? (
-        <Badge variant="secondary" className={chipClassName} title="Plan-Solve 最近一轮质量评分">
-          <ShieldCheck className="size-3" />
-          质量 {quality}
-        </Badge>
-      ) : null}
-      {replans ? (
-        <Badge variant="secondary" className={chipClassName} title="Evaluator 定向重规划次数">
-          <RotateCcw className="size-3" />
-          重规划 {replans}
         </Badge>
       ) : null}
     </div>

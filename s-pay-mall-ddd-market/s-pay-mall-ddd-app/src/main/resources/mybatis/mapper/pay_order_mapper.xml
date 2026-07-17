@@ -4,6 +4,11 @@
 
     <resultMap id="dataMap" type="com.aigroup.paymall.infrastructure.dao.po.PayOrder">
         <id column="id" property="id"/>
+        <result column="client_request_id" property="clientRequestId"/>
+        <result column="request_fingerprint" property="requestFingerprint"/>
+        <result column="create_stage" property="createStage"/>
+        <result column="create_owner_token" property="createOwnerToken"/>
+        <result column="create_lease_until" property="createLeaseUntil"/>
         <result column="user_id" property="userId"/>
         <result column="product_id" property="productId"/>
         <result column="product_code" property="productCode"/>
@@ -16,6 +21,8 @@
         <result column="pay_url" property="payUrl"/>
         <result column="pay_time" property="payTime"/>
         <result column="market_type" property="marketType"/>
+        <result column="group_activity_id" property="groupActivityId"/>
+        <result column="group_team_id" property="groupTeamId"/>
         <result column="market_deduction_amount" property="marketDeductionAmount"/>
         <result column="pay_amount" property="payAmount"/>
         <result column="settlement_notified" property="settlementNotified"/>
@@ -25,27 +32,80 @@
 
     <insert id="insert" parameterType="com.aigroup.paymall.infrastructure.dao.po.PayOrder">
         insert into pay_order(
-        user_id, product_id, product_code, product_name, base_quota_snapshot, order_id, order_time,
-        total_amount, status, market_type, market_deduction_amount, pay_amount, create_time, update_time)
+        client_request_id, request_fingerprint, create_stage, create_owner_token, create_lease_until,
+        user_id, product_id, product_code, product_name,
+        base_quota_snapshot, order_id, order_time, total_amount, status, market_type,
+        group_activity_id, group_team_id, market_deduction_amount, pay_amount, create_time, update_time)
         values(
-        #{userId}, #{productId}, #{productCode}, #{productName}, #{baseQuotaSnapshot}, #{orderId}, #{orderTime},
-        #{totalAmount}, #{status}, #{marketType}, #{marketDeductionAmount}, #{payAmount}, now(), now())
+        #{clientRequestId}, #{requestFingerprint}, #{createStage}, #{createOwnerToken}, date_add(now(), interval 60 second),
+        #{userId}, #{productId}, #{productCode}, #{productName},
+        #{baseQuotaSnapshot}, #{orderId}, #{orderTime}, #{totalAmount}, #{status}, #{marketType},
+        #{groupActivityId}, #{groupTeamId}, #{marketDeductionAmount}, #{payAmount}, now(), now())
     </insert>
 
-    <select id="queryUnPayOrder" parameterType="com.aigroup.paymall.infrastructure.dao.po.PayOrder" resultMap="dataMap">
-        select product_id, product_code, product_name, base_quota_snapshot, order_id, order_time, total_amount, status, pay_url, market_type, market_deduction_amount, pay_amount
+    <select id="queryOrderByClientRequestId" resultMap="dataMap">
+        select id, client_request_id, request_fingerprint, create_stage, create_owner_token, create_lease_until,
+               user_id, product_id, product_code, product_name,
+               base_quota_snapshot, order_id, order_time, total_amount, status, pay_url, pay_time, market_type,
+               group_activity_id, group_team_id, market_deduction_amount, pay_amount
         from pay_order
-        where user_id = #{userId} and product_id = #{productId} and product_code = #{productCode}
-        order by id desc
+        where user_id = #{userId} and client_request_id = #{clientRequestId}
         limit 1
     </select>
 
-    <!-- only unpaid orders (CREATE/PAY_WAIT) can refresh pay info, so paid/closed/settled status is never reverted -->
-    <update id="updateOrderPayInfo" parameterType="com.aigroup.paymall.infrastructure.dao.po.PayOrder">
+    <update id="claimOrderCreation">
+        update pay_order
+        set create_owner_token = #{ownerToken}, create_lease_until = date_add(now(), interval 60 second),
+            update_time = now()
+        where order_id = #{orderId} and status = 'CREATE'
+          and create_stage in ('LOCAL_CREATED', 'GROUP_LOCKED')
+          and (create_owner_token is null or create_lease_until is null or create_lease_until &lt;= now())
+    </update>
+
+    <update id="releaseOrderCreationClaim">
+        update pay_order
+        set create_owner_token = null, create_lease_until = null, update_time = now()
+        where order_id = #{orderId} and status = 'CREATE'
+          and create_owner_token = #{ownerToken}
+          and create_stage in ('LOCAL_CREATED', 'GROUP_LOCKED')
+    </update>
+
+    <update id="markGroupLocked" parameterType="com.aigroup.paymall.infrastructure.dao.po.PayOrder">
+        update pay_order
+        set create_stage = 'GROUP_LOCKED', market_type = #{marketType},
+            market_deduction_amount = #{marketDeductionAmount}, pay_amount = #{payAmount},
+            create_lease_until = date_add(now(), interval 60 second), update_time = now()
+        where order_id = #{orderId} and status = 'CREATE'
+          and create_stage = 'LOCAL_CREATED' and create_owner_token = #{createOwnerToken}
+    </update>
+
+    <update id="markProviderStarted">
+        update pay_order
+        set create_stage = 'PROVIDER_STARTED', create_lease_until = date_add(now(), interval 60 second),
+            update_time = now()
+        where order_id = #{orderId} and status = 'CREATE'
+          and create_stage = 'GROUP_LOCKED' and create_owner_token = #{ownerToken}
+    </update>
+
+    <update id="completeOrderPrepay" parameterType="com.aigroup.paymall.infrastructure.dao.po.PayOrder">
         update pay_order set pay_url = #{payUrl}, status = #{status},
         market_type = #{marketType}, market_deduction_amount = #{marketDeductionAmount}, pay_amount = #{payAmount},
-        update_time = now()
-        where order_id = #{orderId} and status in ('CREATE', 'PAY_WAIT')
+        create_stage = 'PREPAY_READY', create_owner_token = null, create_lease_until = null, update_time = now()
+        where order_id = #{orderId} and status = 'CREATE'
+          and create_stage = 'PROVIDER_STARTED' and create_owner_token = #{createOwnerToken}
+    </update>
+
+    <update id="markOrderCreationManualReview">
+        update pay_order
+        set create_stage = 'MANUAL_REVIEW', create_owner_token = null, create_lease_until = null,
+            update_time = now()
+        where order_id = #{orderId} and status = 'CREATE'
+          and create_stage = 'PROVIDER_STARTED' and create_owner_token = #{ownerToken}
+    </update>
+
+    <update id="updateOrderPayUrl">
+        update pay_order set pay_url = #{payUrl}, update_time = now()
+        where order_id = #{orderId} and status = 'PAY_WAIT'
     </update>
 
     <!-- PAY_SUCCESS can only transit from CREATE/PAY_WAIT: idempotent for duplicated callbacks, no rollback from MARKET/DEAL_DONE/CLOSE/WAIT_REFUND -->
@@ -141,9 +201,9 @@
         from pay_order
         where user_id = #{userId}
         <if test="lastId != null">
-            and id &gt; #{lastId}
+            and id &lt; #{lastId}
         </if>
-        order by id asc
+        order by id desc
         limit #{pageSize}
     </select>
 

@@ -147,7 +147,7 @@ class CIAgent(CodeAgent):
         ChatMessageStreamDelta | ToolCall | ToolOutput | ActionOutput | CodeOuput
     ]:
         """
-        Perform one step in the ReAct framework: the agent thinks, acts, and observes the result.
+        Perform one model/code/observation step in the code-interpreter loop.
         Returns None if the step is not final.
         """
         memory_messages = self.write_memory_to_messages()

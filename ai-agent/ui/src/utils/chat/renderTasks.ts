@@ -41,24 +41,9 @@ function cloneResultMapSnapshot(resultMap?: MESSAGE.ResultMap): MESSAGE.ResultMa
   };
 }
 
-export function clonePlanForRender(plan?: MESSAGE.Plan) {
-  if (!plan) {
-    return plan;
-  }
-
-  return {
-    ...plan,
-    notes: [...(plan.notes || [])],
-    stages: [...(plan.stages || [])],
-    stepStatus: [...(plan.stepStatus || [])],
-    steps: [...(plan.steps || [])],
-  };
-}
-
 export function cloneTaskSnapshot(task: MESSAGE.Task): MESSAGE.Task {
   return {
     ...task,
-    plan: clonePlanForRender(task.plan),
     resultMap: cloneResultMapSnapshot(task.resultMap),
     toolResult: task.toolResult
       ? {
@@ -74,7 +59,6 @@ export function cloneTaskSnapshot(task: MESSAGE.Task): MESSAGE.Task {
 function getTaskRenderSignature(task: RenderableTask, baseId: string): string {
   const resultMap = task.resultMap || {};
   const searchResult = resultMap.searchResult;
-  const plan = task.plan;
   const artifactRefs = Array.isArray(task.artifactRefs) ? task.artifactRefs : [];
   const toolCallTargetName = resolveToolCallTargetName(
     resultMap as unknown as MESSAGE.ResultMap | undefined,
@@ -110,7 +94,6 @@ function getTaskRenderSignature(task: RenderableTask, baseId: string): string {
       '',
     querySignature,
     docsSignature,
-    Array.isArray(plan?.stepStatus) ? plan.stepStatus.join(',') : '',
   ].join('|');
 }
 
@@ -123,7 +106,6 @@ function createRenderTask(
     ...task,
     id,
     resultMap: task.resultMap ? { ...task.resultMap } : task.resultMap,
-    plan: clonePlanForRender(task.plan),
   } as CHAT.Task;
 
   if (searchResult && nextTask.resultMap) {

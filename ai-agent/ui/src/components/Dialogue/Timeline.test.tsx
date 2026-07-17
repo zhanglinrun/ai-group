@@ -33,7 +33,6 @@ describe('Timeline component', () => {
             ],
           ],
         })}
-        isPlanSolveMessage={true}
         changeActiveChat={vi.fn()}
       />,
     );
@@ -55,7 +54,6 @@ describe('Timeline component', () => {
             ],
           ],
         })}
-        isPlanSolveMessage={true}
         changeActiveChat={vi.fn()}
       />,
     );
@@ -96,12 +94,50 @@ describe('Timeline component', () => {
             ],
           ],
         })}
-        isPlanSolveMessage={true}
         changeActiveChat={vi.fn()}
       />,
     );
 
     expect(html).toContain('子问题一');
     expect(html).toContain('搜索完成');
+  });
+
+  it('实时与历史共用的 tool_result 任务渲染平台业务卡片和后端 CTA', () => {
+    const html = renderToStaticMarkup(
+      <Timeline
+        chat={createChat({
+          tasks: [
+            [
+              {
+                children: [
+                  {
+                    messageType: 'tool_result',
+                    toolResult: {
+                      toolName: 'platform_context',
+                      toolResult: JSON.stringify({
+                        operation: 'orders',
+                        status: 'DEGRADED',
+                        complete: false,
+                        degraded: true,
+                        authoritativeEmpty: false,
+                        data: { items: [] },
+                        message: '订单服务暂时不可用。',
+                        cta: { label: '查看订单', path: '/orders' },
+                      }),
+                    },
+                  } as unknown as CHAT.Task,
+                ],
+              } as unknown as CHAT.Task,
+            ],
+          ],
+        })}
+        changeActiveChat={vi.fn()}
+      />,
+    );
+
+    expect(html).toContain('platform-context-orders');
+    expect(html).toContain('数据可能不完整');
+    expect(html).toContain('订单服务暂时不可用。');
+    expect(html).toContain('href="/orders"');
   });
 });

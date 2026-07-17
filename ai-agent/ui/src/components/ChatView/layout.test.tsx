@@ -1,7 +1,12 @@
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import ChatView from './index';
+
+const conversationStreamMock = vi.hoisted(() => ({
+  activeRunState: undefined as { status?: string } | undefined,
+  showAction: false,
+}));
 
 vi.mock('motion/react', () => ({
   motion: {
@@ -40,7 +45,6 @@ vi.mock('@/components/ActionView', () => ({
       current: {
         changeActionView: vi.fn(),
         setFilePreview: vi.fn(),
-        openPlanView: vi.fn(),
       },
     }),
   }),
@@ -103,18 +107,21 @@ vi.mock('@/components/ai-elements/conversation', () => ({
 vi.mock('lucide-react', () => ({
   PanelLeftClose: () => <span>left</span>,
   PanelRightClose: () => <span>right</span>,
+  Maximize2: () => <span>maximize</span>,
 }));
 
 vi.mock('./useConversationStream', () => ({
+  canRegenerateChat: () => true,
   createConversationDraftController: vi.fn(),
   createDraftConversation: vi.fn(),
+  isAgentRunBlockingInput: (status: unknown) =>
+    String(status || '').toUpperCase() === 'RUNNING',
   useConversationStream: () => ({
     taskList: [],
     workspaceStreamTask: undefined,
-    activeRunState: undefined,
+    activeRunState: conversationStreamMock.activeRunState,
     setActiveRunState: vi.fn(),
-    plan: undefined,
-    showAction: false,
+    showAction: conversationStreamMock.showAction,
     changeActionStatus: vi.fn(),
     loading: false,
     streamingThoughtMap: {},
@@ -129,15 +136,23 @@ vi.mock('./useWorkspacePanels', () => ({
     isDragging: false,
     isLeftCollapsed: false,
     isRightCollapsed: false,
+    isFocusMode: false,
     containerRef: { current: null },
     handleDragStart: vi.fn(),
     setIsRightCollapsed: vi.fn(),
+    setIsFocusMode: vi.fn(),
     toggleLeftPanel: vi.fn(),
     toggleRightPanel: vi.fn(),
+    toggleFocusMode: vi.fn(),
   }),
 }));
 
 describe('ChatView layout', () => {
+  beforeEach(() => {
+    conversationStreamMock.activeRunState = undefined;
+    conversationStreamMock.showAction = false;
+  });
+
   it('data agent pending first input renders optimistic loading dialogue', () => {
     dataDialogueMock.mockClear();
 
@@ -154,7 +169,7 @@ describe('ChatView layout', () => {
       sessionId: 'session-data-1',
       title: '数据分析会话',
       productType: 'dataAgent',
-      deepThink: false,
+      executionMode: 'STANDARD',
       role: null,
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -168,7 +183,7 @@ describe('ChatView layout', () => {
         inputInfo={{
           message: '帮我分析最近7天销量',
           outputStyle: 'dataAgent',
-          deepThink: false,
+          executionMode: 'STANDARD',
         }}
         product={product}
         conversation={conversation}
@@ -191,7 +206,7 @@ describe('ChatView layout', () => {
     );
   });
 
-  it('deep think conversation keeps structured input mode props in chat view', () => {
+  it('quick conversation keeps structured input mode props in chat view', () => {
     generalInputMock.mockClear();
 
     const product: CHAT.Product = {
@@ -205,9 +220,9 @@ describe('ChatView layout', () => {
     const conversation = {
       id: 'conversation-2',
       sessionId: 'session-2',
-      title: '深度思考会话',
+      title: '快速会话',
       productType: 'html',
-      deepThink: false,
+      executionMode: 'STANDARD',
       role: null,
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -230,7 +245,7 @@ describe('ChatView layout', () => {
 
     renderToStaticMarkup(
       <ChatView
-        inputInfo={{ message: '', deepThink: false }}
+        inputInfo={{ message: '', executionMode: 'STANDARD' }}
         product={product}
         conversation={conversation}
         chatRoles={[]}
@@ -242,15 +257,13 @@ describe('ChatView layout', () => {
     const lastCall = generalInputMock.mock.calls[generalInputMock.mock.calls.length - 1]?.[0];
     expect(lastCall).toMatchObject({
       product,
-      deepThink: false,
+      executionMode: 'STANDARD',
       displayOutput: product,
-      showRoleSelector: false,
-      // 会话内单面板输入框有意展示模式切换托盘（配合 onSelectionChange/showRoleSelector 等新 props）
       showBtn: true,
     });
   });
 
-  it('deep research conversation keeps deepThink flag in chat view input', () => {
+  it('deep conversation keeps executionMode in chat view input', () => {
     generalInputMock.mockClear();
 
     const product: CHAT.Product = {
@@ -266,7 +279,7 @@ describe('ChatView layout', () => {
       sessionId: 'session-3',
       title: '深度研究会话',
       productType: 'docs',
-      deepThink: true,
+      executionMode: 'DEEP',
       role: null,
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -289,7 +302,7 @@ describe('ChatView layout', () => {
 
     renderToStaticMarkup(
       <ChatView
-        inputInfo={{ message: '', deepThink: false }}
+        inputInfo={{ message: '', executionMode: 'STANDARD' }}
         product={product}
         conversation={conversation}
         chatRoles={[]}
@@ -301,11 +314,64 @@ describe('ChatView layout', () => {
     const lastCall = generalInputMock.mock.calls[generalInputMock.mock.calls.length - 1]?.[0];
     expect(lastCall).toMatchObject({
       product,
-      deepThink: true,
+      executionMode: 'DEEP',
       displayOutput: product,
-      showRoleSelector: false,
-      // 会话内单面板输入框有意展示模式切换托盘
       showBtn: true,
+    });
+  });
+
+  it('恢复挂起但后端仍 RUNNING 时禁用普通聊天输入，避免创建新 requestId', () => {
+    generalInputMock.mockClear();
+    conversationStreamMock.activeRunState = { status: 'RUNNING' };
+    const product: CHAT.Product = {
+      type: 'chat',
+      name: '聊天模式',
+      placeholder: '请输入问题',
+      img: 'icon-chat',
+      color: 'text-[#4040FF]',
+    };
+    const conversation = {
+      id: 'conversation-running',
+      sessionId: 'session-running',
+      title: '恢复中的会话',
+      productType: 'chat',
+      executionMode: 'STANDARD',
+      role: null,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      chatTitle: '',
+      chatList: [
+        {
+          sessionId: 'session-running',
+          requestId: 'req-running',
+          query: '继续执行',
+          files: [],
+          forceStop: false,
+          multiAgent: { tasks: [] },
+          loading: false,
+          tasks: [],
+          response: '',
+          agentRun: { status: 'RUNNING', todos: [] },
+        },
+      ],
+      dataChatList: [],
+    } as unknown as CHAT.ConversationHistory;
+
+    renderToStaticMarkup(
+      <ChatView
+        inputInfo={{ message: '', executionMode: 'STANDARD' }}
+        product={product}
+        conversation={conversation}
+        chatRoles={[]}
+        onConversationChange={vi.fn()}
+        onRoleSelect={vi.fn()}
+      />,
+    );
+
+    const lastCall = generalInputMock.mock.calls[generalInputMock.mock.calls.length - 1]?.[0];
+    expect(lastCall).toMatchObject({
+      disabled: true,
+      placeholder: '当前任务仍在后台运行，请稍后重新打开会话查看结果',
     });
   });
 
@@ -325,7 +391,7 @@ describe('ChatView layout', () => {
       sessionId: 'session-1',
       title: '测试会话',
       productType: 'chat',
-      deepThink: false,
+      executionMode: 'STANDARD',
       role: null,
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -348,7 +414,7 @@ describe('ChatView layout', () => {
 
     const html = renderToStaticMarkup(
       <ChatView
-        inputInfo={{ message: '', deepThink: false }}
+        inputInfo={{ message: '', executionMode: 'STANDARD' }}
         product={product}
         conversation={conversation}
         chatRoles={[]}
@@ -365,5 +431,45 @@ describe('ChatView layout', () => {
     );
     expect(html).toContain('<div data-general-input="true">input</div>');
     expect(html).not.toContain('sticky bottom-0');
+  });
+
+  it('workspace layout keeps chat full width on mobile and exposes an explicit workspace switch', () => {
+    conversationStreamMock.showAction = true;
+    const product: CHAT.Product = {
+      type: 'chat',
+      name: '聊天模式',
+      placeholder: '请输入问题',
+      img: 'icon-chat',
+      color: 'text-[#4040FF]',
+    };
+    const conversation = {
+      id: 'conversation-mobile-workspace',
+      sessionId: 'session-mobile-workspace',
+      title: '移动工作区',
+      productType: 'chat',
+      executionMode: 'STANDARD',
+      role: null,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      chatTitle: '移动工作区',
+      chatList: [],
+      dataChatList: [],
+    } as unknown as CHAT.ConversationHistory;
+
+    const html = renderToStaticMarkup(
+      <ChatView
+        inputInfo={{ message: '', executionMode: 'STANDARD' }}
+        product={product}
+        conversation={conversation}
+        chatRoles={[]}
+        onConversationChange={vi.fn()}
+        onRoleSelect={vi.fn()}
+      />,
+    );
+
+    expect(html).toContain('max-md:!flex-[0_0_100%]');
+    expect(html).toContain('max-md:hidden');
+    expect(html).toContain('title="打开智能体工作区"');
+    expect(html).toContain('data-action-view="true"');
   });
 });

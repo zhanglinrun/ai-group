@@ -37,7 +37,7 @@ describe('agentRequest', () => {
       sessionId: 'session-1',
       requestId: 'req-1',
       message: '基于这张图改成赛博朋克风',
-      deepThink: false,
+      executionMode: 'STANDARD',
       outputStyle: 'html',
       files: [
         {
@@ -57,7 +57,7 @@ describe('agentRequest', () => {
       sessionId: 'session-1',
       requestId: 'req-1',
       query: '基于这张图改成赛博朋克风',
-      deepThink: 0,
+      executionMode: 'STANDARD',
       outputStyle: 'html',
       sessionFiles: [
         {
@@ -68,40 +68,47 @@ describe('agentRequest', () => {
     expect(request).not.toHaveProperty('aiAgentId');
   });
 
-  it('检查点恢复会强制进入 Plan-Solve 并默认使用 SAFE_ONLY', () => {
+  it('自动模式只通过 executionMode 传递', () => {
     const request = buildAgentStreamRequest({
-      sessionId: 'session-1',
-      requestId: 'req-resume-1',
-      message: '继续原任务',
-      deepThink: false,
-      outputStyle: 'html',
-      resumeCheckpointId: 'checkpoint-001',
+      sessionId: 'session-auto',
+      requestId: 'req-auto',
+      message: '根据任务复杂度选择执行模式',
+      executionMode: 'AUTO',
+      outputStyle: 'docs',
     });
 
     expect(request).toMatchObject({
-      deepThink: 1,
-      resumeCheckpointId: 'checkpoint-001',
-      resumeDecision: 'SAFE_ONLY',
+      executionMode: 'AUTO',
+      outputStyle: 'docs',
     });
-    expect(request).not.toHaveProperty('token');
-    expect(request).not.toHaveProperty('internalToken');
+    expect(request).not.toHaveProperty('deepThink');
+    expect(request).not.toHaveProperty('autoRoute');
   });
 
-  it('仅在显式传入时发送 RESTART_FROM_CHECKPOINT', () => {
+  it('会把本轮联网开关透传给后端', () => {
     const request = buildAgentStreamRequest({
-      sessionId: 'session-1',
-      requestId: 'req-resume-2',
-      message: '从检查点强制重启',
-      deepThink: true,
-      outputStyle: 'html',
-      resumeCheckpointId: 'checkpoint-002',
-      resumeDecision: 'RESTART_FROM_CHECKPOINT',
+      sessionId: 'session-online',
+      requestId: 'req-online',
+      message: '查询今天的天气',
+      executionMode: 'STANDARD',
+      online: true,
+      outputStyle: 'chat',
     });
 
-    expect(request).toMatchObject({
-      deepThink: 1,
-      resumeCheckpointId: 'checkpoint-002',
-      resumeDecision: 'RESTART_FROM_CHECKPOINT',
+    expect(request.online).toBe(true);
+  });
+
+  it('深度模式不会附带旧规划控制字段', () => {
+    const request = buildAgentStreamRequest({
+      sessionId: 'session-deep',
+      requestId: 'req-deep',
+      message: '完整调研并验证',
+      executionMode: 'DEEP',
+      outputStyle: 'docs',
     });
+
+    expect(request.executionMode).toBe('DEEP');
+    expect(request).not.toHaveProperty('resumeCheckpointId');
+    expect(request).not.toHaveProperty('resumeDecision');
   });
 });

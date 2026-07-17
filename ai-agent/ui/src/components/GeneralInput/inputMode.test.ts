@@ -3,70 +3,73 @@ import { describe, expect, it } from 'vitest';
 import { buildSubmitPayload, resolveInputMode } from './inputMode';
 
 describe('inputMode', () => {
-  it('深度研究模式应保留结构化输出类型并打开 deepThink', () => {
+  it('自动模式应保留输出格式并交给后端路由', () => {
+    const payload = buildSubmitPayload({
+      question: '调研三家主流 Agent 产品',
+      visibleMode: 'auto',
+      isDataAgent: false,
+      visibleOutputProduct: { type: 'docs' } as CHAT.Product,
+      uploadedFiles: [],
+    });
+
+    expect(payload).toMatchObject({
+      outputStyle: 'docs',
+      executionMode: 'AUTO',
+    });
+    expect(payload).not.toHaveProperty('deepThink');
+    expect(payload).not.toHaveProperty('autoRoute');
+    expect(resolveInputMode(payload.executionMode)).toBe('auto');
+  });
+
+  it('深度模式应只通过 executionMode 表达', () => {
     expect(
       buildSubmitPayload({
         question: '帮我调研竞品',
-        visibleMode: 'research',
+        visibleMode: 'deep',
         isDataAgent: false,
         visibleOutputProduct: { type: 'html' } as CHAT.Product,
         uploadedFiles: [],
-        chatRole: null,
       }),
     ).toMatchObject({
       outputStyle: 'html',
-      deepThink: true,
+      executionMode: 'DEEP',
     });
   });
 
-  it('快速模式应走普通聊天(chat)且关闭 deepThink，并带上角色 agentId', () => {
-    expect(
-      buildSubmitPayload({
-        question: '你好',
-        visibleMode: 'quick',
-        isDataAgent: false,
-        visibleOutputProduct: { type: 'html' } as CHAT.Product,
-        uploadedFiles: [],
-        chatRole: { agentId: 'role-1' } as CHAT.ConversationRole,
-      }),
-    ).toMatchObject({
+  it('标准模式应保留输出格式且不发送旧模式字段', () => {
+    const payload = buildSubmitPayload({
+      question: '你好',
+      visibleMode: 'standard',
+      isDataAgent: false,
+      visibleOutputProduct: { type: 'chat' } as CHAT.Product,
+      uploadedFiles: [],
+    });
+
+    expect(payload).toMatchObject({
       outputStyle: 'chat',
-      deepThink: false,
-      aiAgentId: 'role-1',
+      executionMode: 'STANDARD',
     });
+    expect(payload).not.toHaveProperty('aiAgentId');
+    expect(payload).not.toHaveProperty('deepThink');
+    expect(payload).not.toHaveProperty('autoRoute');
   });
 
-  it('网页输出的深度思考应保持 think，不能串成深度研究', () => {
+  it('快速模式可以保留结构化输出', () => {
     const payload = buildSubmitPayload({
       question: '仔细分析并生成网页',
-      visibleMode: 'think',
+      visibleMode: 'standard',
       isDataAgent: false,
       visibleOutputProduct: { type: 'html' } as CHAT.Product,
       uploadedFiles: [],
-      chatRole: null,
     });
 
-    expect(payload).toMatchObject({ outputStyle: 'html', deepThink: false });
-    expect(resolveInputMode(payload.outputStyle, payload.deepThink)).toBe('think');
+    expect(payload).toMatchObject({ outputStyle: 'html', executionMode: 'STANDARD' });
+    expect(resolveInputMode(payload.executionMode)).toBe('standard');
   });
 
-  it('普通对话可以独立开启深度思考', () => {
-    expect(
-      buildSubmitPayload({
-        question: '仔细分析这个问题',
-        visibleMode: 'think',
-        isDataAgent: false,
-        visibleOutputProduct: { type: 'chat' } as CHAT.Product,
-        uploadedFiles: [],
-        chatRole: { agentId: 'role-1' } as CHAT.ConversationRole,
-      }),
-    ).toMatchObject({ outputStyle: 'chat', deepThink: true, aiAgentId: 'role-1' });
-  });
-
-  it('应从 product/deepThink 稳定恢复三种可见模式', () => {
-    expect(resolveInputMode('chat', false)).toBe('quick');
-    expect(resolveInputMode('chat', true)).toBe('think');
-    expect(resolveInputMode('html', false)).toBe('think');
-    expect(resolveInputMode('html', true)).toBe('research');
+  it('应从 executionMode 稳定恢复可见模式', () => {
+    expect(resolveInputMode('AUTO')).toBe('auto');
+    expect(resolveInputMode('STANDARD')).toBe('standard');
+    expect(resolveInputMode('DEEP')).toBe('deep');
   });
 });

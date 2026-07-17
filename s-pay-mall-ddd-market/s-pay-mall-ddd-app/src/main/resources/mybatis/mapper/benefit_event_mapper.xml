@@ -52,9 +52,8 @@
     <select id="queryUnpublished" resultMap="dataMap">
         select id, event_id, event_type, user_id, order_id, product_code, event_published, base_quota, bonus_quota, create_time, update_time
         from benefit_event
-        where event_type = #{eventType}
-          and event_published = 0
-        order by id asc
+        where event_published = 0
+        order by case when event_type = 'GROUP_BUY_REVOKED' then 0 else 1 end, id asc
         limit #{limit}
     </select>
 

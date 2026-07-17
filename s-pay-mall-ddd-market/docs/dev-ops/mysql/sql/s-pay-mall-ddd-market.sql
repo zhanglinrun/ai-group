@@ -29,6 +29,11 @@ DROP TABLE IF EXISTS `pay_order`;
 
 CREATE TABLE `pay_order` (
   `id` int(10) unsigned NOT NULL AUTO_INCREMENT COMMENT '自增ID',
+  `client_request_id` varchar(64) DEFAULT NULL COMMENT '客户端单次购买请求号，新订单必填',
+  `request_fingerprint` char(64) DEFAULT NULL COMMENT '规范化下单载荷 SHA-256',
+  `create_stage` varchar(32) NOT NULL DEFAULT 'PREPAY_READY' COMMENT 'durable 下单创建阶段',
+  `create_owner_token` varchar(64) DEFAULT NULL COMMENT '创建续作 owner token',
+  `create_lease_until` datetime DEFAULT NULL COMMENT '创建续作租约截止时间',
   `user_id` varchar(32) NOT NULL COMMENT '用户ID',
   `product_id` varchar(16) NOT NULL COMMENT '商品ID',
   `product_code` varchar(64) DEFAULT NULL COMMENT 'member SKU code',
@@ -41,6 +46,8 @@ CREATE TABLE `pay_order` (
   `pay_url` varchar(2014) DEFAULT NULL COMMENT '支付信息',
   `pay_time` datetime DEFAULT NULL COMMENT '支付时间',
   `market_type` tinyint(1) DEFAULT NULL COMMENT '营销类型；0无营销、1拼团营销',
+  `group_activity_id` bigint DEFAULT NULL COMMENT '下单时拼团活动ID快照，直购为空',
+  `group_team_id` varchar(64) DEFAULT NULL COMMENT '下单时拼团队伍ID快照，开团为空',
   `market_deduction_amount` decimal(8,2) DEFAULT NULL COMMENT '营销金额；优惠金额',
   `pay_amount` decimal(8,2) NOT NULL COMMENT '支付金额',
   `settlement_notified` tinyint(1) NOT NULL DEFAULT 0 COMMENT '拼团结算是否已通知成功；1=group已确认登记，补偿任务据此区分"未结算"与"未成团"',
@@ -48,6 +55,7 @@ CREATE TABLE `pay_order` (
   `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   PRIMARY KEY (`id`),
   UNIQUE KEY `uq_order_id` (`order_id`),
+  UNIQUE KEY `uq_user_client_request` (`user_id`,`client_request_id`),
   KEY `idx_user_id_product_id` (`user_id`,`product_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 

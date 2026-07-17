@@ -1,0 +1,18 @@
+package com.linrun.agent.infrastructure.dao.reactor;
+
+import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Param;
+
+import java.util.Map;
+
+/** todo_write structured output DAO. */
+@Mapper
+public interface IToolOutputTodoWriteDao {
+
+    int insert(@Param("row") Map<String, Object> row);
+
+    Map<String, Object> queryByToolInvocationId(@Param("toolInvocationId") Long toolInvocationId);
+
+    Map<String, Object> queryByRequestToolCall(@Param("requestId") String requestId,
+                                               @Param("toolCallId") String toolCallId);
+}

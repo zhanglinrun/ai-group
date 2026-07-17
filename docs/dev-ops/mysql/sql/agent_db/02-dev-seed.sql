@@ -57,27 +57,26 @@ VALUES
   1
 );
 
--- status=1 的 MCP 会进入 ReAct/Plan-Solve 全局工具发现；同时绑定默认客户端，供 Fix/Flow 模式使用。
+-- status=1 的 MCP 可进入 Agent Loop 的 run-local 工具目录和逐轮暴露策略；
+-- 默认客户端绑定用于角色 profile 解析和 ToolExposurePolicy。
 INSERT INTO ai_client_config (source_type, source_id, target_type, target_id, status)
 VALUES
   ('client', 'dev_client_001', 'tool_mcp', 'dev_mcp_project_knowledge_001', 1),
   ('client', 'dev_client_001', 'tool_mcp', 'dev_mcp_agent_utility_001', 1);
 
--- 上下文记忆顾问：为固定流(chat)客户端提供多轮对话记忆，配合 FlowAgentExecuteStrategy 传入的会话ID生效
+-- 上下文记忆顾问：为默认客户端提供多轮对话记忆，由统一 Agent Loop 注入会话上下文。
 INSERT INTO ai_client_advisor (advisor_id, advisor_name, advisor_type, order_num, ext_param, status)
 VALUES ('dev_advisor_memory_001', 'Dev Chat Memory', 'ChatMemory', 1, '{"maxMessages":20}', 1);
 
 INSERT INTO ai_client_config (source_type, source_id, target_type, target_id, status)
 VALUES ('client', 'dev_client_001', 'advisor', 'dev_advisor_memory_001', 1);
 
-INSERT INTO ai_agent (agent_id, agent_name, description, channel, strategy, flow_step_count, status)
+INSERT INTO ai_agent (agent_id, agent_name, description, channel, status)
 VALUES (
   'dev_role_001',
   '通用助手',
   '日常问答与写作助手，快速模式默认角色',
   'fix',
-  'flow',
-  1,
   1
 );
 

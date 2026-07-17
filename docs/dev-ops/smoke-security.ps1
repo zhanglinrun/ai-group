@@ -33,7 +33,7 @@ function Invoke-HttpPost($Uri, $Body, $Headers = @{}) {
 }
 
 Write-Host "1) Direct pay create_pay_order without gateway headers should fail"
-$body = '{"userId":"1","productId":"100001"}'
+$body = '{"requestId":"security-direct-1","userId":"1","productId":"100001"}'
 $response = Invoke-HttpPost -Uri "$PayBase/api/v1/alipay/create_pay_order" -Body $body
 $payload = $response.Content | ConvertFrom-Json
 if ($payload.code -eq "0000") {
@@ -43,7 +43,7 @@ Write-Host "OK: direct pay rejected (code=$($payload.code), info=$($payload.info
 
 Write-Host "1.1) Direct pay with spoofed gateway headers (missing internal token) should fail"
 $spoofHeaders = @{ "X-Gateway-Request" = "true"; "X-User-Id" = "10001" }
-$spoofBody = '{"userId":"10001","productId":"9890002","productCode":"QUOTA_LIGHT","activityId":100201,"marketType":1}'
+$spoofBody = '{"requestId":"security-spoof-1","userId":"10001","productId":"9890002","productCode":"QUOTA_LIGHT","activityId":100201,"marketType":1}'
 $spoof = Invoke-HttpPost -Uri "$PayBase/api/v1/alipay/create_pay_order" -Body $spoofBody -Headers $spoofHeaders
 $spoofPayload = $spoof.Content | ConvertFrom-Json
 if ($spoofPayload.code -eq "0000") {

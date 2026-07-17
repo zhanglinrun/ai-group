@@ -5,12 +5,13 @@ import com.aigroup.paymall.domain.benefit.adapter.repository.IBenefitEventReposi
 import com.aigroup.paymall.domain.benefit.model.entity.BenefitEventEntity;
 import com.aigroup.paymall.domain.order.adapter.repository.IOrderRepository;
 import com.aigroup.paymall.domain.order.model.entity.OrderEntity;
-import com.aigroup.paymall.domain.order.model.valobj.MarketTypeVO;
-import com.aigroup.paymall.types.enums.BenefitEventType;
+import com.aigroup.paymall.types.enums.OutboxEventType;
 import com.aigroup.paymall.types.event.TradeCompletedEvent;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Date;
 import java.util.List;
@@ -19,6 +20,8 @@ import java.util.UUID;
 @Slf4j
 @Service
 public class BenefitEventService implements IBenefitEventService {
+
+    private static final int PUBLISH_BATCH_SIZE = 100;
 
     private final IOrderRepository orderRepository;
     private final IBenefitEventRepository benefitEventRepository;
@@ -33,44 +36,37 @@ public class BenefitEventService implements IBenefitEventService {
     }
 
     @Override
-    public void publishGroupBuyCompletedEvents(List<String> orderIds, Long bonusQuota) {
-        publishEvents(orderIds, BenefitEventType.GROUP_BUY_COMPLETED.name(), false, bonusQuota);
-    }
-
-    @Override
-    public void publishGroupBuyRevokedEvents(List<String> orderIds) {
-        // 撤销不需要加赠额度：member 侧按发放时记录的额度原路扣回
-        publishEvents(orderIds, BenefitEventType.GROUP_BUY_REVOKED.name(), true, null);
-    }
-
-    @Override
-    public int republishPendingEvents() {
-        int completed = republishPending(BenefitEventType.GROUP_BUY_COMPLETED.name());
-        int revoked = republishPending(BenefitEventType.GROUP_BUY_REVOKED.name());
-        return completed + revoked;
-    }
-
-    @Override
-    public List<BenefitEventEntity> queryPendingGrants(Date since, Long lastId, int pageSize) {
-        int size = pageSize <= 0 ? 20 : Math.min(pageSize, 100);
-        return benefitEventRepository.queryPendingGrants(BenefitEventType.GROUP_BUY_COMPLETED.name(), since, lastId, size);
-    }
-
-    private void publishEvents(List<String> orderIds, String eventType, boolean requireCompletedPublished, Long bonusQuota) {
+    @Transactional(rollbackFor = Exception.class)
+    public void enqueueCompletedOrderEvents(List<String> orderIds, Long bonusQuota) {
         if (orderIds == null || orderIds.isEmpty()) {
             return;
         }
         for (String orderId : orderIds) {
-            try {
-                publishEvent(orderId, eventType, requireCompletedPublished, bonusQuota);
-            } catch (Exception e) {
-                log.error("publish benefit event failed orderId={} eventType={}", orderId, eventType, e);
-            }
+            OrderEntity order = requireOrder(orderId);
+            // Both fulfillment and quota delivery are committed with the business
+            // state transition. MQ publication is exclusively handled by the
+            // independent outbox publisher after this transaction commits.
+            enqueueEvent(order, OutboxEventType.ORDER_PAY_SUCCESS.name(), null);
+            enqueueEvent(order, OutboxEventType.GROUP_BUY_COMPLETED.name(), bonusQuota);
         }
     }
 
-    private int republishPending(String eventType) {
-        List<BenefitEventEntity> pending = benefitEventRepository.queryUnpublished(eventType, 50);
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void enqueueRevokedBenefitEvents(List<String> orderIds) {
+        if (orderIds == null || orderIds.isEmpty()) {
+            return;
+        }
+        for (String orderId : orderIds) {
+            // 撤销不需要加赠额度：member 侧按发放时记录的额度原路扣回。
+            enqueueEvent(requireOrder(orderId), OutboxEventType.GROUP_BUY_REVOKED.name(), null);
+        }
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public int publishPendingEvents() {
+        List<BenefitEventEntity> pending = benefitEventRepository.queryUnpublished(PUBLISH_BATCH_SIZE);
         if (pending == null || pending.isEmpty()) {
             return 0;
         }
@@ -83,48 +79,26 @@ public class BenefitEventService implements IBenefitEventService {
         return count;
     }
 
-    private void publishEvent(String orderId, String eventType, boolean requireCompletedPublished, Long bonusQuota) {
-        OrderEntity order = orderRepository.queryOrderByOrderId(orderId);
-        if (order == null) {
-            log.warn("skip benefit event, order not found orderId={}", orderId);
-            return;
-        }
-        // 拼团单与直购单均发放额度：直购支付成功即发放，拼团在结算完成后发放。
-        // 事件类型沿用既有常量（member 侧按 GROUP_BUY_COMPLETED/REVOKED 消费），语义为"交易完成/撤销"。
-        if (!MarketTypeVO.GROUP_BUY_MARKET.getCode().equals(order.getMarketType())) {
-            log.info("publish benefit event for direct purchase orderId={} marketType={}", orderId, order.getMarketType());
-        }
-        if (requireCompletedPublished) {
-            BenefitEventEntity completed = benefitEventRepository.findByOrderIdAndEventType(
-                    orderId, BenefitEventType.GROUP_BUY_COMPLETED.name());
-            if (completed == null || !Boolean.TRUE.equals(completed.getEventPublished())) {
-                // keep the revoke intent: persist an unpublished placeholder (event_published=false)
-                // so BenefitEventRepublishJob can eventually publish it, instead of dropping it
-                BenefitEventEntity pendingRevoke = benefitEventRepository.findByOrderIdAndEventType(orderId, eventType);
-                if (pendingRevoke == null) {
-                    try {
-                        createBenefitEvent(order, eventType, null);
-                    } catch (Exception e) {
-                        // tolerate duplicate insert on uk_order_event_type (concurrent revoke)
-                        log.warn("create pending revoke event failed (may already exist) orderId={}", orderId, e);
-                    }
-                }
-                log.info("defer revoke event, completed benefit not published yet orderId={}", orderId);
-                return;
-            }
-        }
-
-        BenefitEventEntity existing = benefitEventRepository.findByOrderIdAndEventType(orderId, eventType);
-        if (existing != null && Boolean.TRUE.equals(existing.getEventPublished())) {
-            log.info("skip benefit event, already published orderId={} eventType={}", orderId, eventType);
-            return;
-        }
-
-        BenefitEventEntity entity = existing != null ? existing : createBenefitEvent(order, eventType, bonusQuota);
-        tryPublish(entity);
+    @Override
+    public List<BenefitEventEntity> queryPendingGrants(Date since, Long lastId, int pageSize) {
+        int size = pageSize <= 0 ? 20 : Math.min(pageSize, 100);
+        return benefitEventRepository.queryPendingGrants(OutboxEventType.GROUP_BUY_COMPLETED.name(), since, lastId, size);
     }
 
-    private BenefitEventEntity createBenefitEvent(OrderEntity order, String eventType, Long bonusQuota) {
+    private OrderEntity requireOrder(String orderId) {
+        OrderEntity order = orderRepository.queryOrderByOrderId(orderId);
+        if (order == null) {
+            throw new IllegalStateException("outbox event order not found: " + orderId);
+        }
+        return order;
+    }
+
+    private BenefitEventEntity enqueueEvent(OrderEntity order, String eventType, Long bonusQuota) {
+        BenefitEventEntity existing = benefitEventRepository.findByOrderIdAndEventType(
+                order.getOrderId(), eventType);
+        if (existing != null) {
+            return existing;
+        }
         String productCode = StringUtils.isNotBlank(order.getProductCode())
                 ? order.getProductCode()
                 : order.getProductId();
@@ -138,15 +112,60 @@ public class BenefitEventService implements IBenefitEventService {
                 .baseQuota(order.getBaseQuotaSnapshot())
                 .bonusQuota(bonusQuota)
                 .build();
-        benefitEventRepository.insert(entity);
-        return entity;
+        try {
+            benefitEventRepository.insert(entity);
+            log.info("enqueued outbox event orderId={} eventId={} eventType={}",
+                    entity.getOrderId(), entity.getEventId(), entity.getEventType());
+            return entity;
+        } catch (RuntimeException insertFailure) {
+            // Concurrent duplicate callbacks are safe because order_id + event_type
+            // is unique. Do not swallow a real database outage: only accept the
+            // exception when the winning row can be read back.
+            BenefitEventEntity concurrent = benefitEventRepository.findByOrderIdAndEventType(
+                    order.getOrderId(), eventType);
+            if (concurrent == null) {
+                throw insertFailure;
+            }
+            return concurrent;
+        }
     }
 
     private boolean tryPublish(BenefitEventEntity entity) {
         if (Boolean.TRUE.equals(entity.getEventPublished())) {
             return false;
         }
-        TradeCompletedEvent event = TradeCompletedEvent.builder()
+        try {
+            OutboxEventType eventType = OutboxEventType.valueOf(entity.getEventType());
+            if (OutboxEventType.GROUP_BUY_COMPLETED.equals(eventType) && hasUnpublishedRevoke(entity)) {
+                log.info("defer completed outbox event until revoke tombstone is published orderId={} eventId={}",
+                        entity.getOrderId(), entity.getEventId());
+                return false;
+            }
+            if (OutboxEventType.ORDER_PAY_SUCCESS.equals(eventType)) {
+                benefitEventPort.publishOrderPaySuccess(
+                        entity.getEventId(), entity.getUserId(), entity.getOrderId());
+            } else {
+                benefitEventPort.publishTradeCompleted(toTradeCompletedEvent(entity));
+            }
+            benefitEventRepository.markPublished(entity.getEventId());
+            log.info("published outbox event orderId={} eventId={} eventType={}",
+                    entity.getOrderId(), entity.getEventId(), entity.getEventType());
+            return true;
+        } catch (Exception e) {
+            log.error("failed to publish outbox event orderId={} eventId={} eventType={}",
+                    entity.getOrderId(), entity.getEventId(), entity.getEventType(), e);
+            return false;
+        }
+    }
+
+    private boolean hasUnpublishedRevoke(BenefitEventEntity completed) {
+        BenefitEventEntity revoke = benefitEventRepository.findByOrderIdAndEventType(
+                completed.getOrderId(), OutboxEventType.GROUP_BUY_REVOKED.name());
+        return revoke != null && !Boolean.TRUE.equals(revoke.getEventPublished());
+    }
+
+    private TradeCompletedEvent toTradeCompletedEvent(BenefitEventEntity entity) {
+        return TradeCompletedEvent.builder()
                 .eventId(entity.getEventId())
                 .eventType(entity.getEventType())
                 .userId(entity.getUserId())
@@ -155,15 +174,6 @@ public class BenefitEventService implements IBenefitEventService {
                 .baseQuota(entity.getBaseQuota())
                 .bonusQuota(entity.getBonusQuota())
                 .build();
-        try {
-            benefitEventPort.publishTradeCompleted(event);
-            benefitEventRepository.markPublished(entity.getEventId());
-            log.info("published benefit event orderId={} eventId={}", entity.getOrderId(), entity.getEventId());
-            return true;
-        } catch (Exception e) {
-            log.error("failed to publish benefit event orderId={} eventId={}", entity.getOrderId(), entity.getEventId(), e);
-            return false;
-        }
     }
 
     private Long parseUserId(String userId) {

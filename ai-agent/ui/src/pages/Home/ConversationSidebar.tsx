@@ -7,11 +7,10 @@ import {
   SquarePen,
   Search,
   MoreHorizontal,
-  DatabaseZap,
   MessagesSquare,
   WandSparkles,
+  PlugZap,
   X,
-  Pin,
   Trash2,
   Moon,
   Sun,
@@ -19,7 +18,7 @@ import {
 import type { ConversationSessionItem } from '@/services/agentConversation';
 import { useTheme } from '@/theme';
 
-type SidebarView = 'chat' | 'mrag' | 'image-generation';
+type SidebarView = 'chat' | 'extensions' | 'image-generation';
 
 type NavItem = {
   key: SidebarView;
@@ -40,9 +39,9 @@ const navItems: NavItem[] = [
     icon: MessagesSquare,
   },
   {
-    key: 'mrag',
-    label: '知识库',
-    icon: DatabaseZap,
+    key: 'extensions',
+    label: '扩展',
+    icon: PlugZap,
   },
   {
     key: 'image-generation',
@@ -58,6 +57,7 @@ type ConversationSidebarProps = {
   selectedSessionId?: string;
   onNewChat: () => void;
   onSelectSession: (session: ConversationSessionItem) => void;
+  onDeleteSession: (session: ConversationSessionItem) => void;
   onChangeView: (view: SidebarView) => void;
 };
 
@@ -69,6 +69,7 @@ const ConversationSidebar = memo((props: ConversationSidebarProps) => {
     selectedSessionId,
     onNewChat,
     onSelectSession,
+    onDeleteSession,
     onChangeView,
   } = props;
 
@@ -261,21 +262,16 @@ const ConversationSidebar = memo((props: ConversationSidebarProps) => {
                       <div className="absolute right-2 top-full z-10 mt-1 w-32 rounded-lg border border-[var(--chat-border)] bg-[var(--chat-surface)] py-1 shadow-[var(--shadow-md)]">
                         <button
                           type="button"
-                          disabled
-                          title="置顶功能暂未开放"
-                          className="flex w-full cursor-not-allowed items-center gap-2 px-3 py-2 text-[12px] text-[var(--chat-text-muted)] opacity-65"
-                        >
-                          <Pin className="h-3.5 w-3.5" />
-                          <span>置顶（暂未开放）</span>
-                        </button>
-                        <button
-                          type="button"
-                          disabled
-                          title="删除功能暂未开放"
-                          className="flex w-full cursor-not-allowed items-center gap-2 px-3 py-2 text-[12px] text-[var(--chat-text-muted)] opacity-65"
+                          onClick={() => {
+                            setExpandedSessionId(null);
+                            if (window.confirm(`确定删除会话“${session.title || '未命名会话'}”吗？`)) {
+                              onDeleteSession(session);
+                            }
+                          }}
+                          className="flex w-full items-center gap-2 px-3 py-2 text-[12px] text-red-600 transition-colors hover:bg-red-50"
                         >
                           <Trash2 className="h-3.5 w-3.5" />
-                          <span>删除（暂未开放）</span>
+                          <span>删除</span>
                         </button>
                       </div>
                     )}

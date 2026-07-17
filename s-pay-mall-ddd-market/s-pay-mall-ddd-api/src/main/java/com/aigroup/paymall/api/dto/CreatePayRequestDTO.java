@@ -5,6 +5,9 @@ import lombok.Data;
 @Data
 public class CreatePayRequestDTO {
 
+    // 客户端单次购买尝试的稳定请求号；同一用户内用于幂等创建订单
+    private String requestId;
+
     // 用户ID 【实际产生中会通过登录模块获取，不需要透彻】
     private String userId;
     // 产品编号

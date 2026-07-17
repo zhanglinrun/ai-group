@@ -4,37 +4,23 @@
 
 ## 评测组成
 
-- `cases.jsonl`：20 条确定性问答，其中 18 条走 Agent 执行账本，2 条走固定 chat 流程。
-- `cases-tools.jsonl`：10 条工具任务，覆盖联网检索、网页抓取、代码执行、文件/报告产物、Skill 加载和 2 条 Plan-and-Execute。
-- `cases-plan.jsonl`：5 条 Plan-and-Execute 小样本，用于比较 Evaluator 开关前后的单次 A/B 结果。
-- `cases-tools-plan-basic.jsonl`、`cases-tools-plan-search.jsonl`：分别验证纯规划使用 `AUTO`、联网任务使用 `REQUIRED` 的定向回归集。
-- `run-evals.ps1`：注册隔离用户、补充隔离额度、调用 Gateway SSE、执行关键词与工具轨迹断言，并从 `dialogue_run`、`llm_invocation`、`tool_invocation` 回读账本指标。
+- `cases.jsonl`：20 条确定性问答（18 条 `STANDARD`、2 条 `AUTO`），全部经过统一 Agent Loop、完成门禁和执行账本。
+- `cases-tools.jsonl`：10 条工具任务，覆盖联网检索、网页抓取、代码执行、文件/报告产物、Skill 加载，以及 2 条要求 `todo_write` 的 `DEEP` 任务。
+- `cases-deep.jsonl`：5 条 `DEEP` 小样本，验证显式 Todo、逐项完成、最终验证与同一循环内纠错。
+- `cases-tools-todo-basic.jsonl`、`cases-tools-todo-search.jsonl`：分别验证 `todo_write`，以及 `todo_write + deep_search` 的定向工具轨迹。
+- `run-evals.ps1`：注册隔离用户、补充隔离额度、调用 Gateway SSE、校验关键词与工具轨迹，并验收 `run_started -> verification_started/result -> run_finished -> result`、`completionGatePassed`、`completionBlocked`、`stopReason` 和执行账本终态。
 - `run-offline-benchmarks.ps1`：运行 30 轮记忆和 9 项 Skills 渐进加载的确定性离线基准。
 - `run-quota-benchmark.ps1`、`run-benefit-mq-benchmark.ps1`：运行配额和权益 MQ 的本地集成基准。
 - `run-group-benchmark.ps1`：运行同机、单次有限突发的拼团竞争正确性冒烟；不用于容量或生产性能结论。
 - `run-payment-fault-tests.ps1`：运行支付域离线 Mock 故障与状态守卫回归，不连接支付宝沙箱。
 
-## 最新实测结果
+## 当前证据与复测状态
 
 ### Agent 在线评测
 
-| 数据集 | 端到端成功 | 账本成功 | P95 | Provider usage | 原始报告 |
-| --- | ---: | ---: | ---: | --- | --- |
-| 确定性任务 | 20/20（100%） | 18/18（100%）；2 条 chat 无账本 | 2.651 s | 0/20 返回 usage，平均 Token 为 `null` | [`agent-deterministic-conditional-final.json`](reports/agent-deterministic-conditional-final.json) |
-| 工具任务 | 10/10（100%） | 10/10（100%） | 376.731 s | 2/10 返回 usage；仅已观测样本平均 41,526 Token | [`agent-tools-conditional-final.json`](reports/agent-tools-conditional-final.json) |
+2026-07-16 已将在线执行迁移为统一 Agent Loop，并删除不再适用的旧协议在线报告。当前 Harness 尚未重新生成成功率、延迟或 Token 结论；新报告 schema 为 `3`。必须重新运行本页命令，且只有同时通过关键词/工具断言、规范生命周期、完成门禁、`stopReason=COMPLETED` 和账本成功，才计为端到端成功。
 
-工具集 10 条用例均产生并通过声明的工具轨迹。P95 由联网 Plan-and-Execute 长任务主导，不能外推为普通对话延迟。由于只有 2/10 个工具运行返回供应商 usage，41,526 只表示已观测样本均值，不能表述为完整工具集平均 Token。
-
-纯规划定向回归只使用 `planning` 一类工具，1/1 通过、耗时 158.246 s；联网规划定向回归包含 `planning + deep_search`，1/1 通过、耗时 382.700 s，并发生 1 轮定向重规划。对应报告为 [`agent-tool-plan-basic-conditional-final.json`](reports/agent-tool-plan-basic-conditional-final.json) 和 [`agent-tool-plan-search-conditional-final.json`](reports/agent-tool-plan-search-conditional-final.json)。
-
-### Evaluator 小样本 A/B
-
-| 配置 | 成功率 | 平均定向重规划 | P95 | 原始报告 |
-| --- | ---: | ---: | ---: | --- |
-| Evaluator 关闭 | 4/5（80%） | 不适用 | 105.671 s | [`agent-plan-evaluator-disabled.json`](reports/agent-plan-evaluator-disabled.json) |
-| Evaluator 开启 | 5/5（100%） | 0.4 轮 | 215.489 s | [`agent-plan-evaluator-enabled.json`](reports/agent-plan-evaluator-enabled.json) |
-
-该对比仅为同一 5 条数据集的单次小样本冒烟，模型输出存在随机性，不应解释为统计显著结论。它验证的是 Evaluator、失败原因回传、定向重规划和反思预算链路能够改变失败任务的执行结果，同时也展示了额外 LLM 调用带来的延迟和 Token 成本。
+新报告会分别统计 `STANDARD / AUTO / DEEP` 用例数、规范生命周期通过率、验证帧、完成门禁通过率、同循环 `completionBlocked` 次数、最终验证执行次数和 `stopReason` 分布。供应商 usage 缺失时继续写 `null`，不以本地估算冒充计费 Token。
 
 ### 记忆与 Skills 离线基准
 
@@ -45,7 +31,7 @@
 | Skills 渐进加载 | 9 项 `SKILL.md` | 全量注入平均估算 24,853 Token | 描述符 + 单项按需加载平均估算 3,432 Token | 降低 86.2% |
 | Skills 加载校验 | 9 项 `SKILL.md` | - | 9/9（100%） | 仅表示加载校验 |
 
-原始数据见 [`offline-benchmark.json`](reports/offline-benchmark.json)。该报告使用 `o200k_base` 估算器做同数据集 Prompt 大小比较，不是供应商计费 usage；9/9 是技能发现和加载校验成功率，不是线上 Skill 任务成功率。
+原始数据见 [`offline-benchmark.json`](reports/offline-benchmark.json)；重新运行后默认输出 `memory-skills-benchmark.json`。报告使用 `o200k_base` 估算器做同数据集 Prompt 大小比较，不是供应商计费 usage；9/9 是技能发现和加载校验成功率，不是线上 Skill 任务成功率。
 
 ### 配额、拼团与支付
 
@@ -83,12 +69,15 @@
 ## 指标口径
 
 - **断言通过**：满足用例声明的任一/全部关键词，并通过工具名称和最少调用次数校验。
-- **端到端成功**：断言通过，且 ReAct/Plan-and-Execute 用例的 `dialogue_run` 到达成功终态。
-- **账本成功**：仅统计存在 `dialogue_run` 的运行；固定 chat 流程不生成该账本。
+- **规范生命周期**：必须依次观察到 Agent Loop 的启动、完成验证、`run_finished` 和终态 `result`；终态 `result` 不得早于 `run_finished`。
+- **端到端成功**：断言和规范生命周期通过，`completionGatePassed=true`、`stopReason=COMPLETED`，且 `dialogue_run` 到达成功终态。
+- **账本成功**：统一 Agent Loop 的每条在线用例都必须生成 `dialogue_run`，不再为 `chat` 输出样式设置无账本例外。
+- **完成验证**：`verification_started/result` 表示 CompletionGate 尝试；`verifierExecuted=true` 才表示执行了独立最终验证器。
+- **完成阻断**：`completionBlocked` 表示草稿未通过门禁，失败原因与修正动作已反馈给同一个模型/工具循环继续处理，不切换另一套执行内核。
+- **停止原因**：`stopReason` 是终止类型；成功必须为 `COMPLETED`，预算耗尽、重复轮次、执行错误等均按失败统计。
 - **Token**：只使用 Spring AI 响应元数据中供应商上报并持久化的 usage。未返回 usage 的运行写为 `null`，不以 `TokenCounter.countText()` 补值。
-- **反思 Token**：Evaluator 为预算控制使用的保守估算值，不是供应商计费 usage。
 - **时延**：从 Gateway 请求开始到收到终态 SSE 帧的客户端墙钟时间。
-- **LLM-as-Judge**：`run-evals.ps1 -Judge` 是可选的最终答复评分；它与 Plan-and-Execute 内部的 Evaluator LLM Judge 是两个独立指标。
+- **LLM-as-Judge**：`run-evals.ps1 -Judge` 是独立的可选最终答复评分，不属于 Agent Loop 的 CompletionGate 指标。
 - **离线估算 Token**：只用于同数据集、同预算下比较 Prompt 大小，不与在线 provider usage 混用。
 
 ## 运行方式
@@ -100,6 +89,9 @@ pwsh docs/dev-ops/start-full-stack.ps1
 # Agent 在线集
 pwsh docs/evals/run-evals.ps1 -CasesFile cases.jsonl -ReportName agent-deterministic.json
 pwsh docs/evals/run-evals.ps1 -CasesFile cases-tools.jsonl -ReportName agent-tools.json -TimeoutSec 600
+pwsh docs/evals/run-evals.ps1 -CasesFile cases-deep.jsonl -ReportName agent-deep.json -TimeoutSec 600
+pwsh docs/evals/run-evals.ps1 -CasesFile cases-tools-todo-basic.jsonl -ReportName agent-todo-basic.json -TimeoutSec 600
+pwsh docs/evals/run-evals.ps1 -CasesFile cases-tools-todo-search.jsonl -ReportName agent-todo-search.json -TimeoutSec 600
 
 # 离线与业务集成基准
 pwsh docs/evals/run-offline-benchmarks.ps1

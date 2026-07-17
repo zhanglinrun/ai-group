@@ -104,7 +104,7 @@ def render_strict_query_markdown(original_query: str, title: str) -> str:
 
     report_title = (title or "严格事实报告").strip()
     payment_facts = [fact for fact in facts if any(token in fact for token in ("¥", "BENEFIT_GRANTED", "付费额度", "冻结额度"))]
-    agent_facts = [fact for fact in facts if any(token in fact for token in ("普通聊天", "Plan-Solve", "checkpoint", "MCP", "utility_estimate_llm_quota", "跨会话记忆", "报告上传"))]
+    agent_facts = [fact for fact in facts if any(token in fact for token in ("普通聊天", "Agent Loop", "todo_write", "CompletionGate", "MCP", "utility_estimate_llm_quota", "跨会话记忆", "报告上传"))]
 
     lines = [
         f"# {report_title}",

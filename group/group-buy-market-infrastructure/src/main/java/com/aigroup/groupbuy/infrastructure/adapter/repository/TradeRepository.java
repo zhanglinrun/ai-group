@@ -255,6 +255,7 @@ public class TradeRepository implements ITradeRepository {
     @Override
     public GroupBuyTeamEntity queryGroupBuyTeamByTeamId(String teamId) {
         GroupBuyOrder groupBuyOrder = groupBuyOrderDao.queryGroupBuyTeamByTeamId(teamId);
+        if (null == groupBuyOrder) return null;
         return GroupBuyTeamEntity.builder()
                 .teamId(groupBuyOrder.getTeamId())
                 .activityId(groupBuyOrder.getActivityId())
@@ -448,43 +449,56 @@ public class TradeRepository implements ITradeRepository {
                 .build();
     }
 
+    @Transactional(timeout = 30)
     @Override
     public int settleExpiredFormedTeams() {
-        List<GroupBuyOrder> teams = groupBuyOrderDao.queryExpiredProgressTeams();
-        if (null == teams || teams.isEmpty()) return 0;
+        List<GroupBuyOrder> candidates = groupBuyOrderDao.queryExpiredProgressTeams();
+        if (null == candidates || candidates.isEmpty()) return 0;
         int settled = 0;
-        for (GroupBuyOrder team : teams) {
-            try {
-                List<GroupBuyActivityTier> tiers = snapshotTiers(team.getTierSnapshot());
-                // 经典折扣拼团（无档位）不走阶梯到期结算，仍由原成团/退款逻辑处理
-                if (null == tiers || tiers.isEmpty()) continue;
-
-                int minTarget = Integer.MAX_VALUE;
-                for (GroupBuyActivityTier tier : tiers) {
-                    if (null != tier.getTargetCount() && tier.getTargetCount() < minTarget) {
-                        minTarget = tier.getTargetCount();
-                    }
-                }
-                int completeCount = null != team.getCompleteCount() ? team.getCompleteCount() : 0;
-                // 到期未达最低档：团不成立，交由退款流程处理（不在此结算）
-                if (completeCount < minTarget) continue;
-
-                List<String> outTradeNoList = groupBuyOrderListDao.queryGroupBuyCompleteOrderOutTradeNoListByTeamId(team.getTeamId());
-                if (null == outTradeNoList || outTradeNoList.isEmpty()) continue;
-
-                Integer bonusQuota = resolveTierBonus(tiers, completeCount);
-                NotifyTask notifyTask = buildDeadlineSettlementNotifyTask(team, outTradeNoList, bonusQuota);
-                // 先幂等落地回调任务（uuid 唯一），再成团置位；即便置位失败，下轮扫描重入也不会重复建任务
-                try {
-                    notifyTaskDao.insert(notifyTask);
-                } catch (DuplicateKeyException ignore) {
-                    // 已建过结算回调，继续成团置位即可
-                }
-                groupBuyOrderDao.updateOrderStatus2COMPLETE(team.getTeamId());
-                settled++;
-            } catch (Exception e) {
-                log.error("settle expired formed team failed teamId:{}", team.getTeamId(), e);
+        for (GroupBuyOrder candidate : candidates) {
+            // Lock and re-read the team inside the same transaction. A refund may have
+            // reduced complete_count after the candidate scan; using the stale row can
+            // otherwise complete an under-threshold team and grant quota incorrectly.
+            GroupBuyOrder team = groupBuyOrderDao.queryGroupBuyTeamByTeamIdForUpdate(candidate.getTeamId());
+            if (team == null || !GroupBuyOrderEnumVO.PROGRESS.getCode().equals(team.getStatus())
+                    || team.getValidEndTime() == null || !team.getValidEndTime().before(new Date())) {
+                continue;
             }
+
+            List<GroupBuyActivityTier> tiers;
+            try {
+                tiers = snapshotTiers(team.getTierSnapshot());
+            } catch (Exception malformedSnapshot) {
+                // Malformed commercial rules must fail closed: never refund or grant
+                // based on an unreadable snapshot; leave the team for operator repair.
+                log.error("settle expired team skipped, malformed tier snapshot teamId:{}", team.getTeamId(), malformedSnapshot);
+                continue;
+            }
+            // 经典折扣拼团（无档位）不走阶梯到期结算，仍由原成团/退款逻辑处理
+            if (null == tiers || tiers.isEmpty()) continue;
+
+            int minTarget = minimumTierTarget(tiers);
+            int completeCount = null != team.getCompleteCount() ? team.getCompleteCount() : 0;
+            // 到期未达最低档：团不成立，交由退款流程处理（不在此结算）
+            if (minTarget == Integer.MAX_VALUE || completeCount < minTarget) continue;
+
+            List<String> outTradeNoList = groupBuyOrderListDao.queryGroupBuyCompleteOrderOutTradeNoListByTeamId(team.getTeamId());
+            if (null == outTradeNoList || outTradeNoList.isEmpty()) continue;
+
+            Integer bonusQuota = resolveTierBonus(tiers, completeCount);
+            NotifyTask notifyTask = buildDeadlineSettlementNotifyTask(team, outTradeNoList, bonusQuota);
+            // The task insert and team CAS commit atomically. GroupBuyNotifyJob cannot
+            // observe/publish a task for a team whose completion later rolls back.
+            try {
+                notifyTaskDao.insert(notifyTask);
+            } catch (DuplicateKeyException ignore) {
+                // 已建过结算回调，继续成团置位即可
+            }
+            int updated = groupBuyOrderDao.updateOrderStatus2COMPLETE(team.getTeamId());
+            if (updated != 1) {
+                throw new AppException(ResponseCode.UPDATE_ZERO);
+            }
+            settled++;
         }
         return settled;
     }
@@ -515,6 +529,31 @@ public class TradeRepository implements ITradeRepository {
     private List<GroupBuyActivityTier> snapshotTiers(String tierSnapshot) {
         if (StringUtils.isBlank(tierSnapshot)) return Collections.emptyList();
         return JSON.parseArray(tierSnapshot, GroupBuyActivityTier.class);
+    }
+
+    private int minimumTierTarget(List<GroupBuyActivityTier> tiers) {
+        int minTarget = Integer.MAX_VALUE;
+        if (tiers == null) return minTarget;
+        for (GroupBuyActivityTier tier : tiers) {
+            if (tier != null && tier.getTargetCount() != null && tier.getTargetCount() > 0
+                    && tier.getTargetCount() < minTarget) {
+                minTarget = tier.getTargetCount();
+            }
+        }
+        return minTarget;
+    }
+
+    private boolean shouldDeferPaidRefundForTierSettlement(GroupBuyOrder team) {
+        if (team == null || StringUtils.isBlank(team.getTierSnapshot())) return false;
+        try {
+            List<GroupBuyActivityTier> tiers = snapshotTiers(team.getTierSnapshot());
+            int minTarget = minimumTierTarget(tiers);
+            int completeCount = team.getCompleteCount() == null ? 0 : team.getCompleteCount();
+            return minTarget == Integer.MAX_VALUE || completeCount >= minTarget;
+        } catch (Exception malformedSnapshot) {
+            log.error("paid refund deferred, malformed tier snapshot teamId:{}", team.getTeamId(), malformedSnapshot);
+            return true;
+        }
     }
 
     /** 取 completeCount 所达最高档位的累计加赠额度；无档位返回 null、未达任何档返回 0 */
@@ -631,6 +670,10 @@ public class TradeRepository implements ITradeRepository {
 
         if (!lock) {
             log.info("组队库存加锁失败 {}", lockKey);
+            // The atomic counter was already incremented above. Roll it back when
+            // the slot marker cannot be created, otherwise a transient Redis/key
+            // collision permanently consumes one team seat.
+            redisService.decr(teamStockKey);
         }
 
         return lock;
@@ -943,6 +986,10 @@ public class TradeRepository implements ITradeRepository {
             if (null == groupBuyOrder) continue;
             // 仅退"团仍在拼单中(PROGRESS)"的已付款单；已成团(COMPLETE/COMPLETE_FAIL)或已失败的单不在此退款
             if (!GroupBuyOrderEnumVO.PROGRESS.getCode().equals(groupBuyOrder.getStatus())) continue;
+            // TimeoutRefundJob first settles expired tier teams that reached their
+            // minimum tier. Its candidate query is bounded; without this second guard,
+            // an eligible team outside that first page can be refunded in the same run.
+            if (shouldDeferPaidRefundForTierSettlement(groupBuyOrder)) continue;
 
             UserGroupBuyOrderDetailEntity userGroupBuyOrderDetailEntity = UserGroupBuyOrderDetailEntity.builder()
                     .userId(groupBuyOrderList.getUserId())

@@ -4,16 +4,15 @@ param(
     [string]$Gateway = "http://127.0.0.1:8080",
     [string]$Query = "请只回复 AGENT_SSE_OK，不要调用任何工具。",
     [string]$OutputStyle = "chat",
-    [switch]$DeepThink,
+    [ValidateSet("AUTO", "STANDARD", "DEEP")]
+    [string]$ExecutionMode = "STANDARD",
+    [ValidateSet("SUCCESS", "MODEL_FAILURE_NO_CHARGE")]
+    [string]$ExpectedOutcome = "SUCCESS",
     [ValidateRange(30, 600)]
     [int]$TimeoutSeconds = 180
 )
 
 $ErrorActionPreference = "Stop"
-
-if ($DeepThink -and $OutputStyle -eq "chat") {
-    throw "DeepThink cannot be combined with OutputStyle=chat because chat routes to WORKFLOW; use a structured style such as docs."
-}
 
 $suffix = [guid]::NewGuid().ToString("N").Substring(0, 12)
 $username = "sse_$suffix"
@@ -58,7 +57,7 @@ $requestBody = @{
     sessionId = "s-$suffix"
     requestId = "r-$suffix"
     query = $Query
-    deepThink = if ($DeepThink) { 1 } else { 0 }
+    executionMode = $ExecutionMode
     outputStyle = $OutputStyle
 } | ConvertTo-Json -Compress
 
@@ -79,8 +78,9 @@ $request.Content = [System.Net.Http.StringContent]::new(
 )
 $cts = [System.Threading.CancellationTokenSource]::new([TimeSpan]::FromSeconds($TimeoutSeconds))
 $response = $null
-$sawStream = $false
 $terminalResult = $null
+$sawRunFinished = $false
+$runFinishedEvent = $null
 $frameCount = 0
 $eventTypes = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
 
@@ -116,11 +116,19 @@ try {
 
             $messageType = [string]$eventPayload.messageType
             $eventResult = [string]$eventPayload.result
+            if ([string]::IsNullOrWhiteSpace($eventResult)) {
+                $eventResult = [string]$eventPayload.taskSummary
+            }
             if (-not [string]::IsNullOrWhiteSpace($messageType)) {
                 $null = $eventTypes.Add($messageType)
             }
-            if ($messageType -eq "agent_stream" -and -not [string]::IsNullOrWhiteSpace($eventResult)) {
-                $sawStream = $true
+            if ($messageType -eq "run_finished") {
+                $sawRunFinished = $true
+                $runFinishedEvent = if ($null -ne $eventPayload.resultMap) {
+                    $eventPayload.resultMap
+                } else {
+                    $eventPayload
+                }
             }
             if ($messageType -eq "result" -and ($frame.finished -eq $true -or $eventPayload.finish -eq $true)) {
                 $terminalResult = if (-not [string]::IsNullOrWhiteSpace($eventResult)) {
@@ -141,23 +149,14 @@ try {
     $cts.Dispose()
 }
 
-if ($OutputStyle -eq "chat" -and -not $sawStream) {
-    throw "no non-empty agent_stream frame; real LLM streaming was not proven"
-}
-if ($DeepThink) {
-    $requiredLifecycleGroups = [ordered]@{
-        plan = @("plan", "plan_thought")
-        task = @("task")
-        evaluation = @("evaluation")
-        checkpoint = @("checkpoint", "resume")
-    }
-    foreach ($group in $requiredLifecycleGroups.GetEnumerator()) {
-        if (-not @($group.Value | Where-Object { $eventTypes.Contains($_) })) {
-            throw "missing Plan-Solve $($group.Key) lifecycle event (types=$($eventTypes -join ','))"
-        }
+foreach ($requiredType in @("run_started", "run_finished", "result")) {
+    if (-not $eventTypes.Contains($requiredType)) {
+        throw "missing canonical Agent Loop event '$requiredType' (types=$($eventTypes -join ','))"
     }
 }
+if (-not $sawRunFinished) { throw "terminal result arrived before run_finished" }
 if ([string]::IsNullOrWhiteSpace($terminalResult)) { throw "no non-empty terminal result frame" }
+if ($null -eq $runFinishedEvent) { throw "run_finished payload is missing" }
 
 $after = Invoke-JsonApi GET "/api/member/summary" $null $accessToken
 if ([int]$after.code -ne 200 -or $null -eq $after.data) {
@@ -171,9 +170,34 @@ foreach ($field in @("availableQuota", "frozenBalance")) {
 $afterAvailable = [long]$after.data.availableQuota
 $afterFrozen = [long]$after.data.frozenBalance
 if ($afterFrozen -ne 0L) { throw "quota reservation was not settled: frozen=$afterFrozen" }
-if ($afterAvailable -ge $beforeAvailable) {
-    throw "successful LLM run did not consume quota: before=$beforeAvailable after=$afterAvailable"
+$runStatus = [string]$runFinishedEvent.runStatus
+if ([string]::IsNullOrWhiteSpace($runStatus)) {
+    $runStatus = [string]$runFinishedEvent.status
+}
+$stopReason = [string]$runFinishedEvent.stopReason
+
+if ($ExpectedOutcome -eq "SUCCESS") {
+    foreach ($requiredType in @("verification_started", "verification_result")) {
+        if (-not $eventTypes.Contains($requiredType)) {
+            throw "successful Agent Loop is missing '$requiredType' (types=$($eventTypes -join ','), status=$runStatus, stopReason=$stopReason)"
+        }
+    }
+    if ($runStatus -ne "SUCCESS" -or $runFinishedEvent.completionGatePassed -ne $true) {
+        throw "Agent Loop did not finish successfully: status=$runStatus stopReason=$stopReason"
+    }
+    if ($afterAvailable -ge $beforeAvailable) {
+        throw "successful LLM run did not consume quota: before=$beforeAvailable after=$afterAvailable"
+    }
+
+    Write-Host "AGENT SSE SMOKE OK (outcome=SUCCESS, mode=$ExecutionMode, frames=$frameCount, types=$($eventTypes -join ','), resultChars=$($terminalResult.Length), quota=$beforeAvailable->$afterAvailable)"
+    exit 0
 }
 
-$mode = if ($OutputStyle -eq "chat") { "WORKFLOW" } elseif ($DeepThink) { "PLAN_SOLVE" } else { "REACT" }
-Write-Host "AGENT SSE SMOKE OK (mode=$mode, frames=$frameCount, types=$($eventTypes -join ','), resultChars=$($terminalResult.Length), quota=$beforeAvailable->$afterAvailable)"
+if ($runStatus -ne "FAILED" -or $stopReason -ne "MODEL_ERROR") {
+    throw "expected MODEL_ERROR failure, got status=$runStatus stopReason=$stopReason"
+}
+if ($afterAvailable -ne $beforeAvailable) {
+    throw "failed provider call changed quota: before=$beforeAvailable after=$afterAvailable"
+}
+
+Write-Host "AGENT SSE SMOKE OK (outcome=MODEL_FAILURE_NO_CHARGE, mode=$ExecutionMode, frames=$frameCount, types=$($eventTypes -join ','), resultChars=$($terminalResult.Length), quota=$beforeAvailable->$afterAvailable)"

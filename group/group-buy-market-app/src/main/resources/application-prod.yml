@@ -25,9 +25,9 @@ thread:
 # 数据库配置；启动时配置数据库资源信息
 spring:
   datasource:
-    username: root
-    password: 12345678
-    url: jdbc:mysql://127.0.0.1:3306/group_buy_market?useUnicode=true&characterEncoding=utf8&autoReconnect=true&zeroDateTimeBehavior=convertToNull&serverTimezone=Asia/Shanghai&useSSL=true&sessionVariables=sql_mode='NO_ENGINE_SUBSTITUTION,STRICT_TRANS_TABLES'
+    username: ${MYSQL_USERNAME}
+    password: ${MYSQL_PASSWORD}
+    url: jdbc:mysql://${MYSQL_HOST}:${MYSQL_PORT:3306}/group_buy_market?useUnicode=true&characterEncoding=utf8&autoReconnect=true&zeroDateTimeBehavior=convertToNull&serverTimezone=Asia/Shanghai&useSSL=${MYSQL_USE_SSL:true}&sessionVariables=sql_mode='NO_ENGINE_SUBSTITUTION,STRICT_TRANS_TABLES'
     driver-class-name: com.mysql.cj.jdbc.Driver
     type: com.zaxxer.hikari.HikariDataSource
     hikari:
@@ -41,14 +41,10 @@ spring:
       connection-test-query: SELECT 1
   # RabbitMQ
   rabbitmq:
-    addresses: 192.168.1.108
-    port: 5672
-    username: admin
-    password: admin
-    # B4: broker-side publish confirm; EventPublisher does not register a confirm
-    # callback yet, this only enables the channel so failures surface in logs.
-    publisher-confirm-type: correlated
-    publisher-returns: true
+    addresses: ${RABBITMQ_HOST}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USER}
+    password: ${RABBITMQ_PASSWORD}
     listener:
       simple:
         prefetch: 1 # 每次投递n个消息，消费完在投递n个
@@ -99,8 +95,8 @@ mybatis:
 redis:
   sdk:
     config:
-      host: 192.168.1.108
-      port: 16379
+      host: ${REDIS_HOST}
+      port: ${REDIS_PORT:6379}
       pool-size: 10
       min-idle-size: 5
       idle-timeout: 30000
@@ -116,22 +112,22 @@ xfg:
     config:
       system: group-buy-market
       register:
-        host: 192.168.1.108
-        port: 16379
+        host: ${REDIS_HOST}
+        port: ${REDIS_PORT:6379}
 
 # 日志；logstash部署的服务器IP
 logstash:
-  host: 127.0.0.1
+  host: ${LOGSTASH_HOST:127.0.0.1}
 
 # 监控配置 Prometheus + Grafana
 management:
   endpoints:
     web:
       exposure:
-        include: "*" # 暴露所有端点，包括自定义端点
+        include: health,info,prometheus
   endpoint:
     health:
-      show-details: always # 显示详细的健康检查信息
+      show-details: never
   metrics:
     export:
       prometheus:

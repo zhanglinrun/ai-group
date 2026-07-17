@@ -21,6 +21,6 @@ public interface IBenefitEventDao {
                                           @Param("lastId") Long lastId,
                                           @Param("pageSize") int pageSize);
 
-    List<BenefitEvent> queryUnpublished(@Param("eventType") String eventType, @Param("limit") int limit);
+    List<BenefitEvent> queryUnpublished(@Param("limit") int limit);
 
 }

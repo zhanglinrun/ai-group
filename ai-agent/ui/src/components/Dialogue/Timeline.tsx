@@ -17,52 +17,35 @@ import {
   isTimelineTaskContainerCompleted,
   shouldShowTimelineGroupCompletedIcon,
 } from './timelineStatus';
+import { parsePlatformContextTask } from '@/utils/platformContext';
+import { PlatformContextCard } from './PlatformContextCard';
 
 type TimelineProps = {
   chat: CHAT.ChatItem;
-  isPlanSolveMessage: boolean;
   changeActiveChat: (task: CHAT.Task, chat: CHAT.ChatItem) => void;
-  changePlan?: () => void;
   changeFile?: (file: CHAT.TFile, chat?: CHAT.ChatItem) => void;
 };
 
 type ToolItemProps = {
   tool: CHAT.Task;
   chat: CHAT.ChatItem;
-  changePlan?: () => void;
   changeActiveChat: (task: CHAT.Task, chat: CHAT.ChatItem) => void;
   changeFile?: (file: CHAT.TFile, chat?: CHAT.ChatItem) => void;
 };
 
 const ToolItem: FC<ToolItemProps> = memo(
-  ({ tool, chat, changePlan, changeActiveChat, changeFile }) => {
+  ({ tool, chat, changeActiveChat, changeFile }) => {
     const actionInfo = useMemo(() => buildAction(tool), [tool]);
+    const platformContext = useMemo(() => parsePlatformContextTask(tool), [tool]);
+
+    if (platformContext) {
+      return <PlatformContextCard task={tool} />;
+    }
 
     switch (tool.messageType) {
-      case 'plan': {
-        const completedIndex = tool.plan?.stepStatus.lastIndexOf('completed') || 0;
-        return (
-          <div
-            className="mt-2 flex w-full max-w-full cursor-pointer items-center gap-3 rounded-xl px-1 py-2 transition-all duration-200 hover:bg-muted/35"
-            onClick={() => changePlan?.()}
-          >
-            <div className="flex size-7 shrink-0 items-center justify-center text-[#0071e3] [&_svg]:drop-shadow-none [&_svg]:[filter:none]">
-              <i
-                className={`font_family ${getIcon(tool.messageType)} text-[17px] leading-none [text-shadow:none]`}
-              ></i>
-            </div>
-            <div className="flex min-w-0 items-center gap-2 overflow-hidden">
-              <span className="shrink-0 text-[14px] font-medium text-foreground">已完成</span>
-              <span className="truncate text-[13px] text-muted-foreground">
-                {tool.plan?.steps[completedIndex]}
-              </span>
-            </div>
-          </div>
-        );
-      }
       case 'tool_thought': {
         // 思考流是否仍在进行：必须同时满足「本轮未标记 isFinal」且「整条对话仍在 loading」。
-        // 仅看 isFinal 会在 ReAct 轮次以 Finish[...] 收尾、末条 tool_thought 未回填 isFinal 时，
+        // 仅看 isFinal 会在模型/工具轮次收尾、末条 tool_thought 未回填 isFinal 时，
         // 让思考标签永久停在“思考中”。对齐 Dialogue/DataDialogue 的 chat.loading 门控。
         const streamingThought = !!chat.loading && !tool.resultMap?.isFinal;
         return (
@@ -166,7 +149,6 @@ const ToolItem: FC<ToolItemProps> = memo(
   (prevProps, nextProps) =>
     prevProps.tool === nextProps.tool &&
     prevProps.chat === nextProps.chat &&
-    prevProps.changePlan === nextProps.changePlan &&
     prevProps.changeActiveChat === nextProps.changeActiveChat &&
     prevProps.changeFile === nextProps.changeFile,
 );
@@ -260,11 +242,9 @@ const resolveDigitalEmployee = (task: CHAT.Task): string | undefined => {
 const TimelineContent: FC<{
   chat: CHAT.ChatItem;
   tasks: CHAT.Task[];
-  isPlanSolveMessage: boolean;
   changeActiveChat: (task: CHAT.Task, chat: CHAT.ChatItem) => void;
-  changePlan?: () => void;
   changeFile?: (file: CHAT.TFile, chat?: CHAT.ChatItem) => void;
-}> = ({ chat, tasks, isPlanSolveMessage, changeActiveChat, changePlan, changeFile }) => {
+}> = ({ chat, tasks, changeActiveChat, changeFile }) => {
   return (
     <>
       {tasks.map((task, taskIndex) => {
@@ -275,7 +255,7 @@ const TimelineContent: FC<{
             key={task.id || task.messageId || task.taskId || taskIndex}
             className="overflow-hidden"
           >
-            {isPlanSolveMessage && task.task ? (
+            {task.task ? (
               <div className="mb-1">
                 <div className="font-[500]">{task.task}</div>
                 {digitalEmployee && (
@@ -315,7 +295,6 @@ const TimelineContent: FC<{
                     <ToolItem
                       tool={tool}
                       chat={chat}
-                      changePlan={changePlan}
                       changeActiveChat={changeActiveChat}
                       changeFile={changeFile}
                     />
@@ -330,19 +309,13 @@ const TimelineContent: FC<{
   );
 };
 
-export const Timeline: FC<TimelineProps> = ({
-  chat,
-  isPlanSolveMessage,
-  changeActiveChat,
-  changePlan,
-  changeFile,
-}) => (
+export const Timeline: FC<TimelineProps> = ({ chat, changeActiveChat, changeFile }) => (
   <>
     {chat.tasks.map((tasks, index) => {
       const lastTask = index === chat.tasks.length - 1;
       const groupKey = tasks[0]?.id || tasks[0]?.messageId || tasks[0]?.taskId || index;
+      const trackedTaskGroup = tasks.some((task) => Boolean(task.task?.trim()));
       const showCompletedIcon = shouldShowTimelineGroupCompletedIcon({
-        isPlanSolve: isPlanSolveMessage,
         isLastGroup: lastTask,
         loading: chat.loading,
         tasks,
@@ -350,7 +323,7 @@ export const Timeline: FC<TimelineProps> = ({
 
       return (
         <div className="flex w-full" key={groupKey}>
-          {isPlanSolveMessage ? (
+          {trackedTaskGroup ? (
             <div className="relative mb-2 mt-1 w-8 shrink-0 overflow-hidden">
               {lastTask && chat.loading ? (
                 <div aria-label="timeline-loading">
@@ -368,9 +341,7 @@ export const Timeline: FC<TimelineProps> = ({
             <TimelineContent
               chat={chat}
               tasks={tasks}
-              isPlanSolveMessage={isPlanSolveMessage}
               changeActiveChat={changeActiveChat}
-              changePlan={changePlan}
               changeFile={changeFile}
             />
           </div>

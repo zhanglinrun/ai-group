@@ -54,6 +54,8 @@ Write-Host "==> Init DB (idempotent)"
 Invoke-Mysql "$root/auth-service/src/main/resources/schema.sql"
 Invoke-Mysql "$root/member-service/src/main/resources/schema.sql"
 Invoke-Mysql "$root/docs/dev-ops/mysql/sql/member_db/02-platform-schema-migrate.sql"
+# CREATE TABLE IF NOT EXISTS 不会升级既有 quota_freeze，必须显式执行 durable settlement 增量迁移。
+Invoke-Mysql "$root/docs/dev-ops/mysql/sql/member_db/03-durable-quota-settlement.sql"
 
 Write-Host "==> Build services"
 Push-Location "$root"

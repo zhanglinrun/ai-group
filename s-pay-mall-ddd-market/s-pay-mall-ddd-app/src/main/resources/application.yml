@@ -3,3 +3,45 @@ spring:
     name: s-pay-mall-ddd-app
   profiles:
     active: dev
+  rabbitmq:
+    # The publisher only reports success after a correlated broker ACK and no return.
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    template:
+      mandatory: true
+    config:
+      producer:
+        confirm-timeout-ms: ${RABBITMQ_PUBLISH_CONFIRM_TIMEOUT_MS:5000}
+        topic_order_pay_success:
+          exchange: s_pay_mall_exchange
+          routing_key: topic.order_pay_success
+          queue: s_pay_mall_queue_2_order_pay_success
+        member_benefit:
+          exchange: member.benefit.exchange
+          routing_key: member.benefit.completed
+      consumer:
+        dlx_exchange: s_pay_mall_dlx
+        topic_team_success:
+          exchange: group_buy_market_exchange
+          routing_key: topic.team_success
+          queue: s_pay_mall_queue_2_topic_team_success
+          dlq: s_pay_mall_queue_2_topic_team_success_dlq
+          dlq_routing_key: topic.team_success.dlq
+        topic_team_refund:
+          exchange: group_buy_market_exchange
+          routing_key: topic.team_refund
+          queue: s_pay_mall_queue_2_topic_team_refund
+          dlq: s_pay_mall_queue_2_topic_team_refund_dlq
+          dlq_routing_key: topic.team_refund.dlq
+        topic_order_pay_success:
+          exchange: s_pay_mall_exchange
+          routing_key: topic.order_pay_success
+          queue: s_pay_mall_queue_2_order_pay_success
+          dlq: s_pay_mall_queue_2_order_pay_success_dlq
+          dlq_routing_key: topic.order_pay_success.dlq
+
+ai-group:
+  pay:
+    outbox:
+      publish-delay-ms: ${PAY_OUTBOX_PUBLISH_DELAY_MS:1000}
+      publish-initial-delay-ms: ${PAY_OUTBOX_PUBLISH_INITIAL_DELAY_MS:1000}

@@ -25,6 +25,7 @@ import { paymentOutcomeMessage, resolvePaymentOutcome } from '@/utils/paymentSta
 import { submitAlipayForm } from '@/utils/payForm';
 import { ROUTES } from '@/router/routes';
 import { formatMicroQuota } from '@/utils/tradeDisplay';
+import { bffDegradationMessage } from '@/utils/bffDegradation';
 
 type TradeTab = 'packages' | 'orders';
 
@@ -46,6 +47,7 @@ const PricingPage = memo(() => {
   const [searchParams, setSearchParams] = useSearchParams();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [degradationNotice, setDegradationNotice] = useState('');
   const [skus, setSkus] = useState<SkuItem[]>([]);
   const [groupBuy, setGroupBuy] = useState<GroupBuyInfo | null>(null);
   const [summary, setSummary] = useState<AccountSummary | null>(null);
@@ -69,6 +71,7 @@ const PricingPage = memo(() => {
   const loadTradeData = useCallback(async () => {
     setLoading(true);
     setError('');
+    setDegradationNotice('');
     try {
       const [pricing, orderList, accountSummary] = await Promise.all([
         bffApi.getPricing(),
@@ -79,6 +82,9 @@ const PricingPage = memo(() => {
       setGroupBuy(pricing?.groupBuy || null);
       setOrders(orderList?.items || []);
       setSummary(accountSummary);
+      setDegradationNotice(
+        bffDegradationMessage(pricing?.meta, orderList?.meta, accountSummary?.meta),
+      );
     } catch (nextError) {
       console.error('加载交易数据失败', nextError);
       setError('交易数据读取失败，请稍后重试');
@@ -256,6 +262,12 @@ const PricingPage = memo(() => {
         {error ? (
           <div className="mt-6 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
             {error}
+          </div>
+        ) : null}
+
+        {degradationNotice ? (
+          <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            {degradationNotice}
           </div>
         ) : null}
 

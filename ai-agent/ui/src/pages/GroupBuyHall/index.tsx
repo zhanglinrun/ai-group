@@ -9,20 +9,24 @@ import { bffApi, type GroupBuyInfo, type GroupBuyTeam, type SkuItem } from '@/se
 import { useTradePurchase } from '@/hooks/useTradePurchase';
 import { ROUTES } from '@/router/routes';
 import { skuDisplayName } from '@/utils/tradeDisplay';
+import { bffDegradationMessage } from '@/utils/bffDegradation';
 
 const GroupBuyHallPage = memo(() => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
+  const [degradationNotice, setDegradationNotice] = useState('');
   const [groupBuy, setGroupBuy] = useState<GroupBuyInfo | null>(null);
   const [skus, setSkus] = useState<SkuItem[]>([]);
   const { buyingKey, handleBuy, qrPayment, closeQrPayment } = useTradePurchase(groupBuy);
 
   const loadHall = useCallback(async () => {
     setLoading(true);
+    setDegradationNotice('');
     try {
       const data = await bffApi.getPricing();
       setGroupBuy(data?.groupBuy || null);
       setSkus(data?.skus || []);
+      setDegradationNotice(bffDegradationMessage(data?.meta));
     } catch (error) {
       console.error('加载拼团大厅失败', error);
       message.error('拼团大厅加载失败');
@@ -120,6 +124,12 @@ const GroupBuyHallPage = memo(() => {
           </Link>
           选择直接购买，支付后立即生效。
         </div>
+
+        {degradationNotice ? (
+          <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {degradationNotice}
+          </div>
+        ) : null}
 
         {loading ? (
           <div className="flex justify-center py-20">

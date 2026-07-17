@@ -1325,6 +1325,12 @@ ol {
   overflow: hidden;
 }
 
+@media (max-width: 1023px) {
+  .agent-shell {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .agent-sidebar {
   background: var(--chat-surface-soft);
   display: flex;

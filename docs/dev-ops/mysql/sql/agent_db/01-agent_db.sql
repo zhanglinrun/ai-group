@@ -1,4 +1,4 @@
-﻿create database if not exists agent_db
+create database if not exists agent_db
   default character set utf8mb4
   default collate utf8mb4_general_ci;
 
@@ -6,7 +6,7 @@ use agent_db;
 
 set names utf8mb4;
 
--- Reactor-agent 表结构初始化脚本。
+-- ai-agent 表结构初始化脚本。
 -- 只包含表结构，不写入演示密钥、演示账号或外部服务凭据。
 
 create table if not exists ai_agent (
@@ -15,8 +15,8 @@ create table if not exists ai_agent (
   agent_name varchar(50) not null comment '智能体名称',
   description varchar(255) default null comment '描述',
   channel varchar(32) default null comment '渠道类型',
-  strategy varchar(64) default null comment '执行策略',
-  flow_step_count int default null comment '流程步数',
+  strategy varchar(64) default null comment '历史角色配置元数据（不参与运行时选择）',
+  flow_step_count int default null comment '角色规程步骤展示计数（不参与运行时选择）',
   status tinyint(1) default 1 comment '状态(0:禁用,1:启用)',
   create_time datetime default current_timestamp comment '创建时间',
   update_time datetime default current_timestamp on update current_timestamp comment '更新时间',
@@ -30,12 +30,12 @@ create table if not exists ai_agent_flow_config (
   client_id varchar(64) not null comment '客户端ID',
   client_name varchar(64) default null comment '客户端名称',
   client_type varchar(64) default null comment '客户端类型',
-  sequence int not null comment '序列号',
-  step_prompt longtext comment '步骤提示词',
+  sequence int not null comment '角色规程排序',
+  step_prompt longtext comment '角色规程提示词',
   create_time datetime default current_timestamp comment '创建时间',
   primary key (id),
   unique key uk_agent_client_seq (agent_id, client_id, sequence)
-) engine=InnoDB default charset=utf8mb4 comment='智能体-客户端关联表';
+) engine=InnoDB default charset=utf8mb4 comment='角色profile的客户端与规程绑定表';
 
 create table if not exists ai_agent_task_schedule (
   id bigint not null auto_increment comment '主键ID',
@@ -207,8 +207,11 @@ create table if not exists dialogue_run (
   session_id varchar(64) default null comment '会话ID',
   owner_id varchar(64) default null comment '登录用户ID (ownerId = userId)',
   entry_agent varchar(64) default null comment '入口执行链',
+  role_agent_id varchar(64) default null comment '本轮固定角色ID快照',
+  role_agent_name varchar(128) default null comment '本轮固定角色名称快照',
   status int default null comment '运行状态',
   query_text longtext comment '用户原始问题',
+  request_fingerprint varchar(64) default null comment '客户端请求稳定指纹，旧历史行允许为空',
   final_summary_text longtext comment '最终总结文本',
   llm_call_count int default 0 comment 'LLM调用次数',
   tool_call_count int default 0 comment '工具调用次数',
@@ -219,6 +222,8 @@ create table if not exists dialogue_run (
   error_code varchar(64) default null comment '失败码',
   error_msg longtext comment '失败信息',
   started_at datetime default null comment '开始时间',
+  deadline_at datetime default null comment '运行绝对截止时间',
+  heartbeat_at datetime default null comment '执行进程最后心跳时间',
   finished_at datetime default null comment '结束时间',
   duration_ms bigint default null comment '总耗时(毫秒)',
   create_time datetime not null default current_timestamp comment '创建时间',
@@ -227,34 +232,9 @@ create table if not exists dialogue_run (
   primary key (id),
   unique key uk_request_id (request_id),
   key idx_session_started (session_id, started_at),
-  key idx_run_uid (run_uid)
+  key idx_run_uid (run_uid),
+  key idx_run_recovery (status, deadline_at, heartbeat_at)
 ) engine=InnoDB default charset=utf8mb4 comment='单次对话执行总账';
-
-create table if not exists agent_run_checkpoint (
-  id bigint not null auto_increment comment '主键',
-  checkpoint_id varchar(64) not null comment '对外不可猜测的恢复点ID',
-  run_id bigint not null comment '来源run',
-  request_id varchar(64) not null comment '来源请求ID',
-  session_id varchar(64) not null comment '会话ID',
-  owner_id varchar(64) not null comment '所有权边界',
-  sequence_no int not null comment 'run内递增序号',
-  phase varchar(32) not null comment 'READY_FOR_STEP/BEFORE_SUMMARY',
-  step_index int default null comment '恢复后的下一步骤索引',
-  snapshot_json longtext not null comment '受限且脱敏的最小状态快照',
-  snapshot_hash char(64) not null comment '快照SHA-256',
-  resumable tinyint(1) not null default 1 comment '是否允许恢复',
-  resumed_by_request_id varchar(64) default null comment '消费该恢复点的新请求',
-  resume_decision varchar(32) default null comment 'SAFE_ONLY/RESTART_FROM_CHECKPOINT',
-  resumed_at datetime default null comment '恢复认领时间',
-  created_at datetime not null default current_timestamp comment '创建时间',
-  updated_at datetime not null default current_timestamp on update current_timestamp comment '更新时间',
-  deleted tinyint(1) not null default 0 comment '逻辑删除',
-  primary key (id),
-  unique key uk_checkpoint_id (checkpoint_id),
-  unique key uk_run_sequence (run_id, sequence_no),
-  key idx_owner_session_created (owner_id, session_id, created_at),
-  key idx_resume_request (resumed_by_request_id)
-) engine=InnoDB default charset=utf8mb4 comment='Plan-Solve安全恢复点';
 
 create table if not exists llm_invocation (
   id bigint not null auto_increment comment '主键',
@@ -286,6 +266,43 @@ create table if not exists llm_invocation (
   primary key (id),
   key idx_run_seq (run_id, invocation_seq)
 ) engine=InnoDB default charset=utf8mb4 comment='单次LLM调用账本';
+
+create table if not exists quota_settlement_command (
+  id bigint not null auto_increment comment '主键',
+  user_id bigint not null comment '额度账户用户',
+  billing_request_id varchar(64) not null comment 'member侧稳定幂等键',
+  request_fingerprint varchar(64) not null comment '预扣不可变载荷指纹',
+  ability_code varchar(64) not null comment '计费能力',
+  requested_microcredits bigint not null comment '请求预扣上限',
+  minimum_microcredits bigint not null comment '最小可接受预扣',
+  freeze_id varchar(64) default null comment 'member冻结标识',
+  reserved_microcredits bigint not null default 0 comment '实际冻结额度',
+  intended_action varchar(16) not null default 'NONE' comment 'NONE/CONFIRM/RELEASE',
+  intended_microcredits bigint not null default 0 comment '期望结算额度',
+  settled_microcredits bigint not null default 0 comment '远端已结算额度',
+  llm_invocation_id bigint default null comment '来源LLM调用账本',
+  input_rate_snapshot bigint default null comment '输入费率快照',
+  output_rate_snapshot bigint default null comment '输出费率快照',
+  prompt_tokens int default null comment '结算输入token',
+  completion_tokens int default null comment '结算输出token',
+  usage_source varchar(16) default null comment 'PROVIDER/MIXED/ESTIMATED等',
+  charged_microcredits bigint not null default 0 comment '本次审计实扣额度',
+  state varchar(32) not null comment 'durable命令状态',
+  retry_count int not null default 0 comment '恢复尝试次数',
+  next_retry_at datetime(3) default null comment '下次恢复时间',
+  provider_started_at datetime(3) default null comment 'provider准入时刻',
+  lease_owner varchar(64) default null comment '恢复租约持有者',
+  lease_until datetime(3) default null comment '恢复租约截止',
+  last_error varchar(1000) default null comment '最近失败或人工审核原因',
+  version int not null default 0 comment 'CAS版本',
+  create_time datetime(3) not null default current_timestamp(3) comment '创建时间',
+  update_time datetime(3) not null default current_timestamp(3) on update current_timestamp(3) comment '更新时间',
+  primary key (id),
+  unique key uk_quota_user_request (user_id, billing_request_id),
+  unique key uk_quota_freeze_id (freeze_id),
+  key idx_quota_recovery (state, next_retry_at, lease_until),
+  key idx_quota_llm_invocation (llm_invocation_id)
+) engine=InnoDB default charset=utf8mb4 comment='Agent durable额度结算命令';
 
 set @ddl = if((select count(*) from information_schema.columns
                where table_schema = database() and table_name = 'llm_invocation'
@@ -323,6 +340,7 @@ create table if not exists tool_invocation (
   tool_name varchar(128) default null comment '工具名称',
   tool_provider varchar(32) default null comment '工具来源',
   input_json longtext comment '入参JSON',
+  tool_result longtext comment '面向用户与历史回放的原始工具结果',
   llm_observation longtext comment '主智能体observation',
   status int default null comment '状态',
   error_msg longtext comment '错误信息',
@@ -396,24 +414,6 @@ create table if not exists admin_user (
   unique key uk_user_id (user_id),
   unique key uk_username (username)
 ) engine=InnoDB default charset=utf8mb4 comment='管理员用户表';
-
-create table if not exists ai_agent_draw_config (
-  id bigint not null auto_increment comment '主键ID',
-  config_id varchar(64) not null comment '配置ID',
-  config_name varchar(255) default null comment '配置名称',
-  description varchar(1024) default null comment '配置描述',
-  agent_id varchar(64) default null comment '关联智能体ID',
-  config_data longtext comment '拖拉拽配置JSON',
-  version int default null comment '版本号',
-  status int default null comment '状态',
-  create_by varchar(64) default null comment '创建人',
-  update_by varchar(64) default null comment '更新人',
-  create_time datetime default current_timestamp comment '创建时间',
-  update_time datetime default current_timestamp on update current_timestamp comment '更新时间',
-  primary key (id),
-  unique key uk_config_id (config_id),
-  key idx_agent_id (agent_id)
-) engine=InnoDB default charset=utf8mb4 comment='AI智能体拖拉拽配置主表';
 
 create table if not exists chat_model_info (
   id bigint not null auto_increment comment '主键ID',
@@ -644,7 +644,7 @@ create table if not exists tool_output_script_runner (
   key idx_tool_invocation_id (tool_invocation_id)
 ) engine=InnoDB default charset=utf8mb4 comment='script_runner工具产出表';
 
-create table if not exists tool_output_planning (
+create table if not exists tool_output_todo_write (
   id bigint not null auto_increment comment '主键ID',
   tool_invocation_id bigint default null comment '工具调用ID',
   run_id bigint default null comment '运行ID',
@@ -654,17 +654,17 @@ create table if not exists tool_output_planning (
   tool_call_id varchar(128) default null comment '工具调用标识',
   status int default null comment '状态',
   error_msg varchar(1024) default null comment '错误信息',
-  command varchar(64) default null comment 'planning命令',
-  before_plan_json longtext comment '执行前计划JSON',
-  after_plan_json longtext comment '执行后计划JSON',
-  current_step varchar(1024) default null comment '当前步骤',
-  current_step_index int default null comment '当前步骤索引',
+  command varchar(64) default null comment 'todo_write命令',
+  before_todo_json longtext comment '执行前Todo快照JSON',
+  after_todo_json longtext comment '执行后Todo快照JSON',
+  current_step varchar(1024) default null comment '当前Todo项',
+  current_step_index int default null comment '当前Todo项索引',
   auto_advanced tinyint(1) default null comment '是否自动推进',
-  auto_finished tinyint(1) default null comment '是否自动完成',
+  auto_finished tinyint(1) default null comment '是否全部完成',
   created_at datetime default current_timestamp comment '创建时间',
   updated_at datetime default current_timestamp on update current_timestamp comment '更新时间',
   primary key (id),
   unique key uk_request_tool_call (request_id, tool_call_id),
   key idx_tool_invocation_id (tool_invocation_id)
-) engine=InnoDB default charset=utf8mb4 comment='planning工具产出表';
+) engine=InnoDB default charset=utf8mb4 comment='todo_write工具产出表';
 

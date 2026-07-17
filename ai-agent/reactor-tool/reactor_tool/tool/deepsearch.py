@@ -9,7 +9,6 @@ import asyncio
 import json
 import os
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from functools import partial
 from typing import List, AsyncGenerator, Tuple
 
@@ -78,8 +77,9 @@ class DeepSearch:
     ) -> AsyncGenerator[str, None]:
         """深度搜索回复（流式）"""
 
-        # 默认超时时间提升到 20 分钟，避免深度搜索在多轮检索和总结时被过早中断。
-        total_timeout_seconds = int(os.getenv("DEEPSEARCH_TOTAL_TIMEOUT_SECONDS", "1200"))
+        # deep_search 运行在 Agent 的有限 run budget 内，不能设置成远大于
+        # Agent budget 的 20 分钟，否则上游只能在客户端断开后被动取消。
+        total_timeout_seconds = int(os.getenv("DEEPSEARCH_TOTAL_TIMEOUT_SECONDS", "150"))
         deadline = time.monotonic() + total_timeout_seconds
 
         def _remaining_timeout() -> float:
@@ -242,12 +242,21 @@ class DeepSearch:
             loop.close()
             return s_result
 
-        process_list = []
-        with ThreadPoolExecutor(max_workers=int(os.getenv("SEARCH_THREAD_NUM", 5))) as executor:
-            for query in queries:
-                process = executor.submit(_run_async, query, request_id)
-                process_list.append(process)
-        results = [process.result() for process in as_completed(process_list)]
+        # 在线程中运行同步搜索客户端，但通过 asyncio Future 等待，
+        # 这样上层 asyncio.wait_for 才能在超时时立即取消等待，不阻塞
+        # Reactor 的事件循环、SSE heartbeat 和最终 fallback。
+        tasks = [
+            asyncio.create_task(asyncio.to_thread(_run_async, query, request_id))
+            for query in queries
+        ]
+        raw_results = await asyncio.gather(*tasks, return_exceptions=True)
+        results = []
+        for query, raw_result in zip(queries, raw_results):
+            if isinstance(raw_result, Exception):
+                logger.warning(f"{request_id} search query skipped query={query!r} error={raw_result}")
+                results.append([])
+            else:
+                results.append(raw_result)
         all_docs = [doc for docs in results for doc in docs]
         # 去重
         seen_content = set()

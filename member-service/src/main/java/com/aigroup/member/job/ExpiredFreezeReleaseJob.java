@@ -11,9 +11,9 @@ import java.util.List;
 /**
  * 过期冻结兜底释放任务。
  *
- * <p>Agent 对话按「预扣(freeze)→确认(confirm)/释放(release)」两阶段计费。当进程崩溃或发布重启导致
- * 异步执行链丢失时，freeze 会永久停留在 PENDING，占用用户可用额度（available = period + topup − frozen）
- * 造成资损。本任务分钟级扫描超时仍 PENDING 的僵尸冻结并逐个释放（release 幂等、按 freeze 独立事务）。</p>
+ * <p>调用方按「预扣(freeze)→确认(confirm)/释放(release)」两阶段计费。当旧式、无持久化结算所有者的
+ * 调用链崩溃时，本任务分钟级扫描其 PENDING 僵尸冻结并逐个释放。由 ai-agent durable command 托管的冻结
+ * 只告警、不自动释放，避免 provider 已经消耗而 confirm 尚在重试时被误释放。</p>
  */
 @Slf4j
 @Component
@@ -34,6 +34,14 @@ public class ExpiredFreezeReleaseJob {
 
     @Scheduled(cron = "${ai-group.member.expired-freeze-release-cron:0 0/5 * * * ?}")
     public void releaseExpiredFreezes() {
+        List<String> managedFreezeIds = memberService.listExpiredManagedPendingFreezeIds(
+                timeoutMinutes, batchLimit);
+        if (managedFreezeIds != null && !managedFreezeIds.isEmpty()) {
+            // ai-agent owns a durable settlement command for these rows. Releasing
+            // them here can race a CONFIRM retry after provider usage was observed.
+            log.warn("managed quota freezes await durable settlement, count={}, sample={}",
+                    managedFreezeIds.size(), managedFreezeIds.stream().limit(10).toList());
+        }
         List<String> freezeIds = memberService.listExpiredPendingFreezeIds(timeoutMinutes, batchLimit);
         if (freezeIds == null || freezeIds.isEmpty()) {
             return;

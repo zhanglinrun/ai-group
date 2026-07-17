@@ -14,15 +14,6 @@ export {
 } from '../chat';
 
 export {
-  ensurePlannerRounds,
-  handlePlanMessage,
-  handlePlanThoughtMessage,
-  resolveLegacyPlannerRoundId,
-  syncLatestPlannerAlias,
-  upsertPlannerRound,
-} from './planner';
-
-export {
   findLastTaskIndex,
   findTaskIndexByToolCallId,
   findToolCallPlaceholderIndex,
@@ -44,4 +35,4 @@ export {
   type TimelineTaskContainer,
 } from './timeline';
 
-export { clonePlanForRender, cloneTaskSnapshot, processTaskForRender } from './renderTasks';
+export { cloneTaskSnapshot, processTaskForRender } from './renderTasks';

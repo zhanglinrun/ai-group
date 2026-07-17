@@ -1,24 +1,24 @@
 import classNames from 'classnames';
-import { DatabaseZap, WandSparkles } from 'lucide-react';
+import { ListTodo, WandSparkles } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 
 import { ROUTES } from '@/router/routes';
 
 type WorkspaceToolItem = {
-  key: 'mrag' | 'image-generation';
+  key: 'tasks' | 'image-generation';
   label: string;
   description: string;
-  icon: typeof DatabaseZap;
+  icon: typeof WandSparkles;
   to: string;
 };
 
 const workspaceToolItems: WorkspaceToolItem[] = [
   {
-    key: 'mrag',
-    label: '知识库',
-    description: '知识库、文件与检索调试',
-    icon: DatabaseZap,
-    to: ROUTES.WORKSPACE_MRAG,
+    key: 'tasks',
+    label: '项目任务',
+    description: '跨会话任务图与依赖',
+    icon: ListTodo,
+    to: ROUTES.WORKSPACE_TASKS,
   },
   {
     key: 'image-generation',

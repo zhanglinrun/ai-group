@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import os
 import unittest
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -7,6 +8,11 @@ from reactor_tool.tool.search_component.search_engine import DDGSearch, MixSearc
 
 
 class SearchEngineIntegrationTest(unittest.IsolatedAsyncioTestCase):
+    def test_search_timeout_has_bounded_default(self):
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("SEARCH_TIMEOUT", None)
+            self.assertEqual(20, DDGSearch()._timeout)
+
     @patch("reactor_tool.tool.search_component.search_engine.DDGS")
     async def test_should_normalize_ddg_results_into_docs(self, mock_ddgs):
         mock_client = Mock()

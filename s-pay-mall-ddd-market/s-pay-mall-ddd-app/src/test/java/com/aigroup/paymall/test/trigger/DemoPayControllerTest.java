@@ -84,6 +84,73 @@ public class DemoPayControllerTest {
         verify(demoGroupPort, never()).finalizePaidGroup(any(), any());
     }
 
+    @Test
+    public void groupPaymentCanWaitForAnotherMemberWithoutFinalizing() {
+        when(orderService.queryOrderByOrderId("o1")).thenReturn(order("u1", OrderStatusVO.PAY_WAIT, 1));
+
+        Response<String> response = controller.markPaid("o1", request);
+
+        assertEquals("0000", response.getCode());
+        assertEquals("GROUP_WAITING", response.getData());
+        verify(orderService).changeOrderPaySuccess(eq("o1"), any());
+        verify(demoGroupPort, never()).finalizePaidGroup(any(), any());
+    }
+
+    @Test
+    public void repeatedGroupPaymentRetriesNormalSettlementNotification() {
+        when(orderService.queryOrderByOrderId("o1")).thenReturn(order("u1", OrderStatusVO.PAY_SUCCESS, 1));
+
+        Response<String> response = controller.markPaid("o1", request);
+
+        assertEquals("0000", response.getCode());
+        assertEquals("GROUP_WAITING", response.getData());
+        verify(orderService).changeOrderPaySuccess(eq("o1"), any());
+        verify(demoGroupPort, never()).finalizePaidGroup(any(), any());
+    }
+
+    @Test
+    public void directOrderCannotEnterGroupWaitingState() {
+        when(orderService.queryOrderByOrderId("o1")).thenReturn(order("u1", OrderStatusVO.PAY_WAIT, 0));
+
+        Response<String> response = controller.markPaid("o1", request);
+
+        assertEquals("0002", response.getCode());
+        verify(orderService, never()).changeOrderPaySuccess(any(), any());
+    }
+
+    @Test
+    public void onlyOrderOwnerCanMarkGroupPaid() {
+        when(orderService.queryOrderByOrderId("o1")).thenReturn(order("u2", OrderStatusVO.PAY_WAIT, 1));
+
+        Response<String> response = controller.markPaid("o1", request);
+
+        assertEquals("0002", response.getCode());
+        verify(orderService, never()).changeOrderPaySuccess(any(), any());
+    }
+
+    @Test
+    public void unpaidGroupCannotBeFinalized() {
+        when(orderService.queryOrderByOrderId("o1")).thenReturn(order("u1", OrderStatusVO.PAY_WAIT, 1));
+
+        Response<String> response = controller.finalizeGroup("o1", request);
+
+        assertEquals("0002", response.getCode());
+        verify(demoGroupPort, never()).finalizePaidGroup(any(), any());
+    }
+
+    @Test
+    public void paidGroupCanBeFinalizedSeparately() {
+        when(orderService.queryOrderByOrderId("o1")).thenReturn(order("u1", OrderStatusVO.PAY_SUCCESS, 1));
+        when(demoGroupPort.finalizePaidGroup("u1", "o1")).thenReturn(true);
+
+        Response<String> response = controller.finalizeGroup("o1", request);
+
+        assertEquals("0000", response.getCode());
+        assertEquals("GROUP_FINALIZED", response.getData());
+        verify(orderService, never()).changeOrderPaySuccess(any(), any());
+        verify(demoGroupPort).finalizePaidGroup("u1", "o1");
+    }
+
     private OrderEntity order(String userId, OrderStatusVO status, int marketType) {
         return OrderEntity.builder()
                 .userId(userId)

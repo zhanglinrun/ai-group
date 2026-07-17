@@ -10,7 +10,7 @@ AI Agent 工作站的目标用户是技术团队、产品经理和研究人员�
 
 ## Product Purpose
 
-Reactor AI Agent 工作站是一个支持多策略（AutoAgent、FlowAgent、ReAct）的智能 Agent 调度平台。它不仅是一个聊天工具，更是一个任务编排和智能协作系统。设计需要让用户感受到 AI 的智能深度和协作的温度，而非冰冷的机器交互。
+Reactor AI Agent 工作站以统一 Agent Harness 为核心：`AUTO / STANDARD / DEEP` 只是同一模型—工具循环的执行强度，Todo、工具证据、完成验证和终态由后端 canonical protocol 驱动；DataAgent 是独立的数据问答产品路径，不会选择另一套通用 Agent 运行时。它不仅是聊天工具，也是可观察的任务执行工作台。设计需要让用户感受到 AI 的智能深度和协作温度，同时准确呈现运行状态，不用前端动画掩盖失败或未完成。
 
 ## Brand Personality
 

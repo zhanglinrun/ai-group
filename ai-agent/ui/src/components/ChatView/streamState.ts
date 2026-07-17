@@ -1,4 +1,5 @@
 import { shouldRenderDeepSearchWorkspace } from '@/utils/deepSearch';
+import { isAgentLoopEvent } from '@/utils/agentEvents';
 import type { ActiveRunState } from './chatView.types';
 
 const WORKSPACE_HIDDEN_MESSAGE_TYPES = new Set(['task_summary', 'result', 'tool_thought']);
@@ -24,17 +25,13 @@ export function shouldRefreshWorkspaceTask(eventData?: MESSAGE.EventData) {
     return false;
   }
 
-  // 最终总结流和思考流不属于右侧工作区内容，不要触发工作区跟随刷新。
-  if (eventData.messageType === 'plan_thought') {
-    return false;
-  }
-
-  if (eventData.messageType === 'task' && eventData.resultMap?.messageType === 'evaluation') {
+  // Harness 状态事件属于对话运行态，不是右侧工具工作区内容。
+  if (isAgentLoopEvent(eventData)) {
     return false;
   }
 
   if (
-    eventData.messageType === 'task' &&
+    eventData.messageType === 'agent_event' &&
     ['agent_stream', 'tool_thought'].includes(eventData.resultMap?.messageType || '')
   ) {
     return false;
@@ -66,8 +63,8 @@ export function cloneWorkspaceTask(task: CHAT.Task): CHAT.Task {
   } as CHAT.Task;
 }
 
-export function resolveActionPanelVisibility(params: { plan?: CHAT.Plan; taskList: CHAT.Task[] }) {
-  return Boolean(params.plan) || params.taskList.some((task) => isWorkspaceRenderableTask(task));
+export function resolveActionPanelVisibility(params: { taskList: CHAT.Task[] }) {
+  return params.taskList.some((task) => isWorkspaceRenderableTask(task));
 }
 
 export function resolveLatestRunState(

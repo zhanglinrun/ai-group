@@ -32,8 +32,8 @@ public class BenefitEventRepository implements IBenefitEventRepository {
                 .orderId(entity.getOrderId())
                 .productCode(entity.getProductCode())
                 .eventPublished(false)
-                .baseQuota(entity.getBaseQuota())
-                .bonusQuota(entity.getBonusQuota())
+                .baseQuota(entity.getBaseQuota() == null ? 0L : entity.getBaseQuota())
+                .bonusQuota(entity.getBonusQuota() == null ? 0L : entity.getBonusQuota())
                 .build());
     }
 
@@ -50,8 +50,8 @@ public class BenefitEventRepository implements IBenefitEventRepository {
     }
 
     @Override
-    public List<BenefitEventEntity> queryUnpublished(String eventType, int limit) {
-        return benefitEventDao.queryUnpublished(eventType, limit).stream()
+    public List<BenefitEventEntity> queryUnpublished(int limit) {
+        return benefitEventDao.queryUnpublished(limit).stream()
                 .map(this::toEntity)
                 .collect(Collectors.toList());
     }

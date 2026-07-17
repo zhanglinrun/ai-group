@@ -1,6 +1,8 @@
 import api from './index';
 
 export interface CreatePayOrderRequest {
+  /** 单次购买尝试内稳定；重复传同一值只能回放同一订单。 */
+  requestId: string;
   userId: string;
   productId: string;
   productCode: string;
@@ -43,5 +45,17 @@ export const payApi = {
   completeDemoPayment: (outTradeNo: string) =>
     api.post<string>(
       `/api/v1/alipay/demo_complete?outTradeNo=${encodeURIComponent(outTradeNo)}`,
+    ) as unknown as Promise<string>,
+
+  /** Dev-only：仅登记拼团成员已支付，保留队伍供第二个用户参团。 */
+  markDemoGroupPaid: (outTradeNo: string) =>
+    api.post<string>(
+      `/api/v1/alipay/demo_mark_paid?outTradeNo=${encodeURIComponent(outTradeNo)}`,
+    ) as unknown as Promise<string>,
+
+  /** Dev-only：在至少演示完参团和付款后，显式封团并触发真实结算/MQ 权益链路。 */
+  finalizeDemoGroup: (outTradeNo: string) =>
+    api.post<string>(
+      `/api/v1/alipay/demo_finalize_group?outTradeNo=${encodeURIComponent(outTradeNo)}`,
     ) as unknown as Promise<string>,
 };

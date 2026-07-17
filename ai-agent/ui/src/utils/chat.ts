@@ -9,8 +9,8 @@ import {
   resolveDeepSearchStage,
 } from '@/utils/deepSearch';
 import { parseEventData } from '@/utils/sseParsers';
-import { handlePlanMessage, handlePlanThoughtMessage } from './chat/planner';
-import { clonePlanForRender, cloneTaskSnapshot, processTaskForRender } from './chat/renderTasks';
+import { applyAgentEvent, isAgentLoopEvent, normalizeAgentEvent } from '@/utils/agentEvents';
+import { cloneTaskSnapshot, processTaskForRender } from './chat/renderTasks';
 import {
   ensureTimelineTaskContainer,
   ensureTimelineTaskGroup,
@@ -73,36 +73,19 @@ export function extractRunMetrics(raw: unknown): CHAT.ChatItem['metrics'] | unde
   if (typeof metrics.durationMs === 'number' && metrics.durationMs >= 0) {
     result.durationMs = metrics.durationMs;
   }
-  if (typeof metrics.evaluationCount === 'number' && metrics.evaluationCount > 0) {
-    result.evaluationCount = metrics.evaluationCount;
-  }
-  if (typeof metrics.replanCount === 'number' && metrics.replanCount > 0) {
-    result.replanCount = metrics.replanCount;
-  }
-  if (typeof metrics.reflectionTokens === 'number' && metrics.reflectionTokens > 0) {
-    result.reflectionTokens = metrics.reflectionTokens;
-  }
-  if (
-    typeof metrics.qualityScore === 'number' &&
-    metrics.qualityScore >= 0 &&
-    metrics.qualityScore <= 100
-  ) {
-    result.qualityScore = metrics.qualityScore;
-  }
   return Object.keys(result).length ? result : undefined;
 }
 
 export const combineData = (eventData: MESSAGE.EventData, currentChat: CHAT.ChatItem) => {
+  const agentEvent = normalizeAgentEvent(eventData);
+  if (agentEvent) {
+    applyAgentEvent(currentChat, agentEvent);
+  }
+  if (isAgentLoopEvent(eventData)) {
+    return currentChat;
+  }
   switch (eventData.messageType) {
-    case 'plan': {
-      handlePlanMessage(eventData, currentChat);
-      break;
-    }
-    case 'plan_thought': {
-      handlePlanThoughtMessage(eventData, currentChat);
-      break;
-    }
-    case 'task': {
+    case 'agent_event': {
       handleTaskMessage(eventData, currentChat);
       break;
     }
@@ -194,17 +177,6 @@ function handleTaskMessageByType(
   taskIndex: number,
 ) {
   const messageType = eventData.resultMap.messageType;
-  if (messageType === 'plan') {
-    handlePlanMessage(
-      {
-        ...eventData,
-        messageType: 'plan',
-      },
-      currentChat,
-    );
-    return;
-  }
-
   const toolIndex = findToolIndex(
     currentChat.multiAgent.tasks!,
     taskIndex,
@@ -231,8 +203,6 @@ function handleTaskMessageByType(
       break;
     case 'tool_call':
       handleToolCallMessage(eventData, currentChat, taskIndex, toolIndex);
-      break;
-    case 'evaluation':
       break;
     default:
       handleNonStreamingMessage(eventData, currentChat, taskIndex);
@@ -760,16 +730,11 @@ function handleNonStreamingMessage(
 /**
  * 处理多智能体任务数据，整合聊天、计划和任务信息
  * @param currentChat 当前聊天对象
- * @param deepThink 深度思考
  * @param multiAgent 多智能体数据
  * @returns 处理后的数据对象
  */
-export const handleTaskData = (
-  currentChat: CHAT.ChatItem,
-  deepThink?: boolean,
-  multiAgent?: MESSAGE.MultiAgent,
-) => {
-  const { plan: fullPlan, tasks: fullTasks, plan_thought: planThought } = multiAgent ?? {};
+export const handleTaskData = (currentChat: CHAT.ChatItem, multiAgent?: MESSAGE.MultiAgent) => {
+  const { tasks: fullTasks } = multiAgent ?? {};
 
   const TOOL_TYPES = [
     'tool_call',
@@ -786,27 +751,17 @@ export const handleTaskData = (
     'data_analysis',
   ];
 
-  currentChat.thought = planThought || '';
-
   let requestConclusion: MESSAGE.Task | CHAT.Task | undefined;
   let fallbackTaskSummary: MESSAGE.Task | CHAT.Task | undefined;
-  let plan = fullPlan;
   const taskList: CHAT.Task[] = [];
 
   const validTasks: MESSAGE.Task[][] =
     fullTasks?.filter((item: MESSAGE.Task[]) => item && item?.length > 0) ?? [];
 
-  const chatList: TimelineTaskContainer[][] = !deepThink
-    ? [
-        [
-          {
-            hidden: false,
-            task: '',
-            children: [],
-          },
-        ],
-      ]
-    : Array.from({ length: validTasks?.length || 0 }, () => []);
+  const chatList: TimelineTaskContainer[][] = Array.from(
+    { length: validTasks?.length || 0 },
+    () => [],
+  );
 
   validTasks?.forEach((taskGroup, groupIndex) => {
     const timelineTaskGroup = ensureTimelineTaskGroup(chatList, groupIndex);
@@ -819,18 +774,12 @@ export const handleTaskData = (
 
       if (task.messageType === 'task') {
         upsertTimelineTaskContainer(timelineTaskGroup, task);
-        // 深度研究里的 task_summary 属于任务级总结，必须保留在时间线中；
-        // 只有请求级 result 才应该落在底部最终结论区。
       } else if (task?.messageType !== 'result') {
         ensureTimelineTaskContainer(timelineTaskGroup, task).children.push(...processedInfo);
       }
 
       if (TOOL_TYPES.includes(task?.messageType)) {
         taskList.push(...processedInfo);
-      }
-
-      if (task?.messageType === 'plan') {
-        plan = task.plan;
       }
 
       if (task?.messageType === 'result') {
@@ -845,30 +794,13 @@ export const handleTaskData = (
     currentChat.conclusion?.messageType === 'agent_stream' ? currentChat.conclusion : undefined;
 
   currentChat.tasks = chatList as unknown as CHAT.Task[][];
-  currentChat.plan = plan;
   currentChat.conclusion =
     (requestConclusion as CHAT.Task | undefined) ||
     streamConclusion ||
     (!currentChat.loading ? (fallbackTaskSummary as CHAT.Task | undefined) : undefined);
-  currentChat.planList = plan?.stages?.reduce(
-    (result: CHAT.PlanItem[], stage: string, index: number) => {
-      const group = result.find((item) => item.name === stage);
-      if (group) {
-        group.list.push(plan?.steps[index] || '');
-      } else {
-        result.push({
-          name: stage,
-          list: [plan?.steps[index] || ''],
-        });
-      }
-      return result;
-    },
-    [],
-  );
 
   return {
     currentChat,
-    plan,
     taskList,
     chatList: chatList as unknown as CHAT.Task[][],
   };
@@ -879,14 +811,13 @@ export const handleTaskData = (
  * 这里统一把缓存下来的任务结果重新整理成界面消费结构，
  * 避免组件层直接依赖流式过程中产生的临时对象形态。
  */
-export const buildConversationTaskData = (chat: CHAT.ChatItem, deepThink?: boolean) => {
+export const buildConversationTaskData = (chat: CHAT.ChatItem) => {
   const snapshotChat = {
     ...chat,
     files: [...(chat.files || [])],
     tasks: [],
     multiAgent: {
       ...chat.multiAgent,
-      plan: clonePlanForRender(chat.multiAgent?.plan),
       tasks: (chat.multiAgent?.tasks || []).map((group) =>
         group.map((task) => cloneTaskSnapshot(task)),
       ),
@@ -894,7 +825,7 @@ export const buildConversationTaskData = (chat: CHAT.ChatItem, deepThink?: boole
     timeline: [...(chat.timeline || [])],
   } as CHAT.ChatItem;
 
-  return handleTaskData(snapshotChat, deepThink, snapshotChat.multiAgent);
+  return handleTaskData(snapshotChat, snapshotChat.multiAgent);
 };
 
 /**
@@ -909,8 +840,6 @@ export const buildAction = (task: CHAT.Task) => {
     TOOL_RESULT: 'tool_result',
     CODE: 'code',
     HTML: 'html',
-    PLAN_THOUGHT: 'plan_thought',
-    PLAN: 'plan',
     FILE: 'file',
     KNOWLEDGE: 'knowledge',
     DEEP_SEARCH: 'deep_search',
@@ -942,20 +871,6 @@ export const buildAction = (task: CHAT.Task) => {
       return {
         action: '正在生成web页面',
         tool: '编辑器',
-        name: '',
-      };
-
-    case MESSAGE_TYPES.PLAN_THOUGHT:
-      return {
-        action: '正在思考下一步计划',
-        tool: '',
-        name: '',
-      };
-
-    case MESSAGE_TYPES.PLAN:
-      return {
-        action: '更新任务列表',
-        tool: '',
         name: '',
       };
 
@@ -1081,8 +996,6 @@ export const buildAction = (task: CHAT.Task) => {
 };
 
 export enum IconType {
-  PLAN = 'plan',
-  PLAN_THOUGHT = 'plan_thought',
   TOOL_CALL = 'tool_call',
   TOOL_RESULT = 'tool_result',
   BROWSER = 'browser',
@@ -1096,8 +1009,6 @@ export enum IconType {
  * 图标映射表
  */
 const ICON_MAP: Record<IconType, string> = {
-  [IconType.PLAN]: 'icon-renwu',
-  [IconType.PLAN_THOUGHT]: 'icon-juli',
   [IconType.TOOL_CALL]: 'icon-tiaoshi',
   [IconType.TOOL_RESULT]: 'icon-tiaoshi',
   [IconType.BROWSER]: 'icon-sousuo',

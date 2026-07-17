@@ -1,5 +1,5 @@
 export function deriveConversationMetaFromInput(
-  info: Pick<CHAT.TInputInfo, 'outputStyle' | 'deepThink'>,
+  info: Pick<CHAT.TInputInfo, 'outputStyle' | 'executionMode'>,
   params: {
     productType: string;
     currentRole: CHAT.ConversationRole | null;
@@ -7,13 +7,10 @@ export function deriveConversationMetaFromInput(
 ) {
   const outputStyle = info.outputStyle || params.productType;
   const isChatMode = outputStyle === 'chat';
-  // dataAgent 使用独立执行引擎，不接受 deepThink；聊天模式则必须保留用户选择，
-  // 否则点击“深度思考”后会在 Home 状态层被静默重置为快速模式。
-  const deepThink = outputStyle === 'dataAgent' ? false : Boolean(info.deepThink);
 
   return {
     productType: outputStyle,
-    deepThink,
+    executionMode: outputStyle === 'dataAgent' ? ('STANDARD' as const) : info.executionMode,
     role: isChatMode ? params.currentRole : null,
   };
 }
@@ -31,11 +28,12 @@ export function shouldHydrateConversationHistory(params: {
 }
 
 export function resolveNewConversationMode(
-  override?: Pick<Partial<CHAT.ConversationHistory>, 'productType' | 'deepThink'>,
+  override?: Pick<Partial<CHAT.ConversationHistory>, 'productType' | 'executionMode'>,
 ) {
   const productType = override?.productType || 'chat';
   return {
     productType,
-    deepThink: productType === 'dataAgent' ? false : Boolean(override?.deepThink),
+    executionMode:
+      productType === 'dataAgent' ? ('STANDARD' as const) : override?.executionMode || 'STANDARD',
   };
 }

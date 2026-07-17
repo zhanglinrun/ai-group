@@ -31,4 +31,7 @@ public class PayOrderEntity {
     // 支付金额
     private BigDecimal payAmount;
 
+    /** true 表示本次仅回放既有订单，调用方不得再次触发支付提供方副作用。 */
+    private boolean idempotentReplay;
+
 }

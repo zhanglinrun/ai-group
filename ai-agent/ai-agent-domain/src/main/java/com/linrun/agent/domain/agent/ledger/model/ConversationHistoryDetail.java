@@ -1,0 +1,78 @@
+package com.linrun.agent.domain.agent.ledger.model;
+
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import com.linrun.agent.domain.agent.model.valobj.ConversationRoleVO;
+import com.linrun.agent.domain.agent.reactor.model.response.GptProcessResult;
+
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * 会话历史详情聚合。
+ */
+@Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+public class ConversationHistoryDetail {
+
+    private String sessionId;
+
+    private String title;
+
+    private Integer status;
+
+    private String outputStyle;
+
+    private String executionMode;
+
+    private ConversationRoleVO role;
+
+    private Integer runCount;
+
+    private Integer finishedRunCount;
+
+    private Integer failedRunCount;
+
+    private LocalDateTime startedAt;
+
+    private LocalDateTime lastActiveAt;
+
+    @Builder.Default
+    private List<ConversationRunDetail> runs = new ArrayList<>();
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class ConversationRunDetail {
+
+        private String requestId;
+
+        private Integer status;
+
+        private String queryText;
+
+        private String finalSummaryText;
+
+        private LocalDateTime startedAt;
+
+        private LocalDateTime finishedAt;
+
+        /** 本轮实际使用的模型名（取自 llm_invocation）。 */
+        private String modelName;
+
+        /** 本轮总 token 用量（取自 dialogue_run 聚合）。 */
+        private Integer totalTokens;
+
+        /** 本轮耗时（毫秒，取自 dialogue_run 聚合）。 */
+        private Long durationMs;
+
+        @Builder.Default
+        private List<GptProcessResult> replayFrames = new ArrayList<>();
+    }
+}

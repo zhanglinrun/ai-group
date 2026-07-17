@@ -8,7 +8,7 @@ vi.mock('@/components/DataChat', () => ({
 }));
 
 describe('DataDialogue', () => {
-  it('loading without think text renders shared Thinking placeholder', () => {
+  it('loading without think text renders the shared localized placeholder', () => {
     const html = renderToStaticMarkup(
       <DataDialogue
         chat={{
@@ -20,7 +20,7 @@ describe('DataDialogue', () => {
       />,
     );
 
-    expect(html).toContain('Thinking');
+    expect(html).toContain('正在思考');
     expect(html).not.toContain('思考中');
   });
 });

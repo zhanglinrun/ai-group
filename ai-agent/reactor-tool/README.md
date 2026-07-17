@@ -79,7 +79,7 @@ Java/Python 互操作测试从 `ai-agent` 目录执行：
 
 ```powershell
 $ErrorActionPreference = 'Stop'
-mvn -pl Reactor-agent-app -am -Pmcp-stdio-it `
+mvn -pl ai-agent-app -am -Pmcp-stdio-it `
   '-Dtest=McpStdioInteropTest' `
   '-Dsurefire.failIfNoSpecifiedTests=false' test
 ```

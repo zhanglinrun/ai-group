@@ -19,8 +19,6 @@ import {
   ZoomIn,
 } from 'lucide-react';
 
-import WorkspaceToolSwitcher from '@/components/WorkspaceToolSwitcher';
-
 import type { RequestMode } from './types';
 import {
   checkerboardStyle,
@@ -318,7 +316,6 @@ const WorkspaceImageGeneration: ReactorType.FC<WorkspaceImageGenerationProps> = 
             </div>
           </div>
 
-          {!embedded && <WorkspaceToolSwitcher />}
         </div>
       </div>
 

@@ -91,6 +91,23 @@ export interface AdminClientModel {
   status?: number;
 }
 
+export interface AdminSystemSkill {
+  name: string;
+  description: string;
+  content: string;
+  enabled: boolean;
+}
+
+export interface AdminSystemMcp {
+  id?: number;
+  mcpId: string;
+  mcpName: string;
+  transportType: 'sse' | 'stdio' | 'streamable_http';
+  transportConfig: string;
+  requestTimeout?: number;
+  status?: number;
+}
+
 /**
  * 运营端接口客户端。响应包（member 的 {code:200} 与 group/agent 的 {code:"0000"}）
  * 均由全局 axios 拦截器解包，这里直接拿业务数据。
@@ -168,5 +185,52 @@ export const adminApi = {
   deleteClientModel: (modelId: string) =>
     api.delete<boolean>(
       `/api/v1/admin/ai-client-model/delete-by-model-id/${encodeURIComponent(modelId)}`,
+    ) as unknown as Promise<boolean>,
+
+  // ---- 平台内置 Skills / MCP（仅运营端） ----
+  listSystemSkills: () =>
+    api.get<AdminSystemSkill[]>('/api/v1/admin/system-skills') as unknown as Promise<
+      AdminSystemSkill[]
+    >,
+
+  uploadSystemSkill: (file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return api.post<AdminSystemSkill>(
+      '/api/v1/admin/system-skills',
+      form,
+    ) as unknown as Promise<AdminSystemSkill>;
+  },
+
+  setSystemSkillEnabled: (name: string, enabled: boolean) =>
+    api.put<AdminSystemSkill>(
+      `/api/v1/admin/system-skills/${encodeURIComponent(name)}/enabled?enabled=${enabled}`,
+    ) as unknown as Promise<AdminSystemSkill>,
+
+  deleteSystemSkill: (name: string) =>
+    api.delete<boolean>(
+      `/api/v1/admin/system-skills/${encodeURIComponent(name)}`,
+    ) as unknown as Promise<boolean>,
+
+  listSystemMcps: () =>
+    api.get<AdminSystemMcp[]>(
+      '/api/v1/admin/ai-client-tool-mcp/query-all',
+    ) as unknown as Promise<AdminSystemMcp[]>,
+
+  createSystemMcp: (body: AdminSystemMcp) =>
+    api.post<boolean>(
+      '/api/v1/admin/ai-client-tool-mcp/create',
+      body,
+    ) as unknown as Promise<boolean>,
+
+  updateSystemMcp: (body: AdminSystemMcp) =>
+    api.put<boolean>(
+      '/api/v1/admin/ai-client-tool-mcp/update-by-id',
+      body,
+    ) as unknown as Promise<boolean>,
+
+  deleteSystemMcp: (mcpId: string) =>
+    api.delete<boolean>(
+      `/api/v1/admin/ai-client-tool-mcp/delete-by-mcp-id/${encodeURIComponent(mcpId)}`,
     ) as unknown as Promise<boolean>,
 };

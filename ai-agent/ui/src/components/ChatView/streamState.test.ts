@@ -3,11 +3,11 @@ import { describe, expect, it } from 'vitest';
 import { shouldRefreshWorkspaceTask } from './streamState';
 
 describe('shouldRefreshWorkspaceTask', () => {
-  it('keeps evaluator telemetry out of the task workspace', () => {
+  it('keeps verification telemetry out of the task workspace', () => {
     const event = {
-      messageType: 'task',
-      resultMap: { messageType: 'evaluation' },
-    } as MESSAGE.EventData;
+      messageType: 'agent_event',
+      resultMap: { messageType: 'verification_result', resultMap: { accepted: true } },
+    } as unknown as MESSAGE.EventData;
 
     expect(shouldRefreshWorkspaceTask(event)).toBe(false);
   });

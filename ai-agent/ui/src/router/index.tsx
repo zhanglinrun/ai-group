@@ -13,8 +13,8 @@ const GroupBuyHall = React.lazy(() => import('@/pages/GroupBuyHall'));
 const GroupBuy = React.lazy(() => import('@/pages/GroupBuy'));
 const Orders = React.lazy(() => import('@/pages/Orders'));
 const Account = React.lazy(() => import('@/pages/Account'));
-const WorkspaceMRag = React.lazy(() => import('@/pages/WorkspaceMRag'));
 const WorkspaceImageGeneration = React.lazy(() => import('@/pages/WorkspaceImageGeneration'));
+const WorkspaceTasks = React.lazy(() => import('@/pages/WorkspaceTasks'));
 const Admin = React.lazy(() => import('@/pages/Admin'));
 const NotFound = React.lazy(() => import('@/components/NotFound'));
 
@@ -72,11 +72,11 @@ const router = createBrowserRouter([
       },
       {
         path: ROUTES.WORKSPACE.slice(1),
-        element: <Navigate to={ROUTES.WORKSPACE_MRAG} replace />,
+        element: <Navigate to={ROUTES.WORKSPACE_TASKS} replace />,
       },
       {
-        path: ROUTES.WORKSPACE_MRAG.slice(1),
-        element: withAuth(<WorkspaceMRag />),
+        path: ROUTES.WORKSPACE_TASKS.slice(1),
+        element: withAuth(<WorkspaceTasks />),
       },
       {
         path: ROUTES.WORKSPACE_IMAGE_GENERATION.slice(1),

@@ -2,10 +2,11 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowUpIcon,
   BarChart3Icon,
-  BrainCircuitIcon,
   CheckIcon,
   ChevronDownIcon,
   PlusIcon,
+  Globe2Icon,
+  RouteIcon,
   SearchIcon,
   ZapIcon,
 } from 'lucide-react';
@@ -45,9 +46,11 @@ type Props = {
   placeholder: string;
   showBtn: boolean;
   disabled: boolean;
+  loading?: boolean;
+  onStop?: () => void;
   size: string;
   product?: CHAT.Product;
-  deepThink?: boolean;
+  executionMode?: CHAT.ExecutionMode;
   displayOutput?: CHAT.Product;
   chatRole?: CHAT.ConversationRole | null;
   chatRoles?: CHAT.FixRole[];
@@ -61,7 +64,10 @@ type Props = {
   /** 是否允许切到“数据分析”。会话内默认关闭（数据分析是独立渲染页，中途切换体验割裂）。 */
   allowDataAgentToggle?: boolean;
   send: (p: CHAT.TInputInfo) => void;
-  onSelectionChange?: (selection: { product: CHAT.Product; deepThink: boolean }) => void;
+  onSelectionChange?: (selection: {
+    product: CHAT.Product;
+    executionMode: CHAT.ExecutionMode;
+  }) => void;
   onRoleSelect?: (role: CHAT.FixRole) => void;
   onSelectModel?: (modelId: string) => void;
 };
@@ -84,21 +90,21 @@ const MODE_OPTIONS: Array<{
   icon: typeof ZapIcon;
 }> = [
   {
-    key: 'quick',
-    label: '快速',
-    description: '即时问答，普通对话',
+    key: 'auto',
+    label: '自动',
+    description: '按任务复杂度调整规划与验证强度',
+    icon: RouteIcon,
+  },
+  {
+    key: 'standard',
+    label: '标准',
+    description: '直接执行，必要时自动建立任务列表',
     icon: ZapIcon,
   },
   {
-    key: 'think',
-    label: '深度思考',
-    description: '多步分析',
-    icon: BrainCircuitIcon,
-  },
-  {
-    key: 'research',
-    label: '深度研究',
-    description: '长链路研究',
+    key: 'deep',
+    label: '深度',
+    description: '强制任务跟踪与完成前验证',
     icon: SearchIcon,
   },
 ];
@@ -146,9 +152,9 @@ const BRAND_TONE: SelectorTone = {
 };
 
 const MODE_TONES: Record<InputModeKey, SelectorTone> = {
-  quick: BRAND_TONE,
-  think: BRAND_TONE,
-  research: BRAND_TONE,
+  auto: BRAND_TONE,
+  standard: BRAND_TONE,
+  deep: BRAND_TONE,
 };
 
 const OUTPUT_TONES: Record<string, SelectorTone> = {
@@ -161,7 +167,7 @@ const OUTPUT_TONES: Record<string, SelectorTone> = {
 const DATA_AGENT_TONE: SelectorTone = BRAND_TONE;
 
 const selectorTrayClassName =
-  'flex min-w-0 flex-1 flex-wrap items-center gap-1 rounded-full bg-transparent p-0.5 sm:flex-none';
+  'flex min-w-0 flex-wrap items-center gap-1 rounded-full bg-transparent p-0.5';
 
 const chipButtonClassName = (active: boolean, disabled?: boolean) =>
   cn(
@@ -204,9 +210,11 @@ const GeneralInput: ReactorType.FC<Props> = (props) => {
     placeholder,
     showBtn,
     disabled,
+    loading = false,
+    onStop,
     size,
     product,
-    deepThink = false,
+    executionMode = 'STANDARD',
     displayOutput,
     chatRole,
     chatRoles = [],
@@ -224,6 +232,7 @@ const GeneralInput: ReactorType.FC<Props> = (props) => {
   const [question, setQuestion] = useState('');
   const [modeMenuOpen, setModeMenuOpen] = useState(false);
   const [outputMenuOpen, setOutputMenuOpen] = useState(false);
+  const [onlineEnabled, setOnlineEnabled] = useState(false);
   const tempData = useRef<{ compositing?: boolean }>({});
   const {
     attachmentUploads,
@@ -234,7 +243,7 @@ const GeneralInput: ReactorType.FC<Props> = (props) => {
     addAttachmentUploads,
   } = useAttachmentUploads(sessionId);
 
-  const currentMode = resolveInputMode(product?.type, deepThink);
+  const currentMode = resolveInputMode(executionMode);
   const isDataAgent = product?.type === 'dataAgent';
   const resolvedOutputProduct = useMemo(
     () => getOutputProduct(product, displayOutput),
@@ -242,7 +251,7 @@ const GeneralInput: ReactorType.FC<Props> = (props) => {
   );
 
   // 记住上一次标准任务模式，切到“数据分析”后仍能保持用户刚才的选择感。
-  const lastStandardModeRef = useRef<InputModeKey>(currentMode === 'quick' ? 'think' : currentMode);
+  const lastStandardModeRef = useRef<InputModeKey>(currentMode);
   const lastOutputProductRef = useRef<CHAT.Product>(
     OUTPUT_TYPES.includes(resolvedOutputProduct.type)
       ? resolvedOutputProduct
@@ -264,7 +273,7 @@ const GeneralInput: ReactorType.FC<Props> = (props) => {
   const visibleOutputProduct = isDataAgent ? lastOutputProductRef.current : resolvedOutputProduct;
   const currentModeOption =
     MODE_OPTIONS.find((item) => item.key === visibleMode) ?? MODE_OPTIONS[0];
-  const isQuickMode = visibleMode === 'quick';
+  const isQuickMode = visibleMode === 'standard';
   const CurrentModeIcon = currentModeOption.icon;
   const currentModeTone = MODE_TONES[currentModeOption.key];
   const visibleOutputTone = OUTPUT_TONES[visibleOutputProduct.type] ?? OUTPUT_TONES.html;
@@ -300,42 +309,20 @@ const GeneralInput: ReactorType.FC<Props> = (props) => {
     [addAttachmentUploads],
   );
 
-  const handleSelectionChange = (nextProduct: CHAT.Product, nextDeepThink: boolean) => {
+  const handleSelectionChange = (nextProduct: CHAT.Product, nextMode: InputModeKey) => {
     onSelectionChange?.({
       product: nextProduct,
-      deepThink: nextDeepThink,
+      executionMode: nextMode === 'auto' ? 'AUTO' : nextMode === 'deep' ? 'DEEP' : 'STANDARD',
     });
   };
 
   const handleModeSelect = (modeKey: InputModeKey) => {
-    if (modeKey === 'quick') {
-      const chatProduct =
-        (OUTPUT_PRODUCTS.find((item) => item.type === 'chat') as CHAT.Product | undefined) ??
-        defaultProduct;
-      handleSelectionChange(chatProduct, false);
-      setModeMenuOpen(false);
-      return;
-    }
-
-    if (modeKey === 'think') {
-      // 聊天 + true 与结构化输出 + false 都代表“深度思考”。
-      handleSelectionChange(visibleOutputProduct, visibleOutputProduct.type === 'chat');
-      setModeMenuOpen(false);
-      return;
-    }
-
-    // 深度研究必须使用结构化交付格式；从聊天切入时恢复最近一次结构化输出。
-    const nextOutput = OUTPUT_TYPES.includes(visibleOutputProduct.type)
-      ? visibleOutputProduct
-      : lastOutputProductRef.current;
-    handleSelectionChange(nextOutput, true);
+    handleSelectionChange(visibleOutputProduct, modeKey);
     setModeMenuOpen(false);
   };
 
   const handleOutputSelect = (nextOutput: CHAT.Product) => {
-    const nextDeepThink =
-      visibleMode === 'research' || (visibleMode === 'think' && nextOutput.type === 'chat');
-    handleSelectionChange(nextOutput, nextDeepThink);
+    handleSelectionChange(nextOutput, visibleMode);
     setOutputMenuOpen(false);
   };
 
@@ -349,8 +336,8 @@ const GeneralInput: ReactorType.FC<Props> = (props) => {
         isDataAgent,
         visibleOutputProduct,
         uploadedFiles,
-        chatRole: chatRole || null,
         modelId: selectedModelId,
+        online: onlineEnabled,
       }),
     );
 
@@ -434,12 +421,15 @@ const GeneralInput: ReactorType.FC<Props> = (props) => {
 
           <PromptInputFooter
             className={cn(
-              'items-end gap-3 px-3.5 pb-3 pt-1',
-              showBtn ? 'flex-col sm:flex-row sm:items-end' : 'justify-between gap-2.5',
+              'items-center gap-2 border-t border-[var(--chat-border)]/70 px-3 pb-2.5 pt-2',
+              showBtn ? 'flex-wrap sm:flex-nowrap' : 'justify-between',
             )}
           >
             <PromptInputTools
-              className={cn('w-full flex-wrap items-center gap-2', !showBtn && 'w-auto gap-1.5')}
+              className={cn(
+                'min-w-0 flex-1 flex-wrap items-center gap-1',
+                !showBtn && 'w-auto flex-none gap-1.5',
+              )}
             >
               <PromptInputActionMenu>
                 <PromptInputActionMenuTrigger
@@ -455,8 +445,37 @@ const GeneralInput: ReactorType.FC<Props> = (props) => {
                 </PromptInputActionMenuContent>
               </PromptInputActionMenu>
 
+              {showBtn && !isDataAgent ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      aria-pressed={onlineEnabled}
+                      disabled={disabled}
+                      onClick={() => setOnlineEnabled((enabled) => !enabled)}
+                      className={cn(
+                        'inline-flex h-8 items-center gap-1.5 rounded-full px-2.5 text-[12px] font-medium transition-colors',
+                        onlineEnabled
+                          ? 'bg-[#0071e3]/10 text-[#0071e3]'
+                          : 'text-[var(--chat-text-soft)] hover:bg-[var(--chat-surface-soft)]',
+                      )}
+                    >
+                      <Globe2Icon className="h-4 w-4" />
+                      联网搜索
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent className={AI_CHAT_FLOATING_CLASS} side="top">
+                    {onlineEnabled ? '关闭联网搜索' : '开启联网搜索'}
+                  </TooltipContent>
+                </Tooltip>
+              ) : null}
+
+              {showBtn && !isDataAgent ? (
+                <span className="mx-0.5 hidden h-5 w-px bg-[var(--chat-border)]/70 sm:block" />
+              ) : null}
+
               {showBtn ? (
-                <div className={selectorTrayClassName}>
+                <div className={cn(selectorTrayClassName, 'flex-1 sm:flex-none')}>
                   {showRoleSelector ? (
                     <ChatRoleSelector
                       roles={chatRoles}
@@ -547,7 +566,7 @@ const GeneralInput: ReactorType.FC<Props> = (props) => {
                             />
                           </span>
                           <span className="truncate">
-                            {getProductLabel(visibleOutputProduct.name)}
+                            输出 · {getProductLabel(visibleOutputProduct.name)}
                           </span>
                           <ChevronDownIcon
                             className={cn(
@@ -606,8 +625,8 @@ const GeneralInput: ReactorType.FC<Props> = (props) => {
                       disabled={disabled}
                       className={chipButtonClassName(isDataAgent, disabled)}
                       onClick={() => {
-                        if (visibleMode === 'quick' && !isDataAgent) return;
-                        handleSelectionChange(DATA_AGENT_PRODUCT, false);
+                        if (visibleMode === 'standard' && !isDataAgent) return;
+                        handleSelectionChange(DATA_AGENT_PRODUCT, visibleMode);
                       }}
                     >
                       <span className={chipIconWrapClassName(DATA_AGENT_TONE, isDataAgent)}>
@@ -627,19 +646,30 @@ const GeneralInput: ReactorType.FC<Props> = (props) => {
               ) : null}
             </PromptInputTools>
 
-            <PromptInputTools className="shrink-0 gap-2 self-end">
+            <PromptInputTools className="ml-auto shrink-0 gap-1">
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <PromptInputSubmit
-                    className="size-9 rounded-full bg-[var(--chat-text)] text-[var(--chat-surface)] shadow-md transition-all duration-300 hover:scale-105 hover:shadow-lg hover:shadow-[var(--primary)]/15 disabled:bg-[var(--chat-surface-muted)] disabled:text-[var(--chat-text-muted)] disabled:shadow-none disabled:scale-100"
-                    disabled={!canSend}
-                    variant="default"
-                  >
-                    <ArrowUpIcon className="size-5" />
-                  </PromptInputSubmit>
+                  {loading && onStop ? (
+                    <button
+                      type="button"
+                      aria-label="停止任务"
+                      onClick={onStop}
+                      className="flex size-9 items-center justify-center rounded-full bg-rose-500 text-white shadow-md transition-all duration-200 hover:scale-105 hover:bg-rose-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400 focus-visible:ring-offset-2"
+                    >
+                      <span className="size-3 rounded-[2px] bg-white" />
+                    </button>
+                  ) : (
+                    <PromptInputSubmit
+                      className="size-9 rounded-full bg-[var(--chat-text)] text-[var(--chat-surface)] shadow-md transition-all duration-300 hover:scale-105 hover:shadow-lg hover:shadow-[var(--primary)]/15 disabled:bg-[var(--chat-surface-muted)] disabled:text-[var(--chat-text-muted)] disabled:shadow-none disabled:scale-100"
+                      disabled={!canSend}
+                      variant="default"
+                    >
+                      <ArrowUpIcon className="size-5" />
+                    </PromptInputSubmit>
+                  )}
                 </TooltipTrigger>
                 <TooltipContent className={AI_CHAT_FLOATING_CLASS} side="top">
-                  发送
+                  {loading && onStop ? '停止任务' : '发送'}
                 </TooltipContent>
               </Tooltip>
             </PromptInputTools>

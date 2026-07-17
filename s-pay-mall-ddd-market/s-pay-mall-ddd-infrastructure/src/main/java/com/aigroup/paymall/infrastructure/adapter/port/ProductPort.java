@@ -1,6 +1,7 @@
 package com.aigroup.paymall.infrastructure.adapter.port;
 
 import com.aigroup.paymall.domain.order.adapter.port.IProductPort;
+import com.aigroup.paymall.domain.order.adapter.port.MarketSettlementResult;
 import com.aigroup.paymall.domain.order.model.entity.MarketPayDiscountEntity;
 import com.aigroup.paymall.domain.order.model.entity.ProductEntity;
 import com.aigroup.paymall.infrastructure.gateway.IGroupBuyMarketService;
@@ -168,7 +169,7 @@ public class ProductPort implements IProductPort {
     }
 
     @Override
-    public boolean settlementMarketPayOrder(String userId, String orderId, Date orderTime) {
+    public MarketSettlementResult settlementMarketPayOrder(String userId, String orderId, Date orderTime) {
         SettlementMarketPayOrderRequestDTO requestDTO = new SettlementMarketPayOrderRequestDTO();
         requestDTO.setSource(source);
         requestDTO.setChannel(chanel);
@@ -182,13 +183,23 @@ public class ProductPort implements IProductPort {
             // 获取结果
             Response<SettlementMarketPayOrderResponseDTO> response = call.execute().body();
             log.info("营销结算{} requestDTO:{} responseDTO:{}", userId, JSON.toJSONString(requestDTO), JSON.toJSONString(response));
-            if (null == response) return false;
+            if (null == response) return MarketSettlementResult.RETRYABLE_FAILURE;
 
-            // group 已确认登记（0000）才算通知成功；否则返回 false，交补偿任务重试
-            return "0000".equals(response.getCode());
+            if ("0000".equals(response.getCode())) {
+                return MarketSettlementResult.ACKNOWLEDGED;
+            }
+            // These are deterministic terminal rejections: the group order was
+            // already refunded/closed, the payment time missed the team window, or
+            // the team already finalized. Retrying forever leaves money captured with
+            // no quota; the pay domain must refund instead.
+            if ("E0104".equals(response.getCode()) || "E0106".equals(response.getCode())
+                    || "E0107".equals(response.getCode())) {
+                return MarketSettlementResult.TERMINAL_REJECTED;
+            }
+            return MarketSettlementResult.RETRYABLE_FAILURE;
         } catch (Exception e) {
             log.error("营销结算失败{}", userId, e);
-            return false;
+            return MarketSettlementResult.RETRYABLE_FAILURE;
         }
     }
 

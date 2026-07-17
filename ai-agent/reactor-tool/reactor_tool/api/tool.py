@@ -30,7 +30,6 @@ from reactor_tool.model.protocal import (
     ReportRequest,
     DeepSearchRequest,
     NL2SQLRequest,
-    SopChooseRequest,
     ScriptRunnerRequest,
     ImageGenerationRequest,
     MultimodalRAGRequest,
@@ -692,21 +691,6 @@ async def post_nl2sql(body: NL2SQLRequest):
         else:
             response = await NL2SQLAgent().run(body)
         return response
-
-
-@router.post("/sopRecall")
-async def post_sop_recall(
-    body: SopChooseRequest,
-):
-    from reactor_tool.tool.plan_sop import PlanSOP
-
-    request_id = body.request_id
-    query = body.query
-    sop_list = body.sop_list
-    pl_sop = PlanSOP(request_id)
-    sop_mode, choosed_sop_string = pl_sop.sop_choose(query=query, sop_list=sop_list)
-    
-    return {"code": 200, "data": {"sop_mode": sop_mode, "choosed_sop_string": choosed_sop_string}, "requestId": body.request_id}
 
 
 @router.post("/script_runner")

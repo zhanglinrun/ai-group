@@ -17,6 +17,7 @@ import com.aigroup.member.mapper.QuotaLedgerMapper;
 import com.aigroup.member.service.MemberService;
 import com.aigroup.member.vo.MemberSummaryVO;
 import com.aigroup.member.vo.QuotaLedgerVO;
+import com.aigroup.member.vo.QuotaFreezeStatusVO;
 import com.aigroup.member.vo.SkuVO;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
@@ -31,8 +32,14 @@ import org.springframework.util.StringUtils;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 
 @Service
@@ -52,6 +59,8 @@ public class MemberServiceImpl implements MemberService {
     private static final String LEDGER_REVOKE = "REVOKE";
     private static final String LEDGER_MONTHLY_GRANT = "MONTHLY_GRANT";
     private static final String LEDGER_ADMIN_ADJUST = "ADMIN_ADJUST";
+    private static final String OWNER_SERVICE_LEGACY = "legacy";
+    private static final String OWNER_SERVICE_AI_AGENT = "ai-agent";
     private static final DateTimeFormatter MONTH_FMT = DateTimeFormatter.ofPattern("yyyy-MM");
 
     private final ProductSkuMapper productSkuMapper;
@@ -133,17 +142,24 @@ public class MemberServiceImpl implements MemberService {
     @Transactional(rollbackFor = Exception.class)
     public Map<String, Object> freeze(Long userId, long requestedAmount, long minAmount,
                                       String abilityCode, String requestId) {
+        return freeze(userId, requestedAmount, minAmount, abilityCode, requestId, null);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public Map<String, Object> freeze(Long userId, long requestedAmount, long minAmount,
+                                      String abilityCode, String requestId, String ownerService) {
+        if (userId == null) {
+            throw new BusinessException(ErrorCodeEnum.PARAM_ERROR, "userId is required");
+        }
         if (requestedAmount <= 0 || minAmount <= 0 || minAmount > requestedAmount) {
             throw new BusinessException(ErrorCodeEnum.PARAM_ERROR,
                     "amount must satisfy requestedAmount >= minAmount > 0");
         }
-        if (StringUtils.hasText(requestId)) {
-            QuotaFreeze existing = quotaFreezeMapper.selectByUserIdAndRequestId(userId, requestId);
-            if (existing != null) {
-                return reusePendingFreeze(existing);
-            }
-        }
-
+        String normalizedAbilityCode = normalizeAbilityCode(abilityCode);
+        String normalizedOwnerService = normalizeOwnerService(ownerService);
+        String requestFingerprint = freezeRequestFingerprint(
+                userId, requestedAmount, minAmount, normalizedAbilityCode, normalizedOwnerService);
         QuotaAccount locked = quotaAccountMapper.selectForUpdateByUserId(userId);
         if (locked == null) {
             throw new BusinessException(ErrorCodeEnum.MEMBER_NOT_FOUND);
@@ -152,7 +168,8 @@ public class MemberServiceImpl implements MemberService {
             QuotaFreeze concurrentExisting = quotaFreezeMapper
                     .selectForUpdateByUserIdAndRequestId(userId, requestId);
             if (concurrentExisting != null) {
-                return reusePendingFreeze(concurrentExisting);
+                return reusePendingFreeze(concurrentExisting, requestedAmount, minAmount,
+                        normalizedAbilityCode, normalizedOwnerService, requestFingerprint);
             }
         }
 
@@ -179,9 +196,13 @@ public class MemberServiceImpl implements MemberService {
         freeze.setFreeAmount(freeAmount);
         freeze.setPaidAmount(paidAmount);
         freeze.setSettledAmount(0L);
-        freeze.setAbilityCode(StringUtils.hasText(abilityCode) ? abilityCode : "llm");
+        freeze.setRequestedAmount(requestedAmount);
+        freeze.setMinAmount(minAmount);
+        freeze.setAbilityCode(normalizedAbilityCode);
         freeze.setStatus(FREEZE_STATUS_PENDING);
         freeze.setRequestId(StringUtils.hasText(requestId) ? requestId : null);
+        freeze.setRequestFingerprint(requestFingerprint);
+        freeze.setOwnerService(normalizedOwnerService);
         freeze.setCreatedAt(now);
         freeze.setUpdatedAt(now);
         quotaFreezeMapper.insert(freeze);
@@ -192,18 +213,46 @@ public class MemberServiceImpl implements MemberService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void confirm(String freezeId) {
-        confirm(freezeId, -1L);
+        confirmWithStatus(freezeId, -1L);
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void confirm(String freezeId, long requestedActualAmount) {
+        confirmWithStatus(freezeId, requestedActualAmount);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public QuotaFreezeStatusVO confirmWithStatus(String freezeId, long requestedActualAmount) {
+        QuotaFreeze snapshot = requireFreezeSnapshot(freezeId);
+        if (FREEZE_STATUS_CONFIRMED.equals(snapshot.getStatus())) {
+            requireMatchingConfirmedAmount(snapshot, requestedActualAmount);
+            return toFreezeStatus(snapshot);
+        }
+        if (FREEZE_STATUS_RELEASED.equals(snapshot.getStatus())) {
+            return toFreezeStatus(snapshot);
+        }
+        if (!FREEZE_STATUS_PENDING.equals(snapshot.getStatus())) {
+            throw new BusinessException("freeze is not pending");
+        }
+
+        // All quota mutations use account -> freeze lock order. The old freeze -> account
+        // order deadlocked against a concurrent idempotent freeze retry for the same user.
+        QuotaAccount quota = quotaAccountMapper.selectForUpdateByUserId(snapshot.getUserId());
+        if (quota == null) {
+            throw new BusinessException(ErrorCodeEnum.MEMBER_NOT_FOUND);
+        }
         QuotaFreeze freeze = quotaFreezeMapper.selectForUpdateByFreezeId(freezeId);
-        if (freeze == null) {
+        if (freeze == null || !Objects.equals(snapshot.getUserId(), freeze.getUserId())) {
             throw new BusinessException(ErrorCodeEnum.FREEZE_NOT_FOUND);
         }
         if (FREEZE_STATUS_CONFIRMED.equals(freeze.getStatus())) {
-            return;
+            requireMatchingConfirmedAmount(freeze, requestedActualAmount);
+            return toFreezeStatus(freeze);
+        }
+        if (FREEZE_STATUS_RELEASED.equals(freeze.getStatus())) {
+            return toFreezeStatus(freeze);
         }
         if (!FREEZE_STATUS_PENDING.equals(freeze.getStatus())) {
             throw new BusinessException("freeze is not pending");
@@ -212,11 +261,6 @@ public class MemberServiceImpl implements MemberService {
         if (actualAmount < 0 || actualAmount > freeze.getAmount()) {
             throw new BusinessException(ErrorCodeEnum.PARAM_ERROR,
                     "actualAmount must be between 0 and reserved amount");
-        }
-
-        QuotaAccount quota = quotaAccountMapper.selectForUpdateByUserId(freeze.getUserId());
-        if (quota == null) {
-            throw new BusinessException(ErrorCodeEnum.MEMBER_NOT_FOUND);
         }
         long fromFree = Math.min(actualAmount, freeze.getFreeAmount());
         long fromPaid = actualAmount - fromFree;
@@ -236,17 +280,39 @@ public class MemberServiceImpl implements MemberService {
         quotaFreezeMapper.updateById(freeze);
         appendLedger(freeze.getUserId(), LEDGER_CONFIRM, -actualAmount, freezeId,
                 freeze.getAbilityCode(), "quota settled; unused reservation released");
+        return toFreezeStatus(freeze);
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void release(String freezeId) {
+        releaseWithStatus(freezeId);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public QuotaFreezeStatusVO releaseWithStatus(String freezeId) {
+        QuotaFreeze snapshot = requireFreezeSnapshot(freezeId);
+        if (FREEZE_STATUS_RELEASED.equals(snapshot.getStatus())
+                || FREEZE_STATUS_CONFIRMED.equals(snapshot.getStatus())) {
+            return toFreezeStatus(snapshot);
+        }
+        if (!FREEZE_STATUS_PENDING.equals(snapshot.getStatus())) {
+            throw new BusinessException("freeze is not pending");
+        }
+        QuotaAccount account = quotaAccountMapper.selectForUpdateByUserId(snapshot.getUserId());
+        if (account == null) {
+            throw new BusinessException(ErrorCodeEnum.MEMBER_NOT_FOUND);
+        }
         QuotaFreeze freeze = quotaFreezeMapper.selectForUpdateByFreezeId(freezeId);
-        if (freeze == null) {
+        if (freeze == null || !Objects.equals(snapshot.getUserId(), freeze.getUserId())) {
             throw new BusinessException(ErrorCodeEnum.FREEZE_NOT_FOUND);
         }
         if (FREEZE_STATUS_RELEASED.equals(freeze.getStatus()) || FREEZE_STATUS_CONFIRMED.equals(freeze.getStatus())) {
-            return;
+            return toFreezeStatus(freeze);
+        }
+        if (!FREEZE_STATUS_PENDING.equals(freeze.getStatus())) {
+            throw new BusinessException("freeze is not pending");
         }
         if (quotaAccountMapper.releaseFrozenBalance(freeze.getUserId(), freeze.getAmount()) == 0) {
             throw new BusinessException("quota release failed: frozen balance mismatch, freezeId=" + freezeId);
@@ -256,6 +322,25 @@ public class MemberServiceImpl implements MemberService {
         freeze.setUpdatedAt(LocalDateTime.now());
         quotaFreezeMapper.updateById(freeze);
         appendLedger(freeze.getUserId(), LEDGER_RELEASE, 0L, freezeId, freeze.getAbilityCode(), "reservation released");
+        return toFreezeStatus(freeze);
+    }
+
+    @Override
+    public QuotaFreezeStatusVO queryFreeze(String freezeId) {
+        if (!StringUtils.hasText(freezeId)) {
+            return null;
+        }
+        QuotaFreeze freeze = quotaFreezeMapper.selectById(freezeId);
+        return freeze == null ? null : toFreezeStatus(freeze);
+    }
+
+    @Override
+    public QuotaFreezeStatusVO queryFreezeByRequest(Long userId, String requestId) {
+        if (userId == null || !StringUtils.hasText(requestId)) {
+            return null;
+        }
+        QuotaFreeze freeze = quotaFreezeMapper.selectByUserIdAndRequestId(userId, requestId);
+        return freeze == null ? null : toFreezeStatus(freeze);
     }
 
     @Override
@@ -265,15 +350,32 @@ public class MemberServiceImpl implements MemberService {
     }
 
     @Override
+    public List<String> listExpiredManagedPendingFreezeIds(int timeoutMinutes, int batchLimit) {
+        LocalDateTime cutoff = LocalDateTime.now().minusMinutes(Math.max(1, timeoutMinutes));
+        return quotaFreezeMapper.selectExpiredManagedPendingFreezeIds(cutoff, Math.max(1, batchLimit));
+    }
+
+    @Override
     @Transactional(rollbackFor = Exception.class)
     public void handleBenefitEvent(TradeCompletedEvent event) {
-        if (CommonConstant.EVENT_GROUP_BUY_REVOKED.equals(event.getEventType())) {
-            handleGroupBuyRevoked(event);
-        } else if (CommonConstant.EVENT_GROUP_BUY_COMPLETED.equals(event.getEventType())) {
-            handleGroupBuyCompleted(event);
-        } else {
+        boolean revoked = event != null
+                && CommonConstant.EVENT_GROUP_BUY_REVOKED.equals(event.getEventType());
+        boolean completed = event != null
+                && CommonConstant.EVENT_GROUP_BUY_COMPLETED.equals(event.getEventType());
+        if (!revoked && !completed) {
             throw new BusinessException(ErrorCodeEnum.PARAM_ERROR,
-                    "unknown benefit event type: " + event.getEventType());
+                    "unknown benefit event type: " + (event == null ? null : event.getEventType()));
+        }
+        idempotencyKey(event);
+        // COMPLETED and REVOKED are two different idempotency keys. Serialize both
+        // event types on the user's quota row before checking either event table row,
+        // otherwise two consumers can concurrently observe "the opposite event is absent"
+        // and commit both a grant and a revoke tombstone.
+        QuotaAccount lockedQuota = requireQuota(event.getUserId());
+        if (revoked) {
+            handleGroupBuyRevoked(event);
+        } else {
+            handleGroupBuyCompleted(event, lockedQuota);
         }
     }
 
@@ -336,7 +438,7 @@ public class MemberServiceImpl implements MemberService {
         appendLedger(userId, LEDGER_ADMIN_ADJUST, paidMicroDelta, null, "admin", remark.trim());
     }
 
-    private void handleGroupBuyCompleted(TradeCompletedEvent event) {
+    private void handleGroupBuyCompleted(TradeCompletedEvent event, QuotaAccount quota) {
         String idempotencyKey = idempotencyKey(event);
         if (findBenefitByKey(idempotencyKey) != null) {
             return;
@@ -359,7 +461,6 @@ public class MemberServiceImpl implements MemberService {
             throw new BusinessException(ErrorCodeEnum.PARAM_ERROR, "bonusQuota cannot be negative");
         }
         long granted = creditsToMicro(addExact(event.getBaseQuota(), bonus));
-        QuotaAccount quota = requireQuota(event.getUserId());
         quota.setPaidQuotaBalance(addExact(quota.getPaidQuotaBalance(), granted));
         quota.setUpdateTime(LocalDateTime.now());
         quotaAccountMapper.updateById(quota);
@@ -421,11 +522,104 @@ public class MemberServiceImpl implements MemberService {
         return Map.of("freezeId", freeze.getFreezeId(), "amount", freeze.getAmount());
     }
 
-    private Map<String, Object> reusePendingFreeze(QuotaFreeze freeze) {
+    private Map<String, Object> reusePendingFreeze(QuotaFreeze freeze,
+                                                   long requestedAmount,
+                                                   long minAmount,
+                                                   String abilityCode,
+                                                   String ownerService,
+                                                   String requestFingerprint) {
+        if (!matchesFreezeRequest(freeze, requestedAmount, minAmount, abilityCode,
+                ownerService, requestFingerprint)) {
+            throw new BusinessException(ErrorCodeEnum.PARAM_ERROR,
+                    "requestId was already used by a different quota reservation payload");
+        }
         if (!FREEZE_STATUS_PENDING.equals(freeze.getStatus())) {
             throw new BusinessException("requestId was already settled");
         }
         return freezeResult(freeze);
+    }
+
+    private boolean matchesFreezeRequest(QuotaFreeze freeze,
+                                         long requestedAmount,
+                                         long minAmount,
+                                         String abilityCode,
+                                         String ownerService,
+                                         String requestFingerprint) {
+        if (freeze == null) {
+            return false;
+        }
+        if (StringUtils.hasText(freeze.getRequestFingerprint())) {
+            return Objects.equals(freeze.getRequestFingerprint(), requestFingerprint);
+        }
+        return (freeze.getRequestedAmount() == null || freeze.getRequestedAmount() == requestedAmount)
+                && (freeze.getMinAmount() == null || freeze.getMinAmount() == minAmount)
+                && Objects.equals(normalizeAbilityCode(freeze.getAbilityCode()), abilityCode)
+                && Objects.equals(normalizeOwnerService(freeze.getOwnerService()), ownerService);
+    }
+
+    private QuotaFreezeStatusVO toFreezeStatus(QuotaFreeze freeze) {
+        return QuotaFreezeStatusVO.builder()
+                .freezeId(freeze.getFreezeId())
+                .userId(freeze.getUserId())
+                .amount(freeze.getAmount())
+                .settledAmount(freeze.getSettledAmount())
+                .requestedAmount(freeze.getRequestedAmount())
+                .minAmount(freeze.getMinAmount())
+                .abilityCode(freeze.getAbilityCode())
+                .status(freeze.getStatus())
+                .requestId(freeze.getRequestId())
+                .requestFingerprint(freeze.getRequestFingerprint())
+                .ownerService(freeze.getOwnerService())
+                .build();
+    }
+
+    private String normalizeAbilityCode(String abilityCode) {
+        return StringUtils.hasText(abilityCode)
+                ? abilityCode.trim().toLowerCase(Locale.ROOT)
+                : "llm";
+    }
+
+    private String normalizeOwnerService(String ownerService) {
+        String normalized = StringUtils.hasText(ownerService)
+                ? ownerService.trim().toLowerCase(Locale.ROOT)
+                : OWNER_SERVICE_LEGACY;
+        if (!OWNER_SERVICE_LEGACY.equals(normalized)
+                && !OWNER_SERVICE_AI_AGENT.equals(normalized)) {
+            throw new BusinessException(ErrorCodeEnum.PARAM_ERROR,
+                    "unsupported quota settlement owner: " + normalized);
+        }
+        return normalized;
+    }
+
+    private String freezeRequestFingerprint(Long userId,
+                                            long requestedAmount,
+                                            long minAmount,
+                                            String abilityCode,
+                                            String ownerService) {
+        String canonical = userId + "\n" + requestedAmount + "\n" + minAmount
+                + "\n" + abilityCode + "\n" + ownerService;
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                    .digest(canonical.getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException impossible) {
+            throw new IllegalStateException("SHA-256 is unavailable", impossible);
+        }
+    }
+
+    private QuotaFreeze requireFreezeSnapshot(String freezeId) {
+        QuotaFreeze freeze = quotaFreezeMapper.selectById(freezeId);
+        if (freeze == null) {
+            throw new BusinessException(ErrorCodeEnum.FREEZE_NOT_FOUND);
+        }
+        return freeze;
+    }
+
+    private void requireMatchingConfirmedAmount(QuotaFreeze freeze, long requestedActualAmount) {
+        if (requestedActualAmount >= 0
+                && !Objects.equals(freeze.getSettledAmount(), requestedActualAmount)) {
+            throw new BusinessException(ErrorCodeEnum.PARAM_ERROR,
+                    "conflicting confirm amount for freezeId=" + freeze.getFreezeId());
+        }
     }
 
     private void appendLedger(Long userId, String type, long amount,

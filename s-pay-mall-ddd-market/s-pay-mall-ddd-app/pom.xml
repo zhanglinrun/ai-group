@@ -137,7 +137,6 @@
                     </includes>
                     <excludes>
                         <exclude>**/OrderServiceTest.java</exclude>
-                        <exclude>**/ApiTest.java</exclude>
                         <exclude>**/AliPayTest.java</exclude>
                     </excludes>
                 </configuration>

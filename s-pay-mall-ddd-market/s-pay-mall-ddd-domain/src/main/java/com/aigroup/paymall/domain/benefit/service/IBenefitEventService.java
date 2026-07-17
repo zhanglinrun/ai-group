@@ -7,11 +7,11 @@ import java.util.List;
 
 public interface IBenefitEventService {
 
-    void publishGroupBuyCompletedEvents(List<String> orderIds, Long bonusQuota);
+    void enqueueCompletedOrderEvents(List<String> orderIds, Long bonusQuota);
 
-    void publishGroupBuyRevokedEvents(List<String> orderIds);
+    void enqueueRevokedBenefitEvents(List<String> orderIds);
 
-    int republishPendingEvents();
+    int publishPendingEvents();
 
     List<BenefitEventEntity> queryPendingGrants(Date since, Long lastId, int pageSize);
 

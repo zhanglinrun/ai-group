@@ -1,9 +1,6 @@
 package com.aigroup.paymall.infrastructure.event;
 
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.amqp.core.MessageDeliveryMode;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -16,19 +13,18 @@ import org.springframework.stereotype.Component;
 @Component
 public class EventPublisher {
 
-    @Autowired
-    private RabbitTemplate rabbitTemplate;
+    private final ConfirmedRabbitPublisher confirmedRabbitPublisher;
+
+    public EventPublisher(ConfirmedRabbitPublisher confirmedRabbitPublisher) {
+        this.confirmedRabbitPublisher = confirmedRabbitPublisher;
+    }
 
     @Value("${spring.rabbitmq.config.producer.topic_order_pay_success.exchange}")
     private String exchangeName;
 
-    public void publish(String routingKey, String message) {
+    public void publish(String correlationKey, String routingKey, String message) {
         try {
-            rabbitTemplate.convertAndSend(exchangeName, routingKey, message, m -> {
-                // 持久化消息配置
-                m.getMessageProperties().setDeliveryMode(MessageDeliveryMode.PERSISTENT);
-                return m;
-            });
+            confirmedRabbitPublisher.publish(exchangeName, routingKey, message, correlationKey);
         } catch (Exception e) {
             log.error("发送MQ消息失败 routingKey:{} message:{}", routingKey, message, e);
             throw e;

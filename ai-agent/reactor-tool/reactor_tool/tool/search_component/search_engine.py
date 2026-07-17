@@ -36,7 +36,9 @@ class SearchBase(ABC):
 
     def __init__(self):
         self._count = int(os.getenv("SEARCH_COUNT", 10))
-        self._timeout = int(os.getenv("SEARCH_TIMEOUT", 99999))
+        # 外部搜索必须有明确的上限。99999 秒会让单个不可达搜索引擎拖住
+        # 整个 deep_search，最终超过 Java Agent 的 run budget 才被动取消。
+        self._timeout = int(os.getenv("SEARCH_TIMEOUT", 20))
         # 单 URL 抓取超时（秒），过大会导致墙内访问 Reddit/Threads/X 等长时间挂起后卡死
         self._parser_timeout = int(os.getenv("SEARCH_PARSER_TIMEOUT", 15))
         self._use_jd_gateway = os.getenv("USE_JD_SEARCH_GATEWAY", "true") == "true"

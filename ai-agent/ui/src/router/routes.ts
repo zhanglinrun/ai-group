@@ -8,7 +8,7 @@ export const ROUTES = {
   ORDERS: '/orders',
   ACCOUNT: '/account',
   WORKSPACE: '/workspace',
-  WORKSPACE_MRAG: '/workspace/mrag',
+  WORKSPACE_TASKS: '/workspace/tasks',
   WORKSPACE_IMAGE_GENERATION: '/workspace/image-generation',
   ADMIN: '/admin',
   NOT_FOUND: '*',

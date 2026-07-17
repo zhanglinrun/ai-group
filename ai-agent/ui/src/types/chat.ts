@@ -6,21 +6,17 @@ declare global {
       {
         files: TFile[];
         generatedFiles?: TFile[];
-        plan?: MESSAGE.Plan;
         forceStop: boolean;
         tip?: string;
         multiAgent: MESSAGE.MultiAgent;
-        agentType?: MESSAGE.ResultMap['agentType'];
         conclusion?: Task;
         responseType?: string;
         loading: boolean;
         tasks: Task[][];
-        thought?: string;
         response?: string;
         taskStatus?: MESSAGE.MsgItem['taskStatus'];
-        planList?: PlanItem[];
         timeline?: TimelineEntry[];
-        checkpoint?: AgentCheckpoint;
+        agentRun?: AgentLoopViewState;
         metrics?: {
           event_count?: number;
           status?: string;
@@ -30,31 +26,53 @@ declare global {
           totalTokens?: number;
           /** 本轮耗时（毫秒）。 */
           durationMs?: number;
-          /** Plan-Solve 质量门执行次数。 */
-          evaluationCount?: number;
-          /** Evaluator 定向重规划次数，不包含普通计划推进。 */
-          replanCount?: number;
-          /** 质量评估与反馈消耗的保守 token 估算。 */
-          reflectionTokens?: number;
-          /** 最近一轮质量评估分数（0-100）。 */
-          qualityScore?: number;
         };
         startedAt?: string;
         finishedAt?: string;
       }
     >;
 
-    export type CheckpointResumeDecision = 'SAFE_ONLY' | 'RESTART_FROM_CHECKPOINT';
-
-    export type AgentCheckpoint = {
-      checkpointId: string;
-      phase: string;
-      sequence?: number;
-      nextStepIndex?: number;
-      resumable: boolean;
-      sourceRequestId?: string;
-      resumeDecision?: CheckpointResumeDecision;
-      status: 'AVAILABLE' | 'RESUMED';
+    export type ExecutionMode = 'AUTO' | 'STANDARD' | 'DEEP';
+    export type AgentRunPhase =
+      | 'ANALYZING'
+      | 'PLANNING'
+      | 'EXECUTING'
+      | 'VERIFYING'
+      | 'FINALIZING';
+    export type AgentRunStatus =
+      | 'RUNNING'
+      | 'SUCCESS'
+      | 'FAILED'
+      | 'STOPPED'
+      | 'TIMEOUT';
+    export type TodoStatus = 'pending' | 'in_progress' | 'completed' | 'blocked' | 'failed';
+    export type TodoEvidencePolicy = 'NONE' | 'TOOL' | 'LEGACY';
+    export type TodoItem = {
+      id: string;
+      title: string;
+      detail?: string;
+      status: TodoStatus;
+      evidencePolicy?: TodoEvidencePolicy;
+      evidenceRefs?: string[];
+    };
+    export type VerificationState = {
+      status: 'running' | 'passed' | 'failed';
+      summary?: string;
+      missingRequirements?: string[];
+      requiredActions?: string[];
+      attempt?: number;
+    };
+    export type AgentLoopViewState = {
+      runId?: string;
+      phase?: AgentRunPhase;
+      status: AgentRunStatus;
+      todoTitle?: string;
+      todos: TodoItem[];
+      verification?: VerificationState;
+      /** 是否已收到权威 run_finished；result 本身不得替代该终态事件。 */
+      terminalEventSeen?: boolean;
+      completionGatePassed?: boolean;
+      stopReason?: string;
     };
 
     export type TimelineEntry = {
@@ -70,11 +88,6 @@ declare global {
       isFinal: boolean;
       status?: string;
       payload?: Record<string, unknown>;
-    };
-
-    type PlanItem = {
-      name: string;
-      list: string[];
     };
 
     export type TFile = {
@@ -95,14 +108,12 @@ declare global {
       files?: TFile[];
       message: string;
       outputStyle?: string;
-      deepThink: boolean;
+      executionMode: ExecutionMode;
+      /** 是否允许本轮 Agent 使用联网搜索工具。 */
+      online?: boolean;
       aiAgentId?: string;
       /** 用户在输入框选择的模型 ID；为空则由后端走默认模型逻辑。 */
       modelId?: string;
-      /** Plan-Solve 检查点恢复 ID；仅恢复操作传递。 */
-      resumeCheckpointId?: string;
-      /** 默认 SAFE_ONLY；RESTART_FROM_CHECKPOINT 必须经过用户显式确认。 */
-      resumeDecision?: CheckpointResumeDecision;
     };
 
     export type TAbortController = {
@@ -169,11 +180,6 @@ declare global {
 
     export type FileList = MESSAGE.FileInfo;
 
-    type PlanStatus = MESSAGE.PlanStatus;
-
-    export type Plan = MESSAGE.Plan;
-    export type PlannerRound = MESSAGE.PlannerRound;
-
     export type Product = {
       name: string;
       img: string;
@@ -187,7 +193,7 @@ declare global {
       sessionId: string;
       title: string;
       productType: string;
-      deepThink: boolean;
+      executionMode: ExecutionMode;
       role?: ConversationRole | null;
       createdAt: number;
       updatedAt: number;

@@ -3,6 +3,7 @@ package com.aigroup.member.service;
 import com.aigroup.member.dto.TradeCompletedEvent;
 import com.aigroup.member.vo.MemberSummaryVO;
 import com.aigroup.member.vo.QuotaLedgerVO;
+import com.aigroup.member.vo.QuotaFreezeStatusVO;
 import com.aigroup.member.vo.SkuVO;
 
 import java.util.List;
@@ -23,16 +24,28 @@ public interface MemberService {
     Map<String, Object> freeze(Long userId, long requestedAmount, long minAmount,
                                String abilityCode, String requestId);
 
+    Map<String, Object> freeze(Long userId, long requestedAmount, long minAmount,
+                               String abilityCode, String requestId, String ownerService);
+
     void confirm(String freezeId, long actualAmount);
 
     void confirm(String freezeId);
 
     void release(String freezeId);
 
-    /**
-     * 查询超时仍 PENDING 的僵尸冻结ID（进程崩溃/重启导致 confirm/release 丢失），供兜底释放任务逐个释放。
-     */
+    QuotaFreezeStatusVO confirmWithStatus(String freezeId, long actualAmount);
+
+    QuotaFreezeStatusVO releaseWithStatus(String freezeId);
+
+    QuotaFreezeStatusVO queryFreeze(String freezeId);
+
+    QuotaFreezeStatusVO queryFreezeByRequest(Long userId, String requestId);
+
+    /** Query legacy/unmanaged stale freezes that member may safely release. */
     List<String> listExpiredPendingFreezeIds(int timeoutMinutes, int batchLimit);
+
+    /** Managed freezes are alerted for reconciliation but never blindly released. */
+    List<String> listExpiredManagedPendingFreezeIds(int timeoutMinutes, int batchLimit);
 
     void handleBenefitEvent(TradeCompletedEvent event);
 

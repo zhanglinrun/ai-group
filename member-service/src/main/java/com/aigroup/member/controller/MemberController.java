@@ -4,6 +4,7 @@ import com.aigroup.common.context.RequestUserContext;
 import com.aigroup.common.model.Result;
 import com.aigroup.member.service.MemberService;
 import com.aigroup.member.vo.MemberSummaryVO;
+import com.aigroup.member.vo.QuotaFreezeStatusVO;
 import com.aigroup.member.vo.QuotaLedgerVO;
 import com.aigroup.member.vo.SkuVO;
 import lombok.RequiredArgsConstructor;
@@ -55,24 +56,36 @@ public class MemberController {
         long amount = requiredLong(body, "amount");
         long minAmount = Long.parseLong(body.getOrDefault("minAmount", amount).toString());
         String abilityCode = String.valueOf(body.getOrDefault("abilityCode", "llm"));
+        String ownerService = String.valueOf(body.getOrDefault("ownerService", "legacy"));
         Object requestIdObj = body.get("requestId");
         String requestId = requestIdObj != null ? requestIdObj.toString() : null;
-        return Result.success(memberService.freeze(userId, amount, minAmount, abilityCode, requestId));
+        return Result.success(memberService.freeze(
+                userId, amount, minAmount, abilityCode, requestId, ownerService));
     }
 
     @PostMapping("/internal/quota/confirm")
-    public Result<Void> confirm(@RequestBody Map<String, Object> body) {
+    public Result<QuotaFreezeStatusVO> confirm(@RequestBody Map<String, Object> body) {
         String freezeId = requiredString(body, "freezeId");
         Object actualAmount = body.get("actualAmount");
-        memberService.confirm(freezeId,
-                actualAmount == null ? -1L : Long.parseLong(actualAmount.toString()));
-        return Result.success();
+        return Result.success(memberService.confirmWithStatus(freezeId,
+                actualAmount == null ? -1L : Long.parseLong(actualAmount.toString())));
     }
 
     @PostMapping("/internal/quota/release")
-    public Result<Void> release(@RequestBody Map<String, Object> body) {
-        memberService.release(requiredString(body, "freezeId"));
-        return Result.success();
+    public Result<QuotaFreezeStatusVO> release(@RequestBody Map<String, Object> body) {
+        return Result.success(memberService.releaseWithStatus(requiredString(body, "freezeId")));
+    }
+
+    @GetMapping("/internal/quota/freezes/{freezeId}")
+    public Result<QuotaFreezeStatusVO> freezeStatus(@PathVariable String freezeId) {
+        return Result.success(memberService.queryFreeze(freezeId));
+    }
+
+    @GetMapping("/internal/quota/freezes/by-request")
+    public Result<QuotaFreezeStatusVO> freezeStatusByRequest(
+            @org.springframework.web.bind.annotation.RequestParam Long userId,
+            @org.springframework.web.bind.annotation.RequestParam String requestId) {
+        return Result.success(memberService.queryFreezeByRequest(userId, requestId));
     }
 
     @GetMapping("/internal/benefits/orders/{orderId}/status")

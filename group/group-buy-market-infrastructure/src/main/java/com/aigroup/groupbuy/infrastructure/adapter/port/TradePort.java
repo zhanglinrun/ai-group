@@ -55,7 +55,10 @@ public class TradePort implements ITradePort {
 
                     // 回调方式 MQ
                     if (NotifyTypeEnumVO.MQ.getCode().equals(notifyTask.getNotifyType())) {
-                        publisher.publish(notifyTask.getNotifyMQ(), notifyTask.getParameterJson());
+                        publisher.publish(
+                                notifyTask.getNotifyMQ(),
+                                notifyTask.getParameterJson(),
+                                notifyTask.getUuid());
                         return NotifyTaskHTTPEnumVO.SUCCESS.getCode();
                     }
                 } finally {

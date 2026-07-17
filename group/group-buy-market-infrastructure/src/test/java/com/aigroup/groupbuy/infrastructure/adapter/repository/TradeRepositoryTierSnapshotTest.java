@@ -15,6 +15,7 @@ import com.aigroup.groupbuy.infrastructure.dao.IGroupBuyOrderListDao;
 import com.aigroup.groupbuy.infrastructure.dao.INotifyTaskDao;
 import com.aigroup.groupbuy.infrastructure.dao.po.GroupBuyActivityTier;
 import com.aigroup.groupbuy.infrastructure.dao.po.GroupBuyOrder;
+import com.aigroup.groupbuy.infrastructure.dao.po.GroupBuyOrderList;
 import com.aigroup.groupbuy.infrastructure.dao.po.NotifyTask;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
@@ -28,6 +29,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.Date;
 import java.util.List;
+import java.util.Set;
 
 import static org.junit.Assert.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
@@ -111,8 +113,10 @@ public class TradeRepositoryTierSnapshotTest {
         GroupBuyOrder team = team("TEAM2", 5);
         team.setNotifyType(NotifyTypeEnumVO.MQ.getCode());
         when(orderDao.queryExpiredProgressTeams()).thenReturn(Collections.singletonList(team));
+        when(orderDao.queryGroupBuyTeamByTeamIdForUpdate("TEAM2")).thenReturn(team);
         when(orderListDao.queryGroupBuyCompleteOrderOutTradeNoListByTeamId("TEAM2"))
                 .thenReturn(Arrays.asList("pay-1", "pay-2", "pay-3", "pay-4", "pay-5"));
+        when(orderDao.updateOrderStatus2COMPLETE("TEAM2")).thenReturn(1);
 
         assertEquals(1, repository.settleExpiredFormedTeams());
 
@@ -124,12 +128,29 @@ public class TradeRepositoryTierSnapshotTest {
 
     @Test
     public void timeoutBelowMinimumIsLeftForExistingRefundFlow() {
-        when(orderDao.queryExpiredProgressTeams()).thenReturn(Collections.singletonList(team("TEAM3", 2)));
+        GroupBuyOrder team = team("TEAM3", 2);
+        when(orderDao.queryExpiredProgressTeams()).thenReturn(Collections.singletonList(team));
+        when(orderDao.queryGroupBuyTeamByTeamIdForUpdate("TEAM3")).thenReturn(team);
 
         assertEquals(0, repository.settleExpiredFormedTeams());
 
         verify(notifyTaskDao, never()).insert(any());
         verify(orderDao, never()).updateOrderStatus2COMPLETE("TEAM3");
+    }
+
+    @Test
+    public void paidRefundScanSkipsTierTeamThatAlreadyReachedMinimum() {
+        GroupBuyOrderList eligible = detail("TEAM-ELIGIBLE", "pay-eligible");
+        GroupBuyOrderList below = detail("TEAM-BELOW", "pay-below");
+        when(orderListDao.queryTimeoutPaidUnformedOrderList()).thenReturn(Arrays.asList(eligible, below));
+
+        GroupBuyOrder eligibleTeam = team("TEAM-ELIGIBLE", 3);
+        GroupBuyOrder belowTeam = team("TEAM-BELOW", 2);
+        when(orderDao.queryGroupBuyTeamByTeamIds(Set.of("TEAM-ELIGIBLE", "TEAM-BELOW")))
+                .thenReturn(Arrays.asList(eligibleTeam, belowTeam));
+
+        assertEquals(Collections.singletonList("pay-below"), repository.queryTimeoutPaidUnformedOrderList()
+                .stream().map(detail -> detail.getOutTradeNo()).toList());
     }
 
     private GroupBuyTeamSettlementAggregate settlement(String teamId) {
@@ -154,6 +175,19 @@ public class TradeRepositoryTierSnapshotTest {
                 .completeCount(completeCount)
                 .lockCount(completeCount)
                 .status(0)
+                .validEndTime(new Date(System.currentTimeMillis() - 60_000L))
+                .build();
+    }
+
+    private GroupBuyOrderList detail(String teamId, String outTradeNo) {
+        return GroupBuyOrderList.builder()
+                .userId("u1")
+                .teamId(teamId)
+                .orderId("group-" + outTradeNo)
+                .activityId(100201L)
+                .source("s01")
+                .channel("c01")
+                .outTradeNo(outTradeNo)
                 .build();
     }
 

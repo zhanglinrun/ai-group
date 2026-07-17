@@ -20,6 +20,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 public class AliPayControllerAmountTest {
@@ -54,6 +56,7 @@ public class AliPayControllerAmountTest {
         when(orderService.queryOrderByOrderId("o1")).thenReturn(persisted);
 
         CreatePayRequestDTO request = new CreatePayRequestDTO();
+        request.setRequestId("pay-request-1");
         request.setProductId("10001");
         request.setProductCode("QUOTA_LIGHT");
         request.setMarketType(0);
@@ -62,5 +65,34 @@ public class AliPayControllerAmountTest {
 
         assertEquals("0000", response.getCode());
         assertEquals(new BigDecimal("12.00"), response.getData().getAmount());
+    }
+
+    @Test
+    public void idempotentReplayReturnsPersistedQrWithoutCallingProviderAgain() throws Exception {
+        HttpServletRequest servletRequest = mock(HttpServletRequest.class);
+        when(userResolver.resolveUserId(eq(servletRequest), isNull())).thenReturn("u1");
+
+        PayOrderEntity replay = new PayOrderEntity();
+        replay.setOrderId("o-replay");
+        replay.setIdempotentReplay(true);
+        when(orderService.createOrder(any())).thenReturn(replay);
+
+        OrderEntity persisted = new OrderEntity();
+        persisted.setPayUrl("https://qr.alipay.example/o-replay");
+        persisted.setPayAmount(new BigDecimal("10.00"));
+        when(orderService.queryOrderByOrderId("o-replay")).thenReturn(persisted);
+
+        CreatePayRequestDTO request = new CreatePayRequestDTO();
+        request.setRequestId("pay-request-replay");
+        request.setProductId("10001");
+        request.setProductCode("QUOTA_LIGHT");
+        request.setMarketType(0);
+
+        Response<CreatePayQrResponseDTO> response = controller.createPayQrCode(request, servletRequest);
+
+        assertEquals("0000", response.getCode());
+        assertEquals("o-replay", response.getData().getOrderId());
+        assertEquals("https://qr.alipay.example/o-replay", response.getData().getQrCode());
+        verify(orderService, never()).prepareTradeQrCode("o-replay");
     }
 }

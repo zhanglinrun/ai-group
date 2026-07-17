@@ -40,6 +40,7 @@ describe('ConversationSidebar', () => {
           selectedSessionId="session-1"
           onNewChat={() => {}}
           onSelectSession={() => {}}
+          onDeleteSession={() => {}}
           onChangeView={() => {}}
         />
       </MemoryRouter>,
@@ -52,5 +53,24 @@ describe('ConversationSidebar', () => {
     expect(titleIndex).toBeGreaterThan(-1);
     expect(sessionButtonCloseIndex).toBeGreaterThan(titleIndex);
     expect(moreButtonIndex).toBeGreaterThan(sessionButtonCloseIndex);
+  });
+
+  it('只展示已开放的删除操作，不展示知识库和置顶占位', () => {
+    const html = renderToStaticMarkup(
+      <MemoryRouter>
+        <ConversationSidebar
+          activeView="chat"
+          recentSessions={[]}
+          recentSessionsLoading={false}
+          onNewChat={() => {}}
+          onSelectSession={() => {}}
+          onDeleteSession={() => {}}
+          onChangeView={() => {}}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(html).not.toContain('知识库');
+    expect(html).not.toContain('暂未开放');
   });
 });

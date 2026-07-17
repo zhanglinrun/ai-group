@@ -1,20 +1,20 @@
-{"id":"math-1","suite":"deterministic","mode":"text","query":"直接回答，无需使用任何工具：1+1 等于几？","expect":["2"]}
-{"id":"math-2","suite":"deterministic","mode":"text","query":"直接回答，无需使用任何工具：100 减 58 等于几？","expect":["42"]}
-{"id":"math-3","suite":"deterministic","mode":"text","query":"直接回答，无需使用任何工具：7 乘以 8 等于几？","expect":["56"]}
-{"id":"geo-1","suite":"deterministic","mode":"text","query":"直接回答，无需使用任何工具：中国的首都是哪个城市？","expect":["北京"]}
-{"id":"geo-2","suite":"deterministic","mode":"text","query":"直接回答，无需使用任何工具：法国的首都是哪个城市？","expect":["巴黎","Paris"]}
-{"id":"geo-3","suite":"deterministic","mode":"text","query":"直接回答，无需使用任何工具：日本的首都是哪个城市？","expect":["东京","Tokyo"]}
-{"id":"sci-1","suite":"deterministic","mode":"text","query":"直接回答，无需使用任何工具：水的化学分子式是什么？","expect":["H2O","H₂O"]}
-{"id":"sci-2","suite":"deterministic","mode":"text","query":"直接回答，无需使用任何工具：地球围绕什么天体公转？","expect":["太阳"]}
-{"id":"sci-3","suite":"deterministic","mode":"text","query":"直接回答，无需使用任何工具：光在真空中的速度约为每秒多少万公里？","expect":["30","三十"]}
-{"id":"common-1","suite":"deterministic","mode":"text","query":"直接回答，无需使用任何工具：一年有多少个月？","expect":["12","十二"]}
-{"id":"common-2","suite":"deterministic","mode":"text","query":"直接回答，无需使用任何工具：一周有多少天？","expect":["7","七"]}
-{"id":"common-3","suite":"deterministic","mode":"text","query":"直接回答，无需使用任何工具：彩虹有多少种主要颜色？","expect":["7","七"]}
-{"id":"lang-1","suite":"deterministic","mode":"text","query":"直接回答，无需使用任何工具：请把英文单词 apple 翻译成中文。","expect":["苹果"]}
-{"id":"lang-2","suite":"deterministic","mode":"text","query":"直接回答，无需使用任何工具：请把中文“谢谢”翻译成英文。","expect":["thank","Thank"]}
-{"id":"code-1","suite":"deterministic","mode":"text","query":"直接回答，无需使用任何工具：Java 中表示布尔真值的关键字是什么？","expect":["true"]}
-{"id":"code-2","suite":"deterministic","mode":"text","query":"直接回答，无需使用任何工具：HTTP 状态码 404 表示什么含义？","expect":["未找到","不存在","Not Found","找不到"]}
-{"id":"code-3","suite":"deterministic","mode":"text","query":"直接回答，无需使用任何工具：SQL 中用于查询数据的关键字是什么？","expect":["SELECT","select"]}
-{"id":"hist-1","suite":"deterministic","mode":"text","query":"直接回答，无需使用任何工具：万里长城位于哪个国家？","expect":["中国"]}
-{"id":"chat-1","suite":"deterministic","mode":"chat","query":"用一句话介绍你自己。","expect":["助手","智能","AI","assistant","帮助","模型","Qwen","通义"]}
-{"id":"chat-2","suite":"deterministic","mode":"chat","query":"请回复“你好”两个字。","expect":["你好"]}
+{"id":"math-1","suite":"deterministic","mode":"text","executionMode":"STANDARD","query":"直接回答，无需使用任何工具：1+1 等于几？","expect":["2"]}
+{"id":"math-2","suite":"deterministic","mode":"text","executionMode":"STANDARD","query":"直接回答，无需使用任何工具：100 减 58 等于几？","expect":["42"]}
+{"id":"math-3","suite":"deterministic","mode":"text","executionMode":"STANDARD","query":"直接回答，无需使用任何工具：7 乘以 8 等于几？","expect":["56"]}
+{"id":"geo-1","suite":"deterministic","mode":"text","executionMode":"STANDARD","query":"直接回答，无需使用任何工具：中国的首都是哪个城市？","expect":["北京"]}
+{"id":"geo-2","suite":"deterministic","mode":"text","executionMode":"STANDARD","query":"直接回答，无需使用任何工具：法国的首都是哪个城市？","expect":["巴黎","Paris"]}
+{"id":"geo-3","suite":"deterministic","mode":"text","executionMode":"STANDARD","query":"直接回答，无需使用任何工具：日本的首都是哪个城市？","expect":["东京","Tokyo"]}
+{"id":"sci-1","suite":"deterministic","mode":"text","executionMode":"STANDARD","query":"直接回答，无需使用任何工具：水的化学分子式是什么？","expect":["H2O","H₂O"]}
+{"id":"sci-2","suite":"deterministic","mode":"text","executionMode":"STANDARD","query":"直接回答，无需使用任何工具：地球围绕什么天体公转？","expect":["太阳"]}
+{"id":"sci-3","suite":"deterministic","mode":"text","executionMode":"STANDARD","query":"直接回答，无需使用任何工具：光在真空中的速度约为每秒多少万公里？","expect":["30","三十"]}
+{"id":"common-1","suite":"deterministic","mode":"text","executionMode":"STANDARD","query":"直接回答，无需使用任何工具：一年有多少个月？","expect":["12","十二"]}
+{"id":"common-2","suite":"deterministic","mode":"text","executionMode":"STANDARD","query":"直接回答，无需使用任何工具：一周有多少天？","expect":["7","七"]}
+{"id":"common-3","suite":"deterministic","mode":"text","executionMode":"STANDARD","query":"直接回答，无需使用任何工具：彩虹有多少种主要颜色？","expect":["7","七"]}
+{"id":"lang-1","suite":"deterministic","mode":"text","executionMode":"STANDARD","query":"直接回答，无需使用任何工具：请把英文单词 apple 翻译成中文。","expect":["苹果"]}
+{"id":"lang-2","suite":"deterministic","mode":"text","executionMode":"STANDARD","query":"直接回答，无需使用任何工具：请把中文“谢谢”翻译成英文。","expect":["thank","Thank"]}
+{"id":"code-1","suite":"deterministic","mode":"text","executionMode":"STANDARD","query":"直接回答，无需使用任何工具：Java 中表示布尔真值的关键字是什么？","expect":["true"]}
+{"id":"code-2","suite":"deterministic","mode":"text","executionMode":"STANDARD","query":"直接回答，无需使用任何工具：HTTP 状态码 404 表示什么含义？","expect":["未找到","不存在","Not Found","找不到"]}
+{"id":"code-3","suite":"deterministic","mode":"text","executionMode":"STANDARD","query":"直接回答，无需使用任何工具：SQL 中用于查询数据的关键字是什么？","expect":["SELECT","select"]}
+{"id":"hist-1","suite":"deterministic","mode":"text","executionMode":"STANDARD","query":"直接回答，无需使用任何工具：万里长城位于哪个国家？","expect":["中国"]}
+{"id":"chat-1","suite":"deterministic","mode":"chat","executionMode":"AUTO","query":"用一句话介绍你自己。","expect":["助手","智能","AI","assistant","帮助","模型","Qwen","通义"]}
+{"id":"chat-2","suite":"deterministic","mode":"chat","executionMode":"AUTO","query":"请回复“你好”两个字。","expect":["你好"]}

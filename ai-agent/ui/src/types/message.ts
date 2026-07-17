@@ -1,14 +1,13 @@
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
   namespace MESSAGE {
-    type PlanStatus = 'not_started' | 'in_progress' | 'completed';
-
     type ToolResult = {
       toolName: string;
       toolResult: string;
       toolCallId?: string;
       toolParam?: {
-        query: string;
+        query?: string;
+        [key: string]: unknown;
       };
     };
 
@@ -86,28 +85,6 @@ declare global {
 
     interface MultiAgent {
       tasks: Task[][];
-      plan?: Plan;
-      plan_thought?: string;
-      plannerRounds?: PlannerRound[];
-    }
-
-    interface PlannerRound {
-      plannerRoundId: string;
-      planThought?: string;
-      planThoughtMessageId?: string;
-      planThoughtTaskId?: string;
-      plan?: Plan;
-      planMessageId?: string;
-      planTaskId?: string;
-    }
-
-    interface Plan {
-      taskId?: string;
-      notes: string[];
-      stages: string[];
-      title: string;
-      stepStatus: PlanStatus[];
-      steps: string[];
     }
 
     interface Task {
@@ -123,11 +100,8 @@ declare global {
       isFinal: boolean;
       toolThought?: string;
       digitalEmployee?: string;
-      plan?: Plan;
       result?: string;
       toolResult?: ToolResult;
-      planThought?: string;
-      plannerRoundId?: string;
       id: string;
     }
 
@@ -165,7 +139,6 @@ declare global {
     interface ResultMap {
       multiAgent?: MultiAgent;
       eventResult?: EventResult;
-      agentType?: number;
       searchResult?: SearchResult;
       resultMap?: ResultMap;
       messageType?: string;
@@ -197,17 +170,16 @@ declare global {
       dispatchIndex?: number;
       summary?: string;
       errorMsg?: string;
+      runStatus?: string;
+      stopReason?: string;
+      errorCode?: string;
+      errorMessage?: string;
+      retryable?: boolean;
+      retryAfterMillis?: number;
+      existingRunId?: string;
       input?: Record<string, unknown>;
       toolParam?: Record<string, unknown>;
       artifactRefs?: ArtifactReference[];
-      plannerRoundId?: string;
-      checkpointId?: string;
-      phase?: string;
-      sequence?: number;
-      nextStepIndex?: number;
-      resumable?: boolean;
-      sourceRequestId?: string;
-      resumeDecision?: CHAT.CheckpointResumeDecision;
       refList?: {
         name: string;
         pageContent: string;

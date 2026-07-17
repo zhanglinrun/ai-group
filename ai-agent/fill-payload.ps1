@@ -7,7 +7,7 @@ $ErrorActionPreference = "Stop"
 $repo = $PSScriptRoot
 $bundle = Join-Path $repo "docs\dev-ops\ubuntu\server-bundle"
 
-$jarSource = Join-Path $repo "Reactor-agent-app\target\Reactor-agent-app.jar"
+$jarSource = Join-Path $repo "ai-agent-app\target\ai-agent-app.jar"
 $uiDistSource = Join-Path $repo "ui\dist"
 $toolSource = Join-Path $repo "reactor-tool"
 $certPemSource = Join-Path $CertDir "_.owwzo.top.pem"
@@ -47,7 +47,7 @@ Get-ChildItem $payloadTool -Force -ErrorAction SilentlyContinue | Remove-Item -R
 Get-ChildItem $payloadCerts -Force -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
 
 Write-Host "Copying backend jar..."
-Copy-Item $jarSource (Join-Path $payloadBackend "Reactor-agent-app.jar") -Force
+Copy-Item $jarSource (Join-Path $payloadBackend "ai-agent-app.jar") -Force
 
 Write-Host "Copying frontend dist..."
 Copy-Item (Join-Path $uiDistSource "*") $payloadUi -Recurse -Force

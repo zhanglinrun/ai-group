@@ -15,7 +15,7 @@ import jakarta.annotation.Resource;
  * queryPaySuccessMarketTimeoutOrderList, 2 minutes) and re-sends the group
  * settlement, which is idempotent on the group side.
  * <p>
- * Scheduling/locking style follows BenefitEventRepublishJob: single-instance
+ * Scheduling/locking style follows OutboxEventPublishJob: single-instance
  * @Scheduled; the scan is capped (LIMIT 20) and the downstream settlement is
  * idempotent, so an overlapping run is harmless.
  */

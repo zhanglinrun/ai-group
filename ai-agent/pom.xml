@@ -2,19 +2,18 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <groupId>cn.bugstack.ai</groupId>
-    <artifactId>Reactor-agent</artifactId>
+    <groupId>com.linrun.agent</groupId>
+    <artifactId>ai-agent</artifactId>
     <version>1.0-SNAPSHOT</version>
     <packaging>pom</packaging>
 
     <modules>
-        <module>Reactor-agent-api</module>
-        <module>Reactor-agent-app</module>
-        <module>Reactor-agent-case</module>
-        <module>Reactor-agent-domain</module>
-        <module>Reactor-agent-trigger</module>
-        <module>Reactor-agent-infrastructure</module>
-        <module>Reactor-agent-types</module>
+        <module>ai-agent-api</module>
+        <module>ai-agent-app</module>
+        <module>ai-agent-domain</module>
+        <module>ai-agent-trigger</module>
+        <module>ai-agent-infrastructure</module>
+        <module>ai-agent-types</module>
     </modules>
 
     <repositories>
@@ -42,8 +41,7 @@
 
     <developers>
         <developer>
-            <name>wwz</name>
-            <email>2141365686@qq.com</email>
+            <name>linrun</name>
         </developer>
     </developers>
 
@@ -167,33 +165,28 @@
 
             <!-- 工程模块 -->
             <dependency>
-                <groupId>cn.bugstack.ai</groupId>
-                <artifactId>Reactor-agent-api</artifactId>
+                <groupId>com.linrun.agent</groupId>
+                <artifactId>ai-agent-api</artifactId>
                 <version>1.0-SNAPSHOT</version>
             </dependency>
             <dependency>
-                <groupId>cn.bugstack.ai</groupId>
-                <artifactId>Reactor-agent-domain</artifactId>
+                <groupId>com.linrun.agent</groupId>
+                <artifactId>ai-agent-domain</artifactId>
                 <version>1.0-SNAPSHOT</version>
             </dependency>
             <dependency>
-                <groupId>cn.bugstack.ai</groupId>
-                <artifactId>Reactor-agent-case</artifactId>
+                <groupId>com.linrun.agent</groupId>
+                <artifactId>ai-agent-infrastructure</artifactId>
                 <version>1.0-SNAPSHOT</version>
             </dependency>
             <dependency>
-                <groupId>cn.bugstack.ai</groupId>
-                <artifactId>Reactor-agent-infrastructure</artifactId>
+                <groupId>com.linrun.agent</groupId>
+                <artifactId>ai-agent-types</artifactId>
                 <version>1.0-SNAPSHOT</version>
             </dependency>
             <dependency>
-                <groupId>cn.bugstack.ai</groupId>
-                <artifactId>Reactor-agent-types</artifactId>
-                <version>1.0-SNAPSHOT</version>
-            </dependency>
-            <dependency>
-                <groupId>cn.bugstack.ai</groupId>
-                <artifactId>Reactor-agent-trigger</artifactId>
+                <groupId>com.linrun.agent</groupId>
+                <artifactId>ai-agent-trigger</artifactId>
                 <version>1.0-SNAPSHOT</version>
             </dependency>
         </dependencies>
@@ -261,21 +254,21 @@
                 <activeByDefault>true</activeByDefault>
             </activation>
             <properties>
-                <java_jvm>-Xms1G -Xmx1G -server  -XX:MaxPermSize=256M -Xss256K -Dspring.profiles.active=test -XX:+DisableExplicitGC -XX:+UseG1GC  -XX:LargePageSizeInBytes=128m -XX:+UseFastAccessorMethods -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/export/Logs/Reactor-agent-boot -Xloggc:/export/Logs/Reactor-agent-boot/gc-Reactor-agent-boot.log -XX:+PrintGCDetails -XX:+PrintGCDateStamps</java_jvm>
+                <java_jvm>-Xms1G -Xmx1G -server  -XX:MaxPermSize=256M -Xss256K -Dspring.profiles.active=test -XX:+DisableExplicitGC -XX:+UseG1GC  -XX:LargePageSizeInBytes=128m -XX:+UseFastAccessorMethods -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/export/Logs/ai-agent-boot -Xloggc:/export/Logs/ai-agent-boot/gc-ai-agent-boot.log -XX:+PrintGCDetails -XX:+PrintGCDateStamps</java_jvm>
                 <profileActive>dev</profileActive>
             </properties>
         </profile>
         <profile>
             <id>test</id>
             <properties>
-                <java_jvm>-Xms1G -Xmx1G -server  -XX:MaxPermSize=256M -Xss256K -Dspring.profiles.active=test -XX:+DisableExplicitGC -XX:+UseG1GC  -XX:LargePageSizeInBytes=128m -XX:+UseFastAccessorMethods -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/export/Logs/Reactor-agent-boot -Xloggc:/export/Logs/Reactor-agent-boot/gc-Reactor-agent-boot.log -XX:+PrintGCDetails -XX:+PrintGCDateStamps</java_jvm>
+                <java_jvm>-Xms1G -Xmx1G -server  -XX:MaxPermSize=256M -Xss256K -Dspring.profiles.active=test -XX:+DisableExplicitGC -XX:+UseG1GC  -XX:LargePageSizeInBytes=128m -XX:+UseFastAccessorMethods -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/export/Logs/ai-agent-boot -Xloggc:/export/Logs/ai-agent-boot/gc-ai-agent-boot.log -XX:+PrintGCDetails -XX:+PrintGCDateStamps</java_jvm>
                 <profileActive>test</profileActive>
             </properties>
         </profile>
         <profile>
             <id>prod</id>
             <properties>
-                <java_jvm>-Xms6G -Xmx6G -server  -XX:MaxPermSize=256M -Xss256K -Dspring.profiles.active=release -XX:+DisableExplicitGC -XX:+UseG1GC  -XX:LargePageSizeInBytes=128m -XX:+UseFastAccessorMethods -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/export/Logs/fq-mall-activity-app -Xloggc:/export/Logs/Reactor-agent-boot/gc-Reactor-agent-boot.log -XX:+PrintGCDetails -XX:+PrintGCDateStamps</java_jvm>
+                <java_jvm>-Xms6G -Xmx6G -server  -XX:MaxPermSize=256M -Xss256K -Dspring.profiles.active=release -XX:+DisableExplicitGC -XX:+UseG1GC  -XX:LargePageSizeInBytes=128m -XX:+UseFastAccessorMethods -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/export/Logs/fq-mall-activity-app -Xloggc:/export/Logs/ai-agent-boot/gc-ai-agent-boot.log -XX:+PrintGCDetails -XX:+PrintGCDateStamps</java_jvm>
                 <profileActive>prod</profileActive>
             </properties>
         </profile>

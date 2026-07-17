@@ -48,6 +48,8 @@ interface SSEConfig<TMessage = unknown> {
   signal?: AbortSignal;
 }
 
+export type CancelSseTransport = () => void;
+
 /**
  * 创建服务器发送事件（SSE）连接
  * @param config SSE 配置
@@ -56,14 +58,28 @@ interface SSEConfig<TMessage = unknown> {
 export default <TMessage = unknown>(
   config: SSEConfig<TMessage>,
   url: string = DEFAULT_SSE_URL,
-): void => {
+): CancelSseTransport => {
   const { body = null, parser, handleMessage, handleError, handleClose, signal } = config;
   let errorHandled = false;
+  let closeHandled = false;
+  const transportController = new AbortController();
+  const cancelTransport = () => transportController.abort();
+  const handleParentAbort = () => cancelTransport();
+  const notifyCloseOnce = () => {
+    if (closeHandled) {
+      return;
+    }
+    closeHandled = true;
+    handleClose();
+  };
 
   // Already aborted before start: do nothing.
   if (signal?.aborted) {
-    handleClose();
-    return;
+    notifyCloseOnce();
+    return cancelTransport;
+  }
+  if (signal) {
+    signal.addEventListener('abort', handleParentAbort, { once: true });
   }
 
   fetchEventSource(url, {
@@ -72,7 +88,7 @@ export default <TMessage = unknown>(
     headers: buildSseHeaders(),
     body: JSON.stringify(body),
     openWhenHidden: true,
-    signal,
+    signal: transportController.signal,
     async onopen(response) {
       const contentType = response.headers.get('content-type') || '';
       if (response.ok && contentType.startsWith(EventStreamContentType)) {
@@ -112,20 +128,26 @@ export default <TMessage = unknown>(
       console.error('SSE error:', error);
       errorHandled = true;
       handleError(error);
+      // Stop fetch-event-source's implicit retry loop. The conversation runtime owns a
+      // bounded reconnect policy so every recovery attempt reuses the durable requestId.
       throw error;
     },
     onclose() {
       console.log('SSE connection closed');
-      handleClose();
+      notifyCloseOnce();
     },
   }).catch((error: Error) => {
     // Aborted streams (unmount / conversation switch) are expected; treat as a normal close.
-    if (error?.name === 'AbortError' || signal?.aborted) {
-      handleClose();
+    if (error?.name === 'AbortError' || signal?.aborted || transportController.signal.aborted) {
+      notifyCloseOnce();
       return;
     }
     if (!errorHandled) {
       handleError(error);
     }
+  }).finally(() => {
+    signal?.removeEventListener('abort', handleParentAbort);
   });
+
+  return cancelTransport;
 };

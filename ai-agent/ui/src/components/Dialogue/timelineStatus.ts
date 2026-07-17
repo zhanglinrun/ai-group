@@ -6,7 +6,6 @@ type TimelineTaskContainerLike = {
 };
 
 type TimelineGroupStatusInput = {
-  isPlanSolve: boolean;
   isLastGroup: boolean;
   loading: boolean;
   tasks: TimelineTaskContainerLike[];
@@ -29,15 +28,10 @@ export function isTimelineTaskContainerCompleted(task: TimelineTaskContainerLike
 }
 
 /**
- * 时间线左侧的蓝色完成勾只属于 PlanSolve 的真实任务组。
- * ReAct/普通结构化对话不再展示这个视觉特效。
+ * 统一 Agent Loop 只依据真实任务容器判断完成态，不再读取 AgentType。
  */
 export function shouldShowTimelineGroupCompletedIcon(input: TimelineGroupStatusInput): boolean {
-  const { isPlanSolve, isLastGroup, loading, tasks } = input;
-
-  if (!isPlanSolve) {
-    return false;
-  }
+  const { isLastGroup, loading, tasks } = input;
 
   if (isLastGroup && loading) {
     return false;

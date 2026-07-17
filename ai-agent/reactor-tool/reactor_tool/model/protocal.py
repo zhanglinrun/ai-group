@@ -163,13 +163,6 @@ class NL2SQLRequest(BaseModel):
     dialect: str = Field(alias="dbType",  default="mysql", description="SQL方言类型")
 
 
-class SopChooseRequest(BaseModel):
-    request_id: str = Field(alias="requestId", description="Request ID")
-    query: str = Field(description="用户问题")
-    sop_list: Optional[List[Dict]] = Field(default=[],
-        alias="sopList", description="SOP 列表，包含每一个sop")
-
-
 class ScriptRunnerFileInfo(BaseModel):
     """脚本执行产物信息"""
 

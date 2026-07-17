@@ -136,7 +136,7 @@ class ElasticsearchClient:
                         f"[ElasticsearchClient] analyzer '{analyzer}' not found, "
                         f"fallback to index default analyzer. index={index}"
                     )
-                    # 记录一次后续直接走无 analyzer 查询，避免 PlanSolve/table_rag 重复刷错。
+                    # 记录一次后续直接走无 analyzer 查询，避免 Agent Loop 重复触发同一失败。
                     self._query_analyzer_available = False
                     body = self._build_search_request_body(
                         query=query,

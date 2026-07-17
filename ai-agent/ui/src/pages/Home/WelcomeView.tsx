@@ -109,7 +109,10 @@ export default function WelcomeView(props: {
   models?: ModelItem[];
   selectedModelId?: string;
   videoModalOpen?: string;
-  onSelectionChange: (selection: { product: CHAT.Product; deepThink: boolean }) => void;
+  onSelectionChange: (selection: {
+    product: CHAT.Product;
+    executionMode: CHAT.ExecutionMode;
+  }) => void;
   onRoleSelect: (role: CHAT.FixRole) => void;
   onSend: (inputInfo: CHAT.TInputInfo) => void;
   onSendQuestion: (query: { label: string; type: number }) => void;
@@ -159,11 +162,10 @@ export default function WelcomeView(props: {
               size="big"
               disabled={false}
               product={props.product}
-              deepThink={props.currentConversation.deepThink}
+              executionMode={props.currentConversation.executionMode}
               displayOutput={props.displayOutput}
               chatRole={props.currentConversationRole}
               chatRoles={props.fixRoles}
-              showRoleSelector={props.product.type === 'chat'}
               models={props.models}
               selectedModelId={props.selectedModelId}
               showModelSelector={props.product.type !== 'dataAgent'}

@@ -26,6 +26,7 @@ import {
   skuDisplayName,
   skuTheme,
 } from '@/utils/tradeDisplay';
+import { bffDegradationMessage } from '@/utils/bffDegradation';
 
 const GroupBuyPage = memo(() => {
   const { activityId: activityIdParam } = useParams<{ activityId: string }>();
@@ -34,6 +35,7 @@ const GroupBuyPage = memo(() => {
   const preferredSkuCode = (location.state as { skuCode?: string } | null)?.skuCode;
   const activityId = Number(activityIdParam);
   const [loading, setLoading] = useState(true);
+  const [degradationNotice, setDegradationNotice] = useState('');
   const [groupBuy, setGroupBuy] = useState<GroupBuyInfo | null>(null);
   const [skus, setSkus] = useState<SkuItem[]>([]);
   const [selectedCode, setSelectedCode] = useState<string>('');
@@ -45,11 +47,13 @@ const GroupBuyPage = memo(() => {
       return;
     }
     setLoading(true);
+    setDegradationNotice('');
     bffApi
       .getGroupBuy(activityId)
       .then((data) => {
         setGroupBuy(data?.groupBuy || null);
         setSkus((data?.skus || []).filter((sku) => sku.code !== 'FREE'));
+        setDegradationNotice(bffDegradationMessage(data?.meta));
       })
       .catch((error) => console.error('加载拼团活动失败', error))
       .finally(() => setLoading(false));
@@ -153,6 +157,12 @@ const GroupBuyPage = memo(() => {
             </h1>
           </div>
         </div>
+
+        {degradationNotice ? (
+          <div className="mb-6 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {degradationNotice}
+          </div>
+        ) : null}
 
         {loading ? (
           <div className="flex justify-center py-20">
