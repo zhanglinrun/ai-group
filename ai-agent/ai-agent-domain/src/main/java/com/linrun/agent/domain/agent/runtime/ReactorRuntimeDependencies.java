@@ -12,6 +12,7 @@ import com.linrun.agent.domain.agent.adapter.port.QuotaBillingPort;
 import com.linrun.agent.domain.agent.runtime.llm.LLMSettings;
 import com.linrun.agent.domain.agent.runtime.tool.mcp.runtime.McpToolExecutor;
 import com.linrun.agent.domain.agent.reactor.config.ReactorConfig;
+import com.linrun.agent.domain.agent.reactor.service.VectorService;
 import com.linrun.agent.domain.agent.reactor.service.imagegeneration.IImageGenerationExecutionKernel;
 import org.springframework.scheduling.TaskScheduler;
 
@@ -43,6 +44,8 @@ public class ReactorRuntimeDependencies {
     RemoteStreamPort remoteStreamPort;
 
     FileArtifactPort fileArtifactPort;
+
+    VectorService vectorService;
 
     /** 模型目录端口，供用户按 modelId 覆盖模型时解析 DB 配置。可为空（未装配时回退静态配置）。 */
     ModelCatalogPort modelCatalogPort;

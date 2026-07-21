@@ -15,9 +15,11 @@ import java.util.Set;
 public class AnalyzeFileTool implements BaseTool {
 
     private static final int DIRECT_TEXT_BYTES = 200 * 1024;
-    private static final int MAX_DIRECT_CHARS = 30000;
+    static final int MAX_DIRECT_CHARS = 30000;
     private static final Set<String> IMAGE_SUFFIXES =
             Set.of(".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp");
+    private static final Set<String> TEXT_SUFFIXES =
+            Set.of(".md", ".txt", ".json", ".yaml", ".yml", ".csv");
 
     private AgentContext agentContext;
 
@@ -58,7 +60,8 @@ public class AnalyzeFileTool implements BaseTool {
                 .findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("未找到已上传文件: " + fileName));
 
-        if (isImage(fileName) || file.getFileSize() == null || file.getFileSize() > DIRECT_TEXT_BYTES) {
+        if (isImage(fileName) || (!isText(fileName)
+                && (file.getFileSize() == null || file.getFileSize() > DIRECT_TEXT_BYTES))) {
             MultiModalAgent delegate = new MultiModalAgent();
             delegate.setAgentContext(agentContext);
             return delegate.execute(Map.of("question", question));
@@ -74,9 +77,16 @@ public class AnalyzeFileTool implements BaseTool {
             if (content == null) {
                 return "文件内容为空: " + fileName;
             }
-            return content.length() <= MAX_DIRECT_CHARS
-                    ? content
-                    : content.substring(0, MAX_DIRECT_CHARS) + "\n\n[内容过长，已截断]";
+            if (content.length() <= MAX_DIRECT_CHARS) {
+                return content;
+            }
+            return SessionFileRagService.analyze(
+                    agentContext.getRuntimeDependencies().getVectorService(),
+                    agentContext.getRuntimeDependencies().getReactorConfig(),
+                    agentContext.getSessionId(),
+                    fileName,
+                    question,
+                    content);
         } catch (Exception e) {
             throw new IllegalStateException("读取文件失败: " + fileName, e);
         }
@@ -85,6 +95,11 @@ public class AnalyzeFileTool implements BaseTool {
     private boolean isImage(String fileName) {
         String normalized = fileName.toLowerCase();
         return IMAGE_SUFFIXES.stream().anyMatch(normalized::endsWith);
+    }
+
+    private boolean isText(String fileName) {
+        String normalized = fileName.toLowerCase();
+        return TEXT_SUFFIXES.stream().anyMatch(normalized::endsWith);
     }
 
     private String firstNonBlank(String... values) {

@@ -20,6 +20,7 @@ import com.linrun.agent.domain.agent.runtime.tool.mcp.runtime.McpToolExecutor;
 import com.linrun.agent.domain.agent.reactor.config.ReactorConfig;
 import com.linrun.agent.domain.agent.runtime.ReactorLlmDependencies;
 import com.linrun.agent.domain.agent.runtime.ReactorRuntimeDependencies;
+import com.linrun.agent.domain.agent.reactor.service.VectorService;
 import com.linrun.agent.domain.agent.reactor.service.imagegeneration.IImageGenerationExecutionKernel;
 import com.linrun.agent.types.agent.config.AgentExecutorNames;
 import com.linrun.agent.types.agent.config.AgentExecutorProperties;
@@ -58,6 +59,7 @@ public class ReactorRuntimeAutoConfiguration {
                                                                  RemoteHttpPort remoteHttpPort,
                                                                  RemoteStreamPort remoteStreamPort,
                                                                  FileArtifactPort fileArtifactPort,
+                                                                 VectorService vectorService,
                                                                  ModelCatalogPort modelCatalogPort,
                                                                  QuotaBillingPort quotaBillingPort,
                                                                  PlatformContextPort platformContextPort,
@@ -75,6 +77,7 @@ public class ReactorRuntimeAutoConfiguration {
                 .remoteHttpPort(remoteHttpPort)
                 .remoteStreamPort(remoteStreamPort)
                 .fileArtifactPort(fileArtifactPort)
+                .vectorService(vectorService)
                 .modelCatalogPort(modelCatalogPort)
                 .quotaBillingPort(quotaBillingPort)
                 .platformContextPort(platformContextPort)

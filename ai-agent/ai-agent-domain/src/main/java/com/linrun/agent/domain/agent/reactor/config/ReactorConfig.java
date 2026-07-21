@@ -233,6 +233,21 @@ public class ReactorConfig {
     @Value("${autobots.autoagent.data_analysis_url:}")
     private String dataAnalysisUrl;
 
+    @Value("${autobots.autoagent.session-file-rag.collection:agent_session_file_chunks}")
+    private String sessionFileRagCollection;
+
+    @Value("${autobots.autoagent.session-file-rag.chunk-chars:800}")
+    private Integer sessionFileRagChunkChars;
+
+    @Value("${autobots.autoagent.session-file-rag.chunk-overlap-chars:120}")
+    private Integer sessionFileRagChunkOverlapChars;
+
+    @Value("${autobots.autoagent.session-file-rag.top-k:8}")
+    private Integer sessionFileRagTopK;
+
+    @Value("${autobots.autoagent.session-file-rag.score-threshold:0.25}")
+    private Float sessionFileRagScoreThreshold;
+
     // ===== 三层对话记忆配置 =====
     /** 记忆总开关（关闭时仅保留单会话中期记忆的既有行为） */
     @Value("${autobots.autoagent.memory.enabled:true}")
