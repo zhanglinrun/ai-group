@@ -388,7 +388,7 @@ $password = "AgentMemory!2026_$suffix"
 $sessionA1 = "mem-a1-$suffix"
 $sessionA2 = "mem-a2-$suffix"
 $sessionB = "mem-b-$suffix"
-$recallQuery = '我的秋招验证口令是什么？请只回答口令，不知道就回答“不知道”。'
+$recallQuery = '我的项目验证口令是什么？请只回答口令，不知道就回答“不知道”。'
 
 $ownerA = $null
 $ownerB = $null
@@ -412,7 +412,7 @@ try {
         Token     = $accessTokenA
         SessionId = $sessionA1
         RequestId = "mem-store-$suffix"
-        Query     = "请记住：我的秋招验证口令是 $passphrase。"
+        Query     = "请记住：我的项目验证口令是 $passphrase。"
         DeviceId  = "memory-smoke-a-$suffix"
     }
     $storeResult = Invoke-AgentSse @storeParameters

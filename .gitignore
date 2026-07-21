@@ -27,3 +27,9 @@ docs/evals/last-report.json
 .codegraph/
 
 study/
+
+# Private interview / local-only docs (never publish)
+ai-agent/project-docs/
+docs/research/
+**/AUTUMN-RECRUITMENT*
+

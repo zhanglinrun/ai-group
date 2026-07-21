@@ -38,7 +38,7 @@ export default function WorkspaceTasks() {
   const [tasks, setTasks] = useState<WorkTaskItem[]>([]);
   const [events, setEvents] = useState<TaskGraphEventItem[]>([]);
   const [loading, setLoading] = useState(false);
-  const [workspaceName, setWorkspaceName] = useState('秋招 Agent 项目');
+  const [workspaceName, setWorkspaceName] = useState('Agent 项目工作区');
   const [taskSubject, setTaskSubject] = useState('');
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const selectedWorkspaceRef = useRef('');

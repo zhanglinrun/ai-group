@@ -183,10 +183,9 @@ Python 工具 `148 passed, 1 skipped, 3 subtests passed`；前端 ESLint 与生�
 - **拼团超卖防护**：Redis 预占 + DB 条件更新（CAS）+ 唯一索引三层。
 - **网关安全**：JWT 校验 + 身份头剥离/注入、刷新令牌 `getAndDelete` 原子轮换、内部回调令牌校验。
 
-## 7. 设计取舍与面试答辩
+## 7. 设计取舍
 
-- [Agent 秋招交付、演示与简历指南](ai-agent/project-docs/AUTUMN-RECRUITMENT-GUIDE.md)
-- [ADR：保留自研 Agent Harness，不迁移 Spring AI Alibaba Runtime](ai-agent/project-docs/adr/0001-retain-custom-agent-harness.md)
+- 保留自研 Agent Harness，不迁移 Spring AI Alibaba Runtime：统一 Agent Loop、Todo evidence、CompletionGate、执行账本与 SSE 回放更贴合本项目的可审计边界。
 - [浏览器双账号交易与 Agent 验收记录（2026-07-18）](docs/browser-acceptance-2026-07-18.md)
 - [历史浏览器验收记录（2026-07-17）](docs/browser-acceptance-2026-07-17.md)
 

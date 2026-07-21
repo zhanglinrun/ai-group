@@ -136,7 +136,7 @@ cd docs/dev-ops
 - 等待 Agent、Python 工具与前端真实就绪；
 - 自动执行注册、额度包权益、撤销策略和入口安全 smoke。
 
-真实支付宝默认关闭（`ALIPAY_ENABLED=false`）。秋招演示可使用 `verify-e2e.ps1` 创建两个隔离账号，依次完成
+真实支付宝默认关闭（`ALIPAY_ENABLED=false`）。本地联调可使用 `verify-e2e.ps1` 创建两个隔离账号，依次完成
 开团、首个成员模拟支付后继续开放、第二个成员参团支付、显式封团、真实 group 结算和 MQ 双方权益到账；
 脚本不再直接修改支付数据库，也不伪造 group 成团回调。
 

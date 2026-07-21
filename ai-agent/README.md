@@ -32,9 +32,6 @@
 当前工作区、任务节点、依赖关系与审计事件已由 JDBC repository 持久化到 MySQL，并保留内存 repository
 用于领域测试；它支持跨 Agent 进程重启恢复任务图，但不等同于运行中 Agent Loop 的 checkpoint/resume。
 
-- [秋招项目交付、启动、演示与简历指南](project-docs/AUTUMN-RECRUITMENT-GUIDE.md)
-- [统一 Agent Harness 架构决策](project-docs/adr/0001-retain-custom-agent-harness.md)
-
 ## 解决的痛点
 
 - 单轮问答难以承接复杂任务，缺少显式待办、工具证据与完成条件

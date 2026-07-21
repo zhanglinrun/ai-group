@@ -13,7 +13,7 @@ class ReportGroundingPolicyTest(unittest.TestCase):
         request = ReportRequest.model_validate({
             "requestId": "grounding-request",
             "query": "仅允许使用下列已验证事实，禁止补写未知信息。",
-            "task": "生成秋招演示报告",
+            "task": "生成本地演示报告",
             "fileType": "html",
         })
 
