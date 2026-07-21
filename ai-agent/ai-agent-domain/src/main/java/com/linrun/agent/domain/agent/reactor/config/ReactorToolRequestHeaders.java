@@ -4,7 +4,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * reactor-tool 内部请求头构造器。
+ * runtime/tools 内部请求头构造器。
  * 令牌只存在于服务端配置和服务间请求中，不下发给浏览器业务代码。
  */
 public final class ReactorToolRequestHeaders {

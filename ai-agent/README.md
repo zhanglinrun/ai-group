@@ -43,7 +43,7 @@
 
 ## 推荐主闭环：复杂研究报告
 
-为了让网页演示和面试答辩聚焦，推荐使用一条稳定的主场景验证 Harness：
+为了让网页演示聚焦，推荐使用一条稳定的主场景验证 Harness：
 
 ```text
 用户提出研究问题
@@ -81,93 +81,12 @@
 - 复杂业务流程中的工具编排与结果验收
 
 
-## ✨ Agent Showcase
-<p align="center">
-  <img src="assets/readme/2e138de7-0974-401b-bf01-15e59cf55b47.png" alt="首页对话界面" width="48%" />
+## 展示图与报告样例（待自建）
 
-  <img src="assets/readme/f337b673-263c-4809-b560-cb382dba2e59.png" alt="图像生成与 HTML 结果展示" width="48%" />
-</p>
+旧的 `assets/readme` 展示图与样例报告已移除（非当前环境产物，不再使用）。
+展示材料请用**本机重跑**后的截图与报告重新生成，步骤见文末「后续待办：演示截图与展示材料」。
 
-
-#### Standard Agent Loop
-<p align="center">
-  <img src="assets/readme/deepsearch展示.png" alt="Reactor 深度研究任务展示" width="48%" />
-</p>
-
-#### Deep Agent Loop
-<p align="center">
-  <img src="assets/readme/planexecute展示.png" alt="Reactor Deep Agent Loop 任务展示" width="48%" />
-</p>
-
-
-## ✨ 典型应用场景示例
-#### 1.基于 Deep Research Agent + Report Agent 生成结构化研究报告
-
-> HTML 报告更适合下载后本地打开，Markdown 报告可直接查看源码内容。
-
-| 分类 | 报告名称 | 格式 | 入口 |
-| --- | --- | --- | --- |
-| 技术评估 | [CodeGraph 开源项目评估报告](assets/readme/CodeGraph开源项目看法与评估.html) | HTML | [打开文件](assets/readme/CodeGraph开源项目看法与评估.html) |
-| 模型选型 | [Agent 项目大模型性价比选型决策报告](assets/readme/Agent项目大模型性价比选型决策报告.html) | HTML | [打开文件](assets/readme/Agent项目大模型性价比选型决策报告.html) |
-| 场景案例 | [厦门情侣一日游完整规划](assets/readme/厦门情侣一日游完整规划网页版报告.html) | HTML | [打开文件](assets/readme/厦门情侣一日游完整规划网页版报告.html) |
-| 场景案例 | [洛克王国新手攻略搜索总结](assets/readme/洛克王国新手攻略搜索总结.html) | HTML | [打开文件](assets/readme/洛克王国新手攻略搜索总结.html) |
-| 框架研究 | [Spring AI 框架核心概念与架构演进报告](assets/readme/Spring_AI框架核心概念与架构演进报告.md) | Markdown | [打开文件](assets/readme/Spring_AI框架核心概念与架构演进报告.md) |
-
-#### 报告结果预览
-<p align="center">
-  <img src="assets/readme/旅游规划.png" alt="原始图片输入示例" width="48%" />
-</p>
-<p align="center">
-  <img src="assets/readme/codegraph展示.png" alt="原始图片输入示例" width="48%" />
-</p>
-
-
-#### 2.多工具产物进行复用，结合 Skill 提升图片生成质量
-#### Harness 执行流
-```text
-
-User Query
-
-    │
-
-    ▼
-
- Deep Research分析人物外部特征
-
-    │
-
-    ▼
-
- Skill Selection
-
-    │
-
-    ▼
-
- Tool Execution
-
-    │
-
-    ▼
-
- Structured Report / Image Output
-
-```
-
-
-#### 最终结果
-<p align="center">
-  <img src="assets/readme/图片展示.png" alt="原始图片输入示例" width="48%" />
-
-</p>
-
-<p align="center">
-  <img src="assets/readme/海报.png" alt="原始图片输入示例" width="48%" />
-
-</p>
-
-
-
+建议主演示闭环仍是：联网研究 → Todo（DEEP）→ 工具产物 → 完成门禁 → 可预览报告/图片。
 
 ## 技术栈
 
@@ -187,7 +106,7 @@ flowchart LR
 
     DO --> LLM[LLM / Spring AI]
     DO --> MCP[MCP 工具编排]
-    DO --> PY[reactor-tool\nPython Tool Runtime]
+    DO --> PY[runtime/tools\n工具运行时 HTTP :1601]
     DO --> RAG[RAG 检索增强]
 
     INF --> MYSQL[(MySQL)]
@@ -430,30 +349,14 @@ ai-agent/
 │   ├── src/main/java/com/linrun/agent/config/reactor/ReplayProjectorAutoConfiguration.java # 历史回放装配
 │   ├── src/main/java/com/linrun/agent/config/reactor/DataAgentInitRunner.java # 数据 Agent 初始化
 │
-├── ui/                                              # React 前端
-│   ├── package.json                                 # 前端依赖与脚本
-│   ├── vite.config.ts                               # Vite 配置
-│   └── src/
-│       ├── main.tsx                                 # 前端启动入口
-│       ├── App.tsx                                  # 应用根组件
-│       ├── router/routes.ts                         # 路由定义
-│       ├── components/ChatView/index.tsx            # 主聊天视图
-│       ├── components/ChatView/useConversationStream.ts # SSE 会话流处理
-│       ├── components/Dialogue/index.tsx            # 对话渲染
-│       ├── components/Dialogue/TodoSection.tsx      # Todo 状态展示
-│       ├── components/Dialogue/VerificationCard.tsx # 完成校验展示
-│       ├── services/agent.ts                        # Agent 接口封装
-│       ├── services/agentConversation.ts            # 历史会话接口封装
-│       ├── services/agentFile.ts                    # 文件接口封装
-│       ├── services/imageGeneration.ts              # 图像生成接口封装
-│       ├── services/mragWorkspace.ts                # MRAG 工作区接口封装
-│       ├── pages/Home/index.tsx                     # 主对话页
-│       ├── pages/WorkspaceMRag/index.tsx            # MRAG 工作区
-│       └── pages/WorkspaceImageGeneration/index.tsx # 图像生成工作区
-├── runtime/                                         # 已纳入仓库的运行时资源与技能目录
-├── assets/                                          # 项目静态资源
+├── runtime/                                         # 运行时资产
+│   ├── skills/                                      # Skills 技能包（磁盘加载）
+│   └── tools/                                       # 工具运行时服务（HTTP :1601，Loop 调用的重执行后端）
+├── assets/                                          # 可选：自建 README 截图（默认无，见文末待办）
 ├── pom.xml                                          # Maven 聚合构建入口
 └── README.md                                        # 项目说明
+
+> 平台前端已迁至仓库根目录 `web/`（React / Vite），不再位于本目录下。
 ```
 
 
@@ -474,6 +377,37 @@ durable checkpoint/resume。
 `CheckpointService`、通用 `SubagentRunner` 与 `BackgroundTaskRunner` 尚未实现，也不为架构图完整性创建空壳。
 
 
+## 后续待办：演示截图与展示材料
+
+> 这是**后续要补的事项清单**，不是系统自动任务。旧展示资源已删，需要重跑后再贴图。
+
+### 和 Agent Loop 的关系（先搞清）
+
+- **现在主路径就是统一 Agent Loop**（`AUTO / STANDARD / DEEP` 只是强度，不是三套旧运行时）。
+- **`runtime/tools` 不是旧模式替代品**，也不是第二套 Agent。它是 Loop 里「重工具」的执行后端（Python HTTP，默认 `1601`）。
+- 模型在 Loop 里选工具 → Java 调 `deep_search` / `web_fetch` / 生图 / 代码执行等 → **干活在 runtime/tools** → 结果回 Loop 记 artifact / 账本 / 门禁。
+- **不打算演示联网搜索、出报告、生图、跑脚本**：可以先不启 runtime/tools，但这些能力在配置里仍指向它，相关演示会失败。
+- **要演示「多步骤研究 + 产物」**：需要起 runtime/tools，且这是**当前架构仍在用的**能力。
+
+### 你需要做的事
+
+1. **起环境**：中间件 + `agent_db` 迁移；起 `runtime/tools`；起 `ai-agent-app`；按需起网关/鉴权/会员；起根目录 `web/`。
+2. **跑通 2 条对话**（前端选 `STANDARD` / `DEEP`）：
+   - STANDARD：联网调研一个技术点，要求有来源小结。
+   - DEEP：先 Todo，再搜索取证，最后尽量产出可预览 HTML 报告。
+3. **截图**（新建目录 `assets/readme/`，文件名可自定）：
+   - 首页对话（含 executionMode）
+   - STANDARD 工具时间线
+   - DEEP 的 Todo + 验证/补齐痕迹
+   - 报告或图片产物预览
+   - （可选）额度变化、Work 看板
+4. **回写本 README**：在「展示图与报告样例」一节用 Markdown 插图，确认预览能显示；勿提交密钥与隐私。
+5. **讲解口径**：Java 管 Loop / Todo / 门禁 / 账本；`runtime/tools` 管搜索等重执行——两者是一层分工，不是新旧两套 Agent。
+
+`runtime/tools` 安装细节见 `runtime/tools/README.md`。
+
+---
+
 ## 后续演进方向
 
 - 更灵活的智能体角色配置
@@ -483,3 +417,4 @@ durable checkpoint/resume。
 - 在现有 `PermissionPolicy + HookBus` 之上增加面向用户的交互审批控制面、Hook 可观测性与副作用工具幂等协议
 - 在统一循环状态模型之上再评估持久化断点恢复与 HITL
 - 持续扩充 outcome-based eval，避免只依赖单次演示或 LLM 自评判断 Agent 质量
+- 按上文「后续待办：演示截图与展示材料」补齐自有展示材料

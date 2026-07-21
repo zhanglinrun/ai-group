@@ -65,7 +65,7 @@ public class ReportToolTerminalValidationTest {
 
     private ReportTool newTool(StreamScript script) {
         ReactorConfig config = new ReactorConfig();
-        ReflectionTestUtils.setField(config, "codeInterpreterUrl", "http://reactor-tool.test");
+        ReflectionTestUtils.setField(config, "codeInterpreterUrl", "http://runtime/tools.test");
         AgentContext context = AgentContext.builder()
                 .requestId("request-report")
                 .sessionId("session-report")

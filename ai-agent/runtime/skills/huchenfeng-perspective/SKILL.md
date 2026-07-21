@@ -23,7 +23,7 @@ description: |
 - 如需检索 490 份直播文字稿里的原始语录，使用 `script_runner_tool` 执行 `search` 脚本。
 - `search` 脚本推荐参数：`query`、`top_k`、`date_from`、`date_to`、`hu_only`。
 - `build_index` 脚本用于重新构建 `tools/vector_index.json`。
-- 运行 `search` / `build_index` 前，需要 `reactor-tool` 所在 Python 环境已安装 `fastembed` 和 `numpy`。
+- 运行 `search` / `build_index` 前，需要 `runtime/tools` 所在 Python 环境已安装 `fastembed` 和 `numpy`。
 
 ---
 
@@ -492,7 +492,7 @@ description: |
 
 ### 1. 安装依赖
 
-向量索引文件 `tools/vector_index.json`（84MB，base64_float16格式）已随技能目录提供，无需重新构建。只需确保运行 `reactor-tool` 的 Python 环境安装：
+向量索引文件 `tools/vector_index.json`（84MB，base64_float16格式）已随技能目录提供，无需重新构建。只需确保运行 `runtime/tools` 的 Python 环境安装：
 
 ```bash
 pip install fastembed numpy

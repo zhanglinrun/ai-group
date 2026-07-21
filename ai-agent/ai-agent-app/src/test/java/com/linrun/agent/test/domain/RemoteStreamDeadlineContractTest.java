@@ -117,8 +117,8 @@ public class RemoteStreamDeadlineContractTest {
 
     private AgentContext context(CapturingRemoteStreamPort port) {
         ReactorConfig config = new ReactorConfig();
-        ReflectionTestUtils.setField(config, "codeInterpreterUrl", "http://reactor-tool.test");
-        ReflectionTestUtils.setField(config, "dataAnalysisUrl", "http://reactor-tool.test");
+        ReflectionTestUtils.setField(config, "codeInterpreterUrl", "http://runtime/tools.test");
+        ReflectionTestUtils.setField(config, "dataAnalysisUrl", "http://runtime/tools.test");
         return AgentContext.builder()
                 .requestId("request")
                 .sessionId("session")

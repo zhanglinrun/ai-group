@@ -26,7 +26,7 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 /**
- * 图片生成工具，负责把文生图 / 图生图请求转发到 reactor-tool。
+ * 图片生成工具，负责把文生图 / 图生图请求转发到 runtime/tools。
  */
 @Slf4j
 @Data

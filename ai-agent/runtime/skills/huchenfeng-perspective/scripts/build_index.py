@@ -41,7 +41,7 @@ def main():
     except Exception as exc:
         print(f"build_index 脚本执行失败：{exc}", file=sys.stderr)
         if "fastembed" in str(exc) or "numpy" in str(exc):
-            print("请先在 reactor-tool 的 Python 环境中安装依赖：pip install fastembed numpy", file=sys.stderr)
+            print("请先在 python-tool 的 Python 环境中安装依赖：pip install fastembed numpy", file=sys.stderr)
         sys.exit(1)
 
 

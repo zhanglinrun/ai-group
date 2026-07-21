@@ -227,7 +227,7 @@
     <!--
       默认测试在本地 Python 环境未同步时会跳过 STDIO 互操作用例。
       执行 `mvn -Pmcp-stdio-it -Dtest=McpStdioInteropTest test` 可将环境缺失也视为失败，
-      用于发布前验证 Java MCP Client 与 reactor-tool FastMCP Server 的真实协议互操作。
+      用于发布前验证 Java MCP Client 与 runtime/tools FastMCP Server 的真实协议互操作。
     -->
     <profiles>
         <profile>

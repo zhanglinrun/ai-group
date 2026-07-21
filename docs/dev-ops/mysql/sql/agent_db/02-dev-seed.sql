@@ -34,7 +34,7 @@ VALUES ('dev_client_001', 'Dev Chat Client', 'Local dev chat client', 1);
 INSERT INTO ai_client_config (source_type, source_id, target_type, target_id, status)
 VALUES ('client', 'dev_client_001', 'model', 'dev_model_001', 1);
 
--- 本地只读 MCP：由 Java MCP Client 通过 STDIO 按需启动 reactor-tool 中的 FastMCP 子进程。
+-- 本地只读 MCP：由 Java MCP Client 通过 STDIO 按需启动 runtime/tools 中的 FastMCP 子进程。
 -- transport_config 的顶层 key 必须与 mcp_name 对齐；request_timeout 在运行时按秒解释。
 INSERT INTO ai_client_tool_mcp (
   mcp_id, mcp_name, transport_type, transport_config, request_timeout, status
@@ -44,7 +44,7 @@ VALUES
   'dev_mcp_project_knowledge_001',
   'project-knowledge',
   'stdio',
-  '{"project-knowledge":{"command":"uv","args":["--directory","../reactor-tool","run","--frozen","python","-m","reactor_tool.mcp_servers.project_knowledge_server"],"env":{"PYTHONIOENCODING":"utf-8","PYTHONUNBUFFERED":"1"}}}',
+  '{"project-knowledge":{"command":"uv","args":["--directory","../runtime/tools","run","--frozen","python","-m","reactor_tool.mcp_servers.project_knowledge_server"],"env":{"PYTHONIOENCODING":"utf-8","PYTHONUNBUFFERED":"1"}}}',
   30,
   1
 ),
@@ -52,7 +52,7 @@ VALUES
   'dev_mcp_agent_utility_001',
   'agent-utility',
   'stdio',
-  '{"agent-utility":{"command":"uv","args":["--directory","../reactor-tool","run","--frozen","python","-m","reactor_tool.mcp_servers.agent_utility_server"],"env":{"PYTHONIOENCODING":"utf-8","PYTHONUNBUFFERED":"1"}}}',
+  '{"agent-utility":{"command":"uv","args":["--directory","../runtime/tools","run","--frozen","python","-m","reactor_tool.mcp_servers.agent_utility_server"],"env":{"PYTHONIOENCODING":"utf-8","PYTHONUNBUFFERED":"1"}}}',
   30,
   1
 );

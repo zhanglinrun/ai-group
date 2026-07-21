@@ -12,7 +12,7 @@ import com.linrun.agent.domain.agent.reactor.config.ReactorConfig;
 import com.linrun.agent.domain.agent.reactor.config.ReactorToolRequestHeaders;
 
 /**
- * Skill 脚本执行客户端，负责调用 reactor-tool。
+ * Skill 脚本执行客户端，负责调用 runtime/tools。
  */
 @Slf4j
 @Component
@@ -27,7 +27,7 @@ public class SkillScriptRunnerClient {
         try {
             String baseUrl = normalizeBaseUrl(reactorConfig.getCodeInterpreterUrl());
             if (baseUrl.isBlank()) {
-                throw new SkillLoadException("reactor-tool url is not configured");
+                throw new SkillLoadException("runtime/tools url is not configured");
             }
 
             long timeoutSeconds = Math.max(readTimeoutSeconds(request) + 30L, 60L);

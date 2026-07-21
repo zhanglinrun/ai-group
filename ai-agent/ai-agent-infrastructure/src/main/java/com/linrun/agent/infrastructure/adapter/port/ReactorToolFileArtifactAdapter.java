@@ -17,7 +17,7 @@ import java.util.Objects;
 import jakarta.annotation.Resource;
 
 /**
- * 基于 reactor-tool 既有文件接口的文件产物适配器。
+ * 基于 runtime/tools 既有文件接口的文件产物适配器。
  */
 @Component
 public class ReactorToolFileArtifactAdapter implements FileArtifactPort {

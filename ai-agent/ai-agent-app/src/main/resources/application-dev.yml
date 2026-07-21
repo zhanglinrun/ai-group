@@ -156,7 +156,7 @@ agent:
   group:
     rabbit:
       enabled: ${AGENT_GROUP_RABBIT_ENABLED:false}
-    reactor-tool:
+    tools:
       enabled: ${AGENT_GROUP_REACTOR_TOOL_ENABLED:true}
       base-url: ${AGENT_GROUP_REACTOR_TOOL_BASE_URL:http://127.0.0.1:1601}
 

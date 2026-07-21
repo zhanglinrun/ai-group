@@ -42,7 +42,7 @@ public class ReactorFileGateway {
     private ReactorConfig reactorConfig;
 
     /**
-     * 把前端上传的二进制附件转发到 reactor-tool，获取稳定访问地址。
+     * 把前端上传的二进制附件转发到 runtime/tools，获取稳定访问地址。
      */
     public ConversationUploadFileDTO uploadConversationFile(String sessionId, MultipartFile file) {
         if (!StringUtils.hasText(sessionId)) {

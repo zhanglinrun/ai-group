@@ -23,7 +23,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 /**
- * Java MCP Client 与 reactor-tool FastMCP Server 的真实 STDIO 互操作测试。
+ * Java MCP Client 与 runtime/tools FastMCP Server 的真实 STDIO 互操作测试。
  *
  * <p>默认回归在本地未执行 {@code uv sync --frozen} 时跳过，避免 Maven 单测隐式联网或修改 Python 环境。
  * 使用 {@code mvn -Pmcp-stdio-it -Dtest=McpStdioInteropTest test} 时，环境缺失会直接判定失败。</p>
@@ -38,14 +38,14 @@ public class McpStdioInteropTest {
     public void verifyLocalRuntime() {
         reactorToolDirectory = findReactorToolDirectory();
         requireOrSkip(reactorToolDirectory != null,
-                "reactor-tool directory not found; run the test from the ai-agent workspace");
+                "runtime/tools directory not found; run the test from the ai-agent workspace");
 
         requireOrSkip(commandSucceeds(List.of("uv", "--version")),
                 "uv is not available on PATH");
 
         Path pythonExecutable = resolveVirtualEnvPython(reactorToolDirectory);
         requireOrSkip(Files.isRegularFile(pythonExecutable),
-                "reactor-tool virtual environment is missing; run 'uv sync --frozen' first");
+                "runtime/tools virtual environment is missing; run 'uv sync --frozen' first");
         requireOrSkip(commandSucceeds(List.of(pythonExecutable.toString(), "-c", "import mcp")),
                 "official Python MCP SDK is missing; run 'uv sync --frozen' first");
 
@@ -154,9 +154,9 @@ public class McpStdioInteropTest {
      * 其他 IDE 工作目录则使用绝对路径，避免测试自身受 user.dir 差异影响。
      */
     private String resolveUvProjectDirectoryArgument() {
-        Path seededRelativeDirectory = Path.of("../reactor-tool").toAbsolutePath().normalize();
+        Path seededRelativeDirectory = Path.of("../runtime/tools").toAbsolutePath().normalize();
         return seededRelativeDirectory.equals(reactorToolDirectory)
-                ? "../reactor-tool"
+                ? "../runtime/tools"
                 : reactorToolDirectory.toString();
     }
 
@@ -181,8 +181,8 @@ public class McpStdioInteropTest {
         Path cursor = Path.of("").toAbsolutePath().normalize();
         while (cursor != null) {
             for (Path candidate : List.of(
-                    cursor.resolve("reactor-tool"),
-                    cursor.resolve("ai-agent").resolve("reactor-tool")
+                    cursor.resolve("runtime").resolve("tools"),
+                    cursor.resolve("ai-agent").resolve("runtime").resolve("tools")
             )) {
                 if (Files.isRegularFile(candidate.resolve("pyproject.toml"))) {
                     return candidate.normalize();

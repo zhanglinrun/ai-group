@@ -102,18 +102,18 @@ mvn -f s-pay-mall-ddd-market/s-pay-mall-ddd-app/pom.xml spring-boot:run     # :8
 mvn -f ai-agent/ai-agent-app/pom.xml spring-boot:run                   # :8090
 
 # 4. Python 工具（可选；首次先执行 uv sync 与 SQLite 初始化）
-Set-Location ai-agent/reactor-tool
+Set-Location ai-agent/runtime/tools
 uv sync
 uv run python -m reactor_tool.db.db_engine
 ./start.ps1                                                   # :1601（Linux/macOS 用 ./start.sh）
 
 # 5. 前端
-Set-Location ai-agent/ui
+Set-Location web
 pnpm install
 pnpm dev                                                       # :5173（host:true 同时支持 IPv4/IPv6）
 ```
 
-一键启动（基础设施 + 微服务 + group/pay + ai-agent + reactor-tool + 前端）：
+一键启动（基础设施 + 微服务 + group/pay + ai-agent + runtime/tools + 前端）：
 
 ```powershell
 cd docs/dev-ops
@@ -132,7 +132,7 @@ cd docs/dev-ops
 - 幂等初始化额度包、`agent_db` 的 Agent Loop / `todo_write` / TaskGraph 迁移、拼团和支付演示结构；
 - 从根 `.env` 通过进程环境注入配置，不把模型 Key、内部令牌或数据库密码拼进命令行；
 - 将 `REPORT_MODEL` 默认同步为主聊天模型，避免 report_tool 隐式调用未配置模型；
-- 构建并启动 7 个 Java 服务、reactor-tool 和 Vite；
+- 构建并启动 7 个 Java 服务、runtime/tools 和 Vite；
 - 等待 Agent、Python 工具与前端真实就绪；
 - 自动执行注册、额度包权益、撤销策略和入口安全 smoke。
 
@@ -142,7 +142,7 @@ cd docs/dev-ops
 
 ## 4. 访问入口
 
-- 前端：**http://localhost:5173/login**（`127.0.0.1:5173` 亦可；需先 `cd ai-agent/ui && pnpm dev`）
+- 前端：**http://localhost:5173/login**（`127.0.0.1:5173` 亦可；需先 `cd web && pnpm dev`）
 - API 网关：http://localhost:8080
 - 注册：POST `/api/auth/register`
 - 登录：POST `/api/auth/login`
@@ -209,7 +209,7 @@ Push-Location gateway-service; mvn test; Pop-Location
 Push-Location group; mvn test; Pop-Location
 Push-Location s-pay-mall-ddd-market; mvn test; Pop-Location
 Push-Location ai-agent; mvn test; Pop-Location
-Push-Location ai-agent/ui; pnpm test; pnpm build; Pop-Location
+Push-Location web; pnpm test; pnpm build; Pop-Location
 ```
 
 - `group`：默认跑 infrastructure 单元测试（内部 token 回调头）；app 模块集成测需 MySQL，已排除。

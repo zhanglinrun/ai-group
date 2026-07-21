@@ -26,7 +26,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 单网页抓取工具，负责调用 reactor-tool 的 web_fetch 端点并登记文件产物。
+ * 单网页抓取工具，负责调用 runtime/tools 的 web_fetch 端点并登记文件产物。
  */
 @Slf4j
 @Data

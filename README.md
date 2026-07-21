@@ -25,7 +25,7 @@ flowchart LR
         GROUP["group :8091<br/>拼团试算/锁单/结算/退款"]
         PAY["pay :8070<br/>下单/支付宝回调/对账补偿"]
         AGENT["ai-agent :8090<br/>统一 Agent Harness / Agent Loop"]
-        TOOL["reactor-tool :1601<br/>Python 工具服务"]
+        TOOL["runtime/tools :1601<br/>Python 工具服务"]
     end
 
     subgraph infra [基础设施]
@@ -67,8 +67,8 @@ flowchart LR
 | [`group`](group/README.md) | 8091 | `com.aigroup.groupbuy` / DDD 六模块 | 拼团试算责任链、四类折扣计算器、锁单/结算/退款规则链、超时补偿、本地消息表 |
 | [`s-pay-mall-ddd-market`](s-pay-mall-ddd-market/README.md) | 8070 | `com.aigroup.paymall` / DDD 六模块 | 下单/掉单恢复、支付宝沙箱回调（验签+金额+幂等）、拼团锁单结算、退款、对账补偿 Job |
 | [`ai-agent`](ai-agent/README.md) | 8090 | `com.linrun.agent` / Spring AI | 可审计 Agent Harness + Work 控制面：统一 Agent Loop、Todo evidence、项目工作区、任务依赖看板、账本回放与配额计费 |
-| `ai-agent/reactor-tool` | 1601 | Python (uv) | deep_search / web_fetch / 图片生成 / 脚本沙箱 / embedding 等工具 |
-| `ai-agent/ui` | 5173 | React 19 + Vite + antd | 聊天/定价/订单前端，SSE 流式消费 |
+| `ai-agent/runtime/tools` | 1601 | Python (uv) | deep_search / web_fetch / 图片生成 / 脚本沙箱 / embedding 等工具 |
+| [`web`](web/) | 5173 | React 19 + Vite + antd | 聊天/定价/订单前端，SSE 流式消费 |
 
 ## 3. 快速开始
 
@@ -78,7 +78,7 @@ flowchart LR
 - **JDK 21** + **Maven 3.8.8+**（本次验收使用 3.8.8）
 - **Node 20+** + **pnpm**（锁定的 Vitest 4 要求 Node 20 及以上）
 - **PowerShell 7.4+（`pwsh`）** — 启动脚本使用 `Start-Process -Environment` 安全传递服务变量，**Windows 自带的 5.1 会解析报错**
-- **Python 3.11+ + uv** — 推荐的一键启动会启动 reactor-tool，因此完整链路必需；仅单独运行 Java 平台时可不安装
+- **Python 3.11+ + uv** — 推荐的一键启动会启动 runtime/tools，因此完整链路必需；仅单独运行 Java 平台时可不安装
 - 一个 DashScope（阿里百炼，兼容 OpenAI 协议）API Key
 
 ### 一键启动（推荐）
@@ -125,7 +125,7 @@ mvn clean install -DskipTests
 Pop-Location
 
 # 按端口表启动后端服务；前端单独启动
-Set-Location '.\ai-agent\ui'
+Set-Location '.\web'
 pnpm install --frozen-lockfile
 pnpm dev
 ```
@@ -135,7 +135,7 @@ pnpm dev
 | 类别 | 服务 | 端口 |
 |------|------|------|
 | 平台 | gateway / auth / member / bff | 8080 / 8081 / 18082 / 8083 |
-| 业务 | pay / agent / group / reactor-tool | 8070 / 8090 / 8091 / 1601 |
+| 业务 | pay / agent / group / runtime/tools | 8070 / 8090 / 8091 / 1601 |
 | 前端 | Vite dev server | 5173 |
 | 基础设施 | MySQL / Redis / RabbitMQ | 13306 / 16379 / 5672(15672) |
 | 基础设施 | Nacos / Qdrant / MinIO | 8848 / 6333(6334) / 9000(9001) |
@@ -176,7 +176,7 @@ Python 工具 `148 passed, 1 skipped, 3 subtests passed`；前端 ESLint 与生�
 - **循环与工具治理**：`StopGate`、重复轮次检测和 turns/tool calls/completion attempts/time/Token/microcredits 复合预算提供类型化终止；工具失败有界重试并结构化回喂。SSE 断开后在执行边界停止后续步骤，已发生的 LLM 调用仍按实际/估算 usage 结算；另有 per-user 并发限流和 durable settlement command 恢复任务，`ai-agent` 托管冻结不会被 member 按超时误释放。
 - **可复现 Agent Eval**：离线固定集输出 `pass@k`、`pass^k`、memory precision/recall 与估算 token cost；Resume benchmark 在相同 12K token 预算下比较硬截断和滚动摘要。README 指标只代表确定性离线样本，不冒充线上成功率。
 - **Todo evidence 与完成门禁**：DEEP 步骤声明 `NONE / TOOL` policy，并通过独立 `activationId`、当前步骤真实工具证据和单次消费约束阻止跨步骤复用；`LEGACY` 只用于历史兼容。`EvidenceValidator + CompletionGate + FinalVerifier` 与 canonical `run_finished` 共同阻止未完成任务被误报为成功；最终 JAR 已用本地 OpenAI-compatible SSE stub 真实跑通 `read_tool -> verification_result(passed) -> run_finished(SUCCESS)`，execution ledger 与历史回放不是 durable checkpoint/resume。
-- **工具执行安全边界**：`reactor-tool` 默认只监听回环地址，写操作要求内部服务令牌；脚本运行限制解释器、并发、时间、输出、文件、环境变量与 POSIX 资源，并提供 non-root/read-only 容器配置。
+- **工具执行安全边界**：`runtime/tools` 默认只监听回环地址，写操作要求内部服务令牌；脚本运行限制解释器、并发、时间、输出、文件、环境变量与 POSIX 资源，并提供 non-root/read-only 容器配置。
 - **Claude-skills 风格技能系统**：`SKILL.md` 解析 + 路径沙箱 + `read/grep/glob/list/skill/script_runner` 工具族。
 - **调用级配额结算**：每次 LLM 调用按输入估算与最大输出预扣；成功调用按 provider usage（缺失或 `0/0` 时回退有界本地估算）确认实际消耗并释放余量，失败调用只有观察到 provider usage 或真实部分输出才结算，否则整笔 release。生图、DeepSearch 等固定附加费只在远端成功且非 fallback 时确认。Agent 以 durable settlement command、稳定 requestId 和冻结终态查询恢复不确定响应；member 负责账户原子性与幂等，不会超时释放 `ai-agent` 托管冻结。执行账本用于审计，不参与 run 级统一扣费。
 - **支付一致性**：支付宝回调「验签 + 金额比对 + 订单存在性 + SQL 状态守卫」四件套；超时关单前先对账支付宝；本地消息表（outbox）+ 补偿 Job 保证权益/结算最终一致。
@@ -200,6 +200,7 @@ ai-group/
 ├── bff-service/            # BFF 聚合
 ├── group/                  # 拼团（DDD 六模块，com.aigroup.groupbuy）
 ├── s-pay-mall-ddd-market/  # 支付（DDD 六模块，com.aigroup.paymall）
-├── ai-agent/               # Agent 运行时 + reactor-tool + ui（com.linrun.agent）
+├── ai-agent/               # Agent 运行时 + runtime/tools（com.linrun.agent）
+├── web/                    # 平台前端（React / Vite）
 └── docs/dev-ops/           # 启动脚本、docker-compose、SQL 初始化、冒烟脚本
 ```

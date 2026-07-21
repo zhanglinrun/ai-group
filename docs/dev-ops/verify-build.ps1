@@ -28,7 +28,7 @@ mvn test -q
 Pop-Location
 
 Write-Host "==> Build frontend"
-Push-Location ai-agent/ui
+Push-Location web
 pnpm install
 pnpm build
 Pop-Location

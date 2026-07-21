@@ -1,4 +1,4 @@
-# 一键启动：Docker 基础设施 + 微服务 + group/pay + ai-agent + reactor-tool + 前端
+# 一键启动：Docker 基础设施 + 微服务 + group/pay + ai-agent + runtime/tools + 前端
 param(
     [switch]$StopPort8080Conflict,
     [switch]$IncludeObservability,
@@ -131,7 +131,7 @@ function Patch-AgentApiKey() {
 }
 
 function Sync-ReactorToolEnv() {
-    $rtEnv = Join-Path $root "ai-agent\reactor-tool\.env"
+    $rtEnv = Join-Path $root "ai-agent\runtime\tools\.env"
     $lines = @(
         "OPENAI_API_KEY=$($env:AGENT_GROUP_LLM_API_KEY)",
         "OPENAI_BASE_URL=$($env:AGENT_GROUP_LLM_BASE_URL)",
@@ -175,7 +175,7 @@ function Sync-ReactorToolEnv() {
         "SEARCH_THREAD_NUM=4"
     )
     Set-Content -Path $rtEnv -Value ($lines -join "`n") -Encoding UTF8
-    Write-Host "Synced reactor-tool/.env"
+    Write-Host "Synced runtime/tools/.env"
 }
 
 if ($StopPort8080Conflict) {
@@ -242,10 +242,10 @@ Pop-Location
 Pop-Location
 
 # ai-agent 会在 ApplicationReadyEvent 中预热所有 status=1 的 STDIO MCP。
-# 因此必须先同步 reactor-tool 的锁定依赖，否则干净 checkout 会在 MCP 子进程启动时缺少 Python SDK。
-Write-Host "==> Prepare reactor-tool runtime"
+# 因此必须先同步 runtime/tools 的锁定依赖，否则干净 checkout 会在 MCP 子进程启动时缺少 Python SDK。
+Write-Host "==> Prepare runtime/tools"
 Sync-ReactorToolEnv
-Push-Location "$root/ai-agent/reactor-tool"
+Push-Location "$root/ai-agent/runtime/tools"
 try {
     uv sync --frozen
 } finally {
@@ -299,9 +299,9 @@ Start-ServiceWindow "ai-agent" "$root/ai-agent/ai-agent-app" 8090 @{
 Wait-HttpReady "ai-agent" "http://127.0.0.1:8090/web/health" 120
 
 if (-not (Test-PortListening 1601)) {
-    Write-Host "Start reactor-tool on :1601 (init sqlite db + server.py)"
+    Write-Host "Start runtime/tools on :1601 (init sqlite db + server.py)"
     # Python 依赖已在 ai-agent 启动前按 uv.lock 同步；此处只初始化 SQLite 并启动 HTTP 工具服务。
-    Push-Location "$root/ai-agent/reactor-tool"
+    Push-Location "$root/ai-agent/runtime/tools"
     try {
         uv run --frozen python -m reactor_tool.db.db_engine
         & .\start.ps1 -Detached
@@ -309,12 +309,12 @@ if (-not (Test-PortListening 1601)) {
         Pop-Location
     }
 }
-Wait-HttpReady "reactor-tool" "http://127.0.0.1:1601/health" 60
+Wait-HttpReady "runtime/tools" "http://127.0.0.1:1601/health" 60
 
 if (-not (Test-PortListening 5173)) {
     Write-Host "Start frontend on http://localhost:5173"
     # 干净 checkout 没有 node_modules，必须先 pnpm install 再 pnpm dev，否则窗口会因缺 vite 直接退出。
-    Push-Location "$root/ai-agent/ui"
+    Push-Location "$root/web"
     try {
         pnpm install
         $nodeExecutable = (Get-Command node -ErrorAction Stop).Source

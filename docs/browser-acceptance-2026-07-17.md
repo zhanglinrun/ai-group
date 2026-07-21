@@ -36,7 +36,7 @@
 
 ```powershell
 $ErrorActionPreference = 'Stop'
-Set-Location '.\\ai-agent\\ui'
+Set-Location '.\\web'
 pnpm dev --host 127.0.0.1 --port 5173
 ```
 
