@@ -64,7 +64,7 @@ public class OrderServiceMarketSettlementTest {
 
         orderService.changeOrderMarketSettlement(callbackList, null);
 
-        // nothing settled -> no outbox event at all (no fulfillment/free membership for unpaid orders)
+        // nothing settled -> no outbox event at all (no fulfillment/free quota for unpaid orders)
         verify(benefitEventService, never()).enqueueCompletedOrderEvents(anyList(), any());
     }
 }

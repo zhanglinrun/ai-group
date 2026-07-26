@@ -7,12 +7,9 @@ import com.aigroup.groupbuy.domain.trade.service.ITradeSettlementOrderService;
 import com.aigroup.groupbuy.trigger.job.TimeoutRefundJob;
 import org.junit.Test;
 import org.mockito.ArgumentCaptor;
-import org.redisson.api.RLock;
-import org.redisson.api.RedissonClient;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.Collections;
-import java.util.concurrent.TimeUnit;
 
 import static org.junit.Assert.assertEquals;
 import static org.mockito.Mockito.mock;
@@ -25,10 +22,6 @@ public class TimeoutRefundJobTierTest {
     public void belowMinimumPaidTeamUsesExistingAutomaticRefundFlow() throws Exception {
         ITradeRefundOrderService refundService = mock(ITradeRefundOrderService.class);
         ITradeSettlementOrderService settlementService = mock(ITradeSettlementOrderService.class);
-        RedissonClient redisson = mock(RedissonClient.class);
-        RLock lock = mock(RLock.class);
-        when(redisson.getLock("group_buy_market_timeout_refund_job_exec")).thenReturn(lock);
-        when(lock.tryLock(3, 60, TimeUnit.SECONDS)).thenReturn(true);
         when(settlementService.settleExpiredFormedTeams()).thenReturn(0);
         when(refundService.queryTimeoutUnpaidOrderList()).thenReturn(Collections.emptyList());
         when(refundService.queryTimeoutPaidUnformedOrderList()).thenReturn(Collections.singletonList(
@@ -40,7 +33,6 @@ public class TimeoutRefundJobTierTest {
         TimeoutRefundJob job = new TimeoutRefundJob();
         ReflectionTestUtils.setField(job, "tradeRefundOrderService", refundService);
         ReflectionTestUtils.setField(job, "tradeSettlementOrderService", settlementService);
-        ReflectionTestUtils.setField(job, "redissonClient", redisson);
 
         job.exec();
 

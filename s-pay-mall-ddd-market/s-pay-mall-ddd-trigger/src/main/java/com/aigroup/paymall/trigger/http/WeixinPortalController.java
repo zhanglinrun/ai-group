@@ -13,9 +13,10 @@ import org.springframework.web.bind.annotation.*;
 import jakarta.annotation.Resource;
 
 /**
- * 微信服务对接，对接地址�?a href="http://xfg-studio.natapp1.cc/api/v1/weixin/portal/receive">/api/v1/weixin/portal/receive</a>
+ * 微信服务对接，对接地址：/api/v1/weixin/portal/receive
  * <p>
- * http://xfg-studio.natapp1.cc/api/v1/weixin/portal/receive/
+ * 微信公众号测试平台：https://mp.weixin.qq.com/debug/cgi-bin/sandboxinfo?action=showinfo&t=sandbox/index
+ * api指南：https://developers.weixin.qq.com/doc/service/guide/product/message/Receiving_standard_messages.html
  */
 @Slf4j
 @RestController()
@@ -32,28 +33,34 @@ public class WeixinPortalController {
     @Resource
     private ILoginService loginService;
 
+    /**
+     * 验签
+     */
     @GetMapping(value = "receive", produces = "text/plain;charset=utf-8")
     public String validate(@RequestParam(value = "signature", required = false) String signature,
                            @RequestParam(value = "timestamp", required = false) String timestamp,
                            @RequestParam(value = "nonce", required = false) String nonce,
                            @RequestParam(value = "echostr", required = false) String echostr) {
         try {
-            log.info("微信公众号验签信息开�?[{}, {}, {}, {}]", signature, timestamp, nonce, echostr);
+            log.info("微信公众号验签信息开始 [{}, {}, {}, {}]", signature, timestamp, nonce, echostr);
             if (StringUtils.isAnyBlank(signature, timestamp, nonce, echostr)) {
                 throw new IllegalArgumentException("请求参数非法，请核实!");
             }
             boolean check = SignatureUtil.check(token, signature, timestamp, nonce);
-            log.info("微信公众号验签信息完�?check：{}", check);
+            log.info("微信公众号验签信息完成 check：{}", check);
             if (!check) {
                 return null;
             }
             return echostr;
         } catch (Exception e) {
-            log.error("微信公众号验签信息失�?[{}, {}, {}, {}]", signature, timestamp, nonce, echostr, e);
+            log.error("微信公众号验签信息失败 [{}, {}, {}, {}]", signature, timestamp, nonce, echostr, e);
             return null;
         }
     }
 
+    /**
+     * 回调，接收公众号消息【扫描登录，会接收到消息】
+     */
     @PostMapping(value = "receive", produces = "application/xml; charset=UTF-8")
     public String post(@RequestBody String requestBody,
                        @RequestParam("signature") String signature,
@@ -63,18 +70,23 @@ public class WeixinPortalController {
                        @RequestParam(name = "encrypt_type", required = false) String encType,
                        @RequestParam(name = "msg_signature", required = false) String msgSignature) {
         try {
-            log.info("接收微信公众号信息请求{}开�?{}", openid, requestBody);
+            log.info("接收微信公众号信息请求 {}开始 {}", openid, requestBody);
             // 消息转换
             MessageTextEntity message = XmlUtil.xmlToBean(requestBody, MessageTextEntity.class);
 
             if ("event".equals(message.getMsgType()) && "SCAN".equals(message.getEvent())) {
+                // 扫码登录【消息类型和事件】
                 loginService.saveLoginState(message.getTicket(), openid);
-                return buildMessageTextEntity(openid, "登录成功");
+                return buildMessageTextEntity(openid, "扫码登录成功");
+            } else if ("event".equals(message.getMsgType()) && "subscribe".equals(message.getEvent())) {
+                // 首次关注公众号也视为扫码登录（未关注用户扫码先触发 subscribe 再触发 SCAN）
+                loginService.saveLoginState(message.getTicket(), openid);
+                return buildMessageTextEntity(openid, "关注公众号成功");
             }
 
-            return buildMessageTextEntity(openid, "\u4f60\u597d\uff1a" + message.getContent());
+            return buildMessageTextEntity(openid, "你好：" + message.getContent());
         } catch (Exception e) {
-            log.error("接收微信公众号信息请求{}失败 {}", openid, requestBody, e);
+            log.error("接收微信公众号信息请求 {}失败 {}", openid, requestBody, e);
             return "";
         }
     }

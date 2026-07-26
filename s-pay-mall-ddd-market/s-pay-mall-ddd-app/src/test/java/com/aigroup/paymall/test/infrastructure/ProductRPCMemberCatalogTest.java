@@ -9,10 +9,7 @@ import com.aigroup.paymall.infrastructure.gateway.response.MemberResult;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.Test;
-import retrofit2.Call;
-import retrofit2.Response;
 
-import java.io.IOException;
 import java.math.BigDecimal;
 
 import static org.junit.Assert.assertEquals;
@@ -36,11 +33,8 @@ public class ProductRPCMemberCatalogTest {
     }
 
     @Test
-    public void usesEnabledMemberSkuAsTrustedOrderSource() throws Exception {
+    public void usesEnabledMemberSkuAsTrustedOrderSource() {
         IMemberCatalogService service = mock(IMemberCatalogService.class);
-        @SuppressWarnings("unchecked")
-        Call<MemberResult<MemberSkuDTO>> call = mock(Call.class);
-        when(service.queryEnabledSkuByGoodsId("9890002")).thenReturn(call);
 
         MemberSkuDTO sku = new MemberSkuDTO();
         sku.setCode("QUOTA_LIGHT");
@@ -51,7 +45,7 @@ public class ProductRPCMemberCatalogTest {
         MemberResult<MemberSkuDTO> result = new MemberResult<>();
         result.setCode(200);
         result.setData(sku);
-        when(call.execute()).thenReturn(Response.success(result));
+        when(service.queryEnabledSkuByGoodsId("9890002")).thenReturn(result);
 
         ProductDTO product = new ProductRPC(new PayProductCatalogProperties(), service)
                 .queryProductByProductId("9890002");
@@ -62,12 +56,9 @@ public class ProductRPCMemberCatalogTest {
     }
 
     @Test
-    public void failsClosedWhenMemberCatalogIsUnavailable() throws Exception {
+    public void failsClosedWhenMemberCatalogIsUnavailable() {
         IMemberCatalogService service = mock(IMemberCatalogService.class);
-        @SuppressWarnings("unchecked")
-        Call<MemberResult<MemberSkuDTO>> call = mock(Call.class);
-        when(service.queryEnabledSkuByGoodsId("9890002")).thenReturn(call);
-        when(call.execute()).thenThrow(new IOException("down"));
+        when(service.queryEnabledSkuByGoodsId("9890002")).thenThrow(new RuntimeException("down"));
 
         ProductRPC rpc = new ProductRPC(new PayProductCatalogProperties(), service);
 

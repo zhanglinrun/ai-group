@@ -2,7 +2,7 @@ package com.aigroup.groupbuy.test.infrastructure.dao;
 
 import com.aigroup.groupbuy.infrastructure.dao.IGroupBuyDiscountDao;
 import com.aigroup.groupbuy.infrastructure.dao.po.GroupBuyDiscount;
-import com.alibaba.fastjson.JSON;
+import com.aigroup.groupbuy.types.common.JsonUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -23,7 +23,7 @@ public class GroupBuyDiscountDaoTest {
     @Test
     public void test_queryGroupBuyDiscountList(){
         List<GroupBuyDiscount> groupBuyDiscounts = groupBuyDiscountDao.queryGroupBuyDiscountList();
-        log.info("测试结果:{}", JSON.toJSONString(groupBuyDiscounts));
+        log.info("测试结果:{}", JsonUtils.toJson(groupBuyDiscounts));
     }
 
 }

@@ -2,7 +2,7 @@ package com.aigroup.paymall.trigger.job;
 
 import com.aigroup.paymall.domain.benefit.service.IBenefitEventService;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.scheduling.annotation.Scheduled;
+import com.xxl.job.core.handler.annotation.XxlJob;
 import org.springframework.stereotype.Component;
 
 import jakarta.annotation.Resource;
@@ -11,6 +11,7 @@ import jakarta.annotation.Resource;
  * Independently publishes committed payment outbox rows. Business transactions
  * only insert rows; this poller plus consumer idempotency provides at-least-once
  * delivery without sending MQ messages before the database commit succeeds.
+ * 调度由 XXL-JOB admin 集中管理（fixed-rate 1s），天然单实例分片。
  */
 @Slf4j
 @Component
@@ -19,9 +20,7 @@ public class OutboxEventPublishJob {
     @Resource
     private IBenefitEventService benefitEventService;
 
-    @Scheduled(
-            fixedDelayString = "${ai-group.pay.outbox.publish-delay-ms:1000}",
-            initialDelayString = "${ai-group.pay.outbox.publish-initial-delay-ms:1000}")
+    @XxlJob("outboxEventPublishJob")
     public void exec() {
         try {
             int count = benefitEventService.publishPendingEvents();

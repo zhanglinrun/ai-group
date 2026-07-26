@@ -9,8 +9,8 @@ import jakarta.annotation.Resource;
 import java.util.function.Supplier;
 
 /**
- * @author Fuzhengwei bugstack.cn @灏忓倕鍝?
- * @description 浠撳偍鎶借薄绫?
+ * @author Fuzhengwei bugstack.cn @小傅哥
+ * @description 仓储抽象类
  */
 public abstract class AbstractRepository {
 
@@ -23,70 +23,70 @@ public abstract class AbstractRepository {
     protected DCCService dccService;
 
     /**
-     * 閫氱敤缂撳瓨澶勭悊鏂规硶
-     * 浼樺厛浠庣紦瀛樿幏鍙栵紝缂撳瓨涓嶅瓨鍦ㄥ垯浠庢暟鎹簱鑾峰彇骞跺啓鍏ョ紦瀛?
+     * 通用缓存处理方法
+     * 优先从缓存获取，缓存不存在则从数据库获取并写入缓存
      *
-     * @param cacheKey      缂撳瓨閿?
-     * @param dbFallback    鏁版嵁搴撴煡璇㈠嚱鏁?
-     * @param <T>           杩斿洖绫诲瀷
-     * @return              鏌ヨ缁撴灉
+     * @param cacheKey      缓存键
+     * @param dbFallback    数据库查询函数
+     * @param <T>           返回类型
+     * @return              查询结果
      */
     protected <T> T getFromCacheOrDb(String cacheKey, Supplier<T> dbFallback) {
-        // 鍒ゆ柇鏄惁寮?鍚紦瀛?
+        // 判断是否开启缓存
         if (dccService.isCacheOpenSwitch()) {
-            // 浠庣紦瀛樿幏鍙?
+            // 从缓存获取
             T cacheResult = redisService.getValue(cacheKey);
-            // 缂撳瓨瀛樺湪鍒欑洿鎺ヨ繑鍥?
+            // 缓存存在则直接返回
             if (null != cacheResult) {
                 return cacheResult;
             }
-            // 缂撳瓨涓嶅瓨鍦ㄥ垯浠庢暟鎹簱鑾峰彇
+            // 缓存不存在则从数据库获取
             T dbResult = dbFallback.get();
-            // 鏁版嵁搴撴煡璇㈢粨鏋滀负绌哄垯鐩存帴杩斿洖
+            // 数据库查询结果为空则直接返回
             if (null == dbResult) {
                 return null;
             }
-            // 鍐欏叆缂撳瓨
+            // 写入缓存
             redisService.setValue(cacheKey, dbResult);
             return dbResult;
         } else {
-            // 缂撳瓨鏈紑鍚紝鐩存帴浠庢暟鎹簱鑾峰彇
-            logger.warn("缂撳瓨闄嶇骇 {}", cacheKey);
+            // 缓存未开启，直接从数据库获取
+            logger.warn("缓存降级 {}", cacheKey);
             return dbFallback.get();
         }
     }
 
     /**
-     * 閫氱敤缂撳瓨澶勭悊鏂规硶锛堝甫杩囨湡鏃堕棿锛?
-     * 浼樺厛浠庣紦瀛樿幏鍙栵紝缂撳瓨涓嶅瓨鍦ㄥ垯浠庢暟鎹簱鑾峰彇骞跺啓鍏ョ紦瀛?
+     * 通用缓存处理方法（带过期时间）
+     * 优先从缓存获取，缓存不存在则从数据库获取并写入缓存
      *
-     * @param cacheKey      缂撳瓨閿?
-     * @param dbFallback    鏁版嵁搴撴煡璇㈠嚱鏁?
-     * @param expired       杩囨湡鏃堕棿
-     * @param <T>           杩斿洖绫诲瀷
-     * @return              鏌ヨ缁撴灉
+     * @param cacheKey      缓存键
+     * @param dbFallback    数据库查询函数
+     * @param expired       过期时间
+     * @param <T>           返回类型
+     * @return              查询结果
      */
     protected <T> T getFromCacheOrDb(String cacheKey, Supplier<T> dbFallback, long expired) {
-        // 鍒ゆ柇鏄惁寮?鍚紦瀛?
+        // 判断是否开启缓存
         if (dccService.isCacheOpenSwitch()) {
-            // 浠庣紦瀛樿幏鍙?
+            // 从缓存获取
             T cacheResult = redisService.getValue(cacheKey);
-            // 缂撳瓨瀛樺湪鍒欑洿鎺ヨ繑鍥?
+            // 缓存存在则直接返回
             if (null != cacheResult) {
                 return cacheResult;
             }
-            // 缂撳瓨涓嶅瓨鍦ㄥ垯浠庢暟鎹簱鑾峰彇
+            // 缓存不存在则从数据库获取
             T dbResult = dbFallback.get();
-            // 鏁版嵁搴撴煡璇㈢粨鏋滀负绌哄垯鐩存帴杩斿洖
+            // 数据库查询结果为空则直接返回
             if (null == dbResult) {
                 return null;
             }
-            // 鍐欏叆缂撳瓨锛堝甫杩囨湡鏃堕棿锛?
+            // 写入缓存（带过期时间）
             redisService.setValue(cacheKey, dbResult, expired);
             return dbResult;
         } else {
-            // 缂撳瓨鏈紑鍚紝鐩存帴浠庢暟鎹簱鑾峰彇
-            logger.warn("缂撳瓨闄嶇骇 {}", cacheKey);
+            // 缓存未开启，直接从数据库获取
+            logger.warn("缓存降级 {}", cacheKey);
             return dbFallback.get();
         }
     }

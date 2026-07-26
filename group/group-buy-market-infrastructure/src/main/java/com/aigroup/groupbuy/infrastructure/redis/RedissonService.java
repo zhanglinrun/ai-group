@@ -8,9 +8,9 @@ import java.time.Duration;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Redis 鏈嶅姟 - Redisson
+ * Redis 服务 - Redisson
  *
- * @author Fuzhengwei bugstack.cn @灏忓倕鍝?
+ * @author Fuzhengwei bugstack.cn @小傅哥
  */
 @Service("redissonService")
 public class RedissonService implements IRedisService {

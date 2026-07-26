@@ -2,7 +2,7 @@
 
 这是一个围绕团购活动的营销交易项目。它管理的是一场团购从开始到结束的完整过程：活动展示、优惠试算、锁单占位、支付结算、退款回补、通知补偿。
 
-它现在也是 `ai-group`（会员平台）下的一个子服务，`bff-service`（前端聚合层）会调它的营销配置接口来拼装拼团价格。但抛开平台不谈，它本身就是一个可以独立运行、独立学习的团购交易系统。
+它现在也是 `ai-group`（平台层）下的一个子服务，`bff-service`（前端聚合层）会调它的营销配置接口来拼装拼团价格。但抛开平台不谈，它本身就是一个可以独立运行、独立学习的团购交易系统。
 
 如果你在学 `Java`（编程语言）业务项目，这个仓库适合用来练几件事：
 
@@ -83,7 +83,7 @@
 - **结算是在推动团状态变化。** 支付成功后不只是把订单改成“已支付”，还要判断这单属于哪个团、团里完成了多少、是否刚好成团、要不要生成回调任务。本质是在推动“拼团是否成功”。
 - **退款不止一种。** 至少有三种场景：下单没支付超时退、已支付但没成团、已支付且已成团后又退款。不同场景恢复的数据和触发的动作都不一样，所以用了不同退款策略。
 - **主流程结束不等于业务结束。** 后面往往还有一串尾巴：回调外部系统、本地消息补发、定时任务重试、`MQ`（消息队列）失败重投、锁单量恢复。这也是项目里会有 `notify_task`（通知任务表）和多个任务、监听器的原因。
-- **本地通知任务不能把“调用了发送 API”当作成功。** MQ 回调会等待 RabbitMQ correlated confirm，并同时检查 mandatory return；只有 Broker ACK 且消息可路由时才把 `notify_task` 标成成功，NACK、退回、超时或中断都会保留任务供后续补偿重试。
+- **本地通知任务不能把"调用了发送 API"当作成功。** MQ 发送使用 Kafka `acks=all` + 幂等生产者，`send().get(timeout)` 同步等待 Broker ACK；只有 Broker 确认接收时才把 `notify_task` 标成成功，超时、失败或中断都会保留任务供后续补偿重试。
 
 ---
 
@@ -108,7 +108,7 @@
 - `Spring Boot 3.5.16`（应用框架）
 - `Maven`（构建工具）、`MyBatis`（持久层框架）
 - `MySQL`（数据库）、`Redis`（缓存）、`Redisson`（分布式锁）
-- `RabbitMQ`（消息队列）
+- `Kafka`（消息队列）
 - `Prometheus`（监控采集）+ `Grafana`（监控展示）+ `Logstash`（日志采集）
 
 它不是纯演示项目，把监控、日志、任务、消息这些接近真实业务系统的东西也带上了。
@@ -121,11 +121,11 @@
 
 - `JDK 21`
 - `Maven 3.6+`
-- `MySQL 8`、`Redis 6`、`RabbitMQ 3`
+- `MySQL 8`、`Redis 6`、`Kafka 3`
 
 ### 启动步骤
 
-1. **起中间件。** 参考 `docs/dev-ops/docker-compose-environment.yml`（本地中间件编排文件）准备 MySQL、Redis、RabbitMQ：
+1. **起中间件。** 参考 `docs/dev-ops/docker-compose-environment.yml`（本地中间件编排文件）准备 MySQL、Redis、Kafka：
 
 ```bash
 docker-compose -f docs/dev-ops/docker-compose-environment.yml up -d
@@ -137,7 +137,7 @@ docker-compose -f docs/dev-ops/docker-compose-environment.yml up -d
 docs/tag/v3.0/mysql/sql/group_buy_market.sql
 ```
 
-3. **改开发配置。** 检查 `group-buy-market-app/src/main/resources/application-dev.yml`，确认这几类能连通本地：`spring.datasource`（数据库）、`spring.rabbitmq`（消息队列）、`redis.sdk.config`（缓存）、`xfg.wrench.config.register`（动态配置注册）。注意 RabbitMQ 的业务连接端口和管理后台端口不是一回事，别填错。
+3. **改开发配置。** 检查 `group-buy-market-app/src/main/resources/application-dev.yml`，确认这几类能连通本地：`spring.datasource`（数据库）、`spring.kafka`（消息队列）、`redis.sdk.config`（缓存）、`xfg.wrench.config.register`（动态配置注册）。
 
 4. **构建。** 在仓库根目录执行：
 

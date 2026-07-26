@@ -14,8 +14,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * @author Fuzhengwei bugstack.cn @灏忓倕鍝?
- * @description 棣栭〉钀ラ攢鏈嶅姟
+ * @author Fuzhengwei bugstack.cn @小傅哥
+ * @description 首页营销服务
  * @create 2024-12-14 14:33
  */
 @Service
@@ -28,9 +28,9 @@ public class IndexGroupBuyMarketServiceImpl implements IIndexGroupBuyMarketServi
 
     @Override
     public TrialBalanceEntity indexMarketTrial(MarketProductEntity marketProductEntity) throws Exception {
-        // 鑾峰彇鎵ц绛栫暐
+        // 获取执行策略
         StrategyHandler<MarketProductEntity, DefaultActivityStrategyFactory.DynamicContext, TrialBalanceEntity> strategyHandler = defaultActivityStrategyFactory.strategyHandler();
-        // 鍙楃悊璇曠畻鎿嶄綔
+        // 受理试算操作
         return strategyHandler.apply(marketProductEntity, new DefaultActivityStrategyFactory.DynamicContext());
     }
 
@@ -38,7 +38,7 @@ public class IndexGroupBuyMarketServiceImpl implements IIndexGroupBuyMarketServi
     public List<UserGroupBuyOrderDetailEntity> queryInProgressUserGroupBuyOrderDetailList(Long activityId, String userId, Integer ownerCount, Integer randomCount) {
         List<UserGroupBuyOrderDetailEntity> unionAllList = new ArrayList<>();
 
-        // 鏌ヨ涓汉鎷煎洟鏁版嵁
+        // 查询个人拼团数据
         if (0 != ownerCount) {
             List<UserGroupBuyOrderDetailEntity> ownerList = repository.queryInProgressUserGroupBuyOrderDetailListByOwner(activityId, userId, ownerCount);
             if (null != ownerList && !ownerList.isEmpty()){
@@ -46,7 +46,7 @@ public class IndexGroupBuyMarketServiceImpl implements IIndexGroupBuyMarketServi
             }
         }
 
-        // 鏌ヨ鍏朵粬闈炰釜浜烘嫾鍥?
+        // 查询其他非个人拼团
         if (0 != randomCount) {
             List<UserGroupBuyOrderDetailEntity> randomList = repository.queryInProgressUserGroupBuyOrderDetailListByRandom(activityId, userId, randomCount);
             if (null != randomList && !randomList.isEmpty()){

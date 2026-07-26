@@ -13,7 +13,7 @@ import com.aigroup.groupbuy.types.enums.NotifyTaskHTTPEnumVO;
 import com.aigroup.groupbuy.types.enums.ResponseCode;
 import com.aigroup.groupbuy.types.exception.AppException;
 import cn.bugstack.wrench.design.framework.link.model2.chain.BusinessLinkedList;
-import com.alibaba.fastjson.JSON;
+import com.aigroup.groupbuy.types.common.JsonUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
@@ -22,8 +22,8 @@ import java.util.*;
 import java.util.concurrent.ThreadPoolExecutor;
 
 /**
- * @author Fuzhengwei bugstack.cn @灏忓倕鍝?
- * @description 鎷煎洟浜ゆ槗缁撶畻鏈嶅姟
+ * @author Fuzhengwei bugstack.cn @小傅哥
+ * @description 拼团交易结算服务
  * @create 2025-01-26 15:22
  */
 @Slf4j
@@ -44,8 +44,8 @@ public class TradeSettlementOrderService implements ITradeSettlementOrderService
 
     @Override
     public TradePaySettlementEntity settlementMarketPayOrder(TradePaySuccessEntity tradePaySuccessEntity) throws Exception {
-        log.info("鎷煎洟浜ゆ槗-鏀粯璁㈠崟缁撶畻:{} outTradeNo:{}", tradePaySuccessEntity.getUserId(), tradePaySuccessEntity.getOutTradeNo());
-        // 1. 缁撶畻瑙勫垯杩囨护
+        log.info("拼团交易-支付订单结算:{} outTradeNo:{}", tradePaySuccessEntity.getUserId(), tradePaySuccessEntity.getOutTradeNo());
+        // 1. 结算规则过滤
         TradeSettlementRuleFilterBackEntity tradeSettlementRuleFilterBackEntity = tradeSettlementRuleFilter.apply(
                 TradeSettlementRuleCommandEntity.builder()
                         .source(tradePaySuccessEntity.getSource())
@@ -58,7 +58,7 @@ public class TradeSettlementOrderService implements ITradeSettlementOrderService
 
         String teamId = tradeSettlementRuleFilterBackEntity.getTeamId();
 
-        // 2. 鏌ヨ缁勫洟淇℃伅
+        // 2. 查询组团信息
         GroupBuyTeamEntity groupBuyTeamEntity = GroupBuyTeamEntity.builder()
                 .teamId(tradeSettlementRuleFilterBackEntity.getTeamId())
                 .activityId(tradeSettlementRuleFilterBackEntity.getActivityId())
@@ -71,31 +71,31 @@ public class TradeSettlementOrderService implements ITradeSettlementOrderService
                 .notifyConfigVO(tradeSettlementRuleFilterBackEntity.getNotifyConfigVO())
                 .build();
 
-        // 3. 鏋勫缓鑱氬悎瀵硅薄
+        // 3. 构建聚合对象
         GroupBuyTeamSettlementAggregate groupBuyTeamSettlementAggregate = GroupBuyTeamSettlementAggregate.builder()
                 .userEntity(UserEntity.builder().userId(tradePaySuccessEntity.getUserId()).build())
                 .groupBuyTeamEntity(groupBuyTeamEntity)
                 .tradePaySuccessEntity(tradePaySuccessEntity)
                 .build();
 
-        // 4. 鎷煎洟浜ゆ槗缁撶畻
+        // 4. 拼团交易结算
         NotifyTaskEntity notifyTaskEntity = repository.settlementMarketPayOrder(groupBuyTeamSettlementAggregate);
 
-        // 5. 缁勯槦鍥炶皟澶勭悊 - 澶勭悊澶辫触涔熶細鏈夊畾鏃朵换鍔¤ˉ鍋匡紝閫氳繃杩欐牱鐨勬柟寮忥紝鍙互鍑忚交浠诲姟璋冨害锛屾彁楂樻椂鏁堟??
+        // 5. 组队回调处理 - 处理失败也会有定时任务补偿，通过这样的方式，可以减轻任务调度，提高时效性
         if (null != notifyTaskEntity) {
             threadPoolExecutor.execute(() -> {
                 Map<String, Integer> notifyResultMap = null;
                 try {
                     notifyResultMap = tradeTaskService.execNotifyJob(notifyTaskEntity);
-                    log.info("鍥炶皟閫氱煡鎷煎洟瀹岀粨 result:{}", JSON.toJSONString(notifyResultMap));
+                    log.info("回调通知拼团完结 result:{}", JsonUtils.toJson(notifyResultMap));
                 } catch (Exception e) {
-                    log.error("鍥炶皟閫氱煡鎷煎洟瀹岀粨澶辫触 result:{}", JSON.toJSONString(notifyResultMap), e);
+                    log.error("回调通知拼团完结失败 result:{}", JsonUtils.toJson(notifyResultMap), e);
                     throw new AppException(e.getMessage());
                 }
             });
         }
 
-        // 6. 杩斿洖缁撶畻淇℃伅 - 鍏徃涓紑鍙戣繖鏍风殑娴佺▼鏃跺?欙紝浼氭牴鎹閮ㄩ渶瑕佽繘琛屽?肩殑璁剧疆
+        // 6. 返回结算信息 - 公司中开发这样的流程时候，会根据外部需要进行值的设置
         return TradePaySettlementEntity.builder()
                 .source(tradePaySuccessEntity.getSource())
                 .channel(tradePaySuccessEntity.getChannel())

@@ -4,21 +4,16 @@ import com.aigroup.groupbuy.domain.activity.model.entity.UserGroupBuyOrderDetail
 import com.aigroup.groupbuy.domain.trade.model.entity.TradeRefundCommandEntity;
 import com.aigroup.groupbuy.domain.trade.service.ITradeRefundOrderService;
 import com.aigroup.groupbuy.domain.trade.service.ITradeSettlementOrderService;
-import com.alibaba.fastjson.JSON;
+import com.xxl.job.core.handler.annotation.XxlJob;
 import lombok.extern.slf4j.Slf4j;
-import org.redisson.api.RLock;
-import org.redisson.api.RedissonClient;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import jakarta.annotation.Resource;
 import java.util.List;
-import java.util.concurrent.TimeUnit;
 
 /**
- * @author Fuzhengwei (bugstack.cn)
- * @description 拼团超时退款任务
- * @create 2025-01-31 15:00
+ * 拼团超时退款任务。调度由 XXL-JOB admin 中心集中管理（cron 每分钟执行），
+ * 天然单实例分片，无需 Redisson 分布式锁。
  */
 @Slf4j
 @Service
@@ -30,25 +25,9 @@ public class TimeoutRefundJob {
     @Resource
     private ITradeSettlementOrderService tradeSettlementOrderService;
 
-    @Resource
-    private RedissonClient redissonClient;
-
-    /**
-     * 定时扫描并处理超时拼团订单。
-     */
-    @Scheduled(cron = "0 */1 * * * ?")
+    @XxlJob("timeoutRefundJob")
     public void exec() {
-        // 获取分布式锁，避免多个实例重复执行任务
-        RLock lock = redissonClient.getLock("group_buy_market_timeout_refund_job_exec");
         try {
-            // waitTime：等待获取锁的最长时间
-            // leaseTime：获取锁后的自动释放时间
-            boolean isLocked = lock.tryLock(3, 60, TimeUnit.SECONDS);
-            if (!isLocked) {
-                log.info("未获取到超时退款任务锁，本轮跳过");
-                return;
-            }
-
             log.info("timeout refund job started");
 
             // 阶梯拼团：先结算"到期已达最低档"的团（按最终人数定档发放），使其转为成团；
@@ -63,13 +42,10 @@ public class TimeoutRefundJob {
 
             log.info("timeout refund job finished unpaid[success={} fail={}] paidUnformed[success={} fail={}]",
                     unpaid[0], unpaid[1], paidUnformed[0], paidUnformed[1]);
-            
+
         } catch (Exception e) {
             log.error("timeout refund job failed", e);
-        } finally {
-            if (lock.isLocked() && lock.isHeldByCurrentThread()) {
-                lock.unlock();
-            }
+            throw new RuntimeException(e);
         }
     }
 

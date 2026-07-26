@@ -1,32 +1,28 @@
 package com.aigroup.paymall.infrastructure.event;
 
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Component;
 
 /**
- * @author Fuzhengwei bugstack.cn @小傅哥
- * @description 消息发送
- * @create 2024-03-30 12:40
+ * Pay-side event publisher for order-pay-success messages. Delegates to
+ * {@link ConfirmedKafkaPublisher} which blocks until the broker ACKs (acks=all).
  */
 @Slf4j
 @Component
 public class EventPublisher {
 
-    private final ConfirmedRabbitPublisher confirmedRabbitPublisher;
+    private final ConfirmedKafkaPublisher confirmedKafkaPublisher;
 
-    public EventPublisher(ConfirmedRabbitPublisher confirmedRabbitPublisher) {
-        this.confirmedRabbitPublisher = confirmedRabbitPublisher;
+    public EventPublisher(ConfirmedKafkaPublisher confirmedKafkaPublisher) {
+        this.confirmedKafkaPublisher = confirmedKafkaPublisher;
     }
 
-    @Value("${spring.rabbitmq.config.producer.topic_order_pay_success.exchange}")
-    private String exchangeName;
-
-    public void publish(String correlationKey, String routingKey, String message) {
+    public void publish(String correlationKey, String topic, String message) {
         try {
-            confirmedRabbitPublisher.publish(exchangeName, routingKey, message, correlationKey);
+            confirmedKafkaPublisher.publish(topic, message, correlationKey);
         } catch (Exception e) {
-            log.error("发送MQ消息失败 routingKey:{} message:{}", routingKey, message, e);
+            log.error("发送Kafka消息失败 topic:{} message:{}", topic, message, e);
             throw e;
         }
     }

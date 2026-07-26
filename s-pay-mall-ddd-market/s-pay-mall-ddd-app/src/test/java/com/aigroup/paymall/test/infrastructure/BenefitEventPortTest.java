@@ -4,7 +4,7 @@ import com.aigroup.paymall.domain.order.adapter.event.PaySuccessMessageEvent;
 import com.aigroup.paymall.infrastructure.adapter.port.BenefitEventPort;
 import com.aigroup.paymall.infrastructure.event.BenefitEventPublisher;
 import com.aigroup.paymall.infrastructure.event.EventPublisher;
-import com.alibaba.fastjson.JSON;
+import com.aigroup.paymall.types.common.JsonUtils;
 import org.junit.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -33,7 +33,7 @@ public class BenefitEventPortTest {
                 org.mockito.ArgumentMatchers.eq("evt-order-1"),
                 org.mockito.ArgumentMatchers.eq("topic.order_pay_success"),
                 jsonCaptor.capture());
-        PaySuccessMessageEvent.PaySuccessMessage message = JSON.parseObject(
+        PaySuccessMessageEvent.PaySuccessMessage message = JsonUtils.parseObject(
                 jsonCaptor.getValue(), PaySuccessMessageEvent.PaySuccessMessage.class);
         assertEquals("10001", message.getUserId());
         assertEquals("order-1", message.getTradeNo());

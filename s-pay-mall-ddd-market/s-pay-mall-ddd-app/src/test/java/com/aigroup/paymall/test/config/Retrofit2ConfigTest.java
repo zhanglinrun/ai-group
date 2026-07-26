@@ -1,108 +1,68 @@
 package com.aigroup.paymall.test.config;
 
 import com.aigroup.paymall.config.Retrofit2Config;
-import com.aigroup.paymall.infrastructure.gateway.IGroupBuyMarketService;
-import com.aigroup.paymall.infrastructure.gateway.dto.LockMarketPayOrderRequestDTO;
-import com.aigroup.paymall.infrastructure.gateway.dto.QueryMarketPayOrderRequestDTO;
-import com.aigroup.paymall.infrastructure.gateway.dto.RefundMarketPayOrderRequestDTO;
-import com.aigroup.paymall.infrastructure.gateway.dto.SettlementMarketPayOrderRequestDTO;
-import okhttp3.mockwebserver.MockResponse;
-import okhttp3.mockwebserver.MockWebServer;
-import okhttp3.mockwebserver.RecordedRequest;
-import org.junit.After;
-import org.junit.Before;
+import feign.RequestInterceptor;
+import feign.RequestTemplate;
 import org.junit.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
-import java.util.Date;
+import java.util.Collection;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 
 /**
- * pay → group Retrofit 出站必须附带内部 token。
+ * pay → group/member 内部调用必须附带 X-Internal-Token。
+ * 迁移到 OpenFeign 后，token 由 {@code internalTokenRequestInterceptor} 注入。
  */
 public class Retrofit2ConfigTest {
 
-    private MockWebServer server;
-
-    @Before
-    public void setUp() throws Exception {
-        server = new MockWebServer();
-        server.start();
-    }
-
-    @After
-    public void tearDown() throws Exception {
-        server.shutdown();
+    @Test
+    public void interceptorAttachesInternalTokenWhenConfigured() {
+        RequestInterceptor interceptor = buildInterceptor("secret-internal-token");
+        RequestTemplate template = new RequestTemplate();
+        interceptor.apply(template);
+        assertEquals("secret-internal-token", firstHeader(template, Retrofit2Config.HEADER_INTERNAL_TOKEN));
     }
 
     @Test
-    public void shouldAttachSingleInternalTokenOnLockQuerySettlementAndRefund() throws Exception {
-        enqueueOk();
-        enqueueOk();
-        enqueueOk();
-        enqueueOk();
-
-        IGroupBuyMarketService service = buildService("secret-internal-token");
-
-        LockMarketPayOrderRequestDTO lock = new LockMarketPayOrderRequestDTO();
-        lock.setUserId("u1");
-        service.lockMarketPayOrder(lock).execute();
-
-        QueryMarketPayOrderRequestDTO query = new QueryMarketPayOrderRequestDTO();
-        query.setUserId("u1");
-        query.setSource("s01");
-        query.setChannel("c01");
-        query.setOutTradeNo("o1");
-        service.queryMarketPayOrder(query).execute();
-
-        SettlementMarketPayOrderRequestDTO settlement = new SettlementMarketPayOrderRequestDTO();
-        settlement.setUserId("u1");
-        settlement.setOutTradeNo("o1");
-        settlement.setOutTradeTime(new Date());
-        service.settlementMarketPayOrder(settlement).execute();
-
-        service.refundMarketPayOrder(RefundMarketPayOrderRequestDTO.builder()
-                .userId("u1")
-                .outTradeNo("o1")
-                .build()).execute();
-
-        assertTokenOn(server.takeRequest(), "/api/v1/gbm/trade/lock_market_pay_order");
-        assertTokenOn(server.takeRequest(), "/api/v1/gbm/trade/query_market_pay_order");
-        assertTokenOn(server.takeRequest(), "/api/v1/gbm/trade/settlement_market_pay_order");
-        assertTokenOn(server.takeRequest(), "/api/v1/gbm/trade/refund_market_pay_order");
+    public void interceptorOmitsTokenWhenBlank() {
+        RequestInterceptor interceptor = buildInterceptor("");
+        RequestTemplate template = new RequestTemplate();
+        interceptor.apply(template);
+        assertNull(template.headers().get(Retrofit2Config.HEADER_INTERNAL_TOKEN));
     }
 
     @Test
-    public void shouldOmitTokenWhenBlank() throws Exception {
-        enqueueOk();
-        IGroupBuyMarketService service = buildService("");
-        LockMarketPayOrderRequestDTO lock = new LockMarketPayOrderRequestDTO();
-        lock.setUserId("u1");
-        service.lockMarketPayOrder(lock).execute();
-        RecordedRequest request = server.takeRequest();
-        assertNull(request.getHeader(Retrofit2Config.HEADER_INTERNAL_TOKEN));
+    public void shouldAttachSingleInternalTokenOnLockQuerySettlementAndRefund() {
+        RequestInterceptor interceptor = buildInterceptor("secret-internal-token");
+        String[] paths = {
+                "/api/v1/gbm/trade/lock_market_pay_order",
+                "/api/v1/gbm/trade/query_market_pay_order",
+                "/api/v1/gbm/trade/settlement_market_pay_order",
+                "/api/v1/gbm/trade/refund_market_pay_order"
+        };
+        for (String path : paths) {
+            RequestTemplate template = new RequestTemplate();
+            template.uri(path);
+            interceptor.apply(template);
+            assertEquals("secret-internal-token", firstHeader(template, Retrofit2Config.HEADER_INTERNAL_TOKEN));
+            assertEquals(1, template.headers().get(Retrofit2Config.HEADER_INTERNAL_TOKEN).size());
+        }
     }
 
-    private IGroupBuyMarketService buildService(String token) {
+    private String firstHeader(RequestTemplate template, String name) {
+        Collection<String> values = template.headers().get(name);
+        assertNotNull(values);
+        assertTrue(values.iterator().hasNext());
+        return values.iterator().next();
+    }
+
+    private RequestInterceptor buildInterceptor(String token) {
         Retrofit2Config config = new Retrofit2Config();
-        ReflectionTestUtils.setField(config, "groupBuyMarketApiUrl", server.url("/").toString());
         ReflectionTestUtils.setField(config, "internalToken", token);
-        return config.groupBuyMarketService();
-    }
-
-    private void enqueueOk() {
-        server.enqueue(new MockResponse()
-                .setBody("{\"code\":\"0000\",\"info\":\"success\",\"data\":{}}")
-                .addHeader("Content-Type", "application/json"));
-    }
-
-    private void assertTokenOn(RecordedRequest request, String expectedPath) {
-        assertNotNull(request);
-        assertEquals(expectedPath, request.getPath());
-        assertEquals("secret-internal-token", request.getHeader(Retrofit2Config.HEADER_INTERNAL_TOKEN));
-        assertEquals(1, request.getHeaders().values(Retrofit2Config.HEADER_INTERNAL_TOKEN).size());
+        return config.internalTokenRequestInterceptor();
     }
 }

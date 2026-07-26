@@ -3,7 +3,7 @@ package com.aigroup.paymall.trigger.job;
 import com.aigroup.paymall.domain.order.service.IOrderService;
 import com.aigroup.paymall.trigger.job.support.AlipayOrderReconcileSupport;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.scheduling.annotation.Scheduled;
+import com.xxl.job.core.handler.annotation.XxlJob;
 import org.springframework.stereotype.Component;
 
 import jakarta.annotation.Resource;
@@ -17,10 +17,7 @@ import java.util.List;
  * instead of being closed (money taken + order closed would otherwise be
  * unrecoverable). Only after alipay confirms the trade is not paid is the
  * alipay-side trade closed and then the local order closed.
- * <p>
- * The cron is offset by 5 minutes from NoPayNotifyOrderJob (both were
- * 0 0/30 before) and the query-before-close makes the two jobs idempotent
- * against each other: whoever sees the payment first recovers the order.
+ * 调度由 XXL-JOB admin 集中管理（cron: 0 5/30 * * * ?）。
  */
 @Slf4j
 @Component()
@@ -31,7 +28,7 @@ public class TimeoutCloseOrderJob {
     @Resource
     private AlipayOrderReconcileSupport alipayOrderReconcileSupport;
 
-    @Scheduled(cron = "0 5/30 * * * ?")
+    @XxlJob("timeoutCloseOrderJob")
     public void exec() {
         try {
             List<String> orderIds = orderService.queryTimeoutCloseOrderList();

@@ -9,8 +9,8 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeoutException;
 
 /**
- * @author Fuzhengwei bugstack.cn @灏忓倕鍝?
- * @description 鎶借薄鐨勬嫾鍥㈣惀閿?鏀拺绫?
+ * @author Fuzhengwei bugstack.cn @小傅哥
+ * @description 抽象的拼团营销支撑类
  * @create 2024-12-14 13:42
  */
 public abstract class AbstractGroupBuyMarketSupport<MarketProductEntity, DynamicContext, TrialBalanceEntity> extends AbstractMultiThreadStrategyRouter<com.aigroup.groupbuy.domain.activity.model.entity.MarketProductEntity, DefaultActivityStrategyFactory.DynamicContext, com.aigroup.groupbuy.domain.activity.model.entity.TrialBalanceEntity> {
@@ -22,7 +22,7 @@ public abstract class AbstractGroupBuyMarketSupport<MarketProductEntity, Dynamic
 
     @Override
     protected void multiThread(com.aigroup.groupbuy.domain.activity.model.entity.MarketProductEntity requestParameter, DefaultActivityStrategyFactory.DynamicContext dynamicContext) throws ExecutionException, InterruptedException, TimeoutException {
-        // 缂虹渷鐨勬柟娉?
+        // 缺省的方法
     }
 
 }

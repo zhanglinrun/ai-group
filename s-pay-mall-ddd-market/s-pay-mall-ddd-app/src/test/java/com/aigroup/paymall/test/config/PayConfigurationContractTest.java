@@ -25,16 +25,12 @@ public class PayConfigurationContractTest {
     }
 
     @Test
-    public void commonRabbitAndOutboxPublisherGatesRemainEnabled() throws IOException {
-        assertEquals("correlated", property("application.yml", "spring.rabbitmq.publisher-confirm-type"));
-        assertEquals(Boolean.TRUE, property("application.yml", "spring.rabbitmq.publisher-returns"));
-        assertEquals(Boolean.TRUE, property("application.yml", "spring.rabbitmq.template.mandatory"));
-        assertEquals("member.benefit.exchange", property(
-                "application.yml", "spring.rabbitmq.config.producer.member_benefit.exchange"));
-        assertEquals("s_pay_mall_queue_2_order_pay_success", property(
-                "application.yml", "spring.rabbitmq.config.consumer.topic_order_pay_success.queue"));
-        assertEquals("${PAY_OUTBOX_PUBLISH_DELAY_MS:1000}",
-                property("application.yml", "ai-group.pay.outbox.publish-delay-ms"));
+    public void commonKafkaAndOutboxPublisherGatesRemainEnabled() throws IOException {
+        assertEquals("all", property("application.yml", "spring.kafka.producer.acks"));
+        assertEquals("member.benefit.completed", property(
+                "application.yml", "spring.kafka.config.producer.member_benefit.topic"));
+        assertEquals("pay.order_pay_success", property(
+                "application.yml", "spring.kafka.config.producer.topic_order_pay_success.topic"));
     }
 
     @Test

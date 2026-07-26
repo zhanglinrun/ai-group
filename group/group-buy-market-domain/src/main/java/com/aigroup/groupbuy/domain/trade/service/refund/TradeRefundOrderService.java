@@ -21,9 +21,9 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 閫?鍗曪紝閫嗗悜娴佺▼鏈嶅姟
+ * 退单，逆向流程服务
  *
- * @author xiaofuge bugstack.cn @灏忓倕鍝?
+ * @author xiaofuge bugstack.cn @小傅哥
  * 2025/7/8 07:27
  */
 @Slf4j
@@ -44,26 +44,26 @@ public class TradeRefundOrderService implements ITradeRefundOrderService {
 
     @Override
     public TradeRefundBehaviorEntity refundOrder(TradeRefundCommandEntity tradeRefundCommandEntity) throws Exception {
-        log.info("閫嗗悜娴佺▼锛岄??鍗曟搷浣?userId:{} outTradeNo:{}", tradeRefundCommandEntity.getUserId(), tradeRefundCommandEntity.getOutTradeNo());
+        log.info("逆向流程，退单操作 userId:{} outTradeNo:{}", tradeRefundCommandEntity.getUserId(), tradeRefundCommandEntity.getOutTradeNo());
         return tradeRefundRuleFilter.apply(tradeRefundCommandEntity, new TradeRefundRuleFilterFactory.DynamicContext());
     }
 
     @Override
     public void restoreTeamLockStock(TeamRefundSuccess teamRefundSuccess) throws Exception {
-        log.info("閫嗗悜娴佺▼锛屾仮澶嶉攣鍗曢噺 userId:{} activityId:{} teamId:{}", teamRefundSuccess.getUserId(), teamRefundSuccess.getActivityId(), teamRefundSuccess.getTeamId());
+        log.info("逆向流程，恢复锁单量 userId:{} activityId:{} teamId:{}", teamRefundSuccess.getUserId(), teamRefundSuccess.getActivityId(), teamRefundSuccess.getTeamId());
         String type = teamRefundSuccess.getType();
 
-        // 鏍规嵁鏋氫妇鍊艰幏鍙栧搴旂殑閫?鍗曠被鍨?
+        // 根据枚举值获取对应的退单类型
         RefundTypeEnumVO refundTypeEnumVO = RefundTypeEnumVO.getRefundTypeEnumVOByCode(type);
         IRefundOrderStrategy refundOrderStrategy = refundOrderStrategyMap.get(refundTypeEnumVO.getStrategy());
 
-        // 閫嗗悜搴撳瓨鎿嶄綔锛屾仮澶嶉攣鍗曢噺
+        // 逆向库存操作，恢复锁单量
         refundOrderStrategy.reverseStock(teamRefundSuccess);
     }
 
     @Override
     public List<UserGroupBuyOrderDetailEntity> queryTimeoutUnpaidOrderList() {
-        log.info("鎵弿鏁版嵁锛岃秴鏃剁粍闃熸湭鏀粯璁㈠崟");
+        log.info("扫描数据，超时组队未支付订单");
         return repository.queryTimeoutUnpaidOrderList();
     }
 

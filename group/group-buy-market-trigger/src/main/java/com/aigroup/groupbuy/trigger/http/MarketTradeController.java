@@ -18,7 +18,7 @@ import com.aigroup.groupbuy.domain.trade.service.ITradeRefundOrderService;
 import com.aigroup.groupbuy.domain.trade.service.ITradeSettlementOrderService;
 import com.aigroup.groupbuy.types.enums.ResponseCode;
 import com.aigroup.groupbuy.types.exception.AppException;
-import com.alibaba.fastjson.JSON;
+import com.aigroup.groupbuy.types.common.JsonUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.web.bind.annotation.*;
@@ -72,7 +72,7 @@ public class MarketTradeController implements IMarketTradeService {
             String teamId = requestDTO.getTeamId();
             LockMarketPayOrderRequestDTO.NotifyConfigVO notifyConfigVO = requestDTO.getNotifyConfigVO();
 
-            log.info("营销交易锁单:{} LockMarketPayOrderRequestDTO:{}", userId, JSON.toJSONString(requestDTO));
+            log.info("营销交易锁单:{} LockMarketPayOrderRequestDTO:{}", userId, JsonUtils.toJson(requestDTO));
 
             if (StringUtils.isBlank(userId) || StringUtils.isBlank(source) || StringUtils.isBlank(channel)
                     || StringUtils.isBlank(goodsId) || null == activityId || StringUtils.isBlank(outTradeNo)
@@ -86,7 +86,7 @@ public class MarketTradeController implements IMarketTradeService {
             // duplicate state so a retry can never create a second team after an ambiguous response.
             MarketPayOrderEntity marketPayOrderEntity = queryExistingLock(requestDTO);
             if (null != marketPayOrderEntity) {
-                log.info("交易锁单记录(存在):{} marketPayOrderEntity:{}", userId, JSON.toJSONString(marketPayOrderEntity));
+                log.info("交易锁单记录(存在):{} marketPayOrderEntity:{}", userId, JsonUtils.toJson(marketPayOrderEntity));
                 return successfulLockResponse(marketPayOrderEntity);
             }
 
@@ -170,7 +170,7 @@ public class MarketTradeController implements IMarketTradeService {
                                             .build())
                             .build());
 
-            log.info("交易锁单记录(新):{} marketPayOrderEntity:{}", userId, JSON.toJSONString(marketPayOrderEntity));
+            log.info("交易锁单记录(新):{} marketPayOrderEntity:{}", userId, JsonUtils.toJson(marketPayOrderEntity));
 
             // 返回结果
             return successfulLockResponse(marketPayOrderEntity);
@@ -185,14 +185,14 @@ public class MarketTradeController implements IMarketTradeService {
                 }
             }
             log.error("营销交易锁单业务异常:{} LockMarketPayOrderRequestDTO:{}",
-                    requestDTO == null ? null : requestDTO.getUserId(), JSON.toJSONString(requestDTO), e);
+                    requestDTO == null ? null : requestDTO.getUserId(), JsonUtils.toJson(requestDTO), e);
             return Response.<LockMarketPayOrderResponseDTO>builder()
                     .code(e.getCode())
                     .info(e.getInfo())
                     .build();
         } catch (Exception e) {
             log.error("营销交易锁单服务失败:{} LockMarketPayOrderRequestDTO:{}",
-                    requestDTO == null ? null : requestDTO.getUserId(), JSON.toJSONString(requestDTO), e);
+                    requestDTO == null ? null : requestDTO.getUserId(), JsonUtils.toJson(requestDTO), e);
             return Response.<LockMarketPayOrderResponseDTO>builder()
                     .code(ResponseCode.UN_ERROR.getCode())
                     .info(ResponseCode.UN_ERROR.getInfo())
@@ -308,17 +308,17 @@ public class MarketTradeController implements IMarketTradeService {
                     .data(responseDTO)
                     .build();
 
-            log.info("营销交易组队结算完成:{} outTradeNo:{} response:{}", requestDTO.getUserId(), requestDTO.getOutTradeNo(), JSON.toJSONString(response));
+            log.info("营销交易组队结算完成:{} outTradeNo:{} response:{}", requestDTO.getUserId(), requestDTO.getOutTradeNo(), JsonUtils.toJson(response));
 
             return response;
         } catch (AppException e) {
-            log.error("营销交易组队结算异常:{} LockMarketPayOrderRequestDTO:{}", requestDTO.getUserId(), JSON.toJSONString(requestDTO), e);
+            log.error("营销交易组队结算异常:{} LockMarketPayOrderRequestDTO:{}", requestDTO.getUserId(), JsonUtils.toJson(requestDTO), e);
             return Response.<SettlementMarketPayOrderResponseDTO>builder()
                     .code(e.getCode())
                     .info(e.getInfo())
                     .build();
         } catch (Exception e) {
-            log.error("营销交易组队结算失败:{} LockMarketPayOrderRequestDTO:{}", requestDTO.getUserId(), JSON.toJSONString(requestDTO), e);
+            log.error("营销交易组队结算失败:{} LockMarketPayOrderRequestDTO:{}", requestDTO.getUserId(), JsonUtils.toJson(requestDTO), e);
             return Response.<SettlementMarketPayOrderResponseDTO>builder()
                     .code(ResponseCode.UN_ERROR.getCode())
                     .info(ResponseCode.UN_ERROR.getInfo())
@@ -362,17 +362,17 @@ public class MarketTradeController implements IMarketTradeService {
                     .data(responseDTO)
                     .build();
 
-            log.info("营销拼团退单完成:{} outTradeNo:{} response:{}", requestDTO.getUserId(), requestDTO.getOutTradeNo(), JSON.toJSONString(response));
+            log.info("营销拼团退单完成:{} outTradeNo:{} response:{}", requestDTO.getUserId(), requestDTO.getOutTradeNo(), JsonUtils.toJson(response));
 
             return response;
         } catch (AppException e) {
-            log.error("营销拼团退单异常:{} RefundMarketPayOrderRequestDTO:{}", requestDTO.getUserId(), JSON.toJSONString(requestDTO), e);
+            log.error("营销拼团退单异常:{} RefundMarketPayOrderRequestDTO:{}", requestDTO.getUserId(), JsonUtils.toJson(requestDTO), e);
             return Response.<RefundMarketPayOrderResponseDTO>builder()
                     .code(e.getCode())
                     .info(e.getInfo())
                     .build();
         } catch (Exception e) {
-            log.error("营销拼团退单失败:{} RefundMarketPayOrderRequestDTO:{}", requestDTO.getUserId(), JSON.toJSONString(requestDTO), e);
+            log.error("营销拼团退单失败:{} RefundMarketPayOrderRequestDTO:{}", requestDTO.getUserId(), JsonUtils.toJson(requestDTO), e);
             return Response.<RefundMarketPayOrderResponseDTO>builder()
                     .code(ResponseCode.UN_ERROR.getCode())
                     .info(ResponseCode.UN_ERROR.getInfo())

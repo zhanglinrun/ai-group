@@ -197,7 +197,7 @@ DROP TABLE IF EXISTS `group_buy_order`;
 
 CREATE TABLE `group_buy_order` (
   `id` int unsigned NOT NULL AUTO_INCREMENT COMMENT '自增ID',
-  `team_id` varchar(8) NOT NULL COMMENT '拼单组队ID',
+  `team_id` varchar(64) NOT NULL COMMENT '拼单组队ID',
   `activity_id` bigint NOT NULL COMMENT '活动ID',
   `source` varchar(8) NOT NULL COMMENT '渠道',
   `channel` varchar(8) NOT NULL COMMENT '来源',
@@ -246,8 +246,8 @@ DROP TABLE IF EXISTS `group_buy_order_list`;
 CREATE TABLE `group_buy_order_list` (
   `id` int unsigned NOT NULL AUTO_INCREMENT COMMENT '自增ID',
   `user_id` varchar(64) NOT NULL COMMENT '用户ID',
-  `team_id` varchar(8) NOT NULL COMMENT '拼单组队ID',
-  `order_id` varchar(12) NOT NULL COMMENT '订单ID',
+  `team_id` varchar(64) NOT NULL COMMENT '拼单组队ID',
+  `order_id` varchar(64) NOT NULL COMMENT '订单ID',
   `activity_id` bigint NOT NULL COMMENT '活动ID',
   `start_time` datetime NOT NULL COMMENT '活动开始时间',
   `end_time` datetime NOT NULL COMMENT '活动结束时间',
@@ -258,7 +258,7 @@ CREATE TABLE `group_buy_order_list` (
   `deduction_price` decimal(8,2) NOT NULL COMMENT '折扣金额',
   `pay_price` decimal(8,2) NOT NULL COMMENT '支付金额',
   `status` tinyint(1) NOT NULL DEFAULT '0' COMMENT '状态；0初始锁定、1消费完成、2用户退单',
-  `out_trade_no` varchar(12) NOT NULL COMMENT '外部交易单号-确保外部调用唯一幂等',
+  `out_trade_no` varchar(64) NOT NULL COMMENT '外部交易单号-确保外部调用唯一幂等',
   `out_trade_time` datetime DEFAULT NULL COMMENT '外部交易时间',
   `biz_id` varchar(64) NOT NULL COMMENT '业务唯一ID',
   `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
@@ -314,7 +314,7 @@ DROP TABLE IF EXISTS `notify_task`;
 CREATE TABLE `notify_task` (
   `id` int unsigned NOT NULL AUTO_INCREMENT COMMENT '自增ID',
   `activity_id` bigint NOT NULL COMMENT '活动ID',
-  `team_id` varchar(8) NOT NULL COMMENT '拼单组队ID',
+  `team_id` varchar(64) NOT NULL COMMENT '拼单组队ID',
   `notify_category` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT '回调种类',
   `notify_type` varchar(8) NOT NULL DEFAULT 'HTTP' COMMENT '回调类型（HTTP、MQ）',
   `notify_mq` varchar(32) DEFAULT NULL COMMENT '回调消息',

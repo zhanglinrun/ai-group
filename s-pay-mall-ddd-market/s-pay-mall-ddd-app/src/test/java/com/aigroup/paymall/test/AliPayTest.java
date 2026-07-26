@@ -1,6 +1,6 @@
 package com.aigroup.paymall.test;
 
-import com.alibaba.fastjson.JSONObject;
+import com.aigroup.paymall.types.common.JSONObject;
 import com.alipay.api.AlipayApiException;
 import com.alipay.api.AlipayClient;
 import com.alipay.api.DefaultAlipayClient;

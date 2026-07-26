@@ -10,8 +10,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * @author Fuzhengwei bugstack.cn @灏忓倕鍝?
- * @description 浜虹兢鏍囩鏈嶅姟
+ * @author Fuzhengwei bugstack.cn @小傅哥
+ * @description 人群标签服务
  * @create 2024-12-28 12:51
  */
 @Slf4j
@@ -23,14 +23,14 @@ public class TagService implements ITagService {
 
     @Override
     public void execTagBatchJob(String tagId, String batchId) {
-        log.info("浜虹兢鏍囩鎵规浠诲姟 tagId:{} batchId:{}", tagId, batchId);
+        log.info("人群标签批次任务 tagId:{} batchId:{}", tagId, batchId);
 
-        // 1. 鏌ヨ鎵规浠诲姟
+        // 1. 查询批次任务
         CrowdTagsJobEntity crowdTagsJobEntity = repository.queryCrowdTagsJobEntity(tagId, batchId);
 
-        // 2. 閲囬泦鐢ㄦ埛鏁版嵁 - 杩欓儴鍒嗛渶瑕侀噰闆嗙敤鎴风殑娑堣垂绫绘暟鎹紝鍚庣画鏈夌敤鎴峰彂璧锋嫾鍗曞悗鍐嶅鐞嗐??
+        // 2. 采集用户数据 - 这部分需要采集用户的消费类数据，后续有用户发起拼单后再处理。
 
-        // 3. 鏁版嵁鍐欏叆璁板綍
+        // 3. 数据写入记录
         List<String> userIdList = new ArrayList<String>() {{
             add("xiaofuge");
             add("liergou");
@@ -45,12 +45,12 @@ public class TagService implements ITagService {
             add("xfg09");
         }};
 
-        // 4. 涓?鑸汉缇ゆ爣绛剧殑澶勭悊鍦ㄥ叕鍙镐腑锛屼細鏈変笓闂ㄧ殑鏁版嵁鏁颁粨鍥㈤槦閫氳繃鑴氭湰鏂瑰紡鍐欏叆鍒版暟鎹簱锛屽氨涓嶇敤杩欐牱涓?涓釜鎴栬?呮壒娆℃潵鍐欍??
+        // 4. 一般人群标签的处理在公司中，会有专门的数据数仓团队通过脚本方式写入到数据库，就不用这样一个个或者批次来写。
         for (String userId : userIdList) {
             repository.addCrowdTagsUserId(tagId, userId);
         }
 
-        // 5. 鏇存柊浜虹兢鏍囩缁熻閲?
+        // 5. 更新人群标签统计量
         repository.updateCrowdTagsStatistics(tagId, userIdList.size());
     }
 

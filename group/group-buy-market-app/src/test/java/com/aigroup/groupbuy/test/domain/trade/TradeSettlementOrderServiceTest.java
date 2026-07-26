@@ -3,7 +3,7 @@ package com.aigroup.groupbuy.test.domain.trade;
 import com.aigroup.groupbuy.domain.trade.model.entity.TradePaySettlementEntity;
 import com.aigroup.groupbuy.domain.trade.model.entity.TradePaySuccessEntity;
 import com.aigroup.groupbuy.domain.trade.service.ITradeSettlementOrderService;
-import com.alibaba.fastjson2.JSON;
+import com.aigroup.groupbuy.types.common.JsonUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -15,8 +15,8 @@ import java.util.Date;
 import java.util.concurrent.CountDownLatch;
 
 /**
- * @author Fuzhengwei bugstack.cn @灏忓倕鍝?
- * @description 鎷煎洟浜ゆ槗缁撶畻鏈嶅姟娴嬭瘯
+ * @author Fuzhengwei bugstack.cn @小傅哥
+ * @description 拼团交易结算服务测试
  * @create 2025-01-26 18:59
  */
 @Slf4j
@@ -36,10 +36,10 @@ public class TradeSettlementOrderServiceTest {
         tradePaySuccessEntity.setOutTradeNo("303596099292");
         tradePaySuccessEntity.setOutTradeTime(new Date());
         TradePaySettlementEntity tradePaySettlementEntity = tradeSettlementOrderService.settlementMarketPayOrder(tradePaySuccessEntity);
-        log.info("璇锋眰鍙傛暟:{}", JSON.toJSONString(tradePaySuccessEntity));
-        log.info("娴嬭瘯缁撴灉:{}", JSON.toJSONString(tradePaySettlementEntity));
+        log.info("请求参数:{}", JsonUtils.toJson(tradePaySuccessEntity));
+        log.info("测试结果:{}", JsonUtils.toJson(tradePaySettlementEntity));
 
-        // 鏆傚仠锛岀瓑寰匨Q娑堟伅銆傚鐞嗗畬鍚庯紝鎵嬪姩鍏抽棴绋嬪簭
+        // 暂停，等待MQ消息。处理完后，手动关闭程序
         new CountDownLatch(1).await();
     }
 

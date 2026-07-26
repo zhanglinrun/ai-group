@@ -24,9 +24,8 @@ import com.aigroup.groupbuy.types.enums.ActivityStatusEnumVO;
 import com.aigroup.groupbuy.types.enums.GroupBuyOrderEnumVO;
 import com.aigroup.groupbuy.types.enums.ResponseCode;
 import com.aigroup.groupbuy.types.exception.AppException;
-import com.alibaba.fastjson2.JSON;
+import com.aigroup.groupbuy.types.common.JsonUtils;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.lang3.RandomStringUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DuplicateKeyException;
@@ -64,10 +63,10 @@ public class TradeRepository implements ITradeRepository {
     @Resource
     private DCCService dccService;
 
-    @Value("${spring.rabbitmq.config.producer.topic_team_success.routing_key}")
+    @Value("${spring.kafka.config.producer.topic_team_success.topic:group.team_success}")
     private String topic_team_success;
 
-    @Value("${spring.rabbitmq.config.producer.topic_team_refund.routing_key}")
+    @Value("${spring.kafka.config.producer.topic_team_refund.topic:group.team_refund}")
     private String topic_team_refund;
 
     @Resource
@@ -136,11 +135,10 @@ public class TradeRepository implements ITradeRepository {
         // 判断是否有团 - teamId 为空 - 新团、为不空 - 老团
         String teamId = payActivityEntity.getTeamId();
         if (StringUtils.isBlank(teamId)) {
-            // 使用 RandomStringUtils.randomNumeric 替代公司里使用的雪花算法UUID
-            teamId = RandomStringUtils.randomNumeric(8);
+            teamId = newIdentifier();
 
             String tierSnapshot = configuredTiers == null || configuredTiers.isEmpty()
-                    ? null : JSON.toJSONString(configuredTiers);
+                    ? null : JsonUtils.toJson(configuredTiers);
             int capacity = configuredTiers == null ? payActivityEntity.getTargetCount()
                     : configuredTiers.stream()
                     .map(GroupBuyActivityTier::getTargetCount)
@@ -177,8 +175,7 @@ public class TradeRepository implements ITradeRepository {
             }
         }
 
-        // 使用 RandomStringUtils.randomNumeric 替代公司里使用的雪花算法UUID
-        String orderId = RandomStringUtils.randomNumeric(12);
+        String orderId = newIdentifier();
         GroupBuyOrderList groupBuyOrderListReq = GroupBuyOrderList.builder()
                 .userId(userEntity.getUserId())
                 .teamId(teamId)
@@ -212,6 +209,11 @@ public class TradeRepository implements ITradeRepository {
                 .tradeOrderStatusEnumVO(TradeOrderStatusEnumVO.CREATE)
                 .teamId(teamId)
                 .build();
+    }
+
+    /** Collision-resistant identifiers; persisted columns are widened to 64 chars. */
+    static String newIdentifier() {
+        return UUID.randomUUID().toString().replace("-", "");
     }
 
     @Override
@@ -349,7 +351,7 @@ public class TradeRepository implements ITradeRepository {
             notifyTask.setNotifyStatus(0);
             notifyTask.setUuid(groupBuyTeamEntity.getTeamId() + Constants.UNDERLINE + TaskNotifyCategoryEnumVO.TRADE_SETTLEMENT.getCode() + Constants.UNDERLINE + tradePaySuccessEntity.getOutTradeNo());
 
-            notifyTask.setParameterJson(JSON.toJSONString(new HashMap<String, Object>() {{
+            notifyTask.setParameterJson(JsonUtils.toJson(new HashMap<String, Object>() {{
                 put("teamId", groupBuyTeamEntity.getTeamId());
                 put("outTradeNoList", outTradeNoList);
                 put("bonusQuota", null == bonusQuota ? 0 : bonusQuota);
@@ -426,7 +428,7 @@ public class TradeRepository implements ITradeRepository {
         notifyTask.setNotifyStatus(0);
         notifyTask.setUuid(team.getTeamId() + Constants.UNDERLINE
                 + TaskNotifyCategoryEnumVO.TRADE_SETTLEMENT.getCode() + Constants.UNDERLINE + outTradeNo);
-        notifyTask.setParameterJson(JSON.toJSONString(new HashMap<String, Object>() {{
+        notifyTask.setParameterJson(JsonUtils.toJson(new HashMap<String, Object>() {{
             put("teamId", team.getTeamId());
             put("outTradeNoList", completedOrders);
             put("bonusQuota", bonusQuota == null ? 0 : bonusQuota);
@@ -518,7 +520,7 @@ public class TradeRepository implements ITradeRepository {
         notifyTask.setUuid(team.getTeamId() + Constants.UNDERLINE + TaskNotifyCategoryEnumVO.TRADE_SETTLEMENT.getCode() + Constants.UNDERLINE + "deadline");
         final Integer bonus = bonusQuota;
         final String teamId = team.getTeamId();
-        notifyTask.setParameterJson(JSON.toJSONString(new HashMap<String, Object>() {{
+        notifyTask.setParameterJson(JsonUtils.toJson(new HashMap<String, Object>() {{
             put("teamId", teamId);
             put("outTradeNoList", outTradeNoList);
             put("bonusQuota", null == bonus ? 0 : bonus);
@@ -528,7 +530,7 @@ public class TradeRepository implements ITradeRepository {
 
     private List<GroupBuyActivityTier> snapshotTiers(String tierSnapshot) {
         if (StringUtils.isBlank(tierSnapshot)) return Collections.emptyList();
-        return JSON.parseArray(tierSnapshot, GroupBuyActivityTier.class);
+        return JsonUtils.parseArray(tierSnapshot, GroupBuyActivityTier.class);
     }
 
     private int minimumTierTarget(List<GroupBuyActivityTier> tiers) {
@@ -725,7 +727,7 @@ public class TradeRepository implements ITradeRepository {
         notifyTask.setNotifyStatus(0);
         notifyTask.setUuid(tradeRefundOrderEntity.getTeamId() + Constants.UNDERLINE + TaskNotifyCategoryEnumVO.TRADE_UNPAID2REFUND.getCode() + Constants.UNDERLINE + tradeRefundOrderEntity.getOrderId());
 
-        notifyTask.setParameterJson(JSON.toJSONString(new HashMap<String, Object>() {{
+        notifyTask.setParameterJson(JsonUtils.toJson(new HashMap<String, Object>() {{
             put("type", RefundTypeEnumVO.UNPAID_UNLOCK.getCode());
             put("userId", tradeRefundOrderEntity.getUserId());
             put("teamId", tradeRefundOrderEntity.getTeamId());
@@ -785,7 +787,7 @@ public class TradeRepository implements ITradeRepository {
         notifyTask.setNotifyStatus(0);
         notifyTask.setUuid(tradeRefundOrderEntity.getTeamId() + Constants.UNDERLINE + TaskNotifyCategoryEnumVO.TRADE_PAID2REFUND.getCode() + Constants.UNDERLINE + tradeRefundOrderEntity.getOrderId());
 
-        notifyTask.setParameterJson(JSON.toJSONString(new HashMap<String, Object>() {{
+        notifyTask.setParameterJson(JsonUtils.toJson(new HashMap<String, Object>() {{
             put("type", RefundTypeEnumVO.PAID_UNFORMED.getCode());
             put("userId", tradeRefundOrderEntity.getUserId());
             put("teamId", tradeRefundOrderEntity.getTeamId());
@@ -860,7 +862,7 @@ public class TradeRepository implements ITradeRepository {
         notifyTask.setNotifyStatus(0);
         notifyTask.setUuid(tradeRefundOrderEntity.getTeamId() + Constants.UNDERLINE + TaskNotifyCategoryEnumVO.TRADE_PAID_TEAM2REFUND.getCode() + Constants.UNDERLINE + tradeRefundOrderEntity.getOrderId());
 
-        notifyTask.setParameterJson(JSON.toJSONString(new HashMap<String, Object>() {{
+        notifyTask.setParameterJson(JsonUtils.toJson(new HashMap<String, Object>() {{
             put("type", RefundTypeEnumVO.PAID_FORMED.getCode());
             put("userId", tradeRefundOrderEntity.getUserId());
             put("teamId", tradeRefundOrderEntity.getTeamId());

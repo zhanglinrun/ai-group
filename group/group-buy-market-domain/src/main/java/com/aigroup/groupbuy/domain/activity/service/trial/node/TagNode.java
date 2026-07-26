@@ -13,8 +13,8 @@ import org.springframework.stereotype.Service;
 import jakarta.annotation.Resource;
 
 /**
- * @author Fuzhengwei bugstack.cn @灏忓倕鍝?
- * @description 浜虹兢鏍囩鍒ゆ柇
+ * @author Fuzhengwei bugstack.cn @小傅哥
+ * @description 人群标签判断
  * @create 2025-01-02 10:36
  */
 @Slf4j
@@ -26,21 +26,21 @@ public class TagNode extends AbstractGroupBuyMarketSupport<MarketProductEntity, 
 
     @Override
     protected TrialBalanceEntity doApply(MarketProductEntity requestParameter, DefaultActivityStrategyFactory.DynamicContext dynamicContext) throws Exception {
-        // 鑾峰彇鎷煎洟娲诲姩閰嶇疆
+        // 获取拼团活动配置
         GroupBuyActivityDiscountVO groupBuyActivityDiscountVO = dynamicContext.getGroupBuyActivityDiscountVO();
 
         String tagId = groupBuyActivityDiscountVO.getTagId();
         boolean visible = groupBuyActivityDiscountVO.isVisible();
         boolean enable = groupBuyActivityDiscountVO.isEnable();
 
-        // 浜虹兢鏍囩閰嶇疆涓虹┖锛屽垯璧伴粯璁ゅ??
+        // 人群标签配置为空，则走默认值
         if (StringUtils.isBlank(tagId)) {
             dynamicContext.setVisible(true);
             dynamicContext.setEnable(true);
             return router(requestParameter, dynamicContext);
         }
 
-        // 鏄惁鍦ㄤ汉缇よ寖鍥村唴锛泇isible銆乪nable 濡傛灉鍊间负 ture 鍒欒〃绀烘病鏈夐厤缃嫾鍥㈤檺鍒讹紝閭ｄ箞灏辩洿鎺ヤ繚璇佷负 true 鍗冲彲
+        // 是否在人群范围内；visible、enable 如果值为 ture 则表示没有配置拼团限制，那么就直接保证为 true 即可
         boolean isWithin = repository.isTagCrowdRange(tagId, requestParameter.getUserId());
         dynamicContext.setVisible(visible || isWithin);
         dynamicContext.setEnable(enable || isWithin);

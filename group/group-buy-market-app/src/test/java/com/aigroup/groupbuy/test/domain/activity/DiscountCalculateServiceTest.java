@@ -4,6 +4,7 @@ import com.aigroup.groupbuy.domain.activity.model.valobj.DiscountTypeEnum;
 import com.aigroup.groupbuy.domain.activity.model.valobj.GroupBuyActivityDiscountVO;
 import com.aigroup.groupbuy.domain.activity.service.discount.IDiscountCalculateService;
 import com.aigroup.groupbuy.domain.activity.service.discount.impl.MJCalculateService;
+import com.aigroup.groupbuy.domain.activity.service.discount.impl.MMJCalculateService;
 import com.aigroup.groupbuy.domain.activity.service.discount.impl.NCalculateService;
 import com.aigroup.groupbuy.domain.activity.service.discount.impl.ZJCalculateService;
 import com.aigroup.groupbuy.domain.activity.service.discount.impl.ZKCalculateService;
@@ -83,6 +84,48 @@ public class DiscountCalculateServiceTest {
         IDiscountCalculateService service = new ZKCalculateService();
         // 0.001 * 0.01 极小值 -> 兜底最低 0.01
         BigDecimal pay = service.calculate("u1", new BigDecimal("0.001"), discount("ZK", "0.01"));
+        Assert.assertEquals(0, new BigDecimal("0.01").compareTo(pay));
+    }
+
+    // ===== MMJ 每满减 =====
+
+    @Test
+    public void mmj_basic_twoTimes() {
+        IDiscountCalculateService service = new MMJCalculateService();
+        // 每满100减10，无次数限制：250 → 满2次 → 250 - 20 = 230
+        BigDecimal pay = service.calculate("u1", new BigDecimal("250.00"), discount("MMJ", "100,10,-1"));
+        Assert.assertEquals(0, new BigDecimal("230.00").compareTo(pay));
+    }
+
+    @Test
+    public void mmj_cappedAtMaxTimes() {
+        IDiscountCalculateService service = new MMJCalculateService();
+        // 每满100减10，最多4次：500 → 满5次但限制4次 → 500 - 40 = 460
+        BigDecimal pay = service.calculate("u1", new BigDecimal("500.00"), discount("MMJ", "100,10,4"));
+        Assert.assertEquals(0, new BigDecimal("460.00").compareTo(pay));
+    }
+
+    @Test
+    public void mmj_belowThreshold_returnsOriginal() {
+        IDiscountCalculateService service = new MMJCalculateService();
+        // 未满100，原价返回
+        BigDecimal pay = service.calculate("u1", new BigDecimal("80.00"), discount("MMJ", "100,10,-1"));
+        Assert.assertEquals(0, new BigDecimal("80.00").compareTo(pay));
+    }
+
+    @Test
+    public void mmj_exactlyAtThreshold() {
+        IDiscountCalculateService service = new MMJCalculateService();
+        // 刚好满100：100 → 满1次 → 100 - 10 = 90
+        BigDecimal pay = service.calculate("u1", new BigDecimal("100.00"), discount("MMJ", "100,10,-1"));
+        Assert.assertEquals(0, new BigDecimal("90.00").compareTo(pay));
+    }
+
+    @Test
+    public void mmj_floorToOneCentMinimum() {
+        IDiscountCalculateService service = new MMJCalculateService();
+        // 每满1减100，10元 → 满10次 → 10 - 1000 = -990 → 兜底 0.01
+        BigDecimal pay = service.calculate("u1", new BigDecimal("10.00"), discount("MMJ", "1,100,-1"));
         Assert.assertEquals(0, new BigDecimal("0.01").compareTo(pay));
     }
 }

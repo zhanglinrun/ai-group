@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="UTF-8"?>
+﻿<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.aigroup.paymall.infrastructure.dao.IOrderDao">
 
@@ -175,7 +175,7 @@
     </update>
 
     <!-- 回查成团回调中真正结算成功(现为 MARKET)的订单：未支付(PAY_WAIT)/已关闭(CLOSE)订单不会命中，
-         调用方据此只对已结算订单发权益/发履约消息，杜绝"未支付也发会员" -->
+         调用方据此只对已结算订单发权益/发履约消息，杜绝"未支付也发额度" -->
     <select id="queryMarketSettledOrderIds" resultType="java.lang.String">
         select order_id from pay_order
         where status = 'MARKET' and order_id in

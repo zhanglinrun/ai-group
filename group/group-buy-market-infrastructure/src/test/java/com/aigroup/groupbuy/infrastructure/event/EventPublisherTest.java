@@ -1,35 +1,35 @@
 package com.aigroup.groupbuy.infrastructure.event;
 
+import org.apache.kafka.clients.producer.ProducerRecord;
+import org.apache.kafka.clients.producer.RecordMetadata;
+import org.apache.kafka.common.TopicPartition;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.mockito.ArgumentCaptor;
-import org.springframework.amqp.core.Message;
-import org.springframework.amqp.core.MessageDeliveryMode;
-import org.springframework.amqp.core.MessagePostProcessor;
-import org.springframework.amqp.core.MessageProperties;
-import org.springframework.amqp.core.ReturnedMessage;
-import org.springframework.amqp.rabbit.connection.CorrelationData;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.kafka.support.SendResult;
+
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 public class EventPublisherTest {
 
-    private RabbitTemplate rabbitTemplate;
+    private KafkaTemplate<String, String> kafkaTemplate;
 
     @Before
     public void setUp() {
-        rabbitTemplate = mock(RabbitTemplate.class);
+        kafkaTemplate = mock(KafkaTemplate.class);
     }
 
     @After
@@ -38,93 +38,76 @@ public class EventPublisherTest {
     }
 
     @Test
-    public void publishReturnsOnlyAfterAckAndPersistsMessage() {
-        completeConfirm(true, null, null);
-        EventPublisher publisher = new EventPublisher(rabbitTemplate, "exchange", 100);
+    public void publishReturnsOnlyAfterBrokerAck() {
+        stubSendOk();
+        EventPublisher publisher = new EventPublisher(kafkaTemplate, 1000);
 
-        publisher.publish("route", "payload", "notify-1");
+        publisher.publish("group.team_success", "payload", "notify-1");
 
-        ArgumentCaptor<CorrelationData> correlationCaptor = ArgumentCaptor.forClass(CorrelationData.class);
-        ArgumentCaptor<MessagePostProcessor> processorCaptor = ArgumentCaptor.forClass(MessagePostProcessor.class);
-        verify(rabbitTemplate).convertAndSend(anyString(), anyString(), any(),
-                processorCaptor.capture(), correlationCaptor.capture());
-        assertTrue(correlationCaptor.getValue().getId().startsWith("notify-1:"));
-        Message processed = processorCaptor.getValue().postProcessMessage(
-                new Message(new byte[0], new MessageProperties()));
-        assertEquals(MessageDeliveryMode.PERSISTENT, processed.getMessageProperties().getDeliveryMode());
+        verify(kafkaTemplate).send(anyString(), anyString(), anyString());
     }
 
     @Test
     public void publishThrowsOnBrokerNack() {
-        completeConfirm(false, "broker unavailable", null);
-        EventPublisher publisher = new EventPublisher(rabbitTemplate, "exchange", 100);
+        stubSendFails(new ExecutionException(new IllegalStateException("broker unavailable")));
+        EventPublisher publisher = new EventPublisher(kafkaTemplate, 1000);
 
         IllegalStateException error = assertThrows(IllegalStateException.class,
-                () -> publisher.publish("route", "payload", "notify-2"));
+                () -> publisher.publish("group.team_success", "payload", "notify-2"));
 
-        assertTrue(error.getMessage().contains("broker NACK"));
-    }
-
-    @Test
-    public void publishThrowsWhenAckedMessageWasReturned() {
-        ReturnedMessage returned = new ReturnedMessage(
-                new Message(new byte[0], new MessageProperties()),
-                312, "NO_ROUTE", "exchange", "route");
-        completeConfirm(true, null, returned);
-        EventPublisher publisher = new EventPublisher(rabbitTemplate, "exchange", 100);
-
-        IllegalStateException error = assertThrows(IllegalStateException.class,
-                () -> publisher.publish("route", "payload", "notify-3"));
-
-        assertTrue(error.getMessage().contains("unroutable"));
-        assertTrue(error.getMessage().contains("NO_ROUTE"));
+        assertTrue(error.getMessage().contains("Kafka publish failed"));
     }
 
     @Test
     public void publishThrowsWhenConfirmTimesOut() {
-        EventPublisher publisher = new EventPublisher(rabbitTemplate, "exchange", 10);
+        CompletableFuture<SendResult<String, String>> never = new CompletableFuture<>();
+        when(kafkaTemplate.send(anyString(), anyString(), anyString())).thenReturn(never);
+        EventPublisher publisher = new EventPublisher(kafkaTemplate, 10);
 
         IllegalStateException error = assertThrows(IllegalStateException.class,
-                () -> publisher.publish("route", "payload", "notify-4"));
+                () -> publisher.publish("group.team_success", "payload", "notify-4"));
 
         assertTrue(error.getMessage().contains("timed out"));
     }
 
     @Test
     public void publishRestoresInterruptFlag() {
-        EventPublisher publisher = new EventPublisher(rabbitTemplate, "exchange", 100);
+        CompletableFuture<SendResult<String, String>> pending = new CompletableFuture<>();
+        when(kafkaTemplate.send(anyString(), anyString(), anyString())).thenReturn(pending);
+        EventPublisher publisher = new EventPublisher(kafkaTemplate, 1000);
         Thread.currentThread().interrupt();
 
         IllegalStateException error = assertThrows(IllegalStateException.class,
-                () -> publisher.publish("route", "payload", "notify-5"));
+                () -> publisher.publish("group.team_success", "payload", "notify-5"));
 
         assertTrue(error.getMessage().contains("interrupted"));
         assertTrue(Thread.currentThread().isInterrupted());
     }
 
     @Test
-    public void publishUsesUniqueAttemptIdForRetries() {
-        completeConfirm(true, null, null);
-        EventPublisher publisher = new EventPublisher(rabbitTemplate, "exchange", 100);
+    public void publishUsesCorrelationKeyAsPartitionKey() {
+        stubSendOk();
+        EventPublisher publisher = new EventPublisher(kafkaTemplate, 1000);
 
-        publisher.publish("route", "payload", "notify-retry");
-        publisher.publish("route", "payload", "notify-retry");
+        publisher.publish("group.team_success", "payload", "notify-retry");
+        publisher.publish("group.team_success", "payload", "notify-retry");
 
-        ArgumentCaptor<CorrelationData> captor = ArgumentCaptor.forClass(CorrelationData.class);
-        verify(rabbitTemplate, times(2)).convertAndSend(anyString(), anyString(), any(),
-                any(MessagePostProcessor.class), captor.capture());
-        assertNotEquals(captor.getAllValues().get(0).getId(), captor.getAllValues().get(1).getId());
+        ArgumentCaptor<String> keyCaptor = ArgumentCaptor.forClass(String.class);
+        verify(kafkaTemplate, times(2)).send(anyString(), keyCaptor.capture(), anyString());
+        assertEquals("notify-retry", keyCaptor.getValue());
     }
 
-    private void completeConfirm(boolean ack, String reason, ReturnedMessage returned) {
-        doAnswer(invocation -> {
-            CorrelationData correlationData = invocation.getArgument(4);
-            if (returned != null) {
-                correlationData.setReturned(returned);
-            }
-            correlationData.getFuture().complete(new CorrelationData.Confirm(ack, reason));
-            return null;
-        }).when(rabbitTemplate).convertAndSend(anyString(), anyString(), any(),
-                any(MessagePostProcessor.class), any(CorrelationData.class));
+    private void stubSendOk() {
+        CompletableFuture<SendResult<String, String>> future = CompletableFuture.completedFuture(
+                new SendResult<>(
+                        new ProducerRecord<>("group.team_success", "key", "payload"),
+                        new RecordMetadata(new TopicPartition("group.team_success", 0), 0L, 0, 0, 0L, 0, 0)));
+        when(kafkaTemplate.send(anyString(), anyString(), anyString())).thenReturn(future);
+    }
+
+    private void stubSendFails(ExecutionException ex) {
+        CompletableFuture<SendResult<String, String>> future = new CompletableFuture<>();
+        future.completeExceptionally(ex);
+        when(kafkaTemplate.send(anyString(), anyString(), anyString())).thenReturn(future);
     }
 }

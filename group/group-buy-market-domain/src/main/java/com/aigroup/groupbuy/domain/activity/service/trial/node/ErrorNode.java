@@ -7,7 +7,7 @@ import com.aigroup.groupbuy.domain.activity.service.trial.factory.DefaultActivit
 import cn.bugstack.wrench.design.framework.tree.StrategyHandler;
 import com.aigroup.groupbuy.types.enums.ResponseCode;
 import com.aigroup.groupbuy.types.exception.AppException;
-import com.alibaba.fastjson.JSON;
+import com.aigroup.groupbuy.types.common.JsonUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
@@ -22,7 +22,7 @@ public class ErrorNode extends AbstractGroupBuyMarketSupport<MarketProductEntity
 
     @Override
     protected TrialBalanceEntity doApply(MarketProductEntity requestParameter, DefaultActivityStrategyFactory.DynamicContext dynamicContext) throws Exception {
-        log.info("拼团商品查询试算服务-NoMarketNode userId:{} requestParameter:{}", requestParameter.getUserId(), JSON.toJSONString(requestParameter));
+        log.info("拼团商品查询试算服务-NoMarketNode userId:{} requestParameter:{}", requestParameter.getUserId(), JsonUtils.toJson(requestParameter));
 
         // 无营销配置
         if (null == dynamicContext.getGroupBuyActivityDiscountVO() || null == dynamicContext.getSkuVO()) {

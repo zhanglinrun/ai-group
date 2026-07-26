@@ -1,44 +1,47 @@
 package com.aigroup.paymall.types.sdk.weixin;
 
-import com.thoughtworks.xstream.annotations.XStreamAlias;
+import jakarta.xml.bind.annotation.XmlAccessType;
+import jakarta.xml.bind.annotation.XmlAccessorType;
+import jakarta.xml.bind.annotation.XmlElement;
+import jakarta.xml.bind.annotation.XmlRootElement;
 
-@XStreamAlias("xml")
+@XmlRootElement(name = "xml")
+@XmlAccessorType(XmlAccessType.FIELD)
 public class MessageTextEntity {
 
-    @XStreamAlias("ToUserName")
+    @XmlElement(name = "ToUserName")
     private String toUserName;
 
-    @XStreamAlias("FromUserName")
+    @XmlElement(name = "FromUserName")
     private String fromUserName;
 
-    @XStreamAlias("CreateTime")
+    @XmlElement(name = "CreateTime")
     private String createTime;
 
-    @XStreamAlias("MsgType")
+    @XmlElement(name = "MsgType")
     private String msgType;
 
-    @XStreamAlias("Event")
+    @XmlElement(name = "Event")
     private String event;
 
-    @XStreamAlias("EventKey")
+    @XmlElement(name = "EventKey")
     private String eventKey;
 
-    @XStreamAlias("MsgId")
+    @XmlElement(name = "MsgId")
     private String msgId;
 
-    @XStreamAlias("MsgID")
+    @XmlElement(name = "MsgID")
     private String msgID;
 
-    @XStreamAlias("Status")
+    @XmlElement(name = "Status")
     private String status;
 
-    @XStreamAlias("Ticket")
+    @XmlElement(name = "Ticket")
     private String ticket;
 
-    @XStreamAlias("Content")
+    @XmlElement(name = "Content")
     private String content;
 
-    // Getters and Setters
     public String getToUserName() {
         return toUserName;
     }

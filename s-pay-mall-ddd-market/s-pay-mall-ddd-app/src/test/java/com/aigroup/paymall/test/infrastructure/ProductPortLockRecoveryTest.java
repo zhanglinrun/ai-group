@@ -11,9 +11,7 @@ import com.aigroup.paymall.infrastructure.gateway.response.Response;
 import org.junit.Before;
 import org.junit.Test;
 import org.springframework.test.util.ReflectionTestUtils;
-import retrofit2.Call;
 
-import java.io.IOException;
 import java.math.BigDecimal;
 
 import static org.junit.Assert.assertNotNull;
@@ -41,14 +39,9 @@ public class ProductPortLockRecoveryTest {
     }
 
     @Test
-    public void ambiguousTimeoutRecoversCommittedResultByBusinessKey() throws Exception {
-        Call<Response<LockMarketPayOrderResponseDTO>> lockCall = call();
-        when(lockCall.execute()).thenThrow(new IOException("response lost"));
-        when(groupService.lockMarketPayOrder(any())).thenReturn(lockCall);
-
-        Call<Response<LockMarketPayOrderResponseDTO>> queryCall = call();
-        when(queryCall.execute()).thenReturn(retrofit2.Response.success(successBody()));
-        when(groupService.queryMarketPayOrder(any())).thenReturn(queryCall);
+    public void ambiguousTimeoutRecoversCommittedResultByBusinessKey() {
+        when(groupService.lockMarketPayOrder(any())).thenThrow(new RuntimeException("response lost"));
+        when(groupService.queryMarketPayOrder(any())).thenReturn(successBody());
 
         MarketPayDiscountEntity result = lock();
 
@@ -58,17 +51,13 @@ public class ProductPortLockRecoveryTest {
     }
 
     @Test
-    public void missingQueryResultRetriesOriginalIdempotencyKey() throws Exception {
-        Call<Response<LockMarketPayOrderResponseDTO>> failedLock = call();
-        when(failedLock.execute()).thenThrow(new IOException("connection reset"));
-        Call<Response<LockMarketPayOrderResponseDTO>> successfulLock = call();
-        when(successfulLock.execute()).thenReturn(retrofit2.Response.success(successBody()));
-        when(groupService.lockMarketPayOrder(any())).thenReturn(failedLock, successfulLock);
-
-        Call<Response<LockMarketPayOrderResponseDTO>> queryCall = call();
-        when(queryCall.execute()).thenReturn(retrofit2.Response.success(Response.<LockMarketPayOrderResponseDTO>builder()
-                .code("E0104").info("not found").build()));
-        when(groupService.queryMarketPayOrder(any())).thenReturn(queryCall);
+    public void missingQueryResultRetriesOriginalIdempotencyKey() {
+        when(groupService.lockMarketPayOrder(any()))
+                .thenThrow(new RuntimeException("connection reset"))
+                .thenReturn(successBody());
+        when(groupService.queryMarketPayOrder(any())).thenReturn(
+                Response.<LockMarketPayOrderResponseDTO>builder()
+                        .code("E0104").info("not found").build());
 
         assertNotNull(lock());
         verify(groupService, times(2)).lockMarketPayOrder(any(LockMarketPayOrderRequestDTO.class));
@@ -76,16 +65,11 @@ public class ProductPortLockRecoveryTest {
     }
 
     @Test
-    public void uniqueKeyRaceQueriesCommittedResultBeforeRetrying() throws Exception {
-        Call<Response<LockMarketPayOrderResponseDTO>> lockCall = call();
-        when(lockCall.execute()).thenReturn(retrofit2.Response.success(
+    public void uniqueKeyRaceQueriesCommittedResultBeforeRetrying() {
+        when(groupService.lockMarketPayOrder(any())).thenReturn(
                 Response.<LockMarketPayOrderResponseDTO>builder()
-                        .code("0003").info("unique-key race").build()));
-        when(groupService.lockMarketPayOrder(any())).thenReturn(lockCall);
-
-        Call<Response<LockMarketPayOrderResponseDTO>> queryCall = call();
-        when(queryCall.execute()).thenReturn(retrofit2.Response.success(successBody()));
-        when(groupService.queryMarketPayOrder(any())).thenReturn(queryCall);
+                        .code("0003").info("unique-key race").build());
+        when(groupService.queryMarketPayOrder(any())).thenReturn(successBody());
 
         assertNotNull(lock());
         verify(groupService).lockMarketPayOrder(any(LockMarketPayOrderRequestDTO.class));
@@ -93,11 +77,10 @@ public class ProductPortLockRecoveryTest {
     }
 
     @Test
-    public void explicitBusinessRejectionIsNotRetried() throws Exception {
-        Call<Response<LockMarketPayOrderResponseDTO>> lockCall = call();
-        when(lockCall.execute()).thenReturn(retrofit2.Response.success(Response.<LockMarketPayOrderResponseDTO>builder()
-                .code("E0103").info("take limit reached").build()));
-        when(groupService.lockMarketPayOrder(any())).thenReturn(lockCall);
+    public void explicitBusinessRejectionIsNotRetried() {
+        when(groupService.lockMarketPayOrder(any())).thenReturn(
+                Response.<LockMarketPayOrderResponseDTO>builder()
+                        .code("E0103").info("take limit reached").build());
 
         assertNull(lock());
         verify(groupService).lockMarketPayOrder(any(LockMarketPayOrderRequestDTO.class));
@@ -121,10 +104,5 @@ public class ProductPortLockRecoveryTest {
                         .tradeOrderStatus(0)
                         .build())
                 .build();
-    }
-
-    @SuppressWarnings("unchecked")
-    private Call<Response<LockMarketPayOrderResponseDTO>> call() {
-        return mock(Call.class);
     }
 }

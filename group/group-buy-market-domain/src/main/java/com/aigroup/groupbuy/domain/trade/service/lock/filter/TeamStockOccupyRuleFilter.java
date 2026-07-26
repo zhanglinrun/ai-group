@@ -21,8 +21,8 @@ import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 
 /**
- * @author Fuzhengwei bugstack.cn @灏忓倕鍝?
- * @description 缁勯槦搴撳瓨鍗犵敤瑙勫垯杩囨护
+ * @author Fuzhengwei bugstack.cn @小傅哥
+ * @description 组队库存占用规则过滤
  * @create 2025-04-05 09:41
  */
 @Slf4j
@@ -34,9 +34,9 @@ public class TeamStockOccupyRuleFilter implements ILogicHandler<TradeLockRuleCom
 
     @Override
     public TradeLockRuleFilterBackEntity apply(TradeLockRuleCommandEntity requestParameter, TradeLockRuleFilterFactory.DynamicContext dynamicContext) throws Exception {
-        log.info("浜ゆ槗瑙勫垯杩囨护-缁勯槦搴撳瓨鏍￠獙{} activityId:{}", requestParameter.getUserId(), requestParameter.getActivityId());
+        log.info("交易规则过滤-组队库存校验{} activityId:{}", requestParameter.getUserId(), requestParameter.getActivityId());
 
-        // 1. teamId 涓虹┖锛屽垯涓洪娆″紑鍥紝涓嶅仛鎷煎洟缁勯槦鐩爣閲忓簱瀛橀檺鍒?
+        // 1. teamId 为空，则为首次开团，不做拼团组队目标量库存限制
         String teamId = requestParameter.getTeamId();
         if (StringUtils.isBlank(teamId)) {
             return TradeLockRuleFilterBackEntity.builder()
@@ -76,7 +76,7 @@ public class TeamStockOccupyRuleFilter implements ILogicHandler<TradeLockRuleCom
         boolean status = repository.occupyTeamStock(teamStockKey, recoveryTeamStockKey, target, validTime);
 
         if (!status) {
-            log.warn("浜ゆ槗瑙勫垯杩囨护-缁勯槦搴撳瓨鏍￠獙{} activityId:{} 鎶㈠崰澶辫触:{}", requestParameter.getUserId(), requestParameter.getActivityId(), teamStockKey);
+            log.warn("交易规则过滤-组队库存校验{} activityId:{} 抢占失败:{}", requestParameter.getUserId(), requestParameter.getActivityId(), teamStockKey);
             throw new AppException(ResponseCode.E0008);
         }
 

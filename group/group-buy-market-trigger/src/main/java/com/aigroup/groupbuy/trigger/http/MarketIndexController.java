@@ -11,7 +11,8 @@ import com.aigroup.groupbuy.domain.activity.model.valobj.GroupBuyActivityDiscoun
 import com.aigroup.groupbuy.domain.activity.model.valobj.TeamStatisticVO;
 import com.aigroup.groupbuy.domain.activity.service.IIndexGroupBuyMarketService;
 import com.aigroup.groupbuy.types.enums.ResponseCode;
-import com.alibaba.fastjson.JSON;
+import com.aigroup.groupbuy.types.annotations.RateLimiterAccessInterceptor;
+import com.aigroup.groupbuy.types.common.JsonUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.web.bind.annotation.*;
@@ -36,6 +37,8 @@ public class MarketIndexController implements IMarketIndexService {
     @Resource
     private IIndexGroupBuyMarketService indexGroupBuyMarketService;
 
+    @RateLimiterAccessInterceptor(key = "userId", fallbackMethod = "queryGroupBuyMarketConfigFallBack",
+            permitsPerSecond = 1.0d, blacklistCount = 1)
     @RequestMapping(value = "query_group_buy_market_config", method = RequestMethod.POST)
     @Override
     public Response<GoodsMarketResponseDTO> queryGroupBuyMarketConfig(@RequestBody GoodsMarketRequestDTO requestDTO) {
@@ -106,7 +109,7 @@ public class MarketIndexController implements IMarketIndexService {
                 for (UserGroupBuyOrderDetailEntity userGroupBuyOrderDetailEntity : userGroupBuyOrderDetailEntities) {
                     List<GoodsMarketResponseDTO.Tier> teamTiers = tiers;
                     if (StringUtils.isNotBlank(userGroupBuyOrderDetailEntity.getTierSnapshot())) {
-                        teamTiers = JSON.parseArray(userGroupBuyOrderDetailEntity.getTierSnapshot(),
+                        teamTiers = JsonUtils.parseArray(userGroupBuyOrderDetailEntity.getTierSnapshot(),
                                 GoodsMarketResponseDTO.Tier.class);
                     }
                     // 阶梯额度拼团：按当前完成人数计算已达档位与下一档位
@@ -166,7 +169,7 @@ public class MarketIndexController implements IMarketIndexService {
                             .build())
                     .build();
 
-            log.info("拼团市场配置查询成功，userId:{} goodsId:{} response:{}", requestDTO.getUserId(), requestDTO.getGoodsId(), JSON.toJSONString(response));
+            log.info("拼团市场配置查询成功，userId:{} goodsId:{} response:{}", requestDTO.getUserId(), requestDTO.getGoodsId(), JsonUtils.toJson(response));
 
             return response;
         } catch (Exception e) {
@@ -179,7 +182,7 @@ public class MarketIndexController implements IMarketIndexService {
     }
 
     public Response<GoodsMarketResponseDTO> queryGroupBuyMarketConfigFallBack(@RequestBody GoodsMarketRequestDTO requestDTO) {
-        log.error("拼团市场配置查询触发降级，userId:{}", requestDTO.getUserId());
+        log.error("拼团市场配置查询触发限流降级，userId:{}", requestDTO.getUserId());
         return Response.<GoodsMarketResponseDTO>builder()
                 .code(ResponseCode.RATE_LIMITER.getCode())
                 .info(ResponseCode.RATE_LIMITER.getInfo())

@@ -7,7 +7,7 @@ import com.aigroup.groupbuy.domain.activity.model.valobj.SkuVO;
 import com.aigroup.groupbuy.domain.activity.service.trial.AbstractGroupBuyMarketSupport;
 import com.aigroup.groupbuy.domain.activity.service.trial.factory.DefaultActivityStrategyFactory;
 import cn.bugstack.wrench.design.framework.tree.StrategyHandler;
-import com.alibaba.fastjson.JSON;
+import com.aigroup.groupbuy.types.common.JsonUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
@@ -24,7 +24,7 @@ public class EndNode extends AbstractGroupBuyMarketSupport<MarketProductEntity, 
 
     @Override
     public TrialBalanceEntity doApply(MarketProductEntity requestParameter, DefaultActivityStrategyFactory.DynamicContext dynamicContext) throws Exception {
-        log.info("拼团商品查询试算服务-EndNode userId:{} requestParameter:{}", requestParameter.getUserId(), JSON.toJSONString(requestParameter));
+        log.info("拼团商品查询试算服务-EndNode userId:{} requestParameter:{}", requestParameter.getUserId(), JsonUtils.toJson(requestParameter));
 
         // 拼团活动配置
         GroupBuyActivityDiscountVO groupBuyActivityDiscountVO = dynamicContext.getGroupBuyActivityDiscountVO();

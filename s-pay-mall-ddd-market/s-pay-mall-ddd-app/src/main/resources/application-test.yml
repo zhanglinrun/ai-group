@@ -43,27 +43,16 @@ spring:
     connection-timeout: 30000 #数据库连接超时时间,默认30秒，即30000
     connection-test-query: SELECT 1
   type: com.zaxxer.hikari.HikariDataSource
-  # RabbitMQ
-  rabbitmq:
-    host: 127.0.0.1
-    port: 5672
-    username: admin
-    password: admin
-    listener:
-      simple:
-        prefetch: 1
-        auto-startup: false
-        acknowledge-mode: auto
-        # C5: bounded retry + no requeue, poison messages dead-letter instead of looping
-        default-requeue-rejected: false
-        retry:
-          enabled: true
-          max-attempts: 4
-          initial-interval: 1000
-          multiplier: 2
-          max-interval: 10000
-    template:
-      delivery-mode: persistent # 确保全局默认设置为持久化（可选）
+  # Kafka
+  kafka:
+    bootstrap-servers: 127.0.0.1:9092
+    producer:
+      acks: all
+    consumer:
+      group-id: s-pay-mall-ddd
+      auto-offset-reset: earliest
+      properties:
+        spring.json.trusted.packages: "*"
 
 # MyBatis 配置【如需使用记得打开】
 mybatis:

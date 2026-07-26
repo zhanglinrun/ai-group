@@ -39,7 +39,7 @@ CREATE TABLE `pay_order` (
   `product_code` varchar(64) DEFAULT NULL COMMENT 'member SKU code',
   `product_name` varchar(64) NOT NULL COMMENT '商品名称',
   `base_quota_snapshot` bigint NOT NULL DEFAULT 0 COMMENT '下单时基础额度快照（整额度点）',
-  `order_id` varchar(16) NOT NULL COMMENT '订单ID',
+  `order_id` varchar(64) NOT NULL COMMENT '订单ID',
   `order_time` datetime NOT NULL COMMENT '下单时间',
   `total_amount` decimal(8,2) unsigned DEFAULT NULL COMMENT '订单金额',
   `status` varchar(32) NOT NULL COMMENT '订单状态；create-创建完成、pay_wait-等待支付、pay_success-支付成功、deal_done-交易完成、close-订单关单',

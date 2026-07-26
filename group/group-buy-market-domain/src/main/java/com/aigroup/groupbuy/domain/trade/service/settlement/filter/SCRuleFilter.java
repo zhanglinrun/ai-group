@@ -13,8 +13,8 @@ import org.springframework.stereotype.Service;
 import jakarta.annotation.Resource;
 
 /**
- * @author Fuzhengwei bugstack.cn @灏忓倕鍝?
- * @description SC 娓犻亾鏉ユ簮杩囨护 - 褰撴煇涓绾︽笭閬撲笅鏋跺悗锛屽垯涓嶄細璁拌处
+ * @author Fuzhengwei bugstack.cn @小傅哥
+ * @description SC 渠道来源过滤 - 当某个签约渠道下架后，则不会记账
  * @create 2025-01-29 09:16
  */
 @Slf4j
@@ -26,9 +26,9 @@ public class SCRuleFilter implements ILogicHandler<TradeSettlementRuleCommandEnt
 
     @Override
     public TradeSettlementRuleFilterBackEntity apply(TradeSettlementRuleCommandEntity requestParameter, TradeSettlementRuleFilterFactory.DynamicContext dynamicContext) throws Exception {
-        log.info("缁撶畻瑙勫垯杩囨护-娓犻亾榛戝悕鍗曟牎楠寋} outTradeNo:{}", requestParameter.getUserId(), requestParameter.getOutTradeNo());
+        log.info("结算规则过滤-渠道黑名单校验{} outTradeNo:{}", requestParameter.getUserId(), requestParameter.getOutTradeNo());
 
-        // sc 娓犻亾榛戝悕鍗曟嫤鎴?
+        // sc 渠道黑名单拦截
         boolean intercept = repository.isSCBlackIntercept(requestParameter.getSource(), requestParameter.getChannel());
         if (intercept) {
             log.error("channel blacklisted source={} channel={}", requestParameter.getSource(), requestParameter.getChannel());

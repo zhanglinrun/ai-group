@@ -8,14 +8,14 @@ import com.aigroup.paymall.infrastructure.gateway.IGroupBuyMarketService;
 import com.aigroup.paymall.infrastructure.gateway.ProductRPC;
 import com.aigroup.paymall.infrastructure.gateway.dto.*;
 import com.aigroup.paymall.infrastructure.gateway.response.Response;
-import com.alibaba.fastjson.JSON;
+import com.aigroup.paymall.types.common.JsonUtils;
+import feign.FeignException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
-import retrofit2.Call;
 
-import java.io.IOException;
 import java.util.Date;
+import java.io.IOException;
 
 @Slf4j
 @Component
@@ -57,7 +57,6 @@ public class ProductPort implements IProductPort {
     @Override
     public MarketPayDiscountEntity lockMarketPayOrder(String userId, String teamId, Long activityId,
                                                       String productId, String orderId, java.math.BigDecimal orderPrice) {
-        // 请求参数
         LockMarketPayOrderRequestDTO requestDTO = new LockMarketPayOrderRequestDTO();
         requestDTO.setUserId(userId);
         requestDTO.setTeamId(teamId);
@@ -67,40 +66,37 @@ public class ProductPort implements IProductPort {
         requestDTO.setSource(source);
         requestDTO.setChannel(chanel);
         requestDTO.setOutTradeNo(orderId);
-//        requestDTO.setNotifyUrl(notifyUrl);
         requestDTO.setNotifyMQ();
 
         Exception lastFailure = null;
         int attempts = Math.max(1, lockMaxAttempts);
         for (int attempt = 1; attempt <= attempts; attempt++) {
             try {
-                retrofit2.Response<Response<LockMarketPayOrderResponseDTO>> transport =
-                        groupBuyMarketService.lockMarketPayOrder(requestDTO).execute();
-                if (!transport.isSuccessful()) {
-                    if (transport.code() < 500) {
-                        log.error("营销锁单 HTTP 拒绝 userId:{} orderId:{} status:{}", userId, orderId, transport.code());
-                        return null;
-                    }
-                    lastFailure = new IOException("group lock HTTP " + transport.code());
+                Response<LockMarketPayOrderResponseDTO> response =
+                        groupBuyMarketService.lockMarketPayOrder(requestDTO);
+                log.info("营销锁单{} attempt:{} requestDTO:{} responseDTO:{}", userId, attempt,
+                        JsonUtils.toJson(requestDTO), JsonUtils.toJson(response));
+                if (response == null) {
+                    lastFailure = new IOException("group lock returned an empty body");
+                } else if ("0000".equals(response.getCode())) {
+                    return toMarketPayDiscount(userId, orderId, response.getData());
+                } else if ("0003".equals(response.getCode())) {
+                    lastFailure = new IOException("group lock unique-key race");
                 } else {
-                    Response<LockMarketPayOrderResponseDTO> response = transport.body();
-                    log.info("营销锁单{} attempt:{} requestDTO:{} responseDTO:{}", userId, attempt,
-                            JSON.toJSONString(requestDTO), JSON.toJSONString(response));
-                    if (response == null) {
-                        lastFailure = new IOException("group lock returned an empty body");
-                    } else if ("0000".equals(response.getCode())) {
-                        return toMarketPayDiscount(userId, orderId, response.getData());
-                    } else if ("0003".equals(response.getCode())) {
-                        // A concurrent request may have committed the same unique business key.
-                        lastFailure = new IOException("group lock unique-key race");
-                    } else {
-                        log.error("营销锁单业务拒绝 userId:{} orderId:{} code:{} info:{}",
-                                userId, orderId, response.getCode(), response.getInfo());
-                        return null;
-                    }
+                    log.error("营销锁单业务拒绝 userId:{} orderId:{} code:{} info:{}",
+                            userId, orderId, response.getCode(), response.getInfo());
+                    return null;
                 }
-            } catch (IOException e) {
-                lastFailure = e;
+            } catch (FeignException fe) {
+                int status = fe.status();
+                if (status >= 500) {
+                    lastFailure = new IOException("group lock HTTP " + status, fe);
+                } else {
+                    log.error("营销锁单 HTTP 拒绝 userId:{} orderId:{} status:{}", userId, orderId, status);
+                    return null;
+                }
+            } catch (Exception e) {
+                lastFailure = e instanceof IOException ? (IOException) e : new IOException(e);
                 log.warn("营销锁单结果不确定 userId:{} orderId:{} attempt:{}/{} reason:{}",
                         userId, orderId, attempt, attempts, e.getMessage());
             }
@@ -127,14 +123,13 @@ public class ProductPort implements IProductPort {
         query.setChannel(lockRequest.getChannel());
         query.setOutTradeNo(lockRequest.getOutTradeNo());
         try {
-            retrofit2.Response<Response<LockMarketPayOrderResponseDTO>> transport =
-                    groupBuyMarketService.queryMarketPayOrder(query).execute();
-            if (!transport.isSuccessful() || transport.body() == null
-                    || !"0000".equals(transport.body().getCode())) {
+            Response<LockMarketPayOrderResponseDTO> response =
+                    groupBuyMarketService.queryMarketPayOrder(query);
+            if (response == null || !"0000".equals(response.getCode())) {
                 return null;
             }
-            return transport.body().getData();
-        } catch (IOException e) {
+            return response.getData();
+        } catch (Exception e) {
             log.debug("营销锁单结果查询暂不可用 orderId:{} reason:{}", lockRequest.getOutTradeNo(), e.getMessage());
             return null;
         }
@@ -146,7 +141,7 @@ public class ProductPort implements IProductPort {
                 || response.getOriginalPrice() == null || response.getDeductionPrice() == null
                 || response.getPayPrice() == null) {
             log.error("营销锁单结果不可用于预支付 userId:{} orderId:{} response:{}",
-                    userId, orderId, JSON.toJSONString(response));
+                    userId, orderId, JsonUtils.toJson(response));
             return null;
         }
         return MarketPayDiscountEntity.builder()
@@ -178,20 +173,14 @@ public class ProductPort implements IProductPort {
         requestDTO.setOutTradeTime(orderTime);
 
         try {
-            Call<Response<SettlementMarketPayOrderResponseDTO>> call = groupBuyMarketService.settlementMarketPayOrder(requestDTO);
-
-            // 获取结果
-            Response<SettlementMarketPayOrderResponseDTO> response = call.execute().body();
-            log.info("营销结算{} requestDTO:{} responseDTO:{}", userId, JSON.toJSONString(requestDTO), JSON.toJSONString(response));
+            Response<SettlementMarketPayOrderResponseDTO> response =
+                    groupBuyMarketService.settlementMarketPayOrder(requestDTO);
+            log.info("营销结算{} requestDTO:{} responseDTO:{}", userId, JsonUtils.toJson(requestDTO), JsonUtils.toJson(response));
             if (null == response) return MarketSettlementResult.RETRYABLE_FAILURE;
 
             if ("0000".equals(response.getCode())) {
                 return MarketSettlementResult.ACKNOWLEDGED;
             }
-            // These are deterministic terminal rejections: the group order was
-            // already refunded/closed, the payment time missed the team window, or
-            // the team already finalized. Retrying forever leaves money captured with
-            // no quota; the pay domain must refund instead.
             if ("E0104".equals(response.getCode()) || "E0106".equals(response.getCode())
                     || "E0107".equals(response.getCode())) {
                 return MarketSettlementResult.TERMINAL_REJECTED;
@@ -212,14 +201,11 @@ public class ProductPort implements IProductPort {
         requestDTO.setOutTradeNo(orderId);
 
         try {
-            Call<Response<RefundMarketPayOrderResponseDTO>> call = groupBuyMarketService.refundMarketPayOrder(requestDTO);
-
-            // 获取结果
-            Response<RefundMarketPayOrderResponseDTO> response = call.execute().body();
-            log.info("营销退单{} requestDTO:{} responseDTO:{}", userId, JSON.toJSONString(requestDTO), JSON.toJSONString(response));
+            Response<RefundMarketPayOrderResponseDTO> response =
+                    groupBuyMarketService.refundMarketPayOrder(requestDTO);
+            log.info("营销退单{} requestDTO:{} responseDTO:{}", userId, JsonUtils.toJson(requestDTO), JsonUtils.toJson(response));
             if (null == response) return false;
 
-            // 通知失败如实返回 false（不再吞异常），交调用方/补偿任务处理
             if (!"0000".equals(response.getCode())) {
                 log.error("营销退单失败 userId:{} orderId:{} code:{} info:{}", userId, orderId, response.getCode(), response.getInfo());
                 return false;

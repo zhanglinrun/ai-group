@@ -7,7 +7,7 @@ import com.aigroup.groupbuy.domain.activity.service.trial.factory.DefaultActivit
 import com.aigroup.groupbuy.types.enums.ResponseCode;
 import com.aigroup.groupbuy.types.exception.AppException;
 import cn.bugstack.wrench.design.framework.tree.StrategyHandler;
-import com.alibaba.fastjson.JSON;
+import com.aigroup.groupbuy.types.common.JsonUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
@@ -15,8 +15,8 @@ import org.springframework.stereotype.Service;
 import jakarta.annotation.Resource;
 
 /**
- * @author Fuzhengwei bugstack.cn @灏忓倕鍝?
- * @description 鏍硅妭鐐?
+ * @author Fuzhengwei bugstack.cn @小傅哥
+ * @description 根节点
  * @create 2024-12-14 14:17
  */
 @Slf4j
@@ -28,8 +28,8 @@ public class RootNode extends AbstractGroupBuyMarketSupport<MarketProductEntity,
 
     @Override
     protected TrialBalanceEntity doApply(MarketProductEntity requestParameter, DefaultActivityStrategyFactory.DynamicContext dynamicContext) throws Exception {
-        log.info("鎷煎洟鍟嗗搧鏌ヨ璇曠畻鏈嶅姟-RootNode userId:{} requestParameter:{}", requestParameter.getUserId(), JSON.toJSONString(requestParameter));
-        // 鍙傛暟鍒ゆ柇
+        log.info("拼团商品查询试算服务-RootNode userId:{} requestParameter:{}", requestParameter.getUserId(), JsonUtils.toJson(requestParameter));
+        // 参数判断
         if (StringUtils.isBlank(requestParameter.getUserId()) || StringUtils.isBlank(requestParameter.getGoodsId()) ||
                 StringUtils.isBlank(requestParameter.getSource()) || StringUtils.isBlank(requestParameter.getChannel())) {
             throw new AppException(ResponseCode.ILLEGAL_PARAMETER.getCode(), ResponseCode.ILLEGAL_PARAMETER.getInfo());

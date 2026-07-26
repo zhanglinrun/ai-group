@@ -17,8 +17,8 @@ import com.aigroup.groupbuy.infrastructure.dao.po.GroupBuyActivityTier;
 import com.aigroup.groupbuy.infrastructure.dao.po.GroupBuyOrder;
 import com.aigroup.groupbuy.infrastructure.dao.po.GroupBuyOrderList;
 import com.aigroup.groupbuy.infrastructure.dao.po.NotifyTask;
-import com.alibaba.fastjson2.JSON;
-import com.alibaba.fastjson2.JSONObject;
+import com.aigroup.groupbuy.types.common.JsonUtils;
+import com.aigroup.groupbuy.types.common.JsonUtils;
 import org.junit.Before;
 import org.junit.Test;
 import org.mockito.ArgumentCaptor;
@@ -29,6 +29,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.Date;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import static org.junit.Assert.assertEquals;
@@ -82,7 +83,7 @@ public class TradeRepositoryTierSnapshotTest {
         ArgumentCaptor<GroupBuyOrder> team = ArgumentCaptor.forClass(GroupBuyOrder.class);
         verify(orderDao).insert(team.capture());
         assertEquals(Integer.valueOf(10), team.getValue().getTargetCount());
-        assertEquals(3, JSON.parseArray(team.getValue().getTierSnapshot(), GroupBuyActivityTier.class).size());
+        assertEquals(3, JsonUtils.parseArray(team.getValue().getTierSnapshot(), GroupBuyActivityTier.class).size());
         assertEquals(0, new BigDecimal("12.00").compareTo(team.getValue().getPayPrice()));
         assertEquals(0, BigDecimal.ZERO.compareTo(team.getValue().getDeductionPrice()));
     }
@@ -103,8 +104,8 @@ public class TradeRepositoryTierSnapshotTest {
 
         ArgumentCaptor<NotifyTask> task = ArgumentCaptor.forClass(NotifyTask.class);
         verify(notifyTaskDao).insert(task.capture());
-        JSONObject payload = JSON.parseObject(task.getValue().getParameterJson());
-        assertEquals(18, payload.getIntValue("bonusQuota"));
+        Map<String, Object> payload = JsonUtils.parseObject(task.getValue().getParameterJson());
+        assertEquals(18, ((Number) payload.get("bonusQuota")).intValue());
         verify(tierDao, never()).queryTiersByActivityId(any());
     }
 
@@ -122,7 +123,7 @@ public class TradeRepositoryTierSnapshotTest {
 
         ArgumentCaptor<NotifyTask> task = ArgumentCaptor.forClass(NotifyTask.class);
         verify(notifyTaskDao).insert(task.capture());
-        assertEquals(12, JSON.parseObject(task.getValue().getParameterJson()).getIntValue("bonusQuota"));
+        assertEquals(12, ((Number) JsonUtils.parseObject(task.getValue().getParameterJson()).get("bonusQuota")).intValue());
         verify(orderDao).updateOrderStatus2COMPLETE("TEAM2");
     }
 
@@ -171,7 +172,7 @@ public class TradeRepositoryTierSnapshotTest {
                 .teamId(teamId)
                 .activityId(100201L)
                 .targetCount(10)
-                .tierSnapshot(JSON.toJSONString(lightTiers()))
+                .tierSnapshot(JsonUtils.toJson(lightTiers()))
                 .completeCount(completeCount)
                 .lockCount(completeCount)
                 .status(0)

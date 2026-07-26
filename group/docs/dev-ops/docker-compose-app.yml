@@ -27,10 +27,7 @@ services:
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/group_buy_market?useUnicode=true&characterEncoding=utf8&autoReconnect=true&zeroDateTimeBehavior=convertToNull&serverTimezone=Asia/Shanghai&useSSL=false&sessionVariables=sql_mode='NO_ENGINE_SUBSTITUTION,STRICT_TRANS_TABLES'
       SPRING_DATASOURCE_DRIVER_CLASS_NAME: com.mysql.cj.jdbc.Driver
 
-      SPRING_RABBITMQ_ADDRESSES: rabbitmq
-      SPRING_RABBITMQ_PORT: 5672
-      SPRING_RABBITMQ_USERNAME: admin
-      SPRING_RABBITMQ_PASSWORD: admin
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
 
       REDIS_SDK_CONFIG_HOST: redis
       REDIS_SDK_CONFIG_PORT: 6379

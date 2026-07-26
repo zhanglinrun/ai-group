@@ -23,7 +23,7 @@ public class InternalTokenAuthFilter extends OncePerRequestFilter implements Ini
 
     public static final String HEADER_INTERNAL_TOKEN = "X-Internal-Token";
 
-    /** Ops-only endpoints: always require the token when one is configured. */
+    /** Ops-only endpoints always require the token. */
     private static final String[] ALWAYS_PROTECTED_PREFIXES = {"/api/v1/gbm/dcc/"};
     /** Service-to-service endpoints: protected when auth is enabled. */
     private static final String[] OPT_IN_PROTECTED_PREFIXES = {"/api/v1/gbm/trade/"};
@@ -36,10 +36,9 @@ public class InternalTokenAuthFilter extends OncePerRequestFilter implements Ini
 
     @Override
     public void afterPropertiesSet() {
-        if (authEnabled && StringUtils.isBlank(internalToken)) {
+        if (StringUtils.isBlank(internalToken)) {
             throw new IllegalStateException(
-                    "ai-group.internal.auth-enabled=true but ai-group.internal.token is blank; "
-                            + "set AI_GROUP_INTERNAL_TOKEN or disable auth with AI_GROUP_INTERNAL_AUTH_ENABLED=false");
+                    "ai-group.internal.token is blank; set AI_GROUP_INTERNAL_TOKEN because DCC endpoints are always protected");
         }
     }
 
@@ -57,8 +56,7 @@ public class InternalTokenAuthFilter extends OncePerRequestFilter implements Ini
         String requestPath = request.getRequestURI();
         for (String prefix : ALWAYS_PROTECTED_PREFIXES) {
             if (requestPath.startsWith(prefix)) {
-                // DCC always requires a configured token
-                return StringUtils.isNotBlank(internalToken);
+                return true;
             }
         }
         if (authEnabled) {

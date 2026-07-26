@@ -16,8 +16,8 @@ import org.springframework.stereotype.Repository;
 import jakarta.annotation.Resource;
 
 /**
- * @author Fuzhengwei bugstack.cn @灏忓倕鍝?
- * @description 浜虹兢鏍囩浠撳偍
+ * @author Fuzhengwei bugstack.cn @小傅哥
+ * @description 人群标签仓储
  * @create 2024-12-28 13:12
  */
 @Repository
@@ -59,10 +59,10 @@ public class TagRepository implements ITagRepository {
         try {
             crowdTagsDetailDao.addCrowdTagsUserId(crowdTagsDetailReq);
         } catch (DuplicateKeyException ignore) {
-            // 蹇界暐鍞竴绱㈠紩鍐茬獊
+            // 忽略唯一索引冲突
         }
 
-        // 鑾峰彇BitSet
+        // 获取BitSet
         RBitSet bitSet = redisService.getBitSet(tagId);
         bitSet.set(redisService.getIndexFromUserId(userId), true);
     }

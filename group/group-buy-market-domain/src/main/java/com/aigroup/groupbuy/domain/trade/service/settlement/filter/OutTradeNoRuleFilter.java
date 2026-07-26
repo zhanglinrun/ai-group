@@ -15,8 +15,8 @@ import org.springframework.stereotype.Service;
 import jakarta.annotation.Resource;
 
 /**
- * @author Fuzhengwei bugstack.cn @灏忓倕鍝?
- * @description 澶栭儴浜ゆ槗鍗曞彿杩囨护锛涘閮ㄤ氦鏄撳崟鍙锋槸鍚︿负閫?鍗?
+ * @author Fuzhengwei bugstack.cn @小傅哥
+ * @description 外部交易单号过滤；外部交易单号是否为退单或不存在
  * @create 2025-01-29 09:37
  */
 @Slf4j
@@ -28,13 +28,13 @@ public class OutTradeNoRuleFilter implements ILogicHandler<TradeSettlementRuleCo
 
     @Override
     public TradeSettlementRuleFilterBackEntity apply(TradeSettlementRuleCommandEntity requestParameter, TradeSettlementRuleFilterFactory.DynamicContext dynamicContext) throws Exception {
-        log.info("缁撶畻瑙勫垯杩囨护-澶栭儴鍗曞彿鏍￠獙{} outTradeNo:{}", requestParameter.getUserId(), requestParameter.getOutTradeNo());
+        log.info("结算规则过滤-外部单号校验{} outTradeNo:{}", requestParameter.getUserId(), requestParameter.getOutTradeNo());
 
-        // 鏌ヨ鎷煎洟淇℃伅
+        // 查询拼团信息
         MarketPayOrderEntity marketPayOrderEntity = repository.queryMarketPayOrderEntityByOutTradeNo(requestParameter.getUserId(), requestParameter.getOutTradeNo());
 
         if (null == marketPayOrderEntity || TradeOrderStatusEnumVO.CLOSE.equals(marketPayOrderEntity.getTradeOrderStatusEnumVO())) {
-            log.error("涓嶅瓨鍦ㄧ殑澶栭儴浜ゆ槗鍗曞彿鎴栫敤鎴峰凡閫?鍗曪紝涓嶉渶瑕佸仛鏀粯璁㈠崟缁撶畻:{} outTradeNo:{}", requestParameter.getUserId(), requestParameter.getOutTradeNo());
+            log.error("不存在的外部交易单号或用户已退单，不需要做支付订单结算:{} outTradeNo:{}", requestParameter.getUserId(), requestParameter.getOutTradeNo());
             throw new AppException(ResponseCode.E0104);
         }
 

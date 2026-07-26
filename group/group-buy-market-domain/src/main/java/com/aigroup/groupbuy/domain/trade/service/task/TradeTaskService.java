@@ -5,7 +5,7 @@ import com.aigroup.groupbuy.domain.trade.adapter.repository.ITradeRepository;
 import com.aigroup.groupbuy.domain.trade.model.entity.NotifyTaskEntity;
 import com.aigroup.groupbuy.domain.trade.service.ITradeTaskService;
 import com.aigroup.groupbuy.types.enums.NotifyTaskHTTPEnumVO;
-import com.alibaba.fastjson.JSON;
+import com.aigroup.groupbuy.types.common.JsonUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
@@ -17,9 +17,9 @@ import java.util.Map;
 import java.util.concurrent.ThreadPoolExecutor;
 
 /**
- * 浜ゆ槗浠诲姟锛圡T/HTTP锛夋湇鍔?
- * 
- * @author xiaofuge bugstack.cn @灏忓倕鍝?
+ * 交易任务（MT/HTTP）服务
+ *
+ * @author xiaofuge bugstack.cn @小傅哥
  * 2025/7/12 21:15
  */
 @Slf4j
@@ -35,9 +35,9 @@ public class TradeTaskService implements ITradeTaskService {
     
     @Override
     public Map<String, Integer> execNotifyJob() throws Exception {
-        log.info("鎷煎洟浜ゆ槗-鎵ц鍥炶皟閫氱煡浠诲姟");
+        log.info("拼团交易-执行回调通知任务");
 
-        // 鏌ヨ鏈墽琛屼换鍔?
+        // 查询未执行任务
         List<NotifyTaskEntity> notifyTaskEntityList = repository.queryUnExecutedNotifyTaskList();
 
         return execNotifyJob(notifyTaskEntityList);
@@ -45,24 +45,24 @@ public class TradeTaskService implements ITradeTaskService {
 
     @Override
     public Map<String, Integer> execNotifyJob(String teamId) throws Exception {
-        log.info("鎷煎洟浜ゆ槗-鎵ц鍥炶皟閫氱煡鍥炶皟锛屾寚瀹?teamId:{}", teamId);
+        log.info("拼团交易-执行回调通知回调，指定 teamId:{}", teamId);
         List<NotifyTaskEntity> notifyTaskEntityList = repository.queryUnExecutedNotifyTaskList(teamId);
         return execNotifyJob(notifyTaskEntityList);
     }
 
     @Override
     public Map<String, Integer> execNotifyJob(NotifyTaskEntity notifyTaskEntity) throws Exception {
-        log.info("鎷煎洟浜ゆ槗-鎵ц鍥炶皟閫氱煡鍥炶皟锛屾寚瀹?teamId:{} notifyTaskEntity:{}", notifyTaskEntity.getTeamId(), JSON.toJSONString(notifyTaskEntity));
+        log.info("拼团交易-执行回调通知回调，指定 teamId:{} notifyTaskEntity:{}", notifyTaskEntity.getTeamId(), JsonUtils.toJson(notifyTaskEntity));
         return execNotifyJob(Collections.singletonList(notifyTaskEntity));
     }
 
     private Map<String, Integer> execNotifyJob(List<NotifyTaskEntity> notifyTaskEntityList) throws Exception {
         int successCount = 0, errorCount = 0, retryCount = 0;
         for (NotifyTaskEntity notifyTask : notifyTaskEntityList) {
-            // 鍥炶皟澶勭悊 success 鎴愬姛锛宔rror 澶辫触
+            // 回调处理 success 成功，error 失败
             String response = port.groupBuyNotify(notifyTask);
 
-            // 鏇存柊鐘舵?佸垽鏂?鍙樻洿鏁版嵁搴撹〃鍥炶皟浠诲姟鐘舵??
+            // 更新状态判断&变更数据库表回调任务状态
             if (NotifyTaskHTTPEnumVO.SUCCESS.getCode().equals(response)) {
                 int updateCount = repository.updateNotifyTaskStatusSuccess(notifyTask);
                 if (1 == updateCount) {

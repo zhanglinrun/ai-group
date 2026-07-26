@@ -3,11 +3,14 @@ spring:
     name: group-buy-market-app
   profiles:
     active: dev
-  rabbitmq:
-    publisher-confirm-type: correlated
-    publisher-returns: true
-    template:
-      mandatory: true
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:127.0.0.1:9092}
+    producer:
+      acks: all
+      properties:
+        enable.idempotence: true
+    consumer:
+      auto-offset-reset: earliest
     config:
       producer:
-        confirm-timeout-ms: ${RABBITMQ_PUBLISH_CONFIRM_TIMEOUT_MS:5000}
+        confirm-timeout-ms: ${KAFKA_PUBLISH_CONFIRM_TIMEOUT_MS:5000}

@@ -15,7 +15,7 @@ import org.springframework.stereotype.Component;
 @Component
 public class PaySuccessMessageEvent {
 
-    @Value("${spring.rabbitmq.config.producer.topic_order_pay_success.routing_key}")
+    @Value("${spring.kafka.config.producer.topic_order_pay_success.topic:pay.order_pay_success}")
     private String routingKey;
 
     public String topic() {

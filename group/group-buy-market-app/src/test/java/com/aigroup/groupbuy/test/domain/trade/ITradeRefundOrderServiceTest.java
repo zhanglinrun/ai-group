@@ -4,7 +4,7 @@ import com.aigroup.groupbuy.domain.activity.model.entity.UserGroupBuyOrderDetail
 import com.aigroup.groupbuy.domain.trade.model.entity.TradeRefundBehaviorEntity;
 import com.aigroup.groupbuy.domain.trade.model.entity.TradeRefundCommandEntity;
 import com.aigroup.groupbuy.domain.trade.service.ITradeRefundOrderService;
-import com.alibaba.fastjson.JSON;
+import com.aigroup.groupbuy.types.common.JsonUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -16,9 +16,9 @@ import java.util.List;
 import java.util.concurrent.CountDownLatch;
 
 /**
- * 閫嗗悜娴佺▼鍗曟祴
+ * 逆向流程单测
  *
- * @author xiaofuge bugstack.cn @灏忓倕鍝?
+ * @author xiaofuge bugstack.cn @小傅哥
  * 2025/7/12 09:07
  */
 @Slf4j
@@ -40,10 +40,10 @@ public class ITradeRefundOrderServiceTest {
 
         TradeRefundBehaviorEntity tradeRefundBehaviorEntity = tradeRefundOrderService.refundOrder(tradeRefundCommandEntity);
 
-        log.info("璇锋眰鍙傛暟:{}", JSON.toJSONString(tradeRefundCommandEntity));
-        log.info("娴嬭瘯缁撴灉:{}", JSON.toJSONString(tradeRefundBehaviorEntity));
+        log.info("请求参数:{}", JsonUtils.toJson(tradeRefundCommandEntity));
+        log.info("测试结果:{}", JsonUtils.toJson(tradeRefundBehaviorEntity));
 
-        // 鏆傚仠锛岀瓑寰匨Q娑堟伅銆傚鐞嗗畬鍚庯紝鎵嬪姩鍏抽棴绋嬪簭
+        // 暂停，等待MQ消息。处理完后，手动关闭程序
         new CountDownLatch(1).await();
     }
 
@@ -58,10 +58,10 @@ public class ITradeRefundOrderServiceTest {
 
         TradeRefundBehaviorEntity tradeRefundBehaviorEntity = tradeRefundOrderService.refundOrder(tradeRefundCommandEntity);
 
-        log.info("璇锋眰鍙傛暟:{}", JSON.toJSONString(tradeRefundCommandEntity));
-        log.info("娴嬭瘯缁撴灉:{}", JSON.toJSONString(tradeRefundBehaviorEntity));
+        log.info("请求参数:{}", JsonUtils.toJson(tradeRefundCommandEntity));
+        log.info("测试结果:{}", JsonUtils.toJson(tradeRefundBehaviorEntity));
 
-        // 鏆傚仠锛岀瓑寰匨Q娑堟伅銆傚鐞嗗畬鍚庯紝鎵嬪姩鍏抽棴绋嬪簭
+        // 暂停，等待MQ消息。处理完后，手动关闭程序
         new CountDownLatch(1).await();
     }
 
@@ -76,10 +76,10 @@ public class ITradeRefundOrderServiceTest {
 
         TradeRefundBehaviorEntity tradeRefundBehaviorEntity = tradeRefundOrderService.refundOrder(tradeRefundCommandEntity);
 
-        log.info("璇锋眰鍙傛暟:{}", JSON.toJSONString(tradeRefundCommandEntity));
-        log.info("娴嬭瘯缁撴灉:{}", JSON.toJSONString(tradeRefundBehaviorEntity));
+        log.info("请求参数:{}", JsonUtils.toJson(tradeRefundCommandEntity));
+        log.info("测试结果:{}", JsonUtils.toJson(tradeRefundBehaviorEntity));
 
-        // 鏆傚仠锛岀瓑寰匨Q娑堟伅銆傚鐞嗗畬鍚庯紝鎵嬪姩鍏抽棴绋嬪簭
+        // 暂停，等待MQ消息。处理完后，手动关闭程序
         new CountDownLatch(1).await();
     }
 
@@ -94,10 +94,10 @@ public class ITradeRefundOrderServiceTest {
 
         TradeRefundBehaviorEntity tradeRefundBehaviorEntity = tradeRefundOrderService.refundOrder(tradeRefundCommandEntity);
 
-        log.info("璇锋眰鍙傛暟:{}", JSON.toJSONString(tradeRefundCommandEntity));
-        log.info("娴嬭瘯缁撴灉:{}", JSON.toJSONString(tradeRefundBehaviorEntity));
+        log.info("请求参数:{}", JsonUtils.toJson(tradeRefundCommandEntity));
+        log.info("测试结果:{}", JsonUtils.toJson(tradeRefundBehaviorEntity));
 
-        // 鏆傚仠锛岀瓑寰匨Q娑堟伅銆傚鐞嗗畬鍚庯紝鎵嬪姩鍏抽棴绋嬪簭
+        // 暂停，等待MQ消息。处理完后，手动关闭程序
         new CountDownLatch(1).await();
     }
 
@@ -105,11 +105,11 @@ public class ITradeRefundOrderServiceTest {
     public void test_queryTimeoutUnpaidOrderList2Refund() throws Exception {
         List<UserGroupBuyOrderDetailEntity> timeoutOrderList = tradeRefundOrderService.queryTimeoutUnpaidOrderList();
         
-        log.info("鏌ヨ瓒呮椂鏈敮浠樿鍗曞垪琛紝鏁伴噺锛歿}", timeoutOrderList != null ? timeoutOrderList.size() : 0);
+        log.info("查询超时未支付订单列表，数量：{}", timeoutOrderList != null ? timeoutOrderList.size() : 0);
         
         if (timeoutOrderList != null && !timeoutOrderList.isEmpty()) {
             for (UserGroupBuyOrderDetailEntity orderDetail : timeoutOrderList) {
-                log.info("瓒呮椂璁㈠崟璇︽儏锛氱敤鎴稩D={}, 鍥㈤槦ID={}, 娲诲姩ID={}, 澶栭儴浜ゆ槗鍗曞彿={}, 鏈夋晥寮€濮嬫椂闂?{}, 鏈夋晥缁撴潫鏃堕棿={}", 
+                log.info("超时订单详情：用户ID={}, 团队ID={}, 活动ID={}, 外部交易单号={}, 有效开始时间={}, 有效结束时间={}",
                         orderDetail.getUserId(), 
                         orderDetail.getTeamId(), 
                         orderDetail.getActivityId(), 
@@ -126,14 +126,14 @@ public class ITradeRefundOrderServiceTest {
 
                 TradeRefundBehaviorEntity tradeRefundBehaviorEntity = tradeRefundOrderService.refundOrder(tradeRefundCommandEntity);
 
-                log.info("璇锋眰鍙傛暟(job):{}", JSON.toJSONString(tradeRefundCommandEntity));
-                log.info("娴嬭瘯缁撴灉(job):{}", JSON.toJSONString(tradeRefundBehaviorEntity));
+                log.info("请求参数(job):{}", JsonUtils.toJson(tradeRefundCommandEntity));
+                log.info("测试结果(job):{}", JsonUtils.toJson(tradeRefundBehaviorEntity));
             }
         } else {
             log.info("no timeout unpaid orders");
         }
 
-        // 鏆傚仠锛岀瓑寰匨Q娑堟伅銆傚鐞嗗畬鍚庯紝鎵嬪姩鍏抽棴绋嬪簭
+        // 暂停，等待MQ消息。处理完后，手动关闭程序
         new CountDownLatch(1).await();
     }
 

@@ -15,8 +15,8 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeoutException;
 
 /**
- * @author Fuzhengwei bugstack.cn @灏忓倕鍝?
- * @description 绾跨▼妗堜緥涓句緥
+ * @author Fuzhengwei bugstack.cn @小傅哥
+ * @description 线程案例举例
  * @create 2025-04-03 07:44
  */
 @Slf4j
@@ -28,35 +28,35 @@ public class MarketNode2CompletableFuture extends MarketNode {
 
     @Override
     protected void multiThread(MarketProductEntity requestParameter, DefaultActivityStrategyFactory.DynamicContext dynamicContext) throws ExecutionException, InterruptedException, TimeoutException {
-        // 寮傛鏌ヨ娲诲姩閰嶇疆
+        // 异步查询活动配置
         CompletableFuture<GroupBuyActivityDiscountVO> groupBuyActivityDiscountVOCompletableFuture = CompletableFuture.supplyAsync(() -> {
             try {
                 Long availableActivityId = requestParameter.getActivityId();
                 if (null == requestParameter.getActivityId()) {
-                    // 鏌ヨ娓犻亾鍟嗗搧娲诲姩閰嶇疆鍏宠仈閰嶇疆
+                    // 查询渠道商品活动配置关联配置
                     SCSkuActivityVO scSkuActivityVO = repository.querySCSkuActivityBySCGoodsId(requestParameter.getSource(), requestParameter.getChannel(), requestParameter.getGoodsId());
                     if (null == scSkuActivityVO) return null;
                     availableActivityId = scSkuActivityVO.getActivityId();
                 }
-                // 鏌ヨ娲诲姩閰嶇疆
+                // 查询活动配置
                 return repository.queryGroupBuyActivityDiscountVO(availableActivityId);
             } catch (Exception e) {
-                log.error("寮傛鏌ヨ娲诲姩閰嶇疆寮傚父", e);
+                log.error("异步查询活动配置异常", e);
                 return null;
             }
         }, threadPoolExecutor);
 
-        // 寮傛鏌ヨ鍟嗗搧淇℃伅 - 鍦ㄥ疄闄呯敓浜т腑锛屽晢鍝佹湁鍚屾搴撴垨鑰呰皟鐢ㄦ帴鍙ｆ煡璇€?傝繖閲屾殏鏃朵娇鐢―B鏂瑰紡鏌ヨ銆?
+        // 异步查询商品信息 - 在实际生产中，商品有同步库或者调用接口查询。这里暂时使用DB方式查询。
         CompletableFuture<SkuVO> skuVOCompletableFuture = CompletableFuture.supplyAsync(() -> {
             try {
                 return repository.querySkuByGoodsId(requestParameter.getGoodsId());
             } catch (Exception e) {
-                log.error("寮傛鏌ヨ鍟嗗搧淇℃伅寮傚父", e);
+                log.error("异步查询商品信息异常", e);
                 return null;
             }
         }, threadPoolExecutor);
 
-        // 绛夊緟鎵?鏈夊紓姝ヤ换鍔″畬鎴愬苟鍐欏叆涓婁笅鏂?
+        // 等待所有异步任务完成并写入上下文
         CompletableFuture.allOf(groupBuyActivityDiscountVOCompletableFuture, skuVOCompletableFuture)
                 .thenRun(() -> {
                     dynamicContext.setGroupBuyActivityDiscountVO(groupBuyActivityDiscountVOCompletableFuture.join());

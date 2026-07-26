@@ -12,8 +12,8 @@ import org.springframework.test.context.junit4.SpringRunner;
 import jakarta.annotation.Resource;
 
 /**
- * @author Fuzhengwei bugstack.cn @灏忓倕鍝?
- * @description 浜虹兢鏍囩鏈嶅姟娴嬭瘯
+ * @author Fuzhengwei bugstack.cn @小傅哥
+ * @description 人群标签服务测试
  * @create 2024-12-28 14:33
  */
 @Slf4j
@@ -34,15 +34,15 @@ public class ITagServiceTest {
     @Test
     public void test_get_tag_bitmap() {
         RBitSet bitSet = redisService.getBitSet("RQ_KJHKL98UU78H66554GFDV");
-        // 鏄惁瀛樺湪
-        log.info("xiaofuge 瀛樺湪锛岄鏈熺粨鏋滀负 true锛屾祴璇曠粨鏋?{}", bitSet.get(redisService.getIndexFromUserId("xiaofuge")));
-        log.info("gudebai 涓嶅瓨鍦紝棰勬湡缁撴灉涓?false锛屾祴璇曠粨鏋?{}", bitSet.get(redisService.getIndexFromUserId("gudebai")));
+        // 是否存在
+        log.info("xiaofuge 存在，预期结果为 true，测试结果:{}", bitSet.get(redisService.getIndexFromUserId("xiaofuge")));
+        log.info("gudebai 不存在，预期结果为 false，测试结果:{}", bitSet.get(redisService.getIndexFromUserId("gudebai")));
     }
 
     @Test
     public void test_null_tag_bitmap() {
         RBitSet bitSet = redisService.getBitSet("null");
-        log.info("娴嬭瘯缁撴灉:{}", bitSet.isExists());
+        log.info("测试结果:{}", bitSet.isExists());
     }
 
 }

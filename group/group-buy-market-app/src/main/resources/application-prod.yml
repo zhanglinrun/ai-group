@@ -39,52 +39,30 @@ spring:
       max-lifetime: 1800000 #此属性控制池中连接的最长生命周期，值0表示无限生命周期，默认1800000即30分钟
       connection-timeout: 30000 #数据库连接超时时间,默认30秒，即30000
       connection-test-query: SELECT 1
-  # RabbitMQ
-  rabbitmq:
-    addresses: ${RABBITMQ_HOST}
-    port: ${RABBITMQ_PORT:5672}
-    username: ${RABBITMQ_USER}
-    password: ${RABBITMQ_PASSWORD}
-    listener:
-      simple:
-        prefetch: 1 # 每次投递n个消息，消费完在投递n个
-        acknowledge-mode: auto
-        # B1: bounded retry, then reject WITHOUT requeue so the broker dead-letters
-        # the message instead of redelivering a poison message forever.
-        default-requeue-rejected: false
-        retry:
-          enabled: true
-          max-attempts: 4
-          initial-interval: 1000
-          multiplier: 2
-          max-interval: 10000
-    template:
-      delivery-mode: persistent # 确保全局默认设置为持久化（可选）
+  # Kafka
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS}
+    producer:
+      acks: all
+      properties:
+        enable.idempotence: true
+        delivery.timeout.ms: 10000
+    consumer:
+      group-id: group-buy-market
+      auto-offset-reset: earliest
+      properties:
+        spring.json.trusted.packages: "*"
     # 消息配置
     config:
       # 生产者
       producer:
-        # 绑定交换机，统一一套交换机
-        exchange: group_buy_market_exchange
-        # B1: dead-letter exchange; consumer queues route rejected messages here
-        dlx_exchange: group_buy_market_dlx
-        # 消息主题配置；路由key、队列
+        confirm-timeout-ms: ${KAFKA_PUBLISH_CONFIRM_TIMEOUT_MS:5000}
         topic_team_success:
-          # 消息主题
-          routing_key: topic.team_success
-          # 消费队列
-          queue: group_buy_market_queue_2_topic_team_success
-          # dead-letter queue + routing key (declared in RabbitMQDlqConfig)
-          dlq: group_buy_market_queue_2_topic_team_success_dlq
-          dlq_routing_key: topic.team_success.dlq
+          topic: group.team_success
         topic_team_refund:
-          # 消息主题
-          routing_key: topic.team_refund
-          # 消费队列
-          queue: group_buy_market_queue_2_topic_team_refund
-          # dead-letter queue + routing key (declared in RabbitMQDlqConfig)
-          dlq: group_buy_market_queue_2_topic_team_refund_dlq
-          dlq_routing_key: topic.team_refund.dlq
+          topic: group.team_refund
+      consumer:
+        group-id: group-buy-market
 
 # MyBatis 配置【如需使用记得打开】
 mybatis:
@@ -97,6 +75,7 @@ redis:
     config:
       host: ${REDIS_HOST}
       port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD}
       pool-size: 10
       min-idle-size: 5
       idle-timeout: 30000
@@ -114,6 +93,7 @@ xfg:
       register:
         host: ${REDIS_HOST}
         port: ${REDIS_PORT:6379}
+        password: ${REDIS_PASSWORD}
 
 # 日志；logstash部署的服务器IP
 logstash:

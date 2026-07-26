@@ -14,8 +14,8 @@ import org.springframework.stereotype.Service;
 import jakarta.annotation.Resource;
 
 /**
- * @author Fuzhengwei bugstack.cn @灏忓倕鍝?
- * @description 鐢ㄦ埛鍙備笌闄愬埗锛岃鍒欒繃婊?
+ * @author Fuzhengwei bugstack.cn @小傅哥
+ * @description 用户参与限制，规则过滤
  * @create 2025-01-25 09:19
  */
 @Slf4j
@@ -27,21 +27,21 @@ public class UserTakeLimitRuleFilter implements ILogicHandler<TradeLockRuleComma
 
     @Override
     public TradeLockRuleFilterBackEntity apply(TradeLockRuleCommandEntity requestParameter, TradeLockRuleFilterFactory.DynamicContext dynamicContext) throws Exception {
-        log.info("浜ゆ槗瑙勫垯杩囨护-鐢ㄦ埛鍙備笌娆℃暟鏍￠獙{} activityId:{}", requestParameter.getUserId(), requestParameter.getActivityId());
+        log.info("交易规则过滤-用户参与次数校验{} activityId:{}", requestParameter.getUserId(), requestParameter.getActivityId());
 
         GroupBuyActivityEntity groupBuyActivity = dynamicContext.getGroupBuyActivity();
 
-        // 鏌ヨ鐢ㄦ埛鍦ㄤ竴涓嫾鍥㈡椿鍔ㄤ笂鍙備笌鐨勬鏁?
+        // 查询用户在一个拼团活动上参与的次数
         Integer count = repository.queryOrderCountByActivityId(requestParameter.getActivityId(), requestParameter.getUserId());
 
         if (null != groupBuyActivity.getTakeLimitCount() && count >= groupBuyActivity.getTakeLimitCount()) {
-            log.info("鐢ㄦ埛鍙備笌娆℃暟鏍￠獙锛屽凡杈惧彲鍙備笌涓婇檺 activityId:{}", requestParameter.getActivityId());
+            log.info("用户参与次数校验，已达可参与上限 activityId:{}", requestParameter.getActivityId());
             throw new AppException(ResponseCode.E0103);
         }
 
         dynamicContext.setUserTakeOrderCount(count);
 
-        // 璧板埌涓嬩竴涓矗浠婚摼鑺傜偣
+        // 走到下一个责任链节点
         return next(requestParameter, dynamicContext);
     }
 

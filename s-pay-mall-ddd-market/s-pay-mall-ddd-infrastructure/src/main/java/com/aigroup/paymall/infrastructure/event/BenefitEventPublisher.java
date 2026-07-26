@@ -1,7 +1,7 @@
 package com.aigroup.paymall.infrastructure.event;
 
 import com.aigroup.paymall.types.event.TradeCompletedEvent;
-import com.alibaba.fastjson.JSON;
+import com.aigroup.paymall.types.common.JsonUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -10,24 +10,21 @@ import org.springframework.stereotype.Component;
 @Component
 public class BenefitEventPublisher {
 
-    private final ConfirmedRabbitPublisher confirmedRabbitPublisher;
+    private final ConfirmedKafkaPublisher confirmedKafkaPublisher;
 
-    public BenefitEventPublisher(ConfirmedRabbitPublisher confirmedRabbitPublisher) {
-        this.confirmedRabbitPublisher = confirmedRabbitPublisher;
+    public BenefitEventPublisher(ConfirmedKafkaPublisher confirmedKafkaPublisher) {
+        this.confirmedKafkaPublisher = confirmedKafkaPublisher;
     }
 
-    @Value("${spring.rabbitmq.config.producer.member_benefit.exchange}")
-    private String exchangeName;
-
-    @Value("${spring.rabbitmq.config.producer.member_benefit.routing_key}")
-    private String routingKey;
+    @Value("${spring.kafka.config.producer.member_benefit.topic:member.benefit.completed}")
+    private String topic;
 
     public void publish(TradeCompletedEvent event) {
-        String message = JSON.toJSONString(event);
+        String message = JsonUtils.toJson(event);
         try {
-            confirmedRabbitPublisher.publish(exchangeName, routingKey, message, event.getEventId());
+            confirmedKafkaPublisher.publish(topic, message, event.getEventId());
         } catch (Exception e) {
-            log.error("发送权益事件失败 routingKey:{} message:{}", routingKey, message, e);
+            log.error("发送权益事件失败 topic:{} message:{}", topic, message, e);
             throw e;
         }
     }

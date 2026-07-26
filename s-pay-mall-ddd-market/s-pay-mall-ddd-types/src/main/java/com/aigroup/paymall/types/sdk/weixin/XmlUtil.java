@@ -1,151 +1,249 @@
 package com.aigroup.paymall.types.sdk.weixin;
 
-import com.thoughtworks.xstream.XStream;
-import com.thoughtworks.xstream.core.util.QuickWriter;
-import com.thoughtworks.xstream.io.HierarchicalStreamWriter;
-import com.thoughtworks.xstream.io.xml.DomDriver;
-import com.thoughtworks.xstream.io.xml.PrettyPrintWriter;
-import com.thoughtworks.xstream.io.xml.XppDriver;
-import com.thoughtworks.xstream.security.AnyTypePermission;
-import org.apache.commons.lang3.StringUtils;
-import org.dom4j.Document;
-import org.dom4j.Element;
-import org.dom4j.io.SAXReader;
+import jakarta.xml.bind.JAXBContext;
+import jakarta.xml.bind.JAXBException;
+import jakarta.xml.bind.Marshaller;
+import jakarta.xml.bind.Unmarshaller;
 
-import jakarta.servlet.http.HttpServletRequest;
-import java.io.InputStream;
-import java.io.Writer;
-import java.util.*;
+import javax.xml.stream.XMLStreamException;
+import javax.xml.stream.XMLStreamWriter;
+import javax.xml.transform.stream.StreamSource;
+import java.io.StringReader;
+import java.io.StringWriter;
+import java.util.concurrent.ConcurrentHashMap;
 
+/**
+ * XML utility backed by JAXB (replacing dom4j + xstream).
+ * Provides bean&lt;-&gt;XML conversion for WeChat message entities, with CDATA-wrapped text nodes
+ * matching the legacy xstream output format expected by the WeChat MP API.
+ */
 public class XmlUtil {
 
-    /**
-     * 瑙ｆ瀽寰俊鍙戞潵鐨勮姹?xml)
-     */
-    @SuppressWarnings("unchecked")
-    public static Map<String, String> xmlToMap(HttpServletRequest request) throws Exception {
-        // 浠巖equest涓彇寰楄緭鍏ユ祦
-        try (InputStream inputStream = request.getInputStream()) {
-            // 灏嗚В鏋愮粨鏋滃瓨鍌ㄥ湪HashMap涓?
-            Map<String, String> map = new HashMap<>();
-            // 璇诲彇杈撳叆娴?
-            SAXReader reader = new SAXReader();
-            // 寰楀埌xml鏂囨。
-            Document document = reader.read(inputStream);
-            // 寰楀埌xml鏍瑰厓绱?
-            Element root = document.getRootElement();
-            // 寰楀埌鏍瑰厓绱犵殑鎵?鏈夊瓙鑺傜偣
-            List<Element> elementList = root.elements();
-            // 閬嶅巻鎵?鏈夊瓙鑺傜偣
-            for (Element e : elementList)
-                map.put(e.getName(), e.getText());
-            // 閲婃斁璧勬簮
-            inputStream.close();
-            return map;
-        }
+    private static final ConcurrentHashMap<Class<?>, JAXBContext> CONTEXT_CACHE = new ConcurrentHashMap<>();
+
+    private XmlUtil() {
     }
 
-    /**
-     * 灏唌ap杞寲鎴恱ml鍝嶅簲缁欏井淇℃湇鍔″櫒
-     */
-    static String mapToXML(Map map) {
-        StringBuffer sb = new StringBuffer();
-        sb.append("<xml>");
-        mapToXML2(map, sb);
-        sb.append("</xml>");
-        try {
-            return sb.toString();
-        } catch (Exception e) {
-            return null;
-        }
-    }
-
-    private static void mapToXML2(Map map, StringBuffer sb) {
-        Set set = map.keySet();
-        for (Object o : set) {
-            String key = (String) o;
-            Object value = map.get(key);
-            if (null == value)
-                value = "";
-            if (value.getClass().getName().equals("java.util.ArrayList")) {
-                ArrayList list = (ArrayList) map.get(key);
-                sb.append("<").append(key).append(">");
-                for (Object o1 : list) {
-                    HashMap hm = (HashMap) o1;
-                    mapToXML2(hm, sb);
-                }
-                sb.append("</").append(key).append(">");
-
-            } else {
-                if (value instanceof HashMap) {
-                    sb.append("<").append(key).append(">");
-                    mapToXML2((HashMap) value, sb);
-                    sb.append("</").append(key).append(">");
-                } else {
-                    sb.append("<").append(key).append("><![CDATA[").append(value).append("]]></").append(key).append(">");
-                }
-
-            }
-
-        }
-    }
-
-    public static XStream getMyXStream() {
-        return new XStream(new XppDriver() {
-            @Override
-            public HierarchicalStreamWriter createWriter(Writer out) {
-                return new PrettyPrintWriter(out) {
-                    // 瀵规墍鏈墄ml鑺傜偣閮藉鍔燙DATA鏍囪
-                    boolean cdata = true;
-
-                    @Override
-                    public void startNode(String name, Class clazz) {
-                        super.startNode(name, clazz);
-                    }
-
-                    @Override
-                    protected void writeText(QuickWriter writer, String text) {
-                        if (cdata && !StringUtils.isNumeric(text)) {
-                            writer.write("<![CDATA[");
-                            writer.write(text);
-                            writer.write("]]>");
-                        } else {
-                            writer.write(text);
-                        }
-                    }
-                };
+    private static JAXBContext contextOf(Class<?> clazz) {
+        return CONTEXT_CACHE.computeIfAbsent(clazz, c -> {
+            try {
+                return JAXBContext.newInstance(c);
+            } catch (JAXBException e) {
+                throw new IllegalStateException("init JAXBContext for " + c.getName() + " failed", e);
             }
         });
     }
 
     /**
-     * bean杞垚寰俊鐨剎ml娑堟伅鏍煎紡
+     * bean 转成微信的 xml 消息格式（CDATA 包裹文本节点）。
      */
     public static String beanToXml(Object object) {
-        XStream xStream = getMyXStream();
-        xStream.alias("xml", object.getClass());
-        xStream.processAnnotations(object.getClass());
-        String xml = xStream.toXML(object);
-        if (!StringUtils.isEmpty(xml)) {
-            return xml;
-        } else {
+        if (object == null) {
             return null;
+        }
+        try {
+            JAXBContext context = contextOf(object.getClass());
+            Marshaller marshaller = context.createMarshaller();
+            marshaller.setProperty(Marshaller.JAXB_FRAGMENT, Boolean.TRUE);
+            marshaller.setProperty(Marshaller.JAXB_ENCODING, "UTF-8");
+            StringWriter writer = new StringWriter();
+            XMLStreamWriter streamWriter = new CdataXmlStreamWriter(
+                    javax.xml.stream.XMLOutputFactory.newInstance().createXMLStreamWriter(writer));
+            marshaller.marshal(object, streamWriter);
+            return writer.toString();
+        } catch (Exception e) {
+            throw new IllegalStateException("bean to xml failed: " + object.getClass(), e);
         }
     }
 
     /**
-     * xml杞垚bean娉涘瀷鏂规硶
+     * xml 转成 bean 泛型方法。
      */
-    public static <T> T xmlToBean(String resultXml, Class clazz) {
-        // XStream瀵硅薄璁剧疆榛樿瀹夊叏闃叉姢锛屽悓鏃惰缃厑璁哥殑绫?
-        XStream stream = new XStream(new DomDriver());
-        stream.addPermission(AnyTypePermission.ANY);
-        XStream.setupDefaultSecurity(stream);
-        stream.allowTypes(new Class[]{clazz});
-        stream.processAnnotations(new Class[]{clazz});
-        stream.setMode(XStream.NO_REFERENCES);
-        stream.alias("xml", clazz);
-        return (T) stream.fromXML(resultXml);
+    @SuppressWarnings("unchecked")
+    public static <T> T xmlToBean(String resultXml, Class<T> clazz) {
+        if (resultXml == null || resultXml.isBlank()) {
+            return null;
+        }
+        try {
+            JAXBContext context = contextOf(clazz);
+            Unmarshaller unmarshaller = context.createUnmarshaller();
+            return (T) unmarshaller.unmarshal(new StreamSource(new StringReader(resultXml)));
+        } catch (JAXBException e) {
+            throw new IllegalStateException("xml to bean failed: " + clazz.getName(), e);
+        }
     }
 
+    /**
+     * XMLStreamWriter wrapper that wraps every text node in CDATA sections,
+     * matching the legacy xstream PrettyPrintWriter CDATA behaviour for WeChat XML.
+     */
+    private static final class CdataXmlStreamWriter implements XMLStreamWriter {
+
+        private final XMLStreamWriter delegate;
+
+        CdataXmlStreamWriter(XMLStreamWriter delegate) {
+            this.delegate = delegate;
+        }
+
+        @Override
+        public void writeCharacters(String text) throws XMLStreamException {
+            delegate.writeCData(text);
+        }
+
+        @Override
+        public void writeCharacters(char[] text, int start, int len) throws XMLStreamException {
+            delegate.writeCData(new String(text, start, len));
+        }
+
+        @Override
+        public void writeStartElement(String localName) throws XMLStreamException {
+            delegate.writeStartElement(localName);
+        }
+
+        @Override
+        public void writeStartElement(String namespaceURI, String localName) throws XMLStreamException {
+            delegate.writeStartElement(namespaceURI, localName);
+        }
+
+        @Override
+        public void writeStartElement(String prefix, String localName, String namespaceURI) throws XMLStreamException {
+            delegate.writeStartElement(prefix, localName, namespaceURI);
+        }
+
+        @Override
+        public void writeEmptyElement(String namespaceURI, String localName) throws XMLStreamException {
+            delegate.writeEmptyElement(namespaceURI, localName);
+        }
+
+        @Override
+        public void writeEmptyElement(String prefix, String localName, String namespaceURI) throws XMLStreamException {
+            delegate.writeEmptyElement(prefix, localName, namespaceURI);
+        }
+
+        @Override
+        public void writeEmptyElement(String localName) throws XMLStreamException {
+            delegate.writeEmptyElement(localName);
+        }
+
+        @Override
+        public void writeEndElement() throws XMLStreamException {
+            delegate.writeEndElement();
+        }
+
+        @Override
+        public void writeEndDocument() throws XMLStreamException {
+            delegate.writeEndDocument();
+        }
+
+        @Override
+        public void close() throws XMLStreamException {
+            delegate.close();
+        }
+
+        @Override
+        public void flush() throws XMLStreamException {
+            delegate.flush();
+        }
+
+        @Override
+        public void writeAttribute(String localName, String value) throws XMLStreamException {
+            delegate.writeAttribute(localName, value);
+        }
+
+        @Override
+        public void writeAttribute(String prefix, String namespaceURI, String localName, String value)
+                throws XMLStreamException {
+            delegate.writeAttribute(prefix, namespaceURI, localName, value);
+        }
+
+        @Override
+        public void writeAttribute(String namespaceURI, String localName, String value) throws XMLStreamException {
+            delegate.writeAttribute(namespaceURI, localName, value);
+        }
+
+        @Override
+        public void writeNamespace(String prefix, String namespaceURI) throws XMLStreamException {
+            delegate.writeNamespace(prefix, namespaceURI);
+        }
+
+        @Override
+        public void writeDefaultNamespace(String namespaceURI) throws XMLStreamException {
+            delegate.writeDefaultNamespace(namespaceURI);
+        }
+
+        @Override
+        public void writeComment(String data) throws XMLStreamException {
+            delegate.writeComment(data);
+        }
+
+        @Override
+        public void writeProcessingInstruction(String target) throws XMLStreamException {
+            delegate.writeProcessingInstruction(target);
+        }
+
+        @Override
+        public void writeProcessingInstruction(String target, String data) throws XMLStreamException {
+            delegate.writeProcessingInstruction(target, data);
+        }
+
+        @Override
+        public void writeCData(String data) throws XMLStreamException {
+            delegate.writeCData(data);
+        }
+
+        @Override
+        public void writeDTD(String dtd) throws XMLStreamException {
+            delegate.writeDTD(dtd);
+        }
+
+        @Override
+        public void writeEntityRef(String name) throws XMLStreamException {
+            delegate.writeEntityRef(name);
+        }
+
+        @Override
+        public void writeStartDocument() throws XMLStreamException {
+            delegate.writeStartDocument();
+        }
+
+        @Override
+        public void writeStartDocument(String version) throws XMLStreamException {
+            delegate.writeStartDocument(version);
+        }
+
+        @Override
+        public void writeStartDocument(String encoding, String version) throws XMLStreamException {
+            delegate.writeStartDocument(encoding, version);
+        }
+
+        @Override
+        public String getPrefix(String uri) throws XMLStreamException {
+            return delegate.getPrefix(uri);
+        }
+
+        @Override
+        public void setPrefix(String prefix, String uri) throws XMLStreamException {
+            delegate.setPrefix(prefix, uri);
+        }
+
+        @Override
+        public void setDefaultNamespace(String uri) throws XMLStreamException {
+            delegate.setDefaultNamespace(uri);
+        }
+
+        @Override
+        public void setNamespaceContext(javax.xml.namespace.NamespaceContext context) throws XMLStreamException {
+            delegate.setNamespaceContext(context);
+        }
+
+        @Override
+        public javax.xml.namespace.NamespaceContext getNamespaceContext() {
+            return delegate.getNamespaceContext();
+        }
+
+        @Override
+        public Object getProperty(String name) throws IllegalArgumentException {
+            return delegate.getProperty(name);
+        }
+    }
 }

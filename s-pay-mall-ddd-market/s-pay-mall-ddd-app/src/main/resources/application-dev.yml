@@ -32,7 +32,7 @@ thread:
 spring:
   datasource:
     username: ${MYSQL_USER:root}
-    password: ${MYSQL_ROOT_PASSWORD:123456}
+    password: ${MYSQL_ROOT_PASSWORD:}
     url: jdbc:mysql://${MYSQL_HOST:127.0.0.1}:${MYSQL_PORT:13306}/s_pay_mall_ddd_market?useUnicode=true&characterEncoding=utf8&autoReconnect=true&zeroDateTimeBehavior=convertToNull&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
     driver-class-name: com.mysql.cj.jdbc.Driver
   hikari:
@@ -45,27 +45,18 @@ spring:
     connection-timeout: 30000 #数据库连接超时时间,默认30秒，即30000
     connection-test-query: SELECT 1
   type: com.zaxxer.hikari.HikariDataSource
-  # RabbitMQ
-  rabbitmq:
-    host: ${RABBITMQ_HOST:127.0.0.1}
-    port: ${RABBITMQ_PORT:5672}
-    username: ${RABBITMQ_USER:admin}
-    password: ${RABBITMQ_PASSWORD:admin}
-    listener:
-      simple:
-        prefetch: 1 # 每次投递n个消息，消费完在投递n个
-        acknowledge-mode: auto
-        # C5: bounded retry, then reject WITHOUT requeue so the broker dead-letters
-        # the message instead of redelivering a poison message forever.
-        default-requeue-rejected: false
-        retry:
-          enabled: true
-          max-attempts: 4
-          initial-interval: 1000
-          multiplier: 2
-          max-interval: 10000
-    template:
-      delivery-mode: persistent # 确保全局默认设置为持久化（可选）
+  # Kafka
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:127.0.0.1:9092}
+    producer:
+      acks: all
+      properties:
+        enable.idempotence: true
+    consumer:
+      group-id: s-pay-mall-ddd
+      auto-offset-reset: earliest
+      properties:
+        spring.json.trusted.packages: "*"
 
 # MyBatis 配置【如需使用记得打开】
 mybatis:
@@ -109,7 +100,7 @@ logging:
 
 ai-group:
   internal:
-    token: ${AI_GROUP_INTERNAL_TOKEN:change-me-to-a-long-random-internal-token}
+    token: ${AI_GROUP_INTERNAL_TOKEN:}
   pay:
     # 本地开发联调专用：开启后注册 dev-only 模拟支付入口；生产 profile 没有该路由。
     demo-complete-enabled: ${AI_GROUP_DEMO_PAYMENT_ENABLED:false}
@@ -140,3 +131,14 @@ ai-group:
           price: 140.00
           product-code: "QUOTA_LARGE"
           base-quota: 700
+
+# XXL-JOB 执行器配置
+xxl:
+  job:
+    admin:
+      addresses: ${XXL_JOB_ADMIN_ADDRESSES:http://127.0.0.1:18081/xxl-job-admin}
+    accessToken: ${XXL_JOB_ACCESS_TOKEN:default_token}
+    executor:
+      logpath: ${XXL_JOB_LOGPATH:./logs/xxl-job/pay}
+      logretentiondays: 30
+

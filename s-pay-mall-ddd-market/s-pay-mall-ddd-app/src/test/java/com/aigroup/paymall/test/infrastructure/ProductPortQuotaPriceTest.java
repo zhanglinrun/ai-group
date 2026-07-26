@@ -9,7 +9,6 @@ import com.aigroup.paymall.infrastructure.gateway.dto.LockMarketPayOrderResponse
 import com.aigroup.paymall.infrastructure.gateway.response.Response;
 import org.junit.Test;
 import org.mockito.ArgumentCaptor;
-import retrofit2.Call;
 
 import java.math.BigDecimal;
 
@@ -22,18 +21,16 @@ import static org.mockito.Mockito.when;
 public class ProductPortQuotaPriceTest {
 
     @Test
-    public void groupOrderKeepsTrustedPackagePriceAndIgnoresLegacyCashDiscount() throws Exception {
+    public void groupOrderKeepsTrustedPackagePriceAndIgnoresLegacyCashDiscount() {
         IGroupBuyMarketService groupService = mock(IGroupBuyMarketService.class);
-        @SuppressWarnings("unchecked")
-        Call<Response<LockMarketPayOrderResponseDTO>> call = mock(Call.class);
-        when(groupService.lockMarketPayOrder(any())).thenReturn(call);
         LockMarketPayOrderResponseDTO groupQuote = new LockMarketPayOrderResponseDTO();
         groupQuote.setOriginalPrice(new BigDecimal("12.00"));
         groupQuote.setDeductionPrice(BigDecimal.ZERO);
         groupQuote.setPayPrice(new BigDecimal("12.00"));
         groupQuote.setTradeOrderStatus(0);
-        when(call.execute()).thenReturn(retrofit2.Response.success(Response.<LockMarketPayOrderResponseDTO>builder()
-                .code("0000").data(groupQuote).build()));
+        when(groupService.lockMarketPayOrder(any())).thenReturn(
+                Response.<LockMarketPayOrderResponseDTO>builder()
+                        .code("0000").data(groupQuote).build());
 
         ProductPort port = new ProductPort(mock(ProductRPC.class), groupService);
         MarketPayDiscountEntity quote = port.lockMarketPayOrder(

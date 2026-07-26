@@ -19,8 +19,8 @@ import com.aigroup.paymall.trigger.http.support.InternalCallbackAuthSupport;
 import com.aigroup.paymall.types.common.Constants;
 import com.aigroup.paymall.types.enums.ResponseCode;
 import com.aigroup.paymall.types.exception.AppException;
-import com.alibaba.fastjson.JSON;
-import com.alibaba.fastjson.JSONObject;
+import com.aigroup.paymall.types.common.JsonUtils;
+import com.aigroup.paymall.types.common.JSONObject;
 import com.alipay.api.AlipayApiException;
 import com.alipay.api.AlipayClient;
 import com.alipay.api.domain.AlipayTradeQueryModel;
@@ -202,12 +202,12 @@ public class AliPayController {
             log.warn("group buy notify rejected: missing or invalid internal token");
             return "error";
         }
-        log.info("group buy notify settlement start {}", JSON.toJSONString(requestDTO));
+        log.info("group buy notify settlement start {}", JsonUtils.toJson(requestDTO));
         try {
             orderService.changeOrderMarketSettlement(requestDTO.getOutTradeNoList(), requestDTO.getBonusQuota());
             return "success";
         } catch (Exception e) {
-            log.error("group buy notify settlement failed {}", JSON.toJSONString(requestDTO), e);
+            log.error("group buy notify settlement failed {}", JsonUtils.toJson(requestDTO), e);
             return "error";
         }
     }
@@ -462,7 +462,7 @@ public class AliPayController {
             }
             log.info("sync settle trade query outTradeNo={} response={}", outTradeNo, body);
 
-            JSONObject queryResponse = JSON.parseObject(body).getJSONObject("alipay_trade_query_response");
+            JSONObject queryResponse = JSONObject.parseObject(body).getJSONObject("alipay_trade_query_response");
             if (queryResponse == null || !"10000".equals(queryResponse.getString("code"))) {
                 String msg = queryResponse != null ? queryResponse.getString("sub_msg") : "trade query failed";
                 return Response.<String>builder()

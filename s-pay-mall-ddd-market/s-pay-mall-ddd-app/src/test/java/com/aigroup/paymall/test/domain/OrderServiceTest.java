@@ -4,7 +4,7 @@ import com.aigroup.paymall.domain.order.model.entity.PayOrderEntity;
 import com.aigroup.paymall.domain.order.model.entity.ShopCartEntity;
 import com.aigroup.paymall.domain.order.model.valobj.MarketTypeVO;
 import com.aigroup.paymall.domain.order.service.IOrderService;
-import com.alibaba.fastjson.JSON;
+import com.aigroup.paymall.types.common.JsonUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -32,8 +32,8 @@ public class OrderServiceTest {
 
         PayOrderEntity payOrderEntity = orderService.createOrder(shopCartEntity);
 
-        log.info("请求参数:{}", JSON.toJSONString(shopCartEntity));
-        log.info("测试结果:{}", JSON.toJSONString(payOrderEntity));
+        log.info("请求参数:{}", JsonUtils.toJson(shopCartEntity));
+        log.info("测试结果:{}", JsonUtils.toJson(payOrderEntity));
     }
 
     @Test
@@ -47,8 +47,8 @@ public class OrderServiceTest {
 
         PayOrderEntity payOrderEntity = orderService.createOrder(shopCartEntity);
 
-        log.info("请求参数:{}", JSON.toJSONString(shopCartEntity));
-        log.info("测试结果:{}", JSON.toJSONString(payOrderEntity));
+        log.info("请求参数:{}", JsonUtils.toJson(shopCartEntity));
+        log.info("测试结果:{}", JsonUtils.toJson(payOrderEntity));
     }
 
 }

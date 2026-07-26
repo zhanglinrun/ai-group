@@ -4,7 +4,7 @@ import com.aigroup.groupbuy.api.IMarketTradeService;
 import com.aigroup.groupbuy.api.dto.LockMarketPayOrderRequestDTO;
 import com.aigroup.groupbuy.api.dto.LockMarketPayOrderResponseDTO;
 import com.aigroup.groupbuy.api.response.Response;
-import com.alibaba.fastjson.JSON;
+import com.aigroup.groupbuy.types.common.JsonUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.RandomStringUtils;
 import org.junit.Test;
@@ -16,8 +16,8 @@ import jakarta.annotation.Resource;
 import java.util.concurrent.CountDownLatch;
 
 /**
- * @author Fuzhengwei bugstack.cn @灏忓倕鍝?
- * @description 钀ラ攢浜ゆ槗鏈嶅姟
+ * @author Fuzhengwei bugstack.cn @小傅哥
+ * @description 营销交易服务
  * @create 2025-01-11 14:20
  */
 @Slf4j
@@ -42,7 +42,7 @@ public class MarketTradeControllerTest {
 
         Response<LockMarketPayOrderResponseDTO> lockMarketPayOrderResponseDTOResponse = marketTradeService.lockMarketPayOrder(lockMarketPayOrderRequestDTO);
 
-        log.info("娴嬭瘯缁撴灉 req:{} res:{}", JSON.toJSONString(lockMarketPayOrderRequestDTO), JSON.toJSONString(lockMarketPayOrderResponseDTOResponse));
+        log.info("测试结果 req:{} res:{}", JsonUtils.toJson(lockMarketPayOrderRequestDTO), JsonUtils.toJson(lockMarketPayOrderResponseDTOResponse));
     }
 
     @Test
@@ -59,7 +59,7 @@ public class MarketTradeControllerTest {
 
         Response<LockMarketPayOrderResponseDTO> lockMarketPayOrderResponseDTOResponse = marketTradeService.lockMarketPayOrder(lockMarketPayOrderRequestDTO);
 
-        log.info("娴嬭瘯缁撴灉 req:{} res:{}", JSON.toJSONString(lockMarketPayOrderRequestDTO), JSON.toJSONString(lockMarketPayOrderResponseDTOResponse));
+        log.info("测试结果 req:{} res:{}", JsonUtils.toJson(lockMarketPayOrderRequestDTO), JsonUtils.toJson(lockMarketPayOrderResponseDTOResponse));
     }
 
     @Test
@@ -76,7 +76,7 @@ public class MarketTradeControllerTest {
 
         Response<LockMarketPayOrderResponseDTO> lockMarketPayOrderResponseDTOResponse = marketTradeService.lockMarketPayOrder(lockMarketPayOrderRequestDTO);
 
-        log.info("娴嬭瘯缁撴灉 req:{} res:{}", JSON.toJSONString(lockMarketPayOrderRequestDTO), JSON.toJSONString(lockMarketPayOrderResponseDTOResponse));
+        log.info("测试结果 req:{} res:{}", JsonUtils.toJson(lockMarketPayOrderRequestDTO), JsonUtils.toJson(lockMarketPayOrderResponseDTOResponse));
     }
 
     @Test
@@ -94,7 +94,7 @@ public class MarketTradeControllerTest {
 
             Response<LockMarketPayOrderResponseDTO> lockMarketPayOrderResponseDTOResponse = marketTradeService.lockMarketPayOrder(lockMarketPayOrderRequestDTO);
 
-            log.info("娴嬭瘯缁撴灉 req:{} res:{}", JSON.toJSONString(lockMarketPayOrderRequestDTO), JSON.toJSONString(lockMarketPayOrderResponseDTOResponse));
+            log.info("测试结果 req:{} res:{}", JsonUtils.toJson(lockMarketPayOrderRequestDTO), JsonUtils.toJson(lockMarketPayOrderResponseDTOResponse));
         }
 
     }

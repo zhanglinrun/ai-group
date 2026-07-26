@@ -2,7 +2,7 @@ package com.aigroup.paymall.trigger.job;
 
 import com.aigroup.paymall.domain.order.service.IOrderService;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.scheduling.annotation.Scheduled;
+import com.xxl.job.core.handler.annotation.XxlJob;
 import org.springframework.stereotype.Component;
 
 import jakarta.annotation.Resource;
@@ -13,9 +13,7 @@ import jakarta.annotation.Resource;
  * <p>
  * 本任务分钟级扫描滞留超阈值(见 queryWaitRefundTimeoutOrderList，5 分钟)的 WAIT_REFUND 单，
  * 重发拼团退单通知并直接走支付宝退款兜底（均幂等，与 team_refund 回调并发也安全）。
- * <p>
- * 调度/幂等风格对齐 MarketSettlementCompensateJob：单实例 @Scheduled，扫描有上限(LIMIT 20)，
- * 下游退款幂等，重叠执行无害。
+ * 调度由 XXL-JOB admin 集中管理（cron: 0 0/1 * * * ?）。
  */
 @Slf4j
 @Component
@@ -24,7 +22,7 @@ public class WaitRefundCompensateJob {
     @Resource
     private IOrderService orderService;
 
-    @Scheduled(cron = "0 0/1 * * * ?")
+    @XxlJob("waitRefundCompensateJob")
     public void exec() {
         try {
             int count = orderService.compensateWaitRefund();

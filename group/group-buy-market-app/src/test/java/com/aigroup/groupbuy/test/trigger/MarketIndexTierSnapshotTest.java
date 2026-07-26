@@ -9,7 +9,7 @@ import com.aigroup.groupbuy.domain.activity.model.valobj.GroupBuyActivityDiscoun
 import com.aigroup.groupbuy.domain.activity.model.valobj.TeamStatisticVO;
 import com.aigroup.groupbuy.domain.activity.service.IIndexGroupBuyMarketService;
 import com.aigroup.groupbuy.trigger.http.MarketIndexController;
-import com.alibaba.fastjson.JSON;
+import com.aigroup.groupbuy.types.common.JsonUtils;
 import org.junit.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -55,7 +55,7 @@ public class MarketIndexTierSnapshotTest {
                         .teamId("team-1")
                         .activityId(100201L)
                         .targetCount(10)
-                        .tierSnapshot(JSON.toJSONString(snapshotTiers))
+                        .tierSnapshot(JsonUtils.toJson(snapshotTiers))
                         .completeCount(10)
                         .lockCount(0)
                         .validStartTime(now)

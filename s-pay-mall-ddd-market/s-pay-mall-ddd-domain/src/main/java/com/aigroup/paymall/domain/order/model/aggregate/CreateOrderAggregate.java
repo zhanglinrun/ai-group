@@ -9,9 +9,9 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-import org.apache.commons.lang3.RandomStringUtils;
 
 import java.util.Date;
+import java.util.UUID;
 
 @Data
 @Builder
@@ -36,7 +36,7 @@ public class CreateOrderAggregate {
                 .productCode(product.getProductCode())
                 .productName(product.getProductName())
                 .baseQuotaSnapshot(product.getBaseQuota())
-                .orderId(RandomStringUtils.randomNumeric(12))
+                .orderId(newOrderIdentifier())
                 .orderTime(new Date())
                 .totalAmount(product.getPrice())
                 .orderStatusVO(OrderStatusVO.CREATE)
@@ -44,6 +44,10 @@ public class CreateOrderAggregate {
                 .groupActivityId(cart.getActivityId())
                 .groupTeamId(cart.getTeamId())
                 .build();
+    }
+
+    static String newOrderIdentifier() {
+        return UUID.randomUUID().toString().replace("-", "");
     }
 
 }

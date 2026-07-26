@@ -4,7 +4,7 @@ import com.aigroup.groupbuy.api.IDCCService;
 import com.aigroup.groupbuy.domain.activity.model.entity.MarketProductEntity;
 import com.aigroup.groupbuy.domain.activity.model.entity.TrialBalanceEntity;
 import com.aigroup.groupbuy.domain.activity.service.IIndexGroupBuyMarketService;
-import com.alibaba.fastjson.JSON;
+import com.aigroup.groupbuy.types.common.JsonUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -14,8 +14,8 @@ import org.springframework.test.context.junit4.SpringRunner;
 import jakarta.annotation.Resource;
 
 /**
- * @author Fuzhengwei bugstack.cn @灏忓倕鍝?
- * @description 鍔ㄦ?侀厤缃鐞嗘祴璇?
+ * @author Fuzhengwei bugstack.cn @小傅哥
+ * @description 动态配置管理测试
  * @create 2025-01-03 19:43
  */
 @Slf4j
@@ -31,18 +31,18 @@ public class DCCControllerTest {
 
     @Test
     public void test_updateConfig() {
-        // 鍔ㄦ?佽皟鏁撮厤缃?
+        // 动态调整配置
         dccService.updateConfig("downgradeSwitch", "1");
     }
 
     @Test
     public void test_updateConfig2indexMarketTrial() throws Exception {
-        // 鍔ㄦ?佽皟鏁撮厤缃?
+        // 动态调整配置
         dccService.updateConfig("downgradeSwitch", "1");
-        // 瓒呮椂绛夊緟寮傛
+        // 超时等待异步
         Thread.sleep(1000);
 
-        // 钀ラ攢楠岃瘉
+        // 营销验证
         MarketProductEntity marketProductEntity = new MarketProductEntity();
         marketProductEntity.setUserId("xiaofuge");
         marketProductEntity.setSource("s01");
@@ -50,8 +50,8 @@ public class DCCControllerTest {
         marketProductEntity.setGoodsId("9890001");
 
         TrialBalanceEntity trialBalanceEntity = indexGroupBuyMarketService.indexMarketTrial(marketProductEntity);
-        log.info("璇锋眰鍙傛暟:{}", JSON.toJSONString(marketProductEntity));
-        log.info("杩斿洖缁撴灉:{}", JSON.toJSONString(trialBalanceEntity));
+        log.info("请求参数:{}", JsonUtils.toJson(marketProductEntity));
+        log.info("返回结果:{}", JsonUtils.toJson(trialBalanceEntity));
     }
 
 

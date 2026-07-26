@@ -1,12 +1,8 @@
 package com.aigroup.paymall.config;
 
-import com.aigroup.paymall.infrastructure.gateway.IGroupBuyMarketService;
-import com.aigroup.paymall.infrastructure.gateway.IMemberCatalogService;
 import com.aigroup.paymall.infrastructure.gateway.IWeixinApiService;
+import feign.RequestInterceptor;
 import lombok.extern.slf4j.Slf4j;
-import okhttp3.Interceptor;
-import okhttp3.OkHttpClient;
-import okhttp3.Request;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -22,15 +18,12 @@ public class Retrofit2Config {
     public static final String HEADER_INTERNAL_TOKEN = "X-Internal-Token";
     public static final String DEFAULT_MEMBER_SERVICE_URL = "http://127.0.0.1:18082";
 
-    @Value("${app.config.group-buy-market.api-url}")
-    private String groupBuyMarketApiUrl;
-
-    @Value("${app.config.member-service.api-url:" + DEFAULT_MEMBER_SERVICE_URL + "}")
-    private String memberServiceApiUrl;
-
     @Value("${ai-group.internal.token:}")
     private String internalToken;
 
+    /**
+     * 微信公众号外部 API 仍走 Retrofit2（非内部服务调用，不纳入 Nacos/Feign 体系）。
+     */
     @Bean
     @ConditionalOnProperty(name = "weixin.enabled", havingValue = "true")
     public IWeixinApiService weixinApiService() {
@@ -41,44 +34,16 @@ public class Retrofit2Config {
         return retrofit.create(IWeixinApiService.class);
     }
 
+    /**
+     * Feign 全局请求拦截器：为内部服务调用（group / member-service）注入 X-Internal-Token 网关身份头，
+     * 替代原 Retrofit2 OkHttp Interceptor。
+     */
     @Bean
-    public IGroupBuyMarketService groupBuyMarketService() {
-        OkHttpClient.Builder clientBuilder = new OkHttpClient.Builder();
-        if (StringUtils.isNotBlank(internalToken)) {
-            clientBuilder.addInterceptor(internalTokenInterceptor(internalToken));
-            log.info("group-buy Retrofit client configured with X-Internal-Token interceptor");
-        } else {
-            log.warn("ai-group.internal.token is blank; group-buy Retrofit calls will omit X-Internal-Token");
-        }
-
-        Retrofit retrofit = new Retrofit.Builder()
-                .baseUrl(groupBuyMarketApiUrl)
-                .client(clientBuilder.build())
-                .addConverterFactory(JacksonConverterFactory.create())
-                .build();
-
-        return retrofit.create(IGroupBuyMarketService.class);
-    }
-
-    @Bean
-    public IMemberCatalogService memberCatalogService() {
-        OkHttpClient client = new OkHttpClient.Builder()
-                .addInterceptor(internalTokenInterceptor(internalToken))
-                .build();
-        Retrofit retrofit = new Retrofit.Builder()
-                .baseUrl(memberServiceApiUrl)
-                .client(client)
-                .addConverterFactory(JacksonConverterFactory.create())
-                .build();
-        return retrofit.create(IMemberCatalogService.class);
-    }
-
-    static Interceptor internalTokenInterceptor(String token) {
-        return chain -> {
-            Request request = chain.request().newBuilder()
-                    .header(HEADER_INTERNAL_TOKEN, token)
-                    .build();
-            return chain.proceed(request);
+    public RequestInterceptor internalTokenRequestInterceptor() {
+        return template -> {
+            if (StringUtils.isNotBlank(internalToken)) {
+                template.header(HEADER_INTERNAL_TOKEN, internalToken);
+            }
         };
     }
 }

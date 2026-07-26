@@ -14,9 +14,9 @@ import jakarta.annotation.Resource;
 import java.util.Map;
 
 /**
- * 閫?鍗曡妭鐐?
+ * 退单节点
  *
- * @author xiaofuge bugstack.cn @灏忓倕鍝?
+ * @author xiaofuge bugstack.cn @小傅哥
  * 2025/7/30 10:31
  */
 @Slf4j
@@ -28,20 +28,20 @@ public class RefundOrderNodeFilter implements ILogicHandler<TradeRefundCommandEn
 
     @Override
     public TradeRefundBehaviorEntity apply(TradeRefundCommandEntity tradeRefundCommandEntity, TradeRefundRuleFilterFactory.DynamicContext dynamicContext) throws Exception {
-        log.info("閫嗗悜娴佺▼-閫?鍗曟搷浣滐紝閫?鍗曠瓥鐣ュ鐞?userId:{} outTradeNo:{}", tradeRefundCommandEntity.getUserId(), tradeRefundCommandEntity.getOutTradeNo());
+        log.info("逆向流程-退单操作，退单策略处理 userId:{} outTradeNo:{}", tradeRefundCommandEntity.getUserId(), tradeRefundCommandEntity.getOutTradeNo());
 
-        // 涓婁笅鏂囨暟鎹?
+        // 上下文数据
         MarketPayOrderEntity marketPayOrderEntity = dynamicContext.getMarketPayOrderEntity();
         TradeOrderStatusEnumVO tradeOrderStatusEnumVO = marketPayOrderEntity.getTradeOrderStatusEnumVO();
 
         GroupBuyTeamEntity groupBuyTeamEntity = dynamicContext.getGroupBuyTeamEntity();
         GroupBuyOrderEnumVO groupBuyOrderEnumVO = groupBuyTeamEntity.getStatus();
 
-        // 鑾峰彇鎵ц绛栫暐
+        // 获取执行策略
         RefundTypeEnumVO refundType = RefundTypeEnumVO.getRefundStrategy(groupBuyOrderEnumVO, tradeOrderStatusEnumVO);
         IRefundOrderStrategy refundOrderStrategy = refundOrderStrategyMap.get(refundType.getStrategy());
 
-        // 鎵ц閫?鍗曟搷浣?
+        // 执行退单操作
         refundOrderStrategy.refundOrder(TradeRefundOrderEntity.builder()
                 .userId(tradeRefundCommandEntity.getUserId())
                 .orderId(marketPayOrderEntity.getOrderId())

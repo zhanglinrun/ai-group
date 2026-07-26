@@ -27,6 +27,17 @@ public class InternalTokenAuthFilterTest {
     }
 
     @Test
+    public void shouldFailStartupWhenDccTokenBlankEvenIfTradeAuthDisabled() {
+        InternalTokenAuthFilter filter = newFilter(false, "");
+        try {
+            filter.afterPropertiesSet();
+            fail("DCC must never start without an internal token");
+        } catch (IllegalStateException expected) {
+            // expected
+        }
+    }
+
+    @Test
     public void shouldRejectTradeWithoutOrWithWrongToken() throws Exception {
         InternalTokenAuthFilter filter = newFilter(true, "secret");
         filter.afterPropertiesSet();

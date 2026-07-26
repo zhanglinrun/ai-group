@@ -30,14 +30,14 @@ public class LoginController implements IAuthService {
     public Response<String> weixinQrCodeTicket() {
         try {
             String qrCodeTicket = loginService.createQrCodeTicket();
-            log.info("鐢熸垚寰俊鎵爜鐧诲綍 ticket:{}", qrCodeTicket);
+            log.info("生成微信扫码登录 ticket:{}", qrCodeTicket);
             return Response.<String>builder()
                     .code(Constants.ResponseCode.SUCCESS.getCode())
                     .info(Constants.ResponseCode.SUCCESS.getInfo())
                     .data(qrCodeTicket)
                     .build();
         } catch (Exception e) {
-            log.error("鐢熸垚寰俊鎵爜鐧诲綍 ticket 澶辫触", e);
+            log.error("生成微信扫码登录 ticket 失败", e);
             return Response.<String>builder()
                     .code(Constants.ResponseCode.UN_ERROR.getCode())
                     .info(Constants.ResponseCode.UN_ERROR.getInfo())
@@ -54,14 +54,14 @@ public class LoginController implements IAuthService {
     public Response<String> weixinQrCodeTicket(@RequestParam String sceneStr) {
         try {
             String qrCodeTicket = loginService.createQrCodeTicket(sceneStr);
-            log.info("鐢熸垚寰俊鎵爜鐧诲綍 ticket:{}", qrCodeTicket);
+            log.info("生成微信扫码登录 ticket:{}", qrCodeTicket);
             return Response.<String>builder()
                     .code(Constants.ResponseCode.SUCCESS.getCode())
                     .info(Constants.ResponseCode.SUCCESS.getInfo())
                     .data(qrCodeTicket)
                     .build();
         } catch (Exception e) {
-            log.error("鐢熸垚寰俊鎵爜鐧诲綍 ticket 澶辫触", e);
+            log.error("生成微信扫码登录 ticket 失败", e);
             return Response.<String>builder()
                     .code(Constants.ResponseCode.UN_ERROR.getCode())
                     .info(Constants.ResponseCode.UN_ERROR.getInfo())
@@ -77,7 +77,7 @@ public class LoginController implements IAuthService {
     public Response<String> checkLogin(@RequestParam String ticket) {
         try {
             String openidToken = loginService.checkLogin(ticket);
-            log.info("鎵爜妫?娴嬬櫥褰曠粨鏋?ticket:{} openidToken:{}", ticket, openidToken);
+            log.info("扫码检测登录结果 ticket:{} openidToken:{}", ticket, openidToken);
             if (StringUtils.isNotBlank(openidToken)) {
                 return Response.<String>builder()
                         .code(Constants.ResponseCode.SUCCESS.getCode())
@@ -91,7 +91,7 @@ public class LoginController implements IAuthService {
                         .build();
             }
         } catch (Exception e) {
-            log.error("鎵爜妫?娴嬬櫥褰曠粨鏋滃け璐?ticket:{}", ticket, e);
+            log.error("扫码检测登录结果失败 ticket:{}", ticket, e);
             return Response.<String>builder()
                     .code(Constants.ResponseCode.UN_ERROR.getCode())
                     .info(Constants.ResponseCode.UN_ERROR.getInfo())
@@ -104,7 +104,7 @@ public class LoginController implements IAuthService {
     public Response<String> checkLogin(@RequestParam String ticket, @RequestParam String sceneStr) {
         try {
             String openidToken = loginService.checkLogin(ticket, sceneStr);
-            log.info("鎵爜妫?娴嬬櫥褰曠粨鏋?ticket:{} openidToken:{} sceneStr:{}", ticket, openidToken, sceneStr);
+            log.info("扫码检测登录结果 ticket:{} openidToken:{} sceneStr:{}", ticket, openidToken, sceneStr);
             if (StringUtils.isNotBlank(openidToken)) {
                 return Response.<String>builder()
                         .code(Constants.ResponseCode.SUCCESS.getCode())
@@ -118,7 +118,7 @@ public class LoginController implements IAuthService {
                         .build();
             }
         } catch (Exception e) {
-            log.error("鎵爜妫?娴嬬櫥褰曠粨鏋滃け璐?ticket:{}", ticket, e);
+            log.error("扫码检测登录结果失败 ticket:{}", ticket, e);
             return Response.<String>builder()
                     .code(Constants.ResponseCode.UN_ERROR.getCode())
                     .info(Constants.ResponseCode.UN_ERROR.getInfo())

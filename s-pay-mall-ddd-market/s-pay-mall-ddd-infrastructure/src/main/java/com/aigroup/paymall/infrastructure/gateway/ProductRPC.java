@@ -26,13 +26,9 @@ public class ProductRPC {
      */
     public ProductDTO queryProductByProductId(String productId) {
         try {
-            retrofit2.Response<MemberResult<MemberSkuDTO>> response =
-                    memberCatalogService.queryEnabledSkuByGoodsId(productId).execute();
-            MemberResult<MemberSkuDTO> body = response.body();
-            if (!response.isSuccessful() || body == null || !Integer.valueOf(200).equals(body.getCode())
-                    || body.getData() == null) {
-                throw new IllegalStateException("member catalog rejected goodsId=" + productId
-                        + " http=" + response.code());
+            MemberResult<MemberSkuDTO> body = memberCatalogService.queryEnabledSkuByGoodsId(productId);
+            if (body == null || !Integer.valueOf(200).equals(body.getCode()) || body.getData() == null) {
+                throw new IllegalStateException("member catalog rejected goodsId=" + productId);
             }
             MemberSkuDTO sku = body.getData();
             if (!productId.equals(sku.getGroupGoodsId()) || sku.getCode() == null || sku.getPrice() == null

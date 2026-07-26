@@ -23,13 +23,11 @@ public class DemoGroupPort implements IDemoGroupPort {
         request.setUserId(userId);
         request.setOutTradeNo(outTradeNo);
         try {
-            retrofit2.Response<Response<String>> httpResponse =
-                    groupBuyMarketService.finalizeDemoMarketPayOrder(request).execute();
-            Response<String> body = httpResponse.body();
-            boolean accepted = httpResponse.isSuccessful() && body != null && "0000".equals(body.getCode());
+            Response<String> body = groupBuyMarketService.finalizeDemoMarketPayOrder(request);
+            boolean accepted = body != null && "0000".equals(body.getCode());
             if (!accepted) {
-                log.warn("demo group finalize rejected userId={} outTradeNo={} http={} body={}",
-                        userId, outTradeNo, httpResponse.code(), body);
+                log.warn("demo group finalize rejected userId={} outTradeNo={} body={}",
+                        userId, outTradeNo, body);
             }
             return accepted;
         } catch (Exception e) {

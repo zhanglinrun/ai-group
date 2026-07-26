@@ -7,7 +7,7 @@ import com.aigroup.groupbuy.api.response.Response;
 import com.aigroup.groupbuy.domain.trade.model.entity.TradeRefundBehaviorEntity;
 import com.aigroup.groupbuy.domain.trade.model.entity.TradeRefundCommandEntity;
 import com.aigroup.groupbuy.domain.trade.service.ITradeRefundOrderService;
-import com.alibaba.fastjson.JSON;
+import com.aigroup.groupbuy.types.common.JsonUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.RandomStringUtils;
 import org.junit.Test;
@@ -19,9 +19,9 @@ import jakarta.annotation.Resource;
 import java.util.concurrent.CountDownLatch;
 
 /**
- * 閿佸崟銆佹仮澶嶃?侀攣鍗?
+ * 锁单、恢复的锁单
  *
- * @author xiaofuge bugstack.cn @灏忓倕鍝?
+ * @author xiaofuge bugstack.cn @小傅哥
  * 2025/7/29 10:34
  */
 @Slf4j
@@ -46,10 +46,10 @@ public class ITradeReverseStockServiceTest {
 
         TradeRefundBehaviorEntity tradeRefundBehaviorEntity = tradeRefundOrderService.refundOrder(tradeRefundCommandEntity);
 
-        log.info("璇锋眰鍙傛暟:{}", JSON.toJSONString(tradeRefundCommandEntity));
-        log.info("娴嬭瘯缁撴灉:{}", JSON.toJSONString(tradeRefundBehaviorEntity));
+        log.info("请求参数:{}", JsonUtils.toJson(tradeRefundCommandEntity));
+        log.info("测试结果:{}", JsonUtils.toJson(tradeRefundBehaviorEntity));
 
-        // 鏆傚仠锛岀瓑寰匨Q娑堟伅銆傚鐞嗗畬鍚庯紝鎵嬪姩鍏抽棴绋嬪簭
+        // 暂停，等待MQ消息。处理完后，手动关闭程序
         new CountDownLatch(1).await();
     }
 
@@ -70,7 +70,7 @@ public class ITradeReverseStockServiceTest {
             Response<LockMarketPayOrderResponseDTO> lockMarketPayOrderResponseDTOResponse = marketTradeService.lockMarketPayOrder(lockMarketPayOrderRequestDTO);
             teamId = lockMarketPayOrderResponseDTOResponse.getData().getTeamId();
 
-            log.info("绗瑊}绗旓紝娴嬭瘯缁撴灉 req:{} res:{}", i, JSON.toJSONString(lockMarketPayOrderRequestDTO), JSON.toJSONString(lockMarketPayOrderResponseDTOResponse));
+            log.info("第{}笔，测试结果 req:{} res:{}", i, JsonUtils.toJson(lockMarketPayOrderRequestDTO), JsonUtils.toJson(lockMarketPayOrderResponseDTOResponse));
         }
 
     }
@@ -89,7 +89,7 @@ public class ITradeReverseStockServiceTest {
 
         Response<LockMarketPayOrderResponseDTO> lockMarketPayOrderResponseDTOResponse = marketTradeService.lockMarketPayOrder(lockMarketPayOrderRequestDTO);
 
-        log.info("娴嬭瘯缁撴灉 req:{} res:{}", JSON.toJSONString(lockMarketPayOrderRequestDTO), JSON.toJSONString(lockMarketPayOrderResponseDTOResponse));
+        log.info("测试结果 req:{} res:{}", JsonUtils.toJson(lockMarketPayOrderRequestDTO), JsonUtils.toJson(lockMarketPayOrderResponseDTOResponse));
     }
 
 }

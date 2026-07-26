@@ -18,6 +18,7 @@ public class DynamicConfigProperties {
         map.put("cutRange", "100");
         map.put("scBlacklist", "s02c02");
         map.put("cacheSwitch", "0");
+        map.put("rateLimiterSwitch", "open");
         return map;
     }
 }

@@ -1,12 +1,12 @@
 # 支付与拼团结算服务
 
-该工程负责额度商品下单、支付宝支付、拼团结算、退款，以及支付结果到会员额度发放之间的可靠事件交付。
+该工程负责额度商品下单、支付宝支付、拼团结算、退款，以及支付结果到付费额度发放之间的可靠事件交付。
 
 ## 模块
 
 - `s-pay-mall-ddd-app`：Spring Boot 启动、配置、MyBatis 映射与测试。
 - `s-pay-mall-ddd-domain`：订单、商品履约、权益 outbox 与补偿逻辑。
-- `s-pay-mall-ddd-infrastructure`：MySQL、RabbitMQ、支付宝、拼团服务和 member-service 适配。
+- `s-pay-mall-ddd-infrastructure`：MySQL、Kafka、支付宝、拼团服务和 member-service 适配。
 - `s-pay-mall-ddd-trigger`：HTTP 接口、MQ 消费者和定时补偿任务。
 - `s-pay-mall-ddd-api` / `s-pay-mall-ddd-types`：跨层 DTO、事件和公共类型。
 
@@ -39,14 +39,14 @@
 
 支付宝退款成功后，本地关单与 `GROUP_BUY_REVOKED` outbox 原子提交。若同一订单已有完成事件，发布器会先确保完成事件到达 Broker，再发送撤销；member 同时保留乱序 tombstone 防线，使先到的撤销能阻止后到完成事件误发额度。若额度早已发放，member 记录人工审核状态，不自动扣成负余额。
 
-## Outbox 与 RabbitMQ 门禁
+## Outbox 与 Kafka 门禁
 
 现有 `benefit_event` 表作为统一交易 outbox 使用，表名为历史命名。`order_id + event_type` 唯一键保证重复回调只生成一条同类事件。
 
 - 业务事务只写 outbox，不直接发送 MQ。
-- 发布器采用 persistent message、mandatory routing 和 correlated publisher confirm。
-- 只有 broker ACK 且消息未被 returned，才把 `event_published` 更新为 `1`。
-- NACK、不可路由、超时或中断都会保留未发布状态，由轮询任务重试。
+- 发布器采用 Kafka `acks=all` + 幂等生产者，`send().get(timeout)` 同步等待 Broker ACK。
+- 只有 Broker 确认接收，才把 `event_published` 更新为 `1`。
+- 超时、失败或中断都会保留未发布状态，由 XXL-JOB 轮询任务重试。
 - 交付语义为至少一次；member 权益消费和订单履约更新必须保持幂等。
 
 相关迁移：
@@ -61,8 +61,8 @@
 
 - pay 服务默认端口：`8070`
 - member-service 默认地址：`http://127.0.0.1:18082`
-- Rabbit confirm 超时：`RABBITMQ_PUBLISH_CONFIRM_TIMEOUT_MS`，默认 `5000`
-- outbox 扫描间隔：`PAY_OUTBOX_PUBLISH_DELAY_MS`，默认 `1000`
+- Kafka 发布确认超时：`KAFKA_PUBLISH_CONFIRM_TIMEOUT_MS`，默认 `5000`
+- outbox 扫描由 XXL-JOB admin 集中调度（`outboxEventPublishJob`）
 
 ## 测试
 
@@ -71,4 +71,4 @@ $ErrorActionPreference = 'Stop'
 mvn -pl s-pay-mall-ddd-app -am test -DskipTests=false
 ```
 
-2026-07-17 本地快照为 `78/78` 通过。单元测试使用 Mockito 模拟 Rabbit confirm/return，不依赖真实 RabbitMQ；数据库迁移仍应在目标 MySQL 环境幂等执行并核验。
+2026-07-17 本地快照为 `78/78` 通过。单元测试使用 Mockito 模拟 Kafka send/ACK，不依赖真实 Kafka；数据库迁移仍应在目标 MySQL 环境幂等执行并核验。

@@ -15,8 +15,8 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 /**
- * @author Fuzhengwei bugstack.cn @灏忓倕鍝?
- * @description 娲诲姩浠撳偍
+ * @author Fuzhengwei bugstack.cn @小傅哥
+ * @description 活动仓储
  * @create 2024-12-21 10:10
  */
 @Repository
@@ -43,14 +43,14 @@ public class ActivityRepository extends AbstractRepository implements IActivityR
 
     @Override
     public GroupBuyActivityDiscountVO queryGroupBuyActivityDiscountVO(Long activityId) {
-        // 浼樺厛浠庣紦瀛樿幏鍙?鍐欑紦瀛橈紝娉ㄦ剰濡傛灉瀹炵幇浜嗗悗鍙伴厤缃紝鍦ㄦ洿鏂版椂瑕佹洿搴擄紝鍒犵紦瀛樸??
+        // 优先从缓存获取&写缓存，注意如果实现了后台配置，在更新时要更库，删缓存。
         GroupBuyActivity groupBuyActivityRes = getFromCacheOrDb(GroupBuyActivity.cacheRedisKey(activityId),
                 () -> groupBuyActivityDao.queryValidGroupBuyActivityId(activityId));
         if (null == groupBuyActivityRes) return null;
 
         String discountId = groupBuyActivityRes.getDiscountId();
 
-        // 浼樺厛浠庣紦瀛樿幏鍙?鍐欑紦瀛?
+        // 优先从缓存获取&写缓存
         GroupBuyDiscount groupBuyDiscountRes = getFromCacheOrDb(GroupBuyDiscount.cacheRedisKey(discountId),
                 () -> groupBuyDiscountDao.queryGroupBuyActivityDiscountByDiscountId(discountId));
         if (null == groupBuyDiscountRes) return null;
@@ -129,7 +129,7 @@ public class ActivityRepository extends AbstractRepository implements IActivityR
     public boolean isTagCrowdRange(String tagId, String userId) {
         RBitSet bitSet = redisService.getBitSet(tagId);
         if (!bitSet.isExists()) return true;
-        // 鍒ゆ柇鐢ㄦ埛鏄惁瀛樺湪浜虹兢涓?
+        // 判断用户是否存在人群中
         return bitSet.get(redisService.getIndexFromUserId(userId));
     }
 
@@ -145,7 +145,7 @@ public class ActivityRepository extends AbstractRepository implements IActivityR
 
     @Override
     public List<UserGroupBuyOrderDetailEntity> queryInProgressUserGroupBuyOrderDetailListByOwner(Long activityId, String userId, Integer ownerCount) {
-        // 1. 鏍规嵁鐢ㄦ埛ID銆佹椿鍔↖D锛屾煡璇㈢敤鎴峰弬涓庣殑鎷煎洟闃熶紞
+        // 1. 根据用户ID、活动ID，查询用户参与的拼团队伍
         GroupBuyOrderList groupBuyOrderListReq = new GroupBuyOrderList();
         groupBuyOrderListReq.setActivityId(activityId);
         groupBuyOrderListReq.setUserId(userId);
@@ -153,20 +153,20 @@ public class ActivityRepository extends AbstractRepository implements IActivityR
         List<GroupBuyOrderList> groupBuyOrderLists = groupBuyOrderListDao.queryInProgressUserGroupBuyOrderDetailListByUserId(groupBuyOrderListReq);
         if (null == groupBuyOrderLists || groupBuyOrderLists.isEmpty()) return null;
 
-        // 2. 杩囨护闃熶紞鑾峰彇 TeamId
+        // 2. 过滤队伍获取 TeamId
         Set<String> teamIds = groupBuyOrderLists.stream()
                 .map(GroupBuyOrderList::getTeamId)
-                .filter(teamId -> teamId != null && !teamId.isEmpty()) // 杩囨护闈炵┖鍜岄潪绌哄瓧绗︿覆
+                .filter(teamId -> teamId != null && !teamId.isEmpty()) // 过滤非空和非空字符串
                 .collect(Collectors.toSet());
 
-        // 3. 鏌ヨ闃熶紞鏄庣粏锛岀粍瑁匨ap缁撴瀯
+        // 3. 查询队伍明细，组装Map结构
         List<GroupBuyOrder> groupBuyOrders = groupBuyOrderDao.queryGroupBuyProgressByTeamIds(teamIds);
         if (null == groupBuyOrders || groupBuyOrders.isEmpty()) return null;
 
         Map<String, GroupBuyOrder> groupBuyOrderMap = groupBuyOrders.stream()
                 .collect(Collectors.toMap(GroupBuyOrder::getTeamId, order -> order));
 
-        // 4. 杞崲鏁版嵁
+        // 4. 转换数据
         List<UserGroupBuyOrderDetailEntity> userGroupBuyOrderDetailEntities = new ArrayList<>();
         for (GroupBuyOrderList groupBuyOrderList : groupBuyOrderLists) {
             String teamId = groupBuyOrderList.getTeamId();
@@ -194,36 +194,36 @@ public class ActivityRepository extends AbstractRepository implements IActivityR
 
     @Override
     public List<UserGroupBuyOrderDetailEntity> queryInProgressUserGroupBuyOrderDetailListByRandom(Long activityId, String userId, Integer randomCount) {
-        // 1. 鏍规嵁鐢ㄦ埛ID銆佹椿鍔↖D锛屾煡璇㈢敤鎴峰弬涓庣殑鎷煎洟闃熶紞
+        // 1. 根据用户ID、活动ID，查询用户参与的拼团队伍
         GroupBuyOrderList groupBuyOrderListReq = new GroupBuyOrderList();
         groupBuyOrderListReq.setActivityId(activityId);
         groupBuyOrderListReq.setUserId(userId);
-        groupBuyOrderListReq.setCount(randomCount * 2); // 鏌ヨ2鍊嶇殑閲忥紝涔嬪悗鍏朵腑 randomCount 鏁伴噺
+        groupBuyOrderListReq.setCount(randomCount * 2); // 查询2倍的量，之后其中 randomCount 数量
         List<GroupBuyOrderList> groupBuyOrderLists = groupBuyOrderListDao.queryInProgressUserGroupBuyOrderDetailListByRandom(groupBuyOrderListReq);
         if (null == groupBuyOrderLists || groupBuyOrderLists.isEmpty()) return null;
 
-        // 鍒ゆ柇鎬婚噺鏄惁澶т簬 randomCount
+        // 判断总量是否大于 randomCount
         if (groupBuyOrderLists.size() > randomCount) {
-            // 闅忔満鎵撲贡鍒楄〃
+            // 随机打乱列表
             Collections.shuffle(groupBuyOrderLists);
-            // 鑾峰彇鍓?randomCount 涓厓绱?
+            // 获取前 randomCount 个元素
             groupBuyOrderLists = groupBuyOrderLists.subList(0, randomCount);
         }
 
-        // 2. 杩囨护闃熶紞鑾峰彇 TeamId
+        // 2. 过滤队伍获取 TeamId
         Set<String> teamIds = groupBuyOrderLists.stream()
                 .map(GroupBuyOrderList::getTeamId)
-                .filter(teamId -> teamId != null && !teamId.isEmpty()) // 杩囨护闈炵┖鍜岄潪绌哄瓧绗︿覆
+                .filter(teamId -> teamId != null && !teamId.isEmpty()) // 过滤非空和非空字符串
                 .collect(Collectors.toSet());
 
-        // 3. 鏌ヨ闃熶紞鏄庣粏锛岀粍瑁匨ap缁撴瀯
+        // 3. 查询队伍明细，组装Map结构
         List<GroupBuyOrder> groupBuyOrders = groupBuyOrderDao.queryGroupBuyProgressByTeamIds(teamIds);
         if (null == groupBuyOrders || groupBuyOrders.isEmpty()) return null;
 
         Map<String, GroupBuyOrder> groupBuyOrderMap = groupBuyOrders.stream()
                 .collect(Collectors.toMap(GroupBuyOrder::getTeamId, order -> order));
 
-        // 4. 杞崲鏁版嵁
+        // 4. 转换数据
         List<UserGroupBuyOrderDetailEntity> userGroupBuyOrderDetailEntities = new ArrayList<>();
         for (GroupBuyOrderList groupBuyOrderList : groupBuyOrderLists) {
             String teamId = groupBuyOrderList.getTeamId();
@@ -250,25 +250,25 @@ public class ActivityRepository extends AbstractRepository implements IActivityR
 
     @Override
     public TeamStatisticVO queryTeamStatisticByActivityId(Long activityId) {
-        // 1. 鏍规嵁娲诲姩ID鏌ヨ鎷煎洟闃熶紞
+        // 1. 根据活动ID查询拼团队伍
         List<GroupBuyOrderList> groupBuyOrderLists = groupBuyOrderListDao.queryInProgressUserGroupBuyOrderDetailListByActivityId(activityId);
 
         if (null == groupBuyOrderLists || groupBuyOrderLists.isEmpty()) {
             return new TeamStatisticVO(0, 0, 0);
         }
 
-        // 2. 杩囨护闃熶紞鑾峰彇 TeamId
+        // 2. 过滤队伍获取 TeamId
         Set<String> teamIds = groupBuyOrderLists.stream()
                 .map(GroupBuyOrderList::getTeamId)
-                .filter(teamId -> teamId != null && !teamId.isEmpty()) // 杩囨护闈炵┖鍜岄潪绌哄瓧绗︿覆
+                .filter(teamId -> teamId != null && !teamId.isEmpty()) // 过滤非空和非空字符串
                 .collect(Collectors.toSet());
 
-        // 3. 缁熻鏁版嵁
+        // 3. 统计数据
         Integer allTeamCount = groupBuyOrderDao.queryAllTeamCount(teamIds);
         Integer allTeamCompleteCount = groupBuyOrderDao.queryAllTeamCompleteCount(teamIds);
         Integer allTeamUserCount = groupBuyOrderDao.queryAllUserCount(teamIds);
 
-        // 4. 鏋勫缓瀵硅薄
+        // 4. 构建对象
         return TeamStatisticVO.builder()
                 .allTeamCount(allTeamCount)
                 .allTeamCompleteCount(allTeamCompleteCount)

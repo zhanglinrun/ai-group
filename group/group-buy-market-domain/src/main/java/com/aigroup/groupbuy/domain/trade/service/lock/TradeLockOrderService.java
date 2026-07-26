@@ -13,8 +13,8 @@ import org.springframework.stereotype.Service;
 import jakarta.annotation.Resource;
 
 /**
- * @author Fuzhengwei bugstack.cn @灏忓倕鍝?
- * @description 浜ゆ槗璁㈠崟鏈嶅姟
+ * @author Fuzhengwei bugstack.cn @小傅哥
+ * @description 交易订单服务
  * @create 2025-01-11 08:07
  */
 @Slf4j
@@ -28,7 +28,7 @@ public class TradeLockOrderService implements ITradeLockOrderService {
 
     @Override
     public MarketPayOrderEntity queryNoPayMarketPayOrderByOutTradeNo(String userId, String outTradeNo) {
-        log.info("鎷煎洟浜ゆ槗-鏌ヨ鏈敮浠樿惀閿?璁㈠崟:{} outTradeNo:{}", userId, outTradeNo);
+        log.info("拼团交易-查询未支付营销订单:{} outTradeNo:{}", userId, outTradeNo);
         return repository.queryMarketPayOrderEntityByOutTradeNo(userId, outTradeNo);
     }
 
@@ -42,15 +42,15 @@ public class TradeLockOrderService implements ITradeLockOrderService {
 
     @Override
     public GroupBuyProgressVO queryGroupBuyProgress(String teamId) {
-        log.info("鎷煎洟浜ゆ槗-鏌ヨ鎷煎崟杩涘害:{}", teamId);
+        log.info("拼团交易-查询拼单进度:{}", teamId);
         return repository.queryGroupBuyProgress(teamId);
     }
 
     @Override
     public MarketPayOrderEntity lockMarketPayOrder(UserEntity userEntity, PayActivityEntity payActivityEntity, PayDiscountEntity payDiscountEntity) throws Exception {
-        log.info("鎷煎洟浜ゆ槗-閿佸畾钀ラ攢浼樻儬鏀粯璁㈠崟:{} activityId:{} goodsId:{}", userEntity.getUserId(), payActivityEntity.getActivityId(), payDiscountEntity.getGoodsId());
+        log.info("拼团交易-锁定营销优惠支付订单:{} activityId:{} goodsId:{}", userEntity.getUserId(), payActivityEntity.getActivityId(), payDiscountEntity.getGoodsId());
 
-        // 浜ゆ槗瑙勫垯杩囨护
+        // 交易规则过滤
         TradeLockRuleFilterBackEntity tradeLockRuleFilterBackEntity = tradeRuleFilter.apply(TradeLockRuleCommandEntity.builder()
                         .activityId(payActivityEntity.getActivityId())
                         .userId(userEntity.getUserId())
@@ -58,10 +58,10 @@ public class TradeLockOrderService implements ITradeLockOrderService {
                         .build(),
                 new TradeLockRuleFilterFactory.DynamicContext());
 
-        // 宸插弬涓庢嫾鍥㈤噺 - 鐢ㄤ簬鏋勫缓鏁版嵁搴撳敮涓?绱㈠紩浣跨敤锛岀‘淇濈敤鎴峰彧鑳藉湪涓?涓椿鍔ㄤ笂鍙備笌鍥哄畾鐨勬鏁?
+        // 已参与拼团量 - 用于构建数据库唯一索引使用，确保用户只能在一个活动上参与固定的次数
         Integer userTakeOrderCount = tradeLockRuleFilterBackEntity.getUserTakeOrderCount();
 
-        // 鏋勫缓鑱氬悎瀵硅薄
+        // 构建聚合对象
         GroupBuyOrderAggregate groupBuyOrderAggregate = GroupBuyOrderAggregate.builder()
                 .userEntity(userEntity)
                 .payActivityEntity(payActivityEntity)
@@ -70,10 +70,10 @@ public class TradeLockOrderService implements ITradeLockOrderService {
                 .build();
 
         try {
-            // 閿佸畾鑱氬悎璁㈠崟 - 杩欎細鐢ㄦ埛鍙槸涓嬪崟杩樻病鏈夋敮浠樸?傚悗缁細鏈?涓祦绋嬶紱鏀粯鎴愬姛銆佽秴鏃舵湭鏀粯锛堝洖閫?锛?
+            // 锁定聚合订单 - 这会用户只是下单还没有支付。后续会有2个流程；支付成功、超时未支付（回退）
             return repository.lockMarketPayOrder(groupBuyOrderAggregate);
         } catch (Exception e) {
-            // 璁板綍澶辫触鎭㈠閲?
+            // 记录失败恢复量
             repository.recoveryTeamStock(tradeLockRuleFilterBackEntity.getRecoveryTeamStockKey(), payActivityEntity.getValidTime());
             throw e;
         }
