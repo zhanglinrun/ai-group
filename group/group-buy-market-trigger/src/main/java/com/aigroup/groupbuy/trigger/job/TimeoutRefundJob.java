@@ -42,6 +42,10 @@ public class TimeoutRefundJob {
 
             log.info("timeout refund job finished unpaid[success={} fail={}] paidUnformed[success={} fail={}]",
                     unpaid[0], unpaid[1], paidUnformed[0], paidUnformed[1]);
+            int failures = unpaid[1] + paidUnformed[1];
+            if (failures > 0) {
+                throw new IllegalStateException("timeout refund job failed orders=" + failures);
+            }
 
         } catch (Exception e) {
             log.error("timeout refund job failed", e);

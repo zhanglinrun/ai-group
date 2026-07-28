@@ -6,9 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 
-/**
- * Jackson-based JSON utility replacing fastjson static access ({@code JSON.toJSONString} / {@code JSON.parseObject}).
- */
+/** Jackson-based JSON utility. */
 public final class JsonUtils {
 
     private static final ObjectMapper MAPPER = new ObjectMapper()

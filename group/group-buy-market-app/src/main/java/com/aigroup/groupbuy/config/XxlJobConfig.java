@@ -6,21 +6,18 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
-/**
- * XXL-JOB 执行器配置。替代原 Spring @Scheduled + Redisson 分布式锁方案：
- * 调度由 XXL-JOB admin 中心集中管理，天然单实例分片，无需在业务侧加锁。
- */
+/** XXL-JOB 执行器配置。 */
 @Slf4j
 @Configuration
 public class XxlJobConfig {
 
-    @Value("${xxl.job.admin.addresses:http://127.0.0.1:18081/xxl-job-admin}")
+    @Value("${xxl.job.admin.addresses:http://127.0.0.1:18081}")
     private String adminAddresses;
 
     @Value("${xxl.job.accessToken:default_token}")
     private String accessToken;
 
-    @Value("${xxl.job.executor.appname:group-buy-market}")
+    @Value("${xxl.job.executor.appname:group}")
     private String appname;
 
     @Value("${xxl.job.executor.address:}")

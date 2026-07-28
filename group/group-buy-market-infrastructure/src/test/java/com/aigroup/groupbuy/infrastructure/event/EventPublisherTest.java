@@ -12,6 +12,8 @@ import org.springframework.kafka.support.SendResult;
 
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
+import java.util.ArrayList;
+import java.util.List;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThrows;
@@ -97,11 +99,37 @@ public class EventPublisherTest {
         assertEquals("notify-retry", keyCaptor.getValue());
     }
 
+    @Test
+    public void publishRejectsInvalidBrokerMetadata() {
+        String topic = "group.team_success";
+        List<SendResult<String, String>> invalidResults = new ArrayList<>();
+        invalidResults.add(null);
+        invalidResults.add(new SendResult<>(new ProducerRecord<>(topic, "key", "payload"), null));
+        invalidResults.add(sendResult("wrong.topic", 0, 0));
+        invalidResults.add(sendResult(topic, -1, 0));
+        invalidResults.add(sendResult(topic, 0, -1));
+
+        EventPublisher publisher = new EventPublisher(kafkaTemplate, 1000);
+        for (SendResult<String, String> result : invalidResults) {
+            stubSendResult(result);
+            IllegalStateException error = assertThrows(IllegalStateException.class,
+                    () -> publisher.publish(topic, "payload", "notify-invalid"));
+            assertTrue(error.getMessage().contains("broker returned invalid record metadata"));
+        }
+    }
+
     private void stubSendOk() {
-        CompletableFuture<SendResult<String, String>> future = CompletableFuture.completedFuture(
-                new SendResult<>(
-                        new ProducerRecord<>("group.team_success", "key", "payload"),
-                        new RecordMetadata(new TopicPartition("group.team_success", 0), 0L, 0, 0, 0L, 0, 0)));
+        stubSendResult(sendResult("group.team_success", 0, 0));
+    }
+
+    private SendResult<String, String> sendResult(String topic, int partition, long offset) {
+        return new SendResult<>(
+                new ProducerRecord<>(topic, "key", "payload"),
+                new RecordMetadata(new TopicPartition(topic, partition), offset, 0, 0, 0L, 0, 0));
+    }
+
+    private void stubSendResult(SendResult<String, String> result) {
+        CompletableFuture<SendResult<String, String>> future = CompletableFuture.completedFuture(result);
         when(kafkaTemplate.send(anyString(), anyString(), anyString())).thenReturn(future);
     }
 

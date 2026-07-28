@@ -1,16 +1,30 @@
 spring:
-  config:
-    name: group-buy-market-app
+  application:
+    name: group
   profiles:
     active: dev
+  cloud:
+    compatibility-verifier:
+      enabled: false
+    nacos:
+      discovery:
+        server-addr: ${NACOS_HOST:127.0.0.1}:${NACOS_PORT:8848}
+        namespace: ${NACOS_NAMESPACE:public}
+        username: ${NACOS_USERNAME:nacos}
+        password: ${NACOS_PASSWORD:nacos}
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:127.0.0.1:9092}
     producer:
       acks: all
       properties:
         enable.idempotence: true
+        request.timeout.ms: 5000
+        delivery.timeout.ms: 10000
     consumer:
+      enable-auto-commit: false
       auto-offset-reset: earliest
+    listener:
+      ack-mode: manual_immediate
     config:
       producer:
         confirm-timeout-ms: ${KAFKA_PUBLISH_CONFIRM_TIMEOUT_MS:5000}

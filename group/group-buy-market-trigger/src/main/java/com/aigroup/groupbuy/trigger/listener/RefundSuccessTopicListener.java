@@ -5,6 +5,7 @@ import com.aigroup.groupbuy.domain.trade.service.ITradeRefundOrderService;
 import com.aigroup.groupbuy.types.common.JsonUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.annotation.KafkaListener;
+import org.springframework.kafka.support.Acknowledgment;
 import org.springframework.stereotype.Component;
 
 import jakarta.annotation.Resource;
@@ -27,11 +28,12 @@ public class RefundSuccessTopicListener {
     @KafkaListener(
             topics = "${spring.kafka.config.producer.topic_team_refund.topic:group.team_refund}",
             groupId = "${spring.kafka.config.consumer.group-id:group-buy-market}")
-    public void listener(String message) {
+    public void listener(String message, Acknowledgment acknowledgment) {
         log.info("receive message (team refund) - restore team lock stock:{}", message);
         TeamRefundSuccess teamRefundSuccess = JsonUtils.parseObject(message, TeamRefundSuccess.class);
         try {
             tradeRefundOrderService.restoreTeamLockStock(teamRefundSuccess);
+            acknowledgment.acknowledge();
         } catch (Exception e) {
             log.error("receive message (team refund) - restore team lock stock failed:{}", message, e);
             throw new RuntimeException(e);

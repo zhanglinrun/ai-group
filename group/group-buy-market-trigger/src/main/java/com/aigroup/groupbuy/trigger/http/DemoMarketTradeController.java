@@ -14,7 +14,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Dev-only team finalization used by the local interview demonstration payment flow.
+ * Dev-only team finalization used by the local integration demonstration payment flow.
  * The enclosing trade path is additionally protected by {@code InternalTokenAuthFilter}.
  */
 @RestController

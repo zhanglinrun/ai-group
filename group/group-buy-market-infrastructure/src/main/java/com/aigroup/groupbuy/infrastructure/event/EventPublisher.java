@@ -11,10 +11,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
 /**
- * Kafka-based event publisher replacing the RabbitMQ publisher-confirm pattern.
- * {@code send().get(timeout)} blocks until the broker ACKs (acks=all), providing
- * the same "only return after broker confirms" semantics as the legacy RabbitMQ
- * publisher confirm. NACK, timeout and interruption all keep the outbox row retryable.
+ * {@code send().get(timeout)} blocks until the broker ACKs (acks=all).
+ * NACK, timeout and interruption all keep the outbox row retryable.
  */
 @Slf4j
 @Component
@@ -47,6 +45,12 @@ public class EventPublisher {
         try {
             SendResult<String, String> result = kafkaTemplate.send(topic, key, message)
                     .get(confirmTimeoutMillis, TimeUnit.MILLISECONDS);
+            if (result == null || result.getRecordMetadata() == null
+                    || !topic.equals(result.getRecordMetadata().topic())
+                    || result.getRecordMetadata().partition() < 0
+                    || result.getRecordMetadata().offset() < 0) {
+                throw publishFailure(topic, "broker returned invalid record metadata", null);
+            }
             log.debug("kafka publish ok topic={} partition={} offset={}",
                     topic, result.getRecordMetadata().partition(), result.getRecordMetadata().offset());
         } catch (TimeoutException e) {

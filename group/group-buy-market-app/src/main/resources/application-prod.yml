@@ -46,6 +46,7 @@ spring:
       acks: all
       properties:
         enable.idempotence: true
+        request.timeout.ms: 5000
         delivery.timeout.ms: 10000
     consumer:
       group-id: group-buy-market

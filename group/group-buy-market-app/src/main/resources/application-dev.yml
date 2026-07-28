@@ -46,6 +46,7 @@ spring:
       acks: all
       properties:
         enable.idempotence: true
+        request.timeout.ms: 5000
         delivery.timeout.ms: 10000
     consumer:
       group-id: group-buy-market
@@ -133,7 +134,7 @@ ai-group:
 xxl:
   job:
     admin:
-      addresses: ${XXL_JOB_ADMIN_ADDRESSES:http://127.0.0.1:18081/xxl-job-admin}
+      addresses: ${XXL_JOB_ADMIN_ADDRESSES:http://127.0.0.1:18081}
     accessToken: ${XXL_JOB_ACCESS_TOKEN:default_token}
     executor:
       logpath: ${XXL_JOB_LOGPATH:./logs/xxl-job/group}
