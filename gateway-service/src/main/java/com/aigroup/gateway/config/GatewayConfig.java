@@ -56,7 +56,7 @@ public class GatewayConfig {
                 .route("group", r -> r.path("/api/group/**")
                         .filters(f -> f.dedupeResponseHeader(CORS_RESPONSE_HEADERS, CORS_DEDUPE_STRATEGY))
                         .uri(groupUri))
-                .route("agent-api", r -> r.path("/api/agent/**")
+                .route("agent-api", r -> r.path("/api/agent/**", "/api/v1/agent/**")
                         .filters(f -> f
                                 .setResponseHeader("X-Accel-Buffering", "no")
                                 .dedupeResponseHeader(CORS_RESPONSE_HEADERS, CORS_DEDUPE_STRATEGY))

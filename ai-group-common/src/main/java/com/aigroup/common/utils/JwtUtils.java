@@ -13,6 +13,8 @@ import org.springframework.util.StringUtils;
 
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
@@ -24,6 +26,9 @@ import java.util.UUID;
 @Component
 public class JwtUtils {
 
+    public static final int MAX_TOKEN_LENGTH = 4096;
+    private static final int MIN_HMAC_SECRET_BYTES = 32;
+
     private final JwtProperties jwtProperties;
     private SecretKey signingKey;
 
@@ -33,10 +38,17 @@ public class JwtUtils {
 
     @PostConstruct
     void init() {
-        if (!StringUtils.hasText(jwtProperties.getSecret())) {
+        String secret = jwtProperties.getSecret();
+        if (!StringUtils.hasText(secret)) {
             throw new IllegalStateException("JWT secret is not configured (set JWT_SECRET env var)");
         }
-        this.signingKey = Keys.hmacShaKeyFor(jwtProperties.getSecret().getBytes(StandardCharsets.UTF_8));
+        byte[] secretBytes = secret.getBytes(StandardCharsets.UTF_8);
+        if (secretBytes.length < MIN_HMAC_SECRET_BYTES
+                || "change-me-to-a-long-random-secret".equals(secret)
+                || secret.contains("change-in-prod")) {
+            throw new IllegalStateException("JWT secret must be a random value of at least 32 bytes");
+        }
+        this.signingKey = Keys.hmacShaKeyFor(secretBytes);
     }
 
     public String generateToken(Long userId, String username) {
@@ -81,6 +93,9 @@ public class JwtUtils {
 
     public Claims parseToken(String token) {
         try {
+            if (!StringUtils.hasText(token) || token.length() > MAX_TOKEN_LENGTH) {
+                throw new IllegalArgumentException("invalid token length");
+            }
             return Jwts.parserBuilder()
                     .setSigningKey(signingKey)
                     .build()
@@ -98,6 +113,44 @@ public class JwtUtils {
         } catch (Exception e) {
             return false;
         }
+    }
+
+    /** Parse a signed, unexpired access token in one operation. */
+    public Claims parseAccessToken(String token) {
+        Claims claims = parseToken(token);
+        if (!CommonConstant.TOKEN_TYPE_ACCESS.equals(
+                claims.get(CommonConstant.TOKEN_CLAIM_TYPE, String.class))) {
+            throw new TokenException(ErrorCodeEnum.TOKEN_ERROR);
+        }
+        if (claims.getExpiration() == null || !claims.getExpiration().after(new Date())) {
+            throw new TokenException(ErrorCodeEnum.TOKEN_ERROR);
+        }
+        return claims;
+    }
+
+    /** Use a bounded digest as the Redis blacklist key; never persist a bearer token. */
+    public String blacklistKey(String token) {
+        if (!StringUtils.hasText(token) || token.length() > MAX_TOKEN_LENGTH) {
+            throw new TokenException(ErrorCodeEnum.TOKEN_ERROR);
+        }
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                    .digest(token.getBytes(StandardCharsets.UTF_8));
+            StringBuilder hex = new StringBuilder(digest.length * 2);
+            for (byte value : digest) {
+                hex.append(Character.forDigit((value >>> 4) & 0x0f, 16));
+                hex.append(Character.forDigit(value & 0x0f, 16));
+            }
+            return hex.toString();
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 is unavailable", e);
+        }
+    }
+
+    public long remainingTtlMillis(Claims claims, long configuredMaxTtlMillis) {
+        long remaining = claims.getExpiration().getTime() - System.currentTimeMillis();
+        long upperBound = configuredMaxTtlMillis > 0 ? configuredMaxTtlMillis : remaining;
+        return Math.max(1_000L, Math.min(remaining, upperBound));
     }
 
     public Long getUserId(String token) {

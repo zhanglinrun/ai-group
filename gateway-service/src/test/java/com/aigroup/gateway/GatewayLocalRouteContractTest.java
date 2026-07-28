@@ -13,7 +13,11 @@ import java.net.URI;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-@SpringBootTest(properties = "spring.cloud.nacos.discovery.enabled=false")
+@SpringBootTest(properties = {
+        "spring.cloud.nacos.discovery.enabled=false",
+        "jwt.secret=test-jwt-secret-for-local-regression-012345678901234567890123",
+        "ai-group.internal.token=test-internal-token-for-local-regression-012345678901234567890"
+})
 @ActiveProfiles("local")
 class GatewayLocalRouteContractTest {
 

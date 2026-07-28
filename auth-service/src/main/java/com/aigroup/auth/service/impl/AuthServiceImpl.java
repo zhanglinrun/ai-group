@@ -15,6 +15,7 @@ import com.aigroup.common.constant.ErrorCodeEnum;
 import com.aigroup.common.exception.BusinessException;
 import com.aigroup.common.model.Result;
 import com.aigroup.common.utils.JwtUtils;
+import io.jsonwebtoken.Claims;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.BeanUtils;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -80,7 +81,7 @@ public class AuthServiceImpl implements AuthService {
 
         Result<Void> initResult = memberClient.initFree(Map.of("userId", user.getId()));
         if (initResult == null || initResult.getCode() == null || initResult.getCode() != 200) {
-            throw new BusinessException("failed to initialize free membership");
+            throw new BusinessException("failed to initialize free quota account");
         }
 
         UserVO userVO = new UserVO();
@@ -138,19 +139,20 @@ public class AuthServiceImpl implements AuthService {
         if (!StringUtils.hasText(accessToken)) {
             return;
         }
-        long ttlMs = jwtProperties.getAccessExpirationMs();
-        stringRedisTemplate.opsForValue().set(
-                BLACKLIST_PREFIX + accessToken,
-                "1",
-                Duration.ofMillis(ttlMs)
-        );
         try {
-            Long userId = jwtUtils.getUserId(accessToken);
+            Claims claims = jwtUtils.parseAccessToken(accessToken);
+            Long userId = claims.get("userId", Long.class);
+            long ttlMs = jwtUtils.remainingTtlMillis(claims, jwtProperties.getAccessExpirationMs());
+            stringRedisTemplate.opsForValue().set(
+                    BLACKLIST_PREFIX + jwtUtils.blacklistKey(accessToken),
+                    "1",
+                    Duration.ofMillis(ttlMs)
+            );
             if (userId != null) {
                 refreshTokenStore.revokeAllForUser(userId);
             }
         } catch (Exception ignore) {
-            // ignore parse errors
+            // Invalid, expired or non-access tokens are not persisted or revoked.
         }
     }
 

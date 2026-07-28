@@ -5,7 +5,8 @@ import com.aigroup.member.service.MemberService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.amqp.rabbit.annotation.RabbitListener;
+import org.springframework.kafka.annotation.KafkaListener;
+import org.springframework.kafka.support.Acknowledgment;
 import org.springframework.stereotype.Component;
 
 @Slf4j
@@ -16,12 +17,15 @@ public class BenefitEventConsumer {
     private final MemberService memberService;
     private final ObjectMapper objectMapper;
 
-    @RabbitListener(queues = "${ai-group.member.benefit-queue:member.benefit.queue}")
-    public void onTradeCompleted(String payload) {
+    @KafkaListener(
+            topics = "${ai-group.member.benefit-topic:member.benefit.completed}",
+            groupId = "${spring.kafka.consumer.group-id:member-service}")
+    public void onTradeCompleted(String payload, Acknowledgment acknowledgment) {
         try {
             TradeCompletedEvent event = objectMapper.readValue(payload, TradeCompletedEvent.class);
             log.info("Received trade completed event: orderId={}, userId={}", event.getOrderId(), event.getUserId());
             memberService.handleBenefitEvent(event);
+            acknowledgment.acknowledge();
         } catch (Exception ex) {
             log.error("Failed to consume TradeCompletedEvent: {}", payload, ex);
             throw new IllegalStateException("TradeCompletedEvent consume failed", ex);

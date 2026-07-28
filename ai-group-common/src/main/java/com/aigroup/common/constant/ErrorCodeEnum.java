@@ -28,7 +28,7 @@ public enum ErrorCodeEnum {
     USER_EXISTED(607, "用户已存在"),
     PASSWORD_ERROR(608, "密码错误"),
 
-    MEMBER_NOT_FOUND(620, "会员账户不存在"),
+    QUOTA_ACCOUNT_NOT_FOUND(620, "额度账户不存在"),
     QUOTA_INSUFFICIENT(621, "配额不足"),
     FREEZE_NOT_FOUND(622, "预扣记录不存在"),
 

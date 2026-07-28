@@ -14,9 +14,3 @@ CREATE TABLE IF NOT EXISTS `user` (
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_username` (`username`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
--- 运营端管理员种子账号：admin / Admin@123456（BCrypt），role=ADMIN。
--- 经普通登录接口签发的 JWT 携带 ADMIN 角色，网关注入 X-Role 后各服务据此放行管理接口。
-INSERT INTO `user` (`username`, `password`, `email`, `role`, `status`) VALUES
-('admin', '$2b$10$7nO4GggILWjB1a1il5dEUuq63JC2qqWTZJjRyshHc53S1nJfyv0uq', 'admin@ai-group.local', 'ADMIN', 1)
-ON DUPLICATE KEY UPDATE `role` = 'ADMIN', `status` = 1;

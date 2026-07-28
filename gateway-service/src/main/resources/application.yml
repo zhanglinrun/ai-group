@@ -10,6 +10,8 @@ spring:
       discovery:
         server-addr: ${NACOS_HOST:127.0.0.1}:${NACOS_PORT:8848}
         namespace: public
+        username: ${NACOS_USERNAME:nacos}
+        password: ${NACOS_PASSWORD:nacos}
     gateway:
       server:
         webflux:
@@ -20,6 +22,7 @@ spring:
     redis:
       host: ${REDIS_HOST:127.0.0.1}
       port: ${REDIS_PORT:16379}
+      password: ${REDIS_PASSWORD:}
       database: 0
   http:
     codecs:
@@ -35,7 +38,7 @@ management:
         include: health,info,prometheus
 
 jwt:
-  secret: ${JWT_SECRET:change-me-to-a-long-random-secret}
+  secret: ${JWT_SECRET:}
 
 gateway:
   route:
@@ -44,13 +47,12 @@ gateway:
     member-uri: lb://member
     bff-uri: lb://bff
     agent-uri: lb://agent
-    # group/pay 为独立集成业务系统（未注册 Nacos），经配置端点转发
-    pay-uri: http://127.0.0.1:8070
-    group-uri: http://127.0.0.1:8091
+    pay-uri: lb://pay
+    group-uri: lb://group
 
 ai-group:
   internal:
-    token: ${AI_GROUP_INTERNAL_TOKEN:change-me-to-a-long-random-internal-token}
+    token: ${AI_GROUP_INTERNAL_TOKEN:}
 
 logging:
   level:

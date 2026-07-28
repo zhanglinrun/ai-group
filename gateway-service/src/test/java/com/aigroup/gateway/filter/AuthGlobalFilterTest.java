@@ -3,6 +3,7 @@ package com.aigroup.gateway.filter;
 import com.aigroup.common.config.InternalTokenProperties;
 import com.aigroup.common.constant.CommonConstant;
 import com.aigroup.common.utils.JwtUtils;
+import io.jsonwebtoken.Claims;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -18,7 +19,6 @@ import reactor.test.StepVerifier;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -28,6 +28,8 @@ class AuthGlobalFilterTest {
     private JwtUtils jwtUtils;
     @Mock
     private ReactiveStringRedisTemplate reactiveStringRedisTemplate;
+    @Mock
+    private Claims claims;
 
     private InternalTokenProperties internalTokenProperties;
     private AuthGlobalFilter filter;
@@ -83,8 +85,7 @@ class AuthGlobalFilterTest {
 
     @Test
     void userApi_withRefreshToken_isUnauthorized() {
-        when(jwtUtils.validateToken("refresh-token")).thenReturn(true);
-        when(jwtUtils.getTokenType("refresh-token")).thenReturn(CommonConstant.TOKEN_TYPE_REFRESH);
+        when(jwtUtils.parseAccessToken("refresh-token")).thenThrow(new IllegalArgumentException("not access"));
 
         MockServerHttpRequest request = MockServerHttpRequest
                 .get("/api/bff/account/summary")
@@ -113,12 +114,12 @@ class AuthGlobalFilterTest {
 
     @Test
     void userApi_withValidJwt_injectsGatewayIdentityHeaders() {
-        when(jwtUtils.validateToken("valid-token")).thenReturn(true);
-        when(jwtUtils.getTokenType("valid-token")).thenReturn(CommonConstant.TOKEN_TYPE_ACCESS);
-        when(reactiveStringRedisTemplate.hasKey(anyString())).thenReturn(Mono.just(false));
-        when(jwtUtils.getUserId("valid-token")).thenReturn(42L);
-        when(jwtUtils.getUsername("valid-token")).thenReturn("smoke_user");
-        when(jwtUtils.getRole("valid-token")).thenReturn("USER");
+        when(jwtUtils.parseAccessToken("valid-token")).thenReturn(claims);
+        when(jwtUtils.blacklistKey("valid-token")).thenReturn("digest");
+        when(reactiveStringRedisTemplate.hasKey("jwt:blacklist:digest")).thenReturn(Mono.just(false));
+        when(claims.get(CommonConstant.TOKEN_CLAIM_USER_ID, Long.class)).thenReturn(42L);
+        when(claims.get(CommonConstant.TOKEN_CLAIM_USERNAME, String.class)).thenReturn("smoke_user");
+        when(claims.get(CommonConstant.TOKEN_CLAIM_ROLE, String.class)).thenReturn("USER");
 
         MockServerHttpRequest request = MockServerHttpRequest
                 .get("/api/bff/account/summary")

@@ -9,8 +9,6 @@ import org.springframework.stereotype.Component;
 @ConfigurationProperties(prefix = "ai-group.internal")
 public class InternalTokenProperties {
 
-    /**
-     * Shared secret for /internal/** service-to-service calls.
-     */
-    private String token = "change-me-to-a-long-random-internal-token";
+    /** Shared secret for /internal/** service-to-service calls. */
+    private String token;
 }

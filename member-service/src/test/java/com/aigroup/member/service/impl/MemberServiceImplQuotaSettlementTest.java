@@ -3,6 +3,7 @@ package com.aigroup.member.service.impl;
 import com.aigroup.common.exception.BusinessException;
 import com.aigroup.member.entity.QuotaAccount;
 import com.aigroup.member.entity.QuotaFreeze;
+import com.aigroup.member.entity.QuotaLedger;
 import com.aigroup.member.mapper.BenefitGrantEventMapper;
 import com.aigroup.member.mapper.ProductSkuMapper;
 import com.aigroup.member.mapper.QuotaAccountMapper;
@@ -82,7 +83,7 @@ class MemberServiceImplQuotaSettlementTest {
                 1001L, 8_000L, 2_000L, "image", "billing-1", "unknown-service"));
 
         verify(quotaAccountMapper, never()).selectForUpdateByUserId(any());
-        verify(quotaFreezeMapper, never()).insert(any());
+        verify(quotaFreezeMapper, never()).insert(any(QuotaFreeze.class));
     }
 
     @Test
@@ -103,7 +104,7 @@ class MemberServiceImplQuotaSettlementTest {
 
         assertEquals("existing-freeze", result.get("freezeId"));
         verify(quotaAccountMapper, never()).freezeBalanceIfAvailable(any(), anyLong());
-        verify(quotaFreezeMapper, never()).insert(any());
+        verify(quotaFreezeMapper, never()).insert(any(QuotaFreeze.class));
     }
 
     @Test
@@ -129,7 +130,7 @@ class MemberServiceImplQuotaSettlementTest {
                         1001L, 4_000L, 2_000L, "deep-search", "billing-1", "legacy"))
         );
         verify(quotaAccountMapper, never()).freezeBalanceIfAvailable(any(), anyLong());
-        verify(quotaFreezeMapper, never()).insert(any());
+        verify(quotaFreezeMapper, never()).insert(any(QuotaFreeze.class));
     }
 
     @Test
@@ -153,7 +154,7 @@ class MemberServiceImplQuotaSettlementTest {
         );
         verify(quotaAccountMapper, times(1)).updateById(account);
         verify(quotaFreezeMapper, times(1)).updateById(freeze);
-        verify(quotaLedgerMapper, times(1)).insert(any());
+        verify(quotaLedgerMapper, times(1)).insert(any(QuotaLedger.class));
     }
 
     @Test
@@ -183,7 +184,7 @@ class MemberServiceImplQuotaSettlementTest {
         assertEquals("RELEASED", replay.getStatus());
         verify(quotaAccountMapper, times(1)).releaseFrozenBalance(1001L, 5_000L);
         verify(quotaFreezeMapper, times(1)).updateById(freeze);
-        verify(quotaLedgerMapper, times(1)).insert(any());
+        verify(quotaLedgerMapper, times(1)).insert(any(QuotaLedger.class));
     }
 
     @Test
@@ -222,8 +223,8 @@ class MemberServiceImplQuotaSettlementTest {
         assertEquals("CONFIRMED",
                 memberService.releaseWithStatus("release-loser").getStatus());
         verify(quotaAccountMapper, never()).releaseFrozenBalance(any(), anyLong());
-        verify(quotaAccountMapper, never()).updateById(any());
-        verify(quotaLedgerMapper, never()).insert(any());
+        verify(quotaAccountMapper, never()).updateById(any(QuotaAccount.class));
+        verify(quotaLedgerMapper, never()).insert(any(QuotaLedger.class));
     }
 
     @Test

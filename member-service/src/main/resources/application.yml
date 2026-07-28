@@ -4,29 +4,37 @@ spring:
   datasource:
     url: jdbc:mysql://${MYSQL_HOST:127.0.0.1}:${MYSQL_PORT:13306}/member_db?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
     username: ${MYSQL_USER:root}
-    password: ${MYSQL_ROOT_PASSWORD:123456}
+    password: ${MYSQL_ROOT_PASSWORD:}
     driver-class-name: com.mysql.cj.jdbc.Driver
-  rabbitmq:
-    host: ${RABBITMQ_HOST:127.0.0.1}
-    port: ${RABBITMQ_PORT:5672}
-    username: ${RABBITMQ_USER:admin}
-    password: ${RABBITMQ_PASSWORD:admin}
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:127.0.0.1:9092}
+    consumer:
+      group-id: member-service
+      enable-auto-commit: false
+      auto-offset-reset: earliest
+      properties:
+        spring.json.trusted.packages: "*"
+    producer:
+      acks: all
+      properties:
+        enable.idempotence: true
+        request.timeout.ms: 5000
+        delivery.timeout.ms: 10000
     listener:
-      simple:
-        acknowledge-mode: auto
-        default-requeue-rejected: false
-        retry:
-          enabled: true
-          max-attempts: 4
-          initial-interval: 2000ms
-          multiplier: 2
-          max-interval: 20000ms
+      ack-mode: manual_immediate
   cloud:
     compatibility-verifier:
       enabled: false
     nacos:
       discovery:
         server-addr: ${NACOS_HOST:127.0.0.1}:${NACOS_PORT:8848}
+        username: ${NACOS_USERNAME:nacos}
+        password: ${NACOS_PASSWORD:nacos}
+  data:
+    redis:
+      host: ${REDIS_HOST:127.0.0.1}
+      port: ${REDIS_PORT:16379}
+      password: ${REDIS_PASSWORD:}
 
 mybatis-plus:
   configuration:
@@ -35,16 +43,23 @@ mybatis-plus:
 # member 不校验 JWT（信任网关注入的身份头），但 common 模块的 JwtUtils 被扫描实例化，
 # 其 @PostConstruct 要求 secret 非空；提供 dev 默认值以便本服务可独立启动。
 jwt:
-  secret: ${JWT_SECRET:change-me-to-a-long-random-secret}
+  secret: ${JWT_SECRET:}
 
 server:
   port: ${SERVER_PORT:18082}
 
 ai-group:
   member:
-    benefit-queue: member.benefit.queue
-    benefit-exchange: member.benefit.exchange
-    benefit-routing-key: member.benefit.completed
-    monthly-grant-cron: "0 0 1 * * ?"
+    benefit-topic: member.benefit.completed
   internal:
-    token: ${AI_GROUP_INTERNAL_TOKEN:change-me-to-a-long-random-internal-token}
+    token: ${AI_GROUP_INTERNAL_TOKEN:}
+
+# XXL-JOB 执行器配置
+xxl:
+  job:
+    admin:
+      addresses: ${XXL_JOB_ADMIN_ADDRESSES:http://127.0.0.1:18081}
+    accessToken: ${XXL_JOB_ACCESS_TOKEN:default_token}
+    executor:
+      logpath: ${XXL_JOB_LOGPATH:./logs/xxl-job/member}
+      logretentiondays: 30

@@ -128,7 +128,7 @@ class MemberServiceImplBenefitTest {
         memberService.confirm("freeze-1", 1_000L);
 
         verify(quotaAccountMapper, never()).selectForUpdateByUserId(any());
-        verify(quotaLedgerMapper, never()).insert(any());
+        verify(quotaLedgerMapper, never()).insert(any(QuotaLedger.class));
     }
 
     @Test
@@ -141,7 +141,7 @@ class MemberServiceImplBenefitTest {
         assertThrows(BusinessException.class, () -> memberService.confirm("freeze-1", 900L));
 
         verify(quotaAccountMapper, never()).selectForUpdateByUserId(any());
-        verify(quotaLedgerMapper, never()).insert(any());
+        verify(quotaLedgerMapper, never()).insert(any(QuotaLedger.class));
     }
 
     @Test
@@ -179,7 +179,7 @@ class MemberServiceImplBenefitTest {
         memberService.handleBenefitEvent(completedEvent(500L, 50L));
 
         verify(quotaAccountMapper).selectForUpdateByUserId(1001L);
-        verify(quotaLedgerMapper, never()).insert(any());
+        verify(quotaLedgerMapper, never()).insert(any(QuotaLedger.class));
     }
 
     @Test

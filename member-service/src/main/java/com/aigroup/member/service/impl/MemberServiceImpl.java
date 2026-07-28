@@ -113,7 +113,7 @@ public class MemberServiceImpl implements MemberService {
         QuotaAccount quota = quotaAccountMapper.selectOne(
                 new LambdaQueryWrapper<QuotaAccount>().eq(QuotaAccount::getUserId, userId));
         if (quota == null) {
-            throw new BusinessException(ErrorCodeEnum.MEMBER_NOT_FOUND);
+            throw new BusinessException(ErrorCodeEnum.QUOTA_ACCOUNT_NOT_FOUND);
         }
         MemberSummaryVO vo = new MemberSummaryVO();
         vo.setUserId(userId);
@@ -162,7 +162,7 @@ public class MemberServiceImpl implements MemberService {
                 userId, requestedAmount, minAmount, normalizedAbilityCode, normalizedOwnerService);
         QuotaAccount locked = quotaAccountMapper.selectForUpdateByUserId(userId);
         if (locked == null) {
-            throw new BusinessException(ErrorCodeEnum.MEMBER_NOT_FOUND);
+            throw new BusinessException(ErrorCodeEnum.QUOTA_ACCOUNT_NOT_FOUND);
         }
         if (StringUtils.hasText(requestId)) {
             QuotaFreeze concurrentExisting = quotaFreezeMapper
@@ -241,7 +241,7 @@ public class MemberServiceImpl implements MemberService {
         // order deadlocked against a concurrent idempotent freeze retry for the same user.
         QuotaAccount quota = quotaAccountMapper.selectForUpdateByUserId(snapshot.getUserId());
         if (quota == null) {
-            throw new BusinessException(ErrorCodeEnum.MEMBER_NOT_FOUND);
+            throw new BusinessException(ErrorCodeEnum.QUOTA_ACCOUNT_NOT_FOUND);
         }
         QuotaFreeze freeze = quotaFreezeMapper.selectForUpdateByFreezeId(freezeId);
         if (freeze == null || !Objects.equals(snapshot.getUserId(), freeze.getUserId())) {
@@ -302,7 +302,7 @@ public class MemberServiceImpl implements MemberService {
         }
         QuotaAccount account = quotaAccountMapper.selectForUpdateByUserId(snapshot.getUserId());
         if (account == null) {
-            throw new BusinessException(ErrorCodeEnum.MEMBER_NOT_FOUND);
+            throw new BusinessException(ErrorCodeEnum.QUOTA_ACCOUNT_NOT_FOUND);
         }
         QuotaFreeze freeze = quotaFreezeMapper.selectForUpdateByFreezeId(freezeId);
         if (freeze == null || !Objects.equals(snapshot.getUserId(), freeze.getUserId())) {
@@ -638,7 +638,7 @@ public class MemberServiceImpl implements MemberService {
     private QuotaAccount requireQuota(Long userId) {
         QuotaAccount quota = quotaAccountMapper.selectForUpdateByUserId(userId);
         if (quota == null) {
-            throw new BusinessException(ErrorCodeEnum.MEMBER_NOT_FOUND);
+            throw new BusinessException(ErrorCodeEnum.QUOTA_ACCOUNT_NOT_FOUND);
         }
         return quota;
     }

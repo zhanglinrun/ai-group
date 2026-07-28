@@ -4,12 +4,13 @@ spring:
   datasource:
     url: jdbc:mysql://${MYSQL_HOST:127.0.0.1}:${MYSQL_PORT:13306}/auth_db?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
     username: ${MYSQL_USER:root}
-    password: ${MYSQL_ROOT_PASSWORD:123456}
+    password: ${MYSQL_ROOT_PASSWORD:}
     driver-class-name: com.mysql.cj.jdbc.Driver
   data:
     redis:
       host: ${REDIS_HOST:127.0.0.1}
       port: ${REDIS_PORT:16379}
+      password: ${REDIS_PASSWORD:}
       database: 0
   cloud:
     compatibility-verifier:
@@ -17,6 +18,8 @@ spring:
     nacos:
       discovery:
         server-addr: ${NACOS_HOST:127.0.0.1}:${NACOS_PORT:8848}
+        username: ${NACOS_USERNAME:nacos}
+        password: ${NACOS_PASSWORD:nacos}
 
 mybatis-plus:
   configuration:
@@ -26,9 +29,9 @@ server:
   port: 8081
 
 jwt:
-  secret: ${JWT_SECRET:change-me-to-a-long-random-secret}
+  secret: ${JWT_SECRET:}
 
 ai-group:
   # member.url 留空：默认走 Nacos 服务发现调用 member；local profile 覆盖为直连
   internal:
-    token: ${AI_GROUP_INTERNAL_TOKEN:change-me-to-a-long-random-internal-token}
+    token: ${AI_GROUP_INTERNAL_TOKEN:}

@@ -7,6 +7,8 @@ spring:
     nacos:
       discovery:
         server-addr: ${NACOS_HOST:127.0.0.1}:${NACOS_PORT:8848}
+        username: ${NACOS_USERNAME:nacos}
+        password: ${NACOS_PASSWORD:nacos}
 
 server:
   port: 8083
@@ -14,14 +16,9 @@ server:
 # bff 不校验 JWT（信任网关注入的身份头），但 common 模块的 JwtUtils 被扫描实例化，
 # 其 @PostConstruct 要求 secret 非空；提供 dev 默认值以便本服务可独立启动。
 jwt:
-  secret: ${JWT_SECRET:change-me-to-a-long-random-secret}
+  secret: ${JWT_SECRET:}
 
 ai-group:
-  # member.url 留空：默认走 Nacos 服务发现调用 member；local profile 覆盖为直连。
-  # group/pay 未注册 Nacos，仍按配置端点直连。
-  group:
-    url: http://127.0.0.1:8091
-  pay:
-    url: http://127.0.0.1:8070
+  # 下游 URL 默认留空并走 Nacos；local profile 覆盖为固定端口直连。
   internal:
-    token: ${AI_GROUP_INTERNAL_TOKEN:change-me-to-a-long-random-internal-token}
+    token: ${AI_GROUP_INTERNAL_TOKEN:}

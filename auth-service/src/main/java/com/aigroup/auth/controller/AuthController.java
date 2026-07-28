@@ -26,6 +26,8 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class AuthController {
 
+    private static final int MAX_AUTHORIZATION_HEADER_LENGTH = 8192;
+
     private final AuthService authService;
     private final JwtUtils jwtUtils;
 
@@ -47,8 +49,13 @@ public class AuthController {
     @PostMapping("/logout")
     public Result<Void> logout(HttpServletRequest request,
                                @RequestHeader(value = "Authorization", required = false) String authHeader) {
-        if (authHeader != null && authHeader.startsWith(CommonConstant.TOKEN_PREFIX)) {
-            authService.logout(authHeader.substring(CommonConstant.TOKEN_PREFIX.length()));
+        if (authHeader != null
+                && authHeader.length() <= MAX_AUTHORIZATION_HEADER_LENGTH
+                && authHeader.startsWith(CommonConstant.TOKEN_PREFIX)) {
+            String token = authHeader.substring(CommonConstant.TOKEN_PREFIX.length()).trim();
+            if (!token.isEmpty()) {
+                authService.logout(token);
+            }
         }
         return Result.success();
     }

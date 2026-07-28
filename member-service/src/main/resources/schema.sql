@@ -1,7 +1,7 @@
 CREATE DATABASE IF NOT EXISTS `member_db` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE `member_db`;
 
--- One-time development reset from the obsolete membership schema. Re-running this file
+-- One-time development reset from the obsolete period-quota / member-days schema. Re-running this file
 -- after the reset preserves quota, order-benefit and ledger data.
 SET @legacy_member_schema = (
     SELECT COUNT(*) FROM information_schema.columns

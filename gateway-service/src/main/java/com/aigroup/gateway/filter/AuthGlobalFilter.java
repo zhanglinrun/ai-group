@@ -3,6 +3,7 @@ package com.aigroup.gateway.filter;
 import com.aigroup.common.config.InternalTokenProperties;
 import com.aigroup.common.constant.CommonConstant;
 import com.aigroup.common.utils.JwtUtils;
+import io.jsonwebtoken.Claims;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
@@ -77,30 +78,34 @@ public class AuthGlobalFilter implements GlobalFilter, Ordered {
             return unauthorized(exchange);
         }
 
-        String token = authHeader.substring(CommonConstant.TOKEN_PREFIX.length());
-        if (!jwtUtils.validateToken(token)) {
+        String token = authHeader.substring(CommonConstant.TOKEN_PREFIX.length()).trim();
+        if (token.isEmpty() || token.length() > JwtUtils.MAX_TOKEN_LENGTH) {
             return unauthorized(exchange);
         }
-        // Reject refresh tokens (or legacy tokens without a type) presented as access tokens.
-        if (!CommonConstant.TOKEN_TYPE_ACCESS.equals(jwtUtils.getTokenType(token))) {
-            log.warn("Rejected non-access token on API path={}", path);
+        Claims claims;
+        try {
+            claims = jwtUtils.parseAccessToken(token);
+        } catch (Exception ex) {
+            return unauthorized(exchange);
+        }
+        if (claims == null) {
             return unauthorized(exchange);
         }
 
-        return reactiveStringRedisTemplate.hasKey(BLACKLIST_PREFIX + token)
+        return reactiveStringRedisTemplate.hasKey(BLACKLIST_PREFIX + jwtUtils.blacklistKey(token))
                 .defaultIfEmpty(false)
                 .flatMap(blacklisted -> {
                     if (Boolean.TRUE.equals(blacklisted)) {
                         return unauthorized(exchange);
                     }
                     try {
-                        Long userId = jwtUtils.getUserId(token);
+                        Long userId = claims.get(CommonConstant.TOKEN_CLAIM_USER_ID, Long.class);
                         if (userId == null) {
                             log.warn("JWT missing userId claim, path={}", path);
                             return unauthorized(exchange);
                         }
-                        String username = jwtUtils.getUsername(token);
-                        String role = jwtUtils.getRole(token);
+                        String username = claims.get(CommonConstant.TOKEN_CLAIM_USERNAME, String.class);
+                        String role = claims.get(CommonConstant.TOKEN_CLAIM_ROLE, String.class);
                         ServerHttpRequest downstream = GatewayIdentityHeaderSupport.withVerifiedIdentity(
                                 request, userId, username, role, internalTokenProperties.getToken());
                         if (log.isDebugEnabled()) {
