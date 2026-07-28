@@ -72,6 +72,29 @@ class DeepSearchLlmConfigTest(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(all(item["api_base"] == "https://deepsearch.example.com/v1/chat/completions" for item in captured_kwargs))
         self.assertTrue(all(item["api_key"] == "deepsearch-key" for item in captured_kwargs))
 
+    async def test_query_decompose_should_use_default_model_when_specialized_models_are_unset(self):
+        captured_models = []
+
+        async def fake_ask_llm(*args, **kwargs):
+            captured_models.append(kwargs["model"])
+            yield "- 子问题"
+
+        with patch.dict(
+            os.environ,
+            {
+                "DEFAULT_MODEL": "qwen-plus",
+                "QUERY_DECOMPOSE_MODEL": "",
+                "QUERY_DECOMPOSE_THINK_MODEL": "",
+            },
+            clear=False,
+        ), patch(
+            "reactor_tool.tool.search_component.query_process.ask_llm",
+            new=fake_ask_llm,
+        ):
+            await query_decompose("测试问题")
+
+        self.assertEqual(["qwen-plus", "qwen-plus"], captured_models)
+
     async def test_search_reasoning_should_forward_deepsearch_gateway(self):
         captured_kwargs = []
 

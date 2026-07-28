@@ -24,6 +24,7 @@ from reactor_tool.security import (
     validate_bind_address,
 )
 from reactor_tool.util.middleware_util import UnknownException, HTTPProcessTimeMiddleware
+from reactor_tool.util.minio_storage import get_minio_storage
 
 load_dotenv()
 
@@ -52,6 +53,10 @@ async def lifespan(_app: FastAPI):
     """Initialize process-scoped resources using FastAPI's current lifecycle API."""
     log_setting()
     print_logo()
+    object_storage = get_minio_storage()
+    if object_storage is not None:
+        await object_storage.ensure_bucket()
+        logger.info("MinIO object storage ready: bucket={}", object_storage.bucket)
     yield
 
 
@@ -64,7 +69,7 @@ def create_app() -> FastAPI:
 
     @_app.get("/health", include_in_schema=False)
     async def health():
-        return {"status": "UP"}
+        return {"status": "UP", "objectStorage": "minio" if get_minio_storage() else "local"}
 
     return _app
 

@@ -56,6 +56,37 @@ class LlmUtilRoutingTest(unittest.TestCase):
         self.assertEqual(OPENAI_COMPAT_DEFAULT_USER_AGENT, headers["User-Agent"])
 
 class LlmUtilAsyncHeaderTest(unittest.IsolatedAsyncioTestCase):
+    async def test_should_omit_unsupported_sampling_params_for_gpt5(self):
+        captured_raw_call = {}
+
+        async def fake_raw_openai_like_request(*args, **kwargs):
+            captured_raw_call.update(kwargs)
+            yield "ok"
+
+        with patch.dict(
+            os.environ,
+            {
+                "OPENAI_BASE_URL": "https://gateway.example/v1",
+                "OPENAI_API_KEY": "test-openai-key",
+            },
+            clear=False,
+        ), patch(
+            "reactor_tool.util.llm_util._raw_openai_like_request",
+            new=fake_raw_openai_like_request,
+        ):
+            async for _ in ask_llm(
+                messages="hello",
+                model="gpt-5.5",
+                temperature=0.2,
+                top_p=0.95,
+                stream=False,
+                only_content=True,
+            ):
+                pass
+
+        self.assertNotIn("temperature", captured_raw_call["params"])
+        self.assertNotIn("top_p", captured_raw_call["params"])
+
     async def test_should_use_raw_http_for_openai_prefixed_model_when_api_base_is_not_dashscope(self):
         captured_raw_call = {}
 

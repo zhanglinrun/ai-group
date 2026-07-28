@@ -19,7 +19,7 @@ async def answer_question(query: str, search_content: str):
     prompt_template = get_prompt("deepsearch")["answer_prompt"]
 
     llm_config = resolve_openai_compat_env("DEEPSEARCH")
-    model = os.getenv("SEARCH_ANSWER_MODEL", "gpt-4.1")
+    model = os.getenv("SEARCH_ANSWER_MODEL") or os.getenv("DEFAULT_MODEL", "gpt-4.1")
     answer_length = os.getenv("SEARCH_ANSWER_LENGTH", "1000")
 
     prompt = prompt_template.format(

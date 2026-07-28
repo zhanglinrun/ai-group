@@ -118,7 +118,7 @@ def project_search_knowledge(
 
 
 @mcp.tool(
-    description="读取一个内置的项目端到端流程，可用于演示或面试讲解。",
+    description="读取一个内置的项目端到端流程，可用于演示或架构讲解。",
 )
 def project_get_flow(
     flow_name: Annotated[

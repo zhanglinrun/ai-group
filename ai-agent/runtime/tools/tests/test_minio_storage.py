@@ -1,118 +1,137 @@
-import os
+import asyncio
+import io
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
+from starlette.datastructures import UploadFile
 
-from reactor_tool.tool.mrag.utils import minio_utils
+from reactor_tool.db.file_table_op import FileDB, generate_object_name
+from reactor_tool.util.minio_storage import _build_storage, _parse_endpoint, get_minio_storage
 
 
 @pytest.fixture(autouse=True)
-def minio_env(monkeypatch):
+def clean_minio_env(monkeypatch):
+    for name in (
+        "MINIO_ENDPOINT",
+        "MINIO_ACCESS_KEY",
+        "MINIO_SECRET_KEY",
+        "MINIO_ROOT_USER",
+        "MINIO_ROOT_PASSWORD",
+        "MINIO_BUCKET_NAME",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    _build_storage.cache_clear()
+    yield
+    _build_storage.cache_clear()
+
+
+def test_minio_configuration_is_optional_but_partial_configuration_fails(monkeypatch):
+    assert get_minio_storage() is None
     monkeypatch.setenv("MINIO_ENDPOINT", "http://127.0.0.1:9000")
-    monkeypatch.setenv("MINIO_ACCESS_KEY", "minioadmin")
-    monkeypatch.setenv("MINIO_SECRET_KEY", "minioadmin")
-    monkeypatch.setenv("MINIO_BUCKET_NAME", "ai-group")
-    monkeypatch.setenv("REACTOR_TOOL_PUBLIC_BASE_URL", "http://127.0.0.1:1601/v1/storage")
-    monkeypatch.delenv("MINIO_PUBLIC_ENDPOINT", raising=False)
+    with pytest.raises(RuntimeError, match="configured together"):
+        get_minio_storage()
+    monkeypatch.setenv("MINIO_ROOT_USER", "agent")
+    monkeypatch.setenv("MINIO_ROOT_PASSWORD", "root-secret")
+    monkeypatch.setenv("MINIO_ACCESS_KEY", "dedicated")
+    with pytest.raises(RuntimeError, match="ACCESS_KEY and MINIO_SECRET_KEY"):
+        get_minio_storage()
 
 
-def test_parse_minio_endpoint_http_and_https():
-    assert minio_utils.parse_minio_endpoint("http://127.0.0.1:9000") == ("127.0.0.1:9000", False)
-    assert minio_utils.parse_minio_endpoint("https://minio.example.com") == ("minio.example.com", True)
-    assert minio_utils.parse_minio_endpoint("127.0.0.1:9000") == ("127.0.0.1:9000", False)
+def test_parse_minio_endpoint_rejects_embedded_paths():
+    assert _parse_endpoint("127.0.0.1:9000") == ("127.0.0.1:9000", False)
+    assert _parse_endpoint("https://minio.example.com") == ("minio.example.com", True)
+    with pytest.raises(ValueError, match="must not contain"):
+        _parse_endpoint("https://minio.example.com/private")
 
 
-def test_ensure_bucket_ready_requires_existing_bucket():
-    client = MagicMock()
-    client.bucket_exists.return_value = False
-    with pytest.raises(RuntimeError, match="not available"):
-        minio_utils.ensure_bucket_ready(client, "ai-group")
-
-
-def test_upload_minio_uses_explicit_object_key_and_presign(tmp_path):
-    local_file = tmp_path / "demo.pdf"
-    local_file.write_bytes(b"%PDF-1.4")
+def test_file_db_writes_through_and_restores_from_minio(monkeypatch, tmp_path):
+    monkeypatch.setenv("MINIO_ENDPOINT", "http://127.0.0.1:9000")
+    monkeypatch.setenv("MINIO_ROOT_USER", "agent")
+    monkeypatch.setenv("MINIO_ROOT_PASSWORD", "test-secret")
+    monkeypatch.setenv("MINIO_BUCKET_NAME", "agent-files")
 
     client = MagicMock()
     client.bucket_exists.return_value = True
-    public_client = MagicMock()
-    public_client.presigned_get_object.return_value = "http://minio/presigned"
+    client.fget_object.side_effect = lambda _bucket, _key, target: Path(target).write_bytes(b"payload")
+    original_work_dir = FileDB._work_dir
+    FileDB._work_dir = str(tmp_path)
+    upload = UploadFile(filename="poster.png", file=io.BytesIO(b"payload"))
 
-    with (
-        patch("reactor_tool.tool.mrag.utils.minio_utils.create_minio_client", side_effect=[client, public_client]),
-        patch("reactor_tool.tool.mrag.utils.minio_utils.ensure_bucket_ready", return_value="ai-group"),
-    ):
-        ok, permanent, presigned, object_key = minio_utils.upload_minio(
-            str(local_file),
-            object_key="documents/2026/07/12/doc-1/demo.pdf",
-            is_delete=False,
+    try:
+        with patch("reactor_tool.util.minio_storage.Minio", return_value=client):
+            object_name = generate_object_name("file-id-001", "poster.png")
+            local_path = asyncio.run(
+                FileDB.save_by_data(
+                    upload,
+                    scope="session-1",
+                    object_name=object_name,
+                    max_size_bytes=1024,
+                )
+            )
+            client.fput_object.assert_called_once_with(
+                "agent-files",
+                "file-fileid001.png",
+                local_path,
+                content_type="image/png",
+            )
+
+            Path(local_path).unlink()
+            restored = asyncio.run(
+                FileDB.ensure_local(
+                    SimpleNamespace(file_path=local_path, file_id="file-id-001", filename="poster.png")
+                )
+            )
+
+        assert restored is True
+        assert Path(local_path).read_bytes() == b"payload"
+        client.fget_object.assert_called_once_with(
+            "agent-files",
+            "file-fileid001.png",
+            local_path,
         )
-
-    assert ok is True
-    assert object_key == "documents/2026/07/12/doc-1/demo.pdf"
-    assert permanent.startswith("http://127.0.0.1:1601/v1/storage/download/ai-group/")
-    assert "/documents/2026/07/12/doc-1/demo.pdf/" in permanent
-    assert permanent.endswith(minio_utils.generate_secure_token("ai-group", object_key))
-    assert presigned == "http://minio/presigned"
-    client.fput_object.assert_called_once_with(
-        "ai-group",
-        "documents/2026/07/12/doc-1/demo.pdf",
-        str(local_file),
-    )
+    finally:
+        FileDB._work_dir = original_work_dir
 
 
-def test_download_proxy_rejects_bad_token_and_closes_stream():
-    app = FastAPI()
-    app.include_router(minio_utils.router, prefix="/v1")
-    client = TestClient(app)
+def test_minio_storage_supports_download_bytes_and_delete(monkeypatch):
+    monkeypatch.setenv("MINIO_ENDPOINT", "http://127.0.0.1:9000")
+    monkeypatch.setenv("MINIO_ROOT_USER", "agent")
+    monkeypatch.setenv("MINIO_ROOT_PASSWORD", "test-secret")
+    response = MagicMock()
+    response.read.return_value = b"stored-content"
+    client = MagicMock()
+    client.bucket_exists.return_value = False
+    client.get_object.return_value = response
 
-    object_key = "documents/demo.pdf"
-    bad = client.get(f"/v1/storage/download/ai-group/{object_key}/bad-token")
-    assert bad.status_code == 403
+    with patch("reactor_tool.util.minio_storage.Minio", return_value=client):
+        storage = get_minio_storage()
+        content = asyncio.run(storage.download_bytes("file-demo.txt"))
+        asyncio.run(storage.delete_file("file-demo.txt"))
 
-    token = minio_utils.generate_secure_token("ai-group", object_key)
-    mock_client = MagicMock()
-    mock_client.stat_object.return_value = MagicMock()
-    response_body = MagicMock()
-    response_body.headers = {"Content-Type": "application/pdf"}
-    response_body.stream.return_value = iter([b"pdf-bytes"])
-    mock_client.get_object.return_value = response_body
-
-    with patch("reactor_tool.tool.mrag.utils.minio_utils.create_minio_client", return_value=mock_client):
-        ok = client.get(f"/v1/storage/download/ai-group/{object_key}/{token}")
-
-    assert ok.status_code == 200
-    assert ok.content == b"pdf-bytes"
-    response_body.close.assert_called_once()
-    response_body.release_conn.assert_called_once()
+    assert content == b"stored-content"
+    client.make_bucket.assert_called_once_with("ai-group-files")
+    client.get_object.assert_called_once_with("ai-group-files", "file-demo.txt")
+    response.close.assert_called_once()
+    response.release_conn.assert_called_once()
+    client.remove_object.assert_called_once_with("ai-group-files", "file-demo.txt")
 
 
-def test_upload_document_returns_minio_metadata(monkeypatch):
-    from reactor_tool.tool.mrag.api.routes import document as document_routes
-
-    def fake_upload(file_path, object_key=None, dir_=None, is_delete=True):
-        return (
-            True,
-            "http://127.0.0.1:1601/v1/storage/download/ai-group/documents/x/demo.pdf/token",
-            "http://minio/presigned",
-            object_key,
-        )
-
-    monkeypatch.setattr(document_routes, "is_minio_configured", lambda: True)
-    monkeypatch.setattr(document_routes, "upload_minio", fake_upload)
-
-    app = FastAPI()
-    app.include_router(document_routes.router)
-    client = TestClient(app)
-    response = client.post(
-        "/documents/upload",
-        files={"file": ("demo.pdf", b"%PDF-1.4 demo", "application/pdf")},
-    )
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["data"]["storage_type"] == "minio"
-    assert payload["data"]["object_key"].endswith("/demo.pdf")
-    assert payload["data"]["object_key"].startswith("documents/")
-    assert payload["data"]["oss_path"] == payload["data"]["object_key"]
+def test_file_db_rejects_oversized_upload(tmp_path):
+    original_work_dir = FileDB._work_dir
+    FileDB._work_dir = str(tmp_path)
+    upload = UploadFile(filename="large.bin", file=io.BytesIO(b"12345"))
+    try:
+        with pytest.raises(ValueError, match="exceeds configured limit"):
+            asyncio.run(
+                FileDB.save_by_data(
+                    upload,
+                    scope="session-1",
+                    object_name="file-large.bin",
+                    max_size_bytes=4,
+                )
+            )
+        assert not (tmp_path / "session-1" / "large.bin").exists()
+    finally:
+        FileDB._work_dir = original_work_dir

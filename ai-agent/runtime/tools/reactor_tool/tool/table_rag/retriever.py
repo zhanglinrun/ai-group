@@ -1,7 +1,5 @@
 # coding=utf-8
-import json
 import os
-import time
 from typing import Optional
 
 from dotenv import load_dotenv
@@ -9,8 +7,6 @@ from dotenv import load_dotenv
 import requests
 from reactor_tool.util.log_util import logger
 from reactor_tool.tool.table_rag.es_client import ElasticsearchClient
-from reactor_tool.tool.table_rag.qdrant_recall import get_qd_recall, get_qd_server_recall
-from reactor_tool.util.qdrant_utils import has_direct_qdrant_config, resolve_table_rag_qdrant_config
 
 # 加载 .env 文件
 load_dotenv()
@@ -112,41 +108,18 @@ class Retriever:
             logger.error(f"[Retriever] ES recall failed: {e}")
             return {}
 
-    async def qdrant_recall(self, query, model_code_list):
-        qdrant_enable_env = os.getenv("DATA_AGENT_QDRANT_ENABLE")
-        if qdrant_enable_env is None:
-            return []
-        QDRANT_ENABLE = qdrant_enable_env.lower() == "true"
-        TR_QDRANT_URL = os.getenv("TR_QDRANT_URL", None)
-        if not QDRANT_ENABLE:
-            return []
-        if TR_QDRANT_URL:
-            data = get_qd_server_recall(query, model_code_list)
-        elif has_direct_qdrant_config(resolve_table_rag_qdrant_config()):
-            data = get_qd_recall(query, model_code_list)
-        else:
-            data = []
-        
-        if data is None:
-            data = []
-        if not data:
-            logger.error(f"No data found for {query}")
-        return {"data": data}
-
     async def retrieve_schema(self, query, model_code_list):
-        # 召回列名
-        data = await self.qdrant_recall(query, model_code_list)
-        
-        return data
+        # Schema 召回由 Java pgvector repository 承担；Python 端只保留 ES 列值附录能力。
+        return {"data": []}
 
     async def retrieve_cell(self, query, model_code_list):
         # 召回值
         data = self.es_recall(query, model_code_list)
         return {"data": data}
     
-    def qd_merge_rerank(self, qdrant_results):
+    def merge_rerank(self, schema_results):
         merge_map = {}
-        for result in qdrant_results:
+        for result in schema_results:
             key = result["modelCode"] + "-" + result["columnId"]
             if key not in merge_map:
                 merge_map[key] = {

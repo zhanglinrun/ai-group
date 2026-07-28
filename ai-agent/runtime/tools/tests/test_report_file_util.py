@@ -59,9 +59,9 @@ class ReportFileUtilTest(unittest.TestCase):
     def test_should_remove_inline_meta_instructions_from_fact_bullets(self):
         query = """以下列表是穷尽的 source-of-truth：
 - 注册、登录均已通过。
-- AI Group 使用 5173；ai-interview 使用 8082；Docker 映射互不重叠。除上述事实外，不要写任何端口用途、服务职责、接口、命令或 Docker 细节。
+- AI Group 使用 5173；另一个本地服务使用 8082；Docker 映射互不重叠。除上述事实外，不要写任何端口用途、服务职责、接口、命令或 Docker 细节。
 - MCP 全称只能写 Model Context Protocol。
-- ai-interview 的 8082 端口未被 AI Group 占用或重启。
+- 8082 端口未被 AI Group 占用或重启。
 - 报告必须包含：结论；未给出的内容统一写“未在本轮验证”。
 """
 

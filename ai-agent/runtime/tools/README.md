@@ -99,9 +99,9 @@ mvn -pl ai-agent-app -am -Pmcp-stdio-it `
 ## 安全边界
 
 - 服务默认只监听 `127.0.0.1`；只有容器内部才显式监听 `0.0.0.0`，Compose 仍仅发布到宿主机 loopback。
-- `/v1/tool/*` 全部请求，以及当前均使用 POST 的 `/v1/documents/*` 和 `/v1/file_tool/*` 非安全方法，接受并要求 `X-Tool-Token` 或 `Authorization: Bearer <token>`。令牌优先读取 `REACTOR_TOOL_TOKEN`，否则复用 `AI_GROUP_INTERNAL_TOKEN`。`prod` 等非本地环境缺少令牌会拒绝启动；本地未配置令牌时允许 loopback 调试。
+- `/v1/tool/*` 全部请求和 `/v1/file_tool/*` 非安全方法，接受并要求 `X-Tool-Token` 或 `Authorization: Bearer <token>`。令牌优先读取 `REACTOR_TOOL_TOKEN`，否则复用 `AI_GROUP_INTERNAL_TOKEN`。`prod` 等非本地环境缺少令牌会拒绝启动；本地未配置令牌时允许 loopback 调试。
 - CORS 默认仅允许 `http://localhost:5173` 与 `http://127.0.0.1:5173`，可用逗号分隔的 `REACTOR_TOOL_CORS_ORIGINS` 覆盖，不接受 `*`。
-- 文件预览/下载 GET、HEAD 与带自身签名的 `/v1/storage/download/.../{token}` 保持匿名可访问，因此不要求把内部令牌暴露给浏览器；文档/文件写请求由 Vite 开发代理只在服务端代理层注入令牌。
+- 文件预览/下载 GET、HEAD 保持匿名可访问，因此不要求把内部令牌暴露给浏览器；文件写请求由 Vite 开发代理只在服务端代理层注入令牌。
 - Skill 默认只允许 `python`。确需 Node/shell/PowerShell/BAT 时必须通过 `SKILL_ALLOWED_RUNTIMES` 显式开放；生产环境不建议开放宿主 shell。
 - 脚本在一次性临时目录中运行，使用最小环境变量集合，并受最大超时、并发数、输出字节数、生成文件数/大小限制。POSIX 还设置 CPU、地址空间、文件大小和打开文件数上限；容器配置额外限制内存、CPU、PID、Linux capabilities 和提权。
 

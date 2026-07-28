@@ -20,6 +20,7 @@ dependencies = [
     "loguru>=0.7.3",
     "matplotlib>=3.10.3",
     "mcp>=1.28.1,<2",
+    "minio>=7.2.20,<8",
     "altair>=5.5.0",
     "openai>=1.93.0",
     "openpyxl>=3.1.5",
@@ -36,7 +37,6 @@ dependencies = [
     "python-docx>=1.2.0",
     "python-dotenv>=1.1.1",
     "python-multipart>=0.0.20",
-    "qdrant-client==1.15.1",
     "requests>=2.32.3",
     "scikit-learn>=1.7.1",
     "scipy>=1.16.1",
@@ -52,7 +52,7 @@ dependencies = [
     "uvicorn>=0.35.0",
     "fastembed>=0.8.0",
     "numpy>=2.3.1",
-    "minio>=7.2.20",
+    "python-pptx>=1.0.2",
 ]
 
 [dependency-groups]

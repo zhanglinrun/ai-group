@@ -167,6 +167,12 @@ def _safe_int(value: Any) -> Optional[int]:
         return None
 
 
+def _uses_fixed_sampling(model: Any) -> bool:
+    """GPT-5 family rejects custom temperature/top_p on OpenAI-compatible APIs."""
+    model_name = str(model or "").strip().lower().rsplit("/", 1)[-1]
+    return model_name.startswith("gpt-5")
+
+
 def _build_chat_completions_url(api_base: str) -> str:
     base = (api_base or "").rstrip("/")
     if base.endswith("/chat/completions"):
@@ -493,17 +499,22 @@ async def ask_llm(
         )
 
     # Align key request fields with Java-side behavior, while honoring existing python settings.
-    # temperature: function arg > existing params > env > default(0.0)
-    if temperature is not None:
-        params["temperature"] = temperature
-    elif params.get("temperature") is None:
-        params["temperature"] = _safe_float(os.getenv("LLM_TEMPERATURE"))
-        if params["temperature"] is None:
-            params["temperature"] = 0.0
+    # GPT-5 uses fixed sampling and rejects custom temperature/top_p.
+    if _uses_fixed_sampling(params.get("model") or model):
+        params.pop("temperature", None)
+        params.pop("top_p", None)
+    else:
+        # temperature: function arg > existing params > env > default(0.0)
+        if temperature is not None:
+            params["temperature"] = temperature
+        elif params.get("temperature") is None:
+            params["temperature"] = _safe_float(os.getenv("LLM_TEMPERATURE"))
+            if params["temperature"] is None:
+                params["temperature"] = 0.0
 
-    # top_p: only set when explicitly passed
-    if top_p is not None:
-        params["top_p"] = top_p
+        # top_p: only set when explicitly passed
+        if top_p is not None:
+            params["top_p"] = top_p
 
     # max_tokens: existing params > env > model registry default
     auto_max_tokens_from_model = False

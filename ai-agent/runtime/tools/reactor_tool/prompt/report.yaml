@@ -246,9 +246,9 @@ html_prompt: |-
   # 要求 - Requirements
 
   ## 网页格式要求
-  - 使用CDN（jsdelivr）加载所需资源
-  - 使用Tailwind CSS (使用CDN加速地址：https://unpkg.com/tailwindcss@2.2.19/dist/tailwind.min.css)提高代码效率
-  - 使用CSS样式美化不同模块的样式，可以使用javascript来增强与用户的交互，使用Echart（使用CDN加速地址：https://unpkg.com/echarts@5.6.0/dist/echarts.min.js）工具体现数据与数据变化趋势
+  - HTML 必须是可离线打开的单文件：除普通引用链接 `<a href>` 外，禁止通过 `<script src>`、`<link href>`、`<img src>`、CSS `url()`、`@import`、`fetch` 或 `iframe` 加载远程资源。
+  - 不使用 Tailwind CSS、ECharts、图标字体或任何外部库；所有 CSS 和 JavaScript 必须直接内联在 HTML 中。
+  - 使用语义化 HTML 和内联 CSS 美化页面；确有数据时使用内联 SVG、CSS 或原生 Canvas 绘制图表，并提供可读的文字或表格作为降级内容。
   - 数据准确性： 报告中的所有数据和结论都应基于<任务内容>提供的信息，不要产生幻觉，也不要出现没有提供的数据内容，避免误导性信息。
   - 完整性： HTML 页面应包含<任务内容>中所有重要的内容信息。
   - 逻辑性： 报告各部分之间应保持逻辑联系，确保读者能够理解报告的整体思路。
@@ -283,7 +283,7 @@ html_prompt: |-
 
   # 约束 - Restriction
   - 生成的 html，必须满足以下HTML代码的基本要求，以验证它是合格的 html。
-  - 所有样式都应直接嵌入 HTML 文件，输出的HTML代码应符合W3C标准，易于阅读和维护。
+  - 所有样式和脚本都应直接嵌入 HTML 文件；不得加载任何远程资源，输出的HTML代码应符合W3C标准，易于阅读和维护。
   - 基于用户提供的内容，如果是需要输出报告，则报告必须要内容详细，且忠实于提供的上下文信息，生成美观，可阅读性强的网页版报告。
   - 在最终输出前请检查计划输出的内容，确保涉及网页长度符合要求、数据、指标，一定要完全符合给出的信息，不能编造或推测任何信息，所有内容必须与原文一致，确定无误后再输出，否则请重新生成。
   - 输出的表格和图表，清晰明了，干净整洁，尤其是饼状图、柱状图禁止出现文字重叠，禁止缺少核心文字标识。
@@ -370,17 +370,16 @@ fix_html_prompt: |-
   # 要求 - Requirements
 
   ## 网页格式要求
-  - 使用CDN（jsdelivr）加载所需资源
-  - 使用Tailwind CSS (使用CDN加速地址：https://storage.360buyimg.com/pubfree-bucket/ei-data-resource/02f0288/static/tailwind.min.css)提高代码效率
-  - 使用CSS样式美化不同模块的样式，可以使用javascript来增强与用户的交互，使用Echart（使用CDN加速地址：https://storage.360buyimg.com/pubfree-bucket/ei-data-resource/02f0288/static/echarts.min.js）工具体现数据与数据变化趋势
+  - HTML 必须是可离线打开的单文件：除普通引用链接 `<a href>` 外，禁止通过 `<script src>`、`<link href>`、`<img src>`、CSS `url()`、`@import`、`fetch` 或 `iframe` 加载远程资源。
+  - 不使用 Tailwind CSS、ECharts、图标字体或任何外部库；所有 CSS 和 JavaScript 必须直接内联在 HTML 中。
+  - 使用语义化 HTML 和内联 CSS 美化页面；确有数据时使用内联 SVG、CSS 或原生 Canvas 绘制图表，并提供可读的文字或表格作为降级内容。
   - 数据准确性： 报告中的所有数据和结论都应基于<任务内容>提供的信息，不要产生幻觉，也不要出现没有提供的数据内容，避免误导性信息。
   - 完整性： HTML 页面应包含<任务内容>中所有重要的内容信息。
   - 逻辑性： 报告各部分之间应保持逻辑联系，确保读者能够理解报告的整体思路。
   - 输出的HTML网页应包含上述内容，并且应该是可交互的，包括如筛选、悬停提示、点击跳转等交互形式。
   - 不要输出空dom节点，例如<div class="chart-container mb-6" id="future-scenario-chart"></div>
   - 网页页面底部footer标识出：Created by Autobots \n 页面内容均由 AI 生成，仅供参考
-  - 使用标准的饼图样式，使用Echarts中的样式控制为itemStyle: { borderRadius: 0 }
-  - 在 ECharts 中，series 是一个数组，可以包含多个图表系列（series object），只能生成一个 series 对象（即一个图表系列），确保 series 数组中只包含一个对象。如需展示两个图表，请使用两个独立的 ECharts 实例，而不是在一个实例中放两个 series。
+  - 饼图仅用于互斥且合计为整体的数据，并直接标注数值和图例，避免文字重叠。
 
   ## 内容输出要求
   - 内容过滤：请过滤以下数据中的广告，导航栏等相关信息，其他内容一定要保留，减少信息损失。
@@ -394,7 +393,7 @@ fix_html_prompt: |-
 
   ## 业务基础知识
   - 同类占比数据可以放到同一个饼图中，非同一类数据，不可放到同一个饼图中。例如：绩优、绩普和绩差等是一类，而高潜是另一类评价维度，非同一个维度的数据或分析维度，不可混合形成一个饼图。
-  - 数据维度不是一个整体与部分的关系时，禁止使用饼图，例如校招生、老员工、P序列三个群体之间，存在交集，因此不适合饼图，目标是进行横向对比，突出离职率高低差异，禁止使用饼图（pie chart），因为这些群体不是整体与部分的关系，也不构成一个完整数据集的占比。推荐使用柱状图（bar chart）或横向条形图，便于直观比较数值大小。
+  - 数据维度不是一个整体与部分的关系时，禁止使用饼图，例如高潜员工、核心项目成员、P序列员工三个群体之间存在交集，因此不适合饼图。需要横向比较离职率高低时，应使用柱状图（bar chart）或横向条形图。
 
   ## 输出前验证机制
   输出前检查项：
@@ -404,7 +403,7 @@ fix_html_prompt: |-
   - 引用编号与文献列表匹配
   - 不含虚构信息
   - 字符数在合理区间
-  - ECharts 形成的柱状图、饼状图等各类数据图，图例与图例之间禁止遮挡重叠。
+  - 柱状图、饼状图等各类数据图的图例不得遮挡重叠。
 
   ## 引用
   ### 引用格式说明
@@ -452,10 +451,10 @@ fix_html_prompt: |-
 
   # 约束 - Restriction
   - 生成的 html，必须满足以下HTML代码的基本要求，以验证它是合格的 html。
-  - 所有样式都应直接嵌入 HTML 文件，输出的HTML代码应符合W3C标准，易于阅读和维护。
+  - 所有样式和脚本都应直接嵌入 HTML 文件；不得加载任何远程资源，输出的HTML代码应符合W3C标准，易于阅读和维护。
   - 基于用户提供的内容，输出应详尽完整，涵盖所有关键信息点，避免无意义重复。
   - 在最终输出前请检查计划输出的内容，确保涉及网页长度符合要求、数据、指标，一定要完全符合给出的信息，不能编造或推测任何信息，所有内容必须与原文一致，确定无误后再输出，否则请重新生成。
-  - 仅当输入内容中包含可结构化的数值型数据（如销售额、增长率、时间序列等）时，方可生成 ECharts 图。否则应以表格或文字分析代替。
+  - 仅当输入内容中包含可结构化的数值型数据（如销售额、增长率、时间序列等）时，方可生成图表。否则应以表格或文字分析代替。
 
   ## 环境变量
 
@@ -472,6 +471,7 @@ fix_html_prompt: |-
   # 网页模板
   ## 模板要求
   - 所有占位符必须替换为实际内容
+  - 模板只表示结构，不得照搬占位内容；根据实际材料增删章节。
 
   ## 网页结构及内容
 
@@ -483,148 +483,28 @@ fix_html_prompt: |-
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>你的报告标题</title>
-    <!-- 引入必要资源 -->
-    <link rel="stylesheet" href="https://storage.360buyimg.com/pubfree-bucket/ei-data-resource/02f0288/static/tailwind.min.css">
-    <script src="https://storage.360buyimg.com/pubfree-bucket/ei-data-resource/02f0288/static/echarts.min.js"></script>
-    <link rel="stylesheet" href="https://storage.360buyimg.com/pubfree-bucket/ei-data-resource/e86f985/static/bootstrap-icons/bootstrap-icons.css">
     <style>
-          .chart-container {
-              width: 100%;
-              height: 400px;
-          }
-          .fade-in {
-              animation: fadeIn 0.5s ease-in;
-          }
-          @keyframes fadeIn {
-              from { opacity: 0; }
-              to { opacity: 1; }
-          }
-      </style>
-  <style>
-          .chart-container {
-              width: 100%;
-              height: 400px;
-          }
-          .fade-in {
-              animation: fadeIn 0.5s ease-in;
-          }
-          @keyframes fadeIn {
-              from { opacity: 0; }
-              to { opacity: 1; }
-          }
-      </style>
+      :root { color-scheme: light; font-family: system-ui, sans-serif; }
+      body { margin: 0; color: #172033; background: #f5f7fa; line-height: 1.65; }
+      main { width: min(1120px, calc(100% - 32px)); margin: 0 auto; padding: 32px 0; }
+      header, section { background: #fff; border: 1px solid #dfe4ea; border-radius: 8px; padding: 24px; margin-bottom: 16px; }
+      h1, h2 { margin-top: 0; }
+      table { width: 100%; border-collapse: collapse; }
+      th, td { padding: 10px; border: 1px solid #dfe4ea; text-align: left; }
+      .chart { width: 100%; min-height: 280px; overflow-x: auto; }
+      @media (max-width: 640px) { main { width: min(100% - 20px, 1120px); } header, section { padding: 16px; } }
+    </style>
   </head>
-  <body class="bg-gray-50">
-    <div class="max-w-7xl mx-auto px-4 py-8">
-      <!-- 标题区域 -->
-      <div class="bg-gradient-to-r from-blue-600 to-purple-600 rounded-xl p-8 mb-8 shadow-lg">
-          <h1 class="text-4xl font-bold text-white mb-2">标题</h1>
-          <p class="text-xl text-blue-100">子标题</p>
-      </div>
-
-      <!-- 摘要卡片 -->
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          <div class="bg-white rounded-xl shadow-md p-6 border-l-4 border-blue-500 fade-in">
-              <div class="flex items-center mb-4">
-                  <i class="bi bi-cash-stack text-blue-500 text-2xl mr-3"></i>
-                  <h3 class="text-lg font-semibold">指标名1(用户提供的第1个指标)</h3>
-              </div>
-              <p class="text-3xl font-bold text-blue-600 mb-2">第1个具体指标值</p>
-              <p class="text-gray-600">对于指标1的补充说明</p>
-            </div>
-            <div class="bg-white rounded-xl shadow-md p-6 border-l-4 border-green-500 fade-in">
-                <div class="flex items-center mb-4">
-                    <i class="bi bi-cart-check text-green-500 text-2xl mr-3"></i>
-                    <h3 class="text-lg font-semibold">指标名2(用户提供的第2个指标名)</h3>
-                </div>
-                <p class="text-3xl font-bold text-green-600 mb-2">第2个指标的具体值</p>
-                <p class="text-gray-600">对于指标2的补充说明</p>
-            </div>
-            <div class="bg-white rounded-xl shadow-md p-6 border-l-4 border-purple-500 fade-in">
-                <div class="flex items-center mb-4">
-                    <i class="bi bi-currency-dollar text-purple-500 text-2xl mr-3"></i>
-                    <h3 class="text-lg font-semibold">指标名3(用户提供的第3个指标名)</h3>
-                </div>
-                <p class="text-3xl font-bold text-purple-600 mb-2">第3个指标的具体值</p>
-                <p class="text-gray-600">对于指标3的补充说明</p>
-            </div>
-          </div>
-
-          <!-- 图表分析样式 -->
-          <div class="bg-white rounded-xl shadow-md p-6 mb-8 fade-in">
-            <h2 class="text-2xl font-bold mb-6 flex items-center">
-              <i class="bi bi-graph-up-arrow text-blue-500 mr-3"></i>
-              标题
-            </h2>
-            <div class="mt-6 p-4 bg-blue-50 rounded-lg" style="margin-bottom: 30px">
-              <h3 class="font-semibold text-blue-800 mb-2">关键发现：</h3>
-              <p class="text-gray-700">你的分析发现...</p>
-            </div>
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <div id="yourChartId" class="chart-container"></div>
-              <!-- 可以添加第一个图表 -->
-            </div>
-
-            <!-- 可以添加更多图表 -->
-
-          </div>
-
-          <!-- 可以有更多图表展示，按照用户提供的信息的顺序展示 -->
-
-          <!-- 参考文献 -->
-          <div class="bg-white rounded-xl shadow-md p-6 mb-8 fade-in">
-            <h2 class="text-2xl font-bold mb-6 flex items-center">
-              <i class="bi bi-journal-text text-gray-500 mr-3"></i>
-              参考文献
-            </h2>
-            <ol class="list-decimal pl-6 space-y-2">
-              <li>
-                <cite>
-                  <a href="参考文献链接" target="_blank" style="color: #007bff;" rel="noopener noreferrer">
-                    参考文献标题
-                  </a>
-                </cite>
-              </li>
-            </ol>
-          </div>
-          <!-- 页脚 -->
-          <footer class="text-center text-gray-400 text-sm py-6">Created by Autobots<br>
-                页面内容均由 AI 生成，仅供参考
-          </footer>
-
-      </div>
-
+  <body>
+    <main>
+      <header><h1>标题</h1><p>摘要</p></header>
+      <section><h2>章节标题</h2><p>基于材料的正文。</p></section>
+      <!-- 图表使用包含坐标、标签和数值的内联 <svg>，不得保留空容器。 -->
+      <section><h2>参考文献</h2><ol><li><cite><a href="真实来源 URL" target="_blank" rel="noopener noreferrer">真实来源标题</a></cite></li></ol></section>
+      <footer>Created by Autobots<br>页面内容均由 AI 生成，仅供参考</footer>
+    </main>
     <script>
-      // 图表初始化代码
-      document.addEventListener('DOMContentLoaded', function() {
-        // 初始化所有图表
-        <!-- 图表样式1 -->
-        document.addEventListener('DOMContentLoaded', function() {
-          const yourChart = echarts.init(document.getElementById('yourChartId'));
-          yourChart.setOption({
-            title: { text: '图表标题', left: 'center' },
-            tooltip: { trigger: 'axis' },
-            xAxis: {
-              type: 'category',
-              data: ['类别1', '类别2', '类别3']
-            },
-            yAxis: { type: 'value' },
-            grid: {
-              containLabel: true  // 关键：确保标签不被裁剪
-            },
-            <!-- 每一个图表的 series 列表里面只能有一个 object -->
-            series: [{
-              name: '数据',
-              type: 'bar',
-              data: [120, 200, 150],
-              itemStyle: { color: '#3b82f6' }
-            }]
-          });
-        });
-        <!-- 响应式处理 -->
-        window.addEventListener('resize', function() { yourChart.resize(); });
-
-        <!-- 可以有更多图表 -->
+      // 仅在确有交互需求时加入少量原生 JavaScript；不得发起网络请求。
     </script>
   </body>
   </html>

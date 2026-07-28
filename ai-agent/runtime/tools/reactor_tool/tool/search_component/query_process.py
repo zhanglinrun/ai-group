@@ -24,8 +24,9 @@ async def query_decompose(
         **kwargs
 ):
     llm_config = resolve_openai_compat_env("DEEPSEARCH")
-    model = os.getenv("QUERY_DECOMPOSE_MODEL", "gpt-4.1")
-    think_model = os.getenv("QUERY_DECOMPOSE_THINK_MODEL", "gpt-4.1")
+    default_model = os.getenv("DEFAULT_MODEL", "gpt-4.1")
+    model = os.getenv("QUERY_DECOMPOSE_MODEL") or default_model
+    think_model = os.getenv("QUERY_DECOMPOSE_THINK_MODEL") or default_model
     current_date = time.strftime("%Y-%m-%d", time.localtime())
     decompose_prompt = get_prompt("deepsearch")
     # think

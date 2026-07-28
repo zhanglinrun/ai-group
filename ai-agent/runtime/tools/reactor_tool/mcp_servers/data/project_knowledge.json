@@ -3,8 +3,8 @@
     {
       "id": "memory-architecture",
       "title": "三层记忆与跨会话长期记忆",
-      "keywords": ["长期记忆", "跨会话", "Qdrant", "working memory", "episodic memory", "semantic memory", "procedural memory"],
-      "summary": "运行时区分工作上下文、会话执行证据和结构化长期记忆；长期层使用 Qdrant 召回，并按 owner 隔离。",
+      "keywords": ["长期记忆", "跨会话", "pgvector", "working memory", "episodic memory", "semantic memory", "procedural memory"],
+      "summary": "运行时区分工作上下文、会话执行证据和结构化长期记忆；长期层使用 PostgreSQL/pgvector 召回，并按 owner 隔离。",
       "highlights": [
         "Working Context 在 Token 预算内保留最近对话和当前任务状态",
         "Episodic Evidence 从执行账本重建同会话运行、工具调用和产物",
@@ -51,11 +51,11 @@
     {
       "id": "purchase-chat-journey",
       "title": "从购买到 Agent 对话的业务闭环",
-      "keywords": ["购买", "拼团", "支付", "支付宝沙箱", "会员", "额度", "对话", "Gateway"],
-      "summary": "演示链路串联登录、商品购买、支付宝沙箱回调、会员额度入账、Gateway 鉴权与 Agent 流式对话。",
+      "keywords": ["购买", "拼团", "支付", "支付宝沙箱", "额度", "对话", "Gateway"],
+      "summary": "演示链路串联登录、商品购买、支付宝沙箱回调、额度入账、Gateway 鉴权与 Agent 流式对话。",
       "highlights": [
         "支付通知以业务单号幂等处理并驱动订单状态迁移",
-        "会员额度账本记录入账和 Agent 消耗，余额更新使用并发保护",
+        "额度账本记录入账和 Agent 消耗，余额更新使用并发保护",
         "Gateway 统一校验身份并向内部服务传递可信用户上下文",
         "Agent 对话通过 SSE 返回执行事件并在结束后完成额度结算"
       ]
@@ -68,7 +68,7 @@
         "用户登录后经 Gateway 获得可信身份上下文",
         "创建商品或拼团订单并生成待支付记录",
         "支付宝沙箱完成支付，异步通知通过验签与幂等校验",
-        "订单完成后会员服务把购买额度写入账户与额度账本",
+        "订单完成后额度服务把购买额度写入账户与额度账本",
         "用户发起 Agent 请求，运行时先预留本次 LLM 额度",
         "Agent 通过 SSE 输出推理生命周期事件并按需调用本地或 MCP 工具",
         "执行结束后按实际 Token 结算，执行账本与会话历史可查询"
@@ -94,12 +94,12 @@
       "steps": [
         "从用户明确表达中抽取 PREFERENCE、FACT 或 PROCEDURE 候选",
         "生成 owner 隔离的稳定 memory key，并写入 source、confidence、version 与 TTL",
-        "通过 embedding 服务生成向量并 upsert 到 Qdrant",
+        "通过 embedding 服务生成向量并写入 PostgreSQL/pgvector",
         "新会话按 owner、类型和相似度阈值召回有限条目",
         "将召回记忆作为可追踪上下文注入提示词，而不是覆盖当前用户输入",
         "通过固定数据集评估 precision、recall 与 Token 成本，并支持过期和删除"
       ],
-      "boundary": "长期记忆依赖 Qdrant 和 embedding 服务；只有基础设施健康且开关显式启用时才参与主链路。"
+      "boundary": "长期记忆依赖 PostgreSQL/pgvector 和 embedding 服务；只有基础设施健康且开关显式启用时才参与主链路。"
     },
     "mcp_tool_call": {
       "title": "MCP 动态工具调用流程",

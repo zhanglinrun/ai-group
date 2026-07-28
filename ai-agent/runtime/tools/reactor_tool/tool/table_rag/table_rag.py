@@ -464,7 +464,7 @@ class TableRAGAgent(TableAgent):
             
             retrieved_columns.extend(_retrieved_docs.get("retrieved_docs", []))
             
-            retrieved_columns = self.retriever.qd_merge_rerank(retrieved_columns)
+            retrieved_columns = self.retriever.merge_rerank(retrieved_columns)
         
         if self.use_elastic:
             _retrieved_docs = await self.retrieve_cell_by_jieba(query, model_code_list=model_code_list)

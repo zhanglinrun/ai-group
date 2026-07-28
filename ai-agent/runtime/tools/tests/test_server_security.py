@@ -87,12 +87,14 @@ class ReactorToolServerSecurityTest(unittest.TestCase):
             file_preview = client.get("/v1/file_tool/preview/missing/demo.txt")
             file_preview_head = client.head("/v1/file_tool/preview/missing/demo.txt")
             file_mutation = client.post("/v1/file_tool/get_file", json={})
+            file_delete = client.delete("/v1/file_tool/file-id")
             document_mutation = client.post("/v1/documents/create_knowledge_base", json={})
 
         self.assertEqual(200, health.status_code)
         self.assertNotEqual(401, file_preview.status_code)
         self.assertNotEqual(401, file_preview_head.status_code)
         self.assertEqual(401, file_mutation.status_code)
+        self.assertEqual(401, file_delete.status_code)
         self.assertEqual(401, document_mutation.status_code)
 
     def test_cors_should_only_allow_configured_frontend(self):
@@ -126,27 +128,6 @@ class ReactorToolServerSecurityTest(unittest.TestCase):
         self.assertEqual("http://127.0.0.1:5173", allowed.headers["access-control-allow-origin"])
         self.assertEqual(400, denied.status_code)
         self.assertNotIn("access-control-allow-origin", denied.headers)
-
-    def test_signed_storage_get_should_not_require_internal_token(self):
-        app = FastAPI()
-        app.add_middleware(
-            InternalToolTokenMiddleware,
-            settings=ReactorToolSecuritySettings(
-                environment="test",
-                token="expected-token",
-                cors_origins=("http://127.0.0.1:5173",),
-            ),
-        )
-
-        @app.get("/v1/storage/download/{bucket}/{object_key:path}/{signed_token}")
-        async def signed_download(bucket: str, object_key: str, signed_token: str):
-            return {"bucket": bucket, "objectKey": object_key, "signedToken": signed_token}
-
-        response = TestClient(app).get("/v1/storage/download/bucket/docs/demo.txt/signed-token")
-
-        self.assertEqual(200, response.status_code)
-        self.assertEqual("signed-token", response.json()["signedToken"])
-
 
 if __name__ == "__main__":
     unittest.main()

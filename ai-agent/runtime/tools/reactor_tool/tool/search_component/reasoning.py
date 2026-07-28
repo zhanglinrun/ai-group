@@ -24,7 +24,7 @@ async def search_reasoning(
         return {}
 
     llm_config = resolve_openai_compat_env("DEEPSEARCH")
-    model = os.getenv("SEARCH_REASONING_MODEL", "gpt-4.1")
+    model = os.getenv("SEARCH_REASONING_MODEL") or os.getenv("DEFAULT_MODEL", "gpt-4.1")
     prompt = get_prompt("deepsearch")["reasoning_prompt"]
     prompt_content = prompt.format(
         query=query,

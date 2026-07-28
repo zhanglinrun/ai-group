@@ -74,7 +74,7 @@ def validate_bind_address(host: str, settings: ReactorToolSecuritySettings):
 
 
 class InternalToolTokenMiddleware(BaseHTTPMiddleware):
-    """只保护高危工具 API，保留文件预览/下载和签名存储 URL 的兼容性。"""
+    """只保护高危工具 API，保留文件预览和下载 URL。"""
 
     def __init__(self, app, settings: ReactorToolSecuritySettings):
         super().__init__(app)

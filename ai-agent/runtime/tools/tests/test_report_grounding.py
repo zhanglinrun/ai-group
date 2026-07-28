@@ -9,6 +9,17 @@ report_module = importlib.import_module("reactor_tool.tool.report")
 
 
 class ReportGroundingPolicyTest(unittest.TestCase):
+    def test_html_prompts_require_offline_self_contained_output(self):
+        prompts = report_module.get_prompt("report")
+
+        for prompt_name in ("html_prompt", "fix_html_prompt"):
+            prompt = prompts[prompt_name]
+            self.assertIn("可离线打开的单文件", prompt)
+            self.assertNotIn("使用CDN", prompt)
+            self.assertNotIn("<script src=", prompt)
+            self.assertNotIn("<link rel=", prompt)
+            self.assertNotIn("echarts.init", prompt)
+
     def test_report_request_preserves_original_user_query(self):
         request = ReportRequest.model_validate({
             "requestId": "grounding-request",

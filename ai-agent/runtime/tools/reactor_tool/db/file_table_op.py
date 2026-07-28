@@ -1,142 +1,250 @@
 import os
+from pathlib import Path
 from typing import List
 
 from fastapi import UploadFile
 from sqlmodel import select
 
-from reactor_tool.db.file_table import FileInfo
 from reactor_tool.db.db_engine import async_session_local
+from reactor_tool.db.file_table import FileInfo
 from reactor_tool.util.log_util import timer
+from reactor_tool.util.minio_storage import get_minio_storage
 
 
-class _FileDB(object):
+FILE_PROCESSING = 0
+FILE_SUCCESS = 1
+FILE_FAILED = -1
+
+
+class _FileDB:
     def __init__(self):
         self._work_dir = os.getenv("FILE_SAVE_PATH", "file_db_dir")
-        if not os.path.exists(self._work_dir):
-            os.makedirs(self._work_dir)
+        Path(self._work_dir).mkdir(parents=True, exist_ok=True)
 
-    async def save(self, file_name, content, scope) -> str:
-        if "." in file_name:
-            file_name = os.path.basename(file_name)
-        else:
-            file_name = f"{file_name}.txt"
+    async def save(self, file_name: str, content: str, scope: str, object_name: str) -> str:
+        file_path = self.path_for(file_name, scope)
+        file_path.write_text(content, encoding="utf-8")
+        await self._upload_to_object_storage(file_path, object_name)
+        return str(file_path)
 
-        # On Windows, characters like ":" are not allowed in directory names.
-        # `scope` can contain ":" (e.g. "reactorsession-...:..."), which causes
-        # `NotADirectoryError`. Normalize it into a filesystem-safe name.
-        safe_scope = "".join(c if c not in '<>:"/\\|?*' else "_" for c in str(scope))
+    async def save_by_data(
+        self,
+        file: UploadFile,
+        scope: str | None,
+        object_name: str,
+        max_size_bytes: int,
+    ) -> str:
+        file_path = self.path_for(file.filename, scope)
+        size = 0
+        try:
+            with file_path.open("wb") as target:
+                while chunk := await file.read(1024 * 1024):
+                    size += len(chunk)
+                    if size > max_size_bytes:
+                        raise ValueError(f"file exceeds configured limit of {max_size_bytes} bytes")
+                    target.write(chunk)
+            await self._upload_to_object_storage(file_path, object_name)
+            return str(file_path)
+        except Exception:
+            if size > max_size_bytes:
+                file_path.unlink(missing_ok=True)
+            raise
 
-        save_path = os.path.join(self._work_dir, safe_scope)
-        if not os.path.exists(save_path):
-            os.makedirs(save_path)
-        with open(f"{save_path}/{file_name}", "w", encoding='utf-8') as f:
-            f.write(content)
-        return f"{save_path}/{file_name}"
-    
-    async def save_by_data(self, file: UploadFile, scope: str = None) -> str:
-        file_name = file.filename
-        file_data = file.file.read()
-        safe_scope = "".join(c if c not in '<>:"/\\|?*' else "_" for c in str(scope)) if scope else ""
-        save_directory = self._work_dir if not safe_scope else os.path.join(self._work_dir, safe_scope)
-        if not os.path.exists(save_directory):
-            os.makedirs(save_directory)
-        save_path = os.path.join(save_directory, file_name)
-        with open(save_path, "wb") as f:
-             f.write(file_data)
-        return save_path
+    async def ensure_local(self, file_info: FileInfo) -> bool:
+        file_path = Path(file_info.file_path)
+        if file_path.is_file():
+            return True
+        storage = get_minio_storage()
+        if storage is None:
+            return False
+        await storage.download_file(file_path, generate_object_name(file_info.file_id, file_info.filename))
+        return file_path.is_file()
+
+    async def download_bytes(self, file_info: FileInfo) -> bytes:
+        storage = get_minio_storage()
+        if storage is not None:
+            return await storage.download_bytes(generate_object_name(file_info.file_id, file_info.filename))
+        if not await self.ensure_local(file_info):
+            raise FileNotFoundError(file_info.file_path)
+        return Path(file_info.file_path).read_bytes()
+
+    async def delete(self, file_info: FileInfo) -> None:
+        storage = get_minio_storage()
+        if storage is not None:
+            await storage.delete_file(generate_object_name(file_info.file_id, file_info.filename))
+        Path(file_info.file_path).unlink(missing_ok=True)
+
+    def path_for(self, file_name: str, scope: str | None) -> Path:
+        safe_scope = "".join(c if c not in '<>:"/\\|?*' else "_" for c in str(scope or ""))
+        directory = Path(self._work_dir) / safe_scope if safe_scope else Path(self._work_dir)
+        directory.mkdir(parents=True, exist_ok=True)
+        return directory / normalize_stored_file_name(file_name)
+
+    async def _upload_to_object_storage(self, file_path: str | Path, object_name: str) -> None:
+        storage = get_minio_storage()
+        if storage is not None:
+            await storage.upload_file(file_path, object_name)
 
 
 FileDB = _FileDB()
 
 
 def normalize_stored_file_name(file_name: str) -> str:
-    """统一文件服务对外暴露的文件名，避免子路径污染 fileId 与预览 URL。"""
+    """Normalize externally supplied names before they reach local or object storage."""
     normalized = os.path.basename((file_name or "").strip())
-    if not normalized:
+    if not normalized or normalized in {".", ".."}:
         raise ValueError("file_name is empty")
     return normalized
 
 
-class FileInfoOp(object):
+def generate_object_name(file_id: str, file_name: str) -> str:
+    suffix = Path(file_name).suffix.lower()
+    return f"file-{file_id.replace('-', '')}{suffix}"
 
+
+def max_file_size_bytes() -> int:
+    max_size_mb = int(os.getenv("FILE_MAX_SIZE_MB", "100"))
+    if max_size_mb <= 0:
+        raise ValueError("FILE_MAX_SIZE_MB must be positive")
+    return max_size_mb * 1024 * 1024
+
+
+class FileInfoOp:
     @classmethod
     @timer()
-    async def add_by_content(cls, filename: str, content: str, file_id: str, description: str = None,
-                             request_id: str = None) -> FileInfo:
+    async def add_by_content(
+        cls,
+        filename: str,
+        content: str,
+        file_id: str,
+        description: str | None = None,
+        request_id: str | None = None,
+    ) -> FileInfo:
         filename = normalize_stored_file_name(filename)
-        file_path = await FileDB.save(filename, content, scope=request_id)
+        if "." not in filename:
+            filename = f"{filename}.txt"
+        content_size = len(content.encode("utf-8"))
+        if content_size > max_file_size_bytes():
+            raise ValueError("file exceeds configured size limit")
         file_info = FileInfo(
             file_id=file_id,
             filename=filename,
-            file_path=file_path,
+            file_path=str(FileDB.path_for(filename, request_id)),
             description=description,
-            file_size=os.path.getsize(file_path),
-            status=1,
-            request_id=request_id
+            file_size=content_size,
+            status=FILE_PROCESSING,
+            request_id=request_id,
         )
+        await cls.add(file_info)
+        try:
+            file_info.file_path = await FileDB.save(
+                filename,
+                content,
+                scope=request_id,
+                object_name=generate_object_name(file_id, filename),
+            )
+            file_info.file_size = os.path.getsize(file_info.file_path)
+            file_info.status = FILE_SUCCESS
+        except Exception:
+            file_info.status = FILE_FAILED
+            await cls.add(file_info)
+            raise
         return await cls.add(file_info)
-    
+
     @staticmethod
     @timer()
-    async def add_by_file(file: UploadFile, file_id: str, request_id: str = None) -> FileInfo:
+    async def add_by_file(file: UploadFile, file_id: str, request_id: str | None = None) -> FileInfo:
         file.filename = normalize_stored_file_name(file.filename)
-        file_path = await FileDB.save_by_data(file, scope=request_id)
-        
         file_info = FileInfo(
             file_id=file_id,
             filename=file.filename,
-            file_path=file_path,
+            file_path=str(FileDB.path_for(file.filename, request_id)),
             description="",
-            file_size=os.path.getsize(file_path),
-            status=1,
-            request_id=request_id
+            file_size=file.size or 0,
+            status=FILE_PROCESSING,
+            request_id=request_id,
         )
+        await FileInfoOp.add(file_info)
+        try:
+            file_info.file_path = await FileDB.save_by_data(
+                file,
+                scope=request_id,
+                object_name=generate_object_name(file_id, file.filename),
+                max_size_bytes=max_file_size_bytes(),
+            )
+            file_info.file_size = os.path.getsize(file_info.file_path)
+            file_info.status = FILE_SUCCESS
+        except Exception:
+            file_info.status = FILE_FAILED
+            if os.path.isfile(file_info.file_path):
+                file_info.file_size = os.path.getsize(file_info.file_path)
+            await FileInfoOp.add(file_info)
+            raise
         return await FileInfoOp.add(file_info)
 
     @staticmethod
     @timer()
     async def add(file_info: FileInfo) -> FileInfo:
-        file_id = file_info.file_id
-        f = await FileInfoOp.get_by_file_id(file_info.file_id)
         async with async_session_local() as session:
-            if f:
-                f.status = 1
-                f.file_size = file_info.file_size
-                session.add(f)
+            result = await session.execute(select(FileInfo).where(FileInfo.file_id == file_info.file_id))
+            stored = result.scalars().one_or_none()
+            if stored is None:
+                stored = file_info
             else:
-                session.add(file_info)
+                stored.filename = file_info.filename
+                stored.file_path = file_info.file_path
+                stored.description = file_info.description
+                stored.file_size = file_info.file_size
+                stored.status = file_info.status
+                stored.request_id = file_info.request_id
+            session.add(stored)
             await session.commit()
-        return await FileInfoOp.get_by_file_id(file_id)
+            await session.refresh(stored)
+            return stored
 
     @staticmethod
     @timer()
-    async def get_by_file_id(file_id: str) -> FileInfo:
+    async def get_by_file_id(file_id: str) -> FileInfo | None:
         async with async_session_local() as session:
-            state = select(FileInfo).where(FileInfo.file_id == file_id)
-            result = await session.execute(state)
+            result = await session.execute(select(FileInfo).where(FileInfo.file_id == file_id))
             return result.scalars().one_or_none()
 
     @staticmethod
     @timer()
     async def get_by_file_ids(file_ids: List[str]) -> List[FileInfo]:
         async with async_session_local() as session:
-            state = select(FileInfo).where(FileInfo.file_id.in_(file_ids))
-            result = await session.execute(state)
-            return result.scalars().all()
+            result = await session.execute(select(FileInfo).where(FileInfo.file_id.in_(file_ids)))
+            return list(result.scalars().all())
 
     @staticmethod
     @timer()
     async def get_by_request_id(request_id: str) -> List[FileInfo]:
         async with async_session_local() as session:
-            state = select(FileInfo).where(FileInfo.request_id == request_id)
-            result = await session.execute(state)
-            return result.scalars().all()
+            statement = select(FileInfo).where(
+                FileInfo.request_id == request_id,
+                FileInfo.status == FILE_SUCCESS,
+            ).order_by(FileInfo.create_time)
+            result = await session.execute(statement)
+            return list(result.scalars().all())
 
-def get_file_preview_url(file_id: str, file_name: str):
+    @staticmethod
+    @timer()
+    async def delete(file_id: str) -> None:
+        async with async_session_local() as session:
+            result = await session.execute(select(FileInfo).where(FileInfo.file_id == file_id))
+            file_info = result.scalars().one_or_none()
+            if file_info is None:
+                raise FileNotFoundError(file_id)
+            await FileDB.delete(file_info)
+            await session.delete(file_info)
+            await session.commit()
+
+
+def get_file_preview_url(file_id: str, file_name: str) -> str:
     normalized_file_name = normalize_stored_file_name(file_name)
     return f"{os.getenv('FILE_SERVER_URL')}/preview/{file_id}/{normalized_file_name}"
 
 
-def get_file_download_url(file_id: str, file_name: str):
+def get_file_download_url(file_id: str, file_name: str) -> str:
     normalized_file_name = normalize_stored_file_name(file_name)
     return f"{os.getenv('FILE_SERVER_URL')}/download/{file_id}/{normalized_file_name}"
