@@ -1,0 +1,12 @@
+{
+  "generatedAt": "2026-07-28T18:02:30.4645700+08:00",
+  "gateway": "http://127.0.0.1:8080",
+  "runRequested": true,
+  "scenarios": [
+    {
+      "id": "quota-insufficient",
+      "status": "FAILED",
+      "notes": "expected quota failure, got canonical events=agent_start,stage_output,complete"
+    }
+  ]
+}

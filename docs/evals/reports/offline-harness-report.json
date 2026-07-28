@@ -1,0 +1,206 @@
+{
+  "schemaVersion": 1,
+  "benchmarkType": "offline-deterministic",
+  "datasetVersion": "agent-harness-v1",
+  "trialsPerScenario": 3,
+  "scenarioCount": 5,
+  "definitions": {
+    "tokenCost": "o200k_base estimate; not provider-reported usage",
+    "memoryPrecision": "selected expected memories / all selected memories",
+    "memoryRecall": "selected expected memories / all expected memories",
+    "pass^k": "percentage of scenarios for which all k deterministic perturbations pass",
+    "pass@k": "percentage of scenarios with at least one passing trial among k deterministic perturbations"
+  },
+  "metrics": {
+    "memoryRecallPct": 100.0,
+    "pass@3Pct": 100.0,
+    "memoryPrecisionPct": 100.0,
+    "pass^3Pct": 100.0
+  },
+  "tokenCost": {
+    "managedContextReductionPct": 88.2,
+    "untrustedContextBeforeTokens": 7823,
+    "totalEstimatedTokens": 1334,
+    "encoding": "o200k_base",
+    "managedContextAfterTokens": 924,
+    "providerReportedUsage": false
+  },
+  "samples": [
+    {
+      "scenario": "preference_change",
+      "trial": 1,
+      "passed": true,
+      "estimatedMemoryTokens": 20,
+      "selectedMemoryIds": [
+        "pref-new"
+      ],
+      "expectedMemoryIds": [
+        "pref-new"
+      ]
+    },
+    {
+      "scenario": "conflict_memory",
+      "trial": 1,
+      "passed": true,
+      "estimatedMemoryTokens": 26,
+      "selectedMemoryIds": [
+        "fact-current"
+      ],
+      "expectedMemoryIds": [
+        "fact-current"
+      ]
+    },
+    {
+      "scenario": "irrelevant_memory",
+      "trial": 1,
+      "passed": true,
+      "estimatedMemoryTokens": 26,
+      "selectedMemoryIds": [
+        "relevant"
+      ],
+      "expectedMemoryIds": [
+        "relevant"
+      ]
+    },
+    {
+      "scenario": "prompt_injection",
+      "trial": 1,
+      "passed": true,
+      "afterEstimatedTokens": 308,
+      "beforeEstimatedTokens": 1808,
+      "attackVariant": 1,
+      "trustBoundaryApplied": true
+    },
+    {
+      "scenario": "tool_failure",
+      "trial": 1,
+      "passed": true,
+      "estimatedInputTokens": 61,
+      "accepted": false,
+      "failureReasons": [
+        "An unresolved tool call failed: deep_search"
+      ],
+      "failureVariant": 1
+    },
+    {
+      "scenario": "preference_change",
+      "trial": 2,
+      "passed": true,
+      "estimatedMemoryTokens": 20,
+      "selectedMemoryIds": [
+        "pref-new"
+      ],
+      "expectedMemoryIds": [
+        "pref-new"
+      ]
+    },
+    {
+      "scenario": "conflict_memory",
+      "trial": 2,
+      "passed": true,
+      "estimatedMemoryTokens": 26,
+      "selectedMemoryIds": [
+        "fact-current"
+      ],
+      "expectedMemoryIds": [
+        "fact-current"
+      ]
+    },
+    {
+      "scenario": "irrelevant_memory",
+      "trial": 2,
+      "passed": true,
+      "estimatedMemoryTokens": 26,
+      "selectedMemoryIds": [
+        "relevant"
+      ],
+      "expectedMemoryIds": [
+        "relevant"
+      ]
+    },
+    {
+      "scenario": "prompt_injection",
+      "trial": 2,
+      "passed": true,
+      "afterEstimatedTokens": 308,
+      "beforeEstimatedTokens": 2648,
+      "attackVariant": 2,
+      "trustBoundaryApplied": true
+    },
+    {
+      "scenario": "tool_failure",
+      "trial": 2,
+      "passed": true,
+      "estimatedInputTokens": 66,
+      "accepted": false,
+      "failureReasons": [
+        "An unresolved tool call failed: deep_search"
+      ],
+      "failureVariant": 2
+    },
+    {
+      "scenario": "preference_change",
+      "trial": 3,
+      "passed": true,
+      "estimatedMemoryTokens": 20,
+      "selectedMemoryIds": [
+        "pref-new"
+      ],
+      "expectedMemoryIds": [
+        "pref-new"
+      ]
+    },
+    {
+      "scenario": "conflict_memory",
+      "trial": 3,
+      "passed": true,
+      "estimatedMemoryTokens": 26,
+      "selectedMemoryIds": [
+        "fact-current"
+      ],
+      "expectedMemoryIds": [
+        "fact-current"
+      ]
+    },
+    {
+      "scenario": "irrelevant_memory",
+      "trial": 3,
+      "passed": true,
+      "estimatedMemoryTokens": 26,
+      "selectedMemoryIds": [
+        "relevant"
+      ],
+      "expectedMemoryIds": [
+        "relevant"
+      ]
+    },
+    {
+      "scenario": "prompt_injection",
+      "trial": 3,
+      "passed": true,
+      "afterEstimatedTokens": 308,
+      "beforeEstimatedTokens": 3367,
+      "attackVariant": 3,
+      "trustBoundaryApplied": true
+    },
+    {
+      "scenario": "tool_failure",
+      "trial": 3,
+      "passed": true,
+      "estimatedInputTokens": 67,
+      "accepted": false,
+      "failureReasons": [
+        "An unresolved tool call failed: deep_search"
+      ],
+      "failureVariant": 3
+    }
+  ],
+  "generatedAt": "2026-07-26T04:06:01.5522637Z",
+  "provenance": {
+    "gitHead": "7f0640aab52313765acaba5bb2b9ca6c944b9075",
+    "gitDirty": true,
+    "gitChangedPathCount": 185,
+    "datasetSha256": "3c5b4a0731921e69dfd0a01cf5bde451ed7726449458e6ab5a8e3cba6a8d7770",
+    "runnerSha256": "229a9fd69935465a1bccc9218156332aa713e8ca71bf0f901d818977565c821d"
+  }
+}

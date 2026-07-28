@@ -3,8 +3,9 @@ param(
     [string]$GroupBase = "http://127.0.0.1:8091",
     [string]$InternalToken = $env:AI_GROUP_INTERNAL_TOKEN,
     [string]$MysqlContainer = "ai-group-mysql",
-    [string]$MysqlPassword = $(if ($env:MYSQL_ROOT_PASSWORD) { $env:MYSQL_ROOT_PASSWORD } else { "123456" }),
+    [string]$MysqlPassword = $env:MYSQL_ROOT_PASSWORD,
     [string]$RedisContainer = "ai-group-redis",
+    [string]$RedisPassword = $env:REDIS_PASSWORD,
     [int]$ActivityId = 100201,
     [string]$GoodsId = "9890002",
     [int]$JoinRequests = 100,
@@ -27,8 +28,10 @@ if (-not $InternalToken) {
     }
 }
 if (-not $InternalToken) {
-    $InternalToken = "change-me-to-a-long-random-internal-token"
+    throw "AI_GROUP_INTERNAL_TOKEN or -InternalToken is required"
 }
+if (-not $MysqlPassword) { throw "MYSQL_ROOT_PASSWORD or -MysqlPassword is required" }
+if (-not $RedisPassword) { throw "REDIS_PASSWORD or -RedisPassword is required" }
 
 function Invoke-Mysql([string]$Sql) {
     $previousMysqlPassword = $env:MYSQL_PWD
@@ -107,10 +110,10 @@ function Remove-BenchmarkData([string]$TeamId) {
     if (-not $TeamId -or $TeamId -notmatch '^[0-9]{8}$') { return }
     Invoke-Mysql "DELETE FROM group_buy_market.notify_task WHERE team_id = '$TeamId'; DELETE FROM group_buy_market.group_buy_order_list WHERE team_id = '$TeamId'; DELETE FROM group_buy_market.group_buy_order WHERE team_id = '$TeamId';" | Out-Null
     $pattern = "group_buy_market_team_stock_key_${ActivityId}_${TeamId}*"
-    $keys = @(docker exec $RedisContainer redis-cli --scan --pattern $pattern)
+    $keys = @(docker exec -e REDISCLI_AUTH=$RedisPassword $RedisContainer redis-cli --scan --pattern $pattern)
     foreach ($key in $keys) {
         if ($key -and $key.StartsWith("group_buy_market_team_stock_key_${ActivityId}_${TeamId}")) {
-            docker exec $RedisContainer redis-cli DEL $key | Out-Null
+            docker exec -e REDISCLI_AUTH=$RedisPassword $RedisContainer redis-cli DEL $key | Out-Null
         }
     }
 }
@@ -252,7 +255,7 @@ try {
             logicalProcessors = [System.Environment]::ProcessorCount
             totalPhysicalMemoryBytes = if ($machine) { [long]$machine.TotalPhysicalMemory } else { $null }
             mysql = "MySQL " + @(Invoke-Mysql "SELECT VERSION();")[0]
-            redis = (docker exec $RedisContainer redis-cli INFO server | Select-String '^redis_version:' | ForEach-Object { $_.Line.Trim() })
+            redis = (docker exec -e REDISCLI_AUTH=$RedisPassword $RedisContainer redis-cli INFO server | Select-String '^redis_version:' | ForEach-Object { $_.Line.Trim() })
             groupBase = $GroupBase
             loadGeneratorPlacement = "same host as group-service"
             serviceTopology = "single group-service process with local Docker MySQL and Redis"

@@ -8,8 +8,9 @@ param(
     [string]$GroupBase = "http://127.0.0.1:8091",
     [string]$InternalToken = $env:AI_GROUP_INTERNAL_TOKEN,
     [string]$MysqlContainer = "ai-group-mysql",
-    [string]$MysqlPassword = $(if ($env:MYSQL_ROOT_PASSWORD) { $env:MYSQL_ROOT_PASSWORD } else { "123456" }),
+    [string]$MysqlPassword = $env:MYSQL_ROOT_PASSWORD,
     [string]$RedisContainer = "ai-group-redis",
+    [string]$RedisPassword = $env:REDIS_PASSWORD,
     [int]$SourceActivityId = 100201,
     [int]$LoadActivityId = 199901,
     [string]$GoodsId = "9890002",
@@ -45,6 +46,10 @@ function Import-DotEnv([string]$Path) {
 Import-DotEnv (Join-Path $root ".env")
 if (-not $InternalToken) { $InternalToken = $env:AI_GROUP_INTERNAL_TOKEN }
 if (-not $InternalToken) { throw "AI_GROUP_INTERNAL_TOKEN is required" }
+if (-not $MysqlPassword) { $MysqlPassword = $env:MYSQL_ROOT_PASSWORD }
+if (-not $MysqlPassword) { throw "MYSQL_ROOT_PASSWORD or -MysqlPassword is required" }
+if (-not $RedisPassword) { $RedisPassword = $env:REDIS_PASSWORD }
+if (-not $RedisPassword) { throw "REDIS_PASSWORD or -RedisPassword is required" }
 if ($WarmupSeconds -lt 1 -or $SteadySeconds -lt 1 -or $Repeats -lt 1) {
     throw "WarmupSeconds, SteadySeconds, and Repeats must all be positive"
 }
@@ -98,13 +103,13 @@ ON DUPLICATE KEY UPDATE
     Invoke-Mysql $sql | Out-Null
     $count = [int](@(Invoke-Mysql "SELECT COUNT(*) FROM group_buy_market.group_buy_activity WHERE activity_id=$LoadActivityId AND status=1;")[0])
     if ($count -ne 1) { throw "unable to initialize dedicated load activity $LoadActivityId" }
-    docker exec $RedisContainer redis-cli DEL "group_buy_market_com.aigroup.groupbuy.infrastructure.dao.po.GroupBuyActivity_$LoadActivityId" | Out-Null
+    docker exec -e REDISCLI_AUTH=$RedisPassword $RedisContainer redis-cli DEL "group_buy_market_com.aigroup.groupbuy.infrastructure.dao.po.GroupBuyActivity_$LoadActivityId" | Out-Null
 }
 
 function Remove-LoadData {
     Invoke-Mysql "DELETE FROM group_buy_market.notify_task WHERE activity_id=$LoadActivityId; DELETE FROM group_buy_market.group_buy_order_list WHERE activity_id=$LoadActivityId; DELETE FROM group_buy_market.group_buy_order WHERE activity_id=$LoadActivityId;" | Out-Null
     $pattern = "group_buy_market_team_stock_key_${LoadActivityId}_*"
-    docker exec $RedisContainer sh -c "redis-cli --scan --pattern '$pattern' | xargs -r -n 500 redis-cli UNLINK >/dev/null" | Out-Null
+    docker exec -e REDISCLI_AUTH=$RedisPassword $RedisContainer sh -c "redis-cli --scan --pattern '$pattern' | xargs -r -n 500 redis-cli UNLINK >/dev/null" | Out-Null
 }
 
 function Get-StatusMap([string[]]$Names) {
@@ -119,7 +124,7 @@ function Get-StatusMap([string[]]$Names) {
 }
 
 function Get-RedisInfoMap {
-    $lines = @(docker exec $RedisContainer redis-cli INFO stats cpu memory)
+    $lines = @(docker exec -e REDISCLI_AUTH=$RedisPassword $RedisContainer redis-cli INFO stats cpu memory)
     $map = [ordered]@{}
     foreach ($line in $lines) {
         if ($line -match '^([^#][^:]+):(.+)$') {
@@ -583,7 +588,7 @@ $report = [ordered]@{
         groupServiceInstances = 1
         groupBase = $GroupBase
         mysql = "MySQL " + @(Invoke-Mysql "SELECT VERSION();")[0]
-        redis = (docker exec $RedisContainer redis-cli INFO server | Select-String '^redis_version:' | ForEach-Object { $_.Line.Trim() })
+        redis = (docker exec -e REDISCLI_AUTH=$RedisPassword $RedisContainer redis-cli INFO server | Select-String '^redis_version:' | ForEach-Object { $_.Line.Trim() })
         mysqlContainerLimits = "no explicit CPU or memory limit"
         redisContainerLimits = "no explicit CPU or memory limit"
         loadGenerator = "$K6Image in Docker Desktop on the same physical host"

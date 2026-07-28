@@ -1,0 +1,67 @@
+{
+  "generatedAt": "2026-07-28T14:57:41.1953600+08:00",
+  "gateway": "http://127.0.0.1:8080",
+  "runRequested": true,
+  "scenarios": [
+    {
+      "id": "standard-qa",
+      "status": "PASSED",
+      "notes": ""
+    },
+    {
+      "id": "industry-research",
+      "status": "FAILED",
+      "notes": "Agent Loop did not complete successfully (types=agent_start,stage_output,error, errorCode=EXECUTION_ERROR)"
+    },
+    {
+      "id": "competitor-analysis",
+      "status": "FAILED",
+      "notes": "Agent Loop did not complete successfully (types=agent_start,stage_output,error, errorCode=EXECUTION_ERROR)"
+    },
+    {
+      "id": "tech-research",
+      "status": "FAILED",
+      "notes": "Agent Loop did not complete successfully (types=agent_start,stage_output,error, errorCode=EXECUTION_ERROR)"
+    },
+    {
+      "id": "pdf-synthesis",
+      "status": "MANUAL_REQUIRED",
+      "notes": "Requires uploading a PDF and binding it to the chat request."
+    },
+    {
+      "id": "csv-web-research",
+      "status": "MANUAL_REQUIRED",
+      "notes": "Requires uploading a CSV and binding it to the chat request."
+    },
+    {
+      "id": "cancel",
+      "status": "MANUAL_REQUIRED",
+      "notes": "Requires issuing the cancel API while SSE is open."
+    },
+    {
+      "id": "reconnect",
+      "status": "MANUAL_REQUIRED",
+      "notes": "Requires a controlled client disconnect and history replay."
+    },
+    {
+      "id": "resume",
+      "status": "MANUAL_REQUIRED",
+      "notes": "Requires service restart with MySQL checkpoint tables."
+    },
+    {
+      "id": "branch-failure",
+      "status": "MANUAL_REQUIRED",
+      "notes": "Requires injected model/tool failure."
+    },
+    {
+      "id": "low-evidence",
+      "status": "FAILED",
+      "notes": "Agent Loop did not complete successfully (types=agent_start,stage_output,error, errorCode=EXECUTION_ERROR)"
+    },
+    {
+      "id": "quota-insufficient",
+      "status": "MANUAL_REQUIRED",
+      "notes": "Requires test account quota setup."
+    }
+  ]
+}

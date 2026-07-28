@@ -1,1 +1,1 @@
-{"id":"todo-search-1","suite":"tool","mode":"text","executionMode":"DEEP","query":"先用 todo_write 创建查证清单，再联网查证 Qdrant 是否支持混合检索，完成清单后用两点总结结论和来源。","expect":["Qdrant","混合","hybrid"],"expectToolsAll":["todo_write","deep_search"],"minToolCalls":2}
+{"id":"todo-search-1","suite":"tool","mode":"text","executionMode":"DEEP","query":"先用 todo_write 创建查证清单，再联网查证 pgvector 如何与 PostgreSQL 文本检索组合实现混合检索，完成清单后用两点总结结论和来源。","expect":["pgvector","混合","hybrid"],"expectToolsAll":["todo_write","deep_search"],"minToolCalls":2}

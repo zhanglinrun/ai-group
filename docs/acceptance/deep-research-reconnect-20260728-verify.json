@@ -1,0 +1,12 @@
+{
+  "generatedAt": "2026-07-28T17:59:12.1335587+08:00",
+  "gateway": "http://127.0.0.1:8080",
+  "runRequested": true,
+  "scenarios": [
+    {
+      "id": "reconnect",
+      "status": "FAILED",
+      "notes": "history replay did not include run for request r-a386ce316060"
+    }
+  ]
+}

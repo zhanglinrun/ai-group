@@ -1,11 +1,12 @@
 param(
     [string]$MysqlContainer = "ai-group-mysql",
-    [string]$MysqlPassword = $(if ($env:MYSQL_ROOT_PASSWORD) { $env:MYSQL_ROOT_PASSWORD } else { "123456" }),
+    [string]$MysqlPassword = $env:MYSQL_ROOT_PASSWORD,
     [string]$BenchmarkDatabase = "member_resume_benchmark",
     [string]$ReportName = "quota-benchmark.json"
 )
 
 $ErrorActionPreference = "Stop"
+if (-not $MysqlPassword) { throw "MYSQL_ROOT_PASSWORD or -MysqlPassword is required" }
 $root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $memberRoot = Join-Path $root "member-service"
 $reports = Join-Path $PSScriptRoot "reports"

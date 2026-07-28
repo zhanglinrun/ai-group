@@ -110,7 +110,7 @@ $report = [ordered]@{
     dataset = [ordered]@{
         testClasses = $testClasses.Count
         regressionScenarios = $total
-        infrastructure = "Mockito stubs; no live Alipay, MySQL, RabbitMQ, or HTTP"
+        infrastructure = "Mockito stubs; no live Alipay, MySQL, Kafka, or HTTP"
     }
     results = [ordered]@{
         passed = $passed

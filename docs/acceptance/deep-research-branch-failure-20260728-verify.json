@@ -1,0 +1,12 @@
+{
+  "generatedAt": "2026-07-28T18:13:38.1878411+08:00",
+  "gateway": "http://127.0.0.1:8080",
+  "runRequested": true,
+  "scenarios": [
+    {
+      "id": "branch-failure",
+      "status": "PASSED",
+      "notes": "Validated by deterministic injected branch failure test."
+    }
+  ]
+}

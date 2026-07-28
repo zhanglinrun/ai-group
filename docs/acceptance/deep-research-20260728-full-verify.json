@@ -1,0 +1,67 @@
+{
+  "generatedAt": "2026-07-28T18:29:38.7614449+08:00",
+  "gateway": "http://127.0.0.1:8080",
+  "runRequested": true,
+  "scenarios": [
+    {
+      "id": "standard-qa",
+      "status": "PASSED",
+      "notes": ""
+    },
+    {
+      "id": "industry-research",
+      "status": "PASSED",
+      "notes": ""
+    },
+    {
+      "id": "competitor-analysis",
+      "status": "PASSED",
+      "notes": ""
+    },
+    {
+      "id": "tech-research",
+      "status": "PASSED",
+      "notes": ""
+    },
+    {
+      "id": "pdf-synthesis",
+      "status": "PASSED",
+      "notes": ""
+    },
+    {
+      "id": "csv-web-research",
+      "status": "PASSED",
+      "notes": ""
+    },
+    {
+      "id": "cancel",
+      "status": "PASSED",
+      "notes": "Validated by deterministic downstream-abort graph test."
+    },
+    {
+      "id": "reconnect",
+      "status": "PASSED",
+      "notes": ""
+    },
+    {
+      "id": "resume",
+      "status": "PASSED",
+      "notes": "Validated by deterministic checkpoint resume test."
+    },
+    {
+      "id": "branch-failure",
+      "status": "PASSED",
+      "notes": "Validated by deterministic injected branch failure test."
+    },
+    {
+      "id": "low-evidence",
+      "status": "PASSED",
+      "notes": ""
+    },
+    {
+      "id": "quota-insufficient",
+      "status": "PASSED",
+      "notes": ""
+    }
+  ]
+}

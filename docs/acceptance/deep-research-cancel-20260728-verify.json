@@ -1,0 +1,12 @@
+{
+  "generatedAt": "2026-07-28T18:13:37.7676489+08:00",
+  "gateway": "http://127.0.0.1:8080",
+  "runRequested": true,
+  "scenarios": [
+    {
+      "id": "cancel",
+      "status": "PASSED",
+      "notes": "Validated by deterministic downstream-abort graph test."
+    }
+  ]
+}

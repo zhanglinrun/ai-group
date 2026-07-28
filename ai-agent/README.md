@@ -1,98 +1,140 @@
-# AI Agent Harness
+# AI Agent 运行时 (AI Agent Runtime)
 
 ## 项目简介
 
-`ai-agent` 是一个面向复杂任务自动化与 AI 应用工程化落地的可审计 Agent Harness。
-主运行时采用一条统一的模型—工具循环：`AgentRuntime` 创建单次运行上下文，并通过可注入的
-`AgentLoopFactory` 为每个 run 组装独立 `AgentLoop / HookBus`；`AgentLoop` 通过
-`ContextPipeline + ModelGateway` 请求模型，`TodoService` 维护任务进度，`CompletionGate`
-在结束前检查证据与完成条件。MCP、Skills、RAG、会话记忆、artifact、执行账本与历史回放
-作为同一条主链路的横切能力接入。
+`ai-agent` 是面向复杂任务自动化的**可审计 Agent 应用运行时**（挂在 AI-Group：**拼团获额与按量计费 Agent 平台**）。
+它不是「单轮对话 + 调一次工具」的 Demo，而是把 **统一 Agent Loop**、工具编排、Todo 证据、完成门禁、执行账本、会话记忆、MCP/Skills 串成一条可运行、可追踪、可回放的链路。
 
-> 项目参考 Claude Code 的公开 Harness 思路，但不宣称是其替代品，也不宣称已经具备
-> 分布式 durable execution、exactly-once 或完整的权限控制面。
+主循环：`AgentRuntime` 创建单次 run → `AgentLoopFactory` 组装独立 `AgentLoop / HookBus` → `ContextPipeline + ModelGateway` 调模型 → 工具执行写 observation/artifact → `TodoService` 推进步骤 → `CompletionGate` 验收后才允许成功结束。
 
-本次架构对齐固定参考以下公开快照（2026-07-17），避免后续上游变更导致设计依据漂移：
+> 形态对齐主流 coding / 应用 Agent（Claude Code / Pi 一类）：**一条 Agent Loop**，而不是 Planner/Executor 硬拆的 Plan-Execute 双管道。
+> 场景与**产物展示**参考 [OWWZO/ai-agent](https://github.com/OWWZO/ai-agent)（参考交付物，不照搬多智能体调度）；核心设计覆盖 Loop、Deep Research 并行分支、上下文/记忆、Skill·MCP、门禁、账本、评测与额度。
 
-- [shareAI-lab/learn-claude-code@a9cafe9](https://github.com/shareAI-lab/learn-claude-code/commit/a9cafe953aa714f9cb1171f217d96bd2734bbcc7)：教学实现；
-- [claude-code-best/claude-code@b4149bb](https://github.com/claude-code-best/claude-code/commit/b4149bbf7391ad62f82734314d5c7c250c6c7b59)：逆向恢复/社区实现，并非 Anthropic 官方源码。
+公开 Harness 行为参考快照（2026-07-17）：
 
-本项目借鉴的是可公开观察的 Harness 行为契约，不把任一仓库当作 Claude Code 内部实现的权威来源，
-也不复制其全部文件组织与产品能力。
+- [shareAI-lab/learn-claude-code@a9cafe9](https://github.com/shareAI-lab/learn-claude-code/commit/a9cafe953aa714f9cb1171f217d96bd2734bbcc7)
+- [claude-code-best/claude-code@b4149bb](https://github.com/claude-code-best/claude-code/commit/b4149bbf7391ad62f82734314d5c7c250c6c7b59)
 
-### ChatGPT Work 垂直切片
+不宣称 Anthropic 官方实现、分布式 durable execution、完整 HITL 权限控制面或通用 SubAgent 平台。
 
-新增 `/api/agent/work` 控制面和 `WorkspaceTasks` 四列看板：
+### 与平台的关系
 
-- `TodoService` 仍是 run-local 步骤与 evidence，不承担跨会话协作。
-- `WorkspaceService` 管理项目级 instructions 与 tool policy 边界。
-- `TaskGraphService` 管理 work item 的 `blockedBy / blocks`、认领、状态迁移和完成后自动解锁。
-- 前端独立展示 `Ready / In progress / Blocked / Completed`，不会把 TaskGraph 混入聊天 Todo。
+额度由 `member-service` 账户 `freeze → confirm(usage) / release`；本服务通过 `QuotaBillingPort` 按次计量。
+拼团/支付是独立交易域，**不是** Agent 业务场景——Agent 只消费已入账额度；同场演示仅为**额度集成**。
 
-当前工作区、任务节点、依赖关系与审计事件已由 JDBC repository 持久化到 MySQL，并保留内存 repository
-用于领域测试；它支持跨 Agent 进程重启恢复任务图，但不等同于运行中 Agent Loop 的 checkpoint/resume。
+### 核心实现索引
+
+| 主题 | 入口类（`ai-agent-domain`） |
+|------|---------------------------|
+| AgentLoop | `runtime/agent/AgentLoop.java` |
+| 多 Agent（限定于 DEEP） | `runtime/deepresearch/DeepResearchGraphRunner.java`、`AgentContext#forkForParallelTask` |
+| 上下文压缩 | `runtime/context/ContextManager.java`、`ContextTrustBoundary.java`、`ContextBudget.java`（顺序：trust normalize → observation compact → tool schema/安全余量扣减 → fitToBudget） |
+| 记忆 | `memory/SessionContextMemoryService.java`、`memory/LongTermMemoryServiceImpl.java` |
+| Skill | `runtime/tool/skill/DefaultSkillRegistry.java` |
+| MCP | `runtime/tool/mcp/runtime/McpRegistry.java`、`runtime/tool/exposure/ToolExposurePolicy.java` |
+| 工具/Todo | `runtime/tool/factory/AgentToolCollectionFactory.java`、Todo + CompletionGate |
+| 评测 | 仓库 `docs/evals/`（`run-evals.ps1` / `run-offline-benchmarks.ps1`） |
+
+多 Agent：普通请求使用一个 run-local `AgentLoop`；只有 DEEP 研究图会并行执行研究分支，再统一合并、审阅并生成报告。目前没有通用 `spawn_subagent` 工具。
+
+### Work 看板（可选演示）
+
+`/api/agent/work` + 前端四列看板：`TodoService` 仍是 run-local；`TaskGraphService` 管跨会话工作项依赖。不等于 Loop checkpoint/resume。
 
 ## 解决的痛点
 
-- 单轮问答难以承接复杂任务，缺少显式待办、工具证据与完成条件
-- 工具调用往往是一次性动作，搜索、分析、报告等中间结果文件难沉淀、难复用
-- **多步骤**任务过度依赖 Prompt 临场发挥，容易跑偏、漏步骤或过早宣称完成
-- 执行过程缺少结构化记录，出现问题后难审计、难回放、难定位
-- AI 能力与业务系统之间常常存在落地鸿沟，Demo 能跑，但工程体系难以长期演进
-- Agent能力难以拓展，新增能力成本过高
+| 痛点 | 本项目做法 |
+|------|------------|
+| 单轮对话撑不起多步任务 | 统一 Agent Loop + run-local Todo |
+| 模型嘴上说做完了 | CompletionGate：证据/产物/Todo 未齐不得 SUCCESS |
+| 工具结果难沉淀、难复用 | artifact + 执行账本，可回放 |
+| 上下文与工具 schema 膨胀 | 常驻 / 条件 / 延迟工具分层暴露 |
+| Demo 难计费、难追责 | 调用级额度预留结算 + requestId 认领 |
 
-## 推荐主闭环：复杂研究报告
-
-为了让网页演示聚焦，推荐使用一条稳定的主场景验证 Harness：
+## 核心执行闭环
 
 ```text
-用户提出研究问题
+用户提出研究问题（前端选 DEEP，打开联网）
   -> Agent 建立 Todo
-  -> Deep Search / 文件 / RAG 收集证据
+  -> deep_search / 文件 / RAG 收集证据
   -> 工具结果沉淀为 artifact
   -> Report 生成可预览产物
   -> CompletionGate 检查覆盖、证据和产物
-  -> 缺项写回同一 Agent Loop 定向补齐
-  -> run_finished(SUCCESS) -> result
+  -> Deep Research 图合并、审阅，必要时最多一次定向修复
+  -> 持久化报告 artifact -> run_finished(SUCCESS) -> result
 ```
 
-网页端只展示用户可验证的阶段、Todo、工具结果、产物和验收结论，不展示内部 chain-of-thought。
-`AUTO / STANDARD / DEEP` 仍然是同一 Agent Loop 的执行强度选择，不是三套运行时。
+`AUTO` 会归一化为 `STANDARD` 并进入普通 `AgentLoop`；`DEEP` 进入独立的
+`DeepResearchGraphRunner`。二者共享入口、工具边界、账本和终态协议，但不是同一个执行引擎。
+网页只展示阶段、Todo、工具结果、产物与验收结论。
 
 ### 工具分层
 
-- **常驻工具**：Todo、文件、基础分析等 Harness 控制能力；保证每轮都能维护任务和读取必要输入。
-- **条件工具**：联网搜索、用户文件、用户 MCP 等，按请求的 `online`、附件和权限注入。
-- **延迟工具**：大规模 MCP 或低频业务工具，通过 `tool_search + execute_extra_tool` 按需发现和执行，避免工具 schema 一次性占满上下文。
-
-这套分层既服务模型选择，也服务网页解释：用户看到的是“正在搜索 / 分析 / 生成报告”，而不是一串难以理解的内部工具名。
-
-## 目标用户
-
-- 想构建 Agent Harness、复杂工作流或 AI 自动化系统的后端工程师
-- 需要把检索、分析、报告、脚本执行等工具能力串成闭环的业务技术团队
-- 想学习工具调用、上下文工程、执行治理与可审计 Agent 的开发者
+- **常驻**：Todo、文件等控制面工具
+- **条件**：联网搜索、附件、用户 MCP（如 `online=true`）
+- **延迟**：`tool_search + execute_extra_tool` 按需发现，避免 schema 占满上下文
 
 ## 典型应用场景
 
-- **多步骤**任务编排与结果汇总
-- 知识检索与**图文混合**问答
-- 数据分析与报告生成
-- 复杂业务流程中的工具编排与结果验收
+> 下表说明同一套 Loop、工具与 Skill 可以覆盖的典型业务场景；研究报告是当前实现最完整的任务闭环。
 
+### 研究与决策
 
-## 展示图与报告样例（待自建）
+| 场景 | 怎么跑 | 用到什么 |
+|------|--------|----------|
+| **技术选型 / 调研报告**（主推） | 搜索多源 → Todo 取证 → 结构化报告 | DeepSearch + Report + CompletionGate |
+| **竞品对比** | 搜索公开信息 → 表格/图表 → 小结 | Search + CodeInterpreter / Chart Skill |
+| **开源项目评估** | 拉仓库信息 → 分析 → 报告 | GitHub Skill + Report |
 
-旧的 `assets/readme` 展示图与样例报告已移除（非当前环境产物，不再使用）。
-展示材料请用**本机重跑**后的截图与报告重新生成，步骤见文末「后续待办：演示截图与展示材料」。
+### 检索与内容
 
-建议主演示闭环仍是：联网研究 → Todo（DEEP）→ 工具产物 → 完成门禁 → 可预览报告/图片。
+| 场景 | 怎么跑 | 用到什么 |
+|------|--------|----------|
+| **知识库 / 手册问答** | 上传或入库 → 混合检索 → 引用回答 | MRAG + Rerank |
+| **图文报告 / PPT / 海报** | 搜索素材 → 生成产物 | Report / PPT / Image Skill（按需） |
+
+### 工程辅助
+
+| 场景 | 怎么跑 | 用到什么 |
+|------|--------|----------|
+| **脚本分析 / 轻量代码执行** | 在沙箱跑分析脚本 | code_interpreter（权限受限） |
+
+## 运行截图与交付物
+
+下图来自 2026-07-26 本地全栈 Chrome 验收。它证明当前版本的实际交付链路，不代表线上成功率或生产 SLA。复现入口见 [开发运维说明](../docs/dev-ops/README.md)。
+
+| 类型 | 如何得到 | 前端行为 |
+|------|----------|----------|
+| HTML 报告 | DEEP + 输出 HTML → `report_tool` | ActionPanel 沙箱预览 + 下载 |
+| Markdown | 输出文档 → `report_tool` | Markdown 预览 + 下载 |
+| PPTX | DEEP + 输出 PPT → `report_tool` / ppt-generation Skill | 在线只读预览 + 原始 `.pptx` 下载 |
+
+### DEEP 执行与 HTML 产物
+
+![DEEP 模式 Todo、工具轨迹与完成门禁](assets/readme/agent-deep-html.png)
+
+![工作区产物与下载入口](assets/readme/agent-artifact-panel.png)
+
+![HTML 报告沙箱预览](assets/readme/agent-html-preview.png)
+
+### PPTX、历史回放与移动端
+
+![PPTX 在线只读预览与原文件下载](assets/readme/agent-ppt-delivery.png)
+
+![刷新后的历史会话、终态与产物恢复](assets/readme/agent-history-replay.png)
+
+<img src="assets/readme/agent-mobile-deep-ppt.png" width="390" alt="390x844 移动端 DEEP PPT 验收">
+
+### 附录：智能问数
+
+仓库仍保留固定 NL2SQL Pipeline（Schema 召回 → NL2SQL → SELECT 限制 → JDBC），**不是** Loop 自主 Data Agent。
+`POST /data/testQuery` **默认关闭**（`autobots.data-agent.test-query.enabled=false`），当前能力不等同于企业级数据分析 Agent。
 
 ## 技术栈
 
 - 后端：Java 21、Spring Boot 3.5、Spring AI 1.1、MyBatis、OkHttp SSE
-- 数据层：MySQL、Qdrant
-- 多模态智能检索：RAG、**多路混合**召回、Rerank、多轮检索
+- 数据层：MySQL、PostgreSQL + pgvector、MinIO 私有对象存储
+- 检索：pgvector 余弦、`pg_trgm` 关键词与 RRF 混合召回
 - 前端：React 19、TypeScript、Vite、Ant Design
 
 ## 系统架构图
@@ -110,11 +152,12 @@ flowchart LR
     DO --> RAG[RAG 检索增强]
 
     INF --> MYSQL[(MySQL)]
-    INF --> QDRANT[(Qdrant)]
-    INF --> FILES[文件产物 / Artifact 存储]
+    INF --> PGVECTOR[(PostgreSQL + pgvector)]
+    INF --> FILES[文件元数据 / Artifact 账本]
+    PY --> MINIO[(MinIO 私有桶)]
 
     PY --> FILES
-    RAG --> QDRANT
+    RAG --> PGVECTOR
     MCP --> EXT[外部工具 / 外部系统]
 ```
 
@@ -125,7 +168,7 @@ flowchart LR
 - `AgentRuntime` 负责 run-local 上下文、工具目录、账本与终态协议，`AgentLoop` 负责模型—工具循环
 - `AgentLoopFactory` 是可注入的 Harness 装配边界：Spring 可提供 `PermissionPolicy`、有序 Hooks 与 `RunCustomizer`，每个 run 重新创建可变 `HookBus` 和循环实例，避免跨请求状态泄漏
 - `ContextPipeline` 生成当前轮上下文和可见工具，`ModelGateway` 隔离底层 LLM，`ToolDispatcher` 统一 ID/Schema 校验、权限、Hook、执行、证据与账本
-- `AUTO / STANDARD / DEEP` 是同一运行时的 `executionMode`，不是三套 Agent；它们改变 Todo 与验收强度，不能绕过确定性完成校验，`DEEP` 强制显式 Todo
+- `AUTO` 兼容归一化为 `STANDARD`，二者使用普通 `AgentLoop`；`DEEP` 切换到 `DeepResearchGraphRunner`，内部研究分支复用 run-local `AgentLoop`，两种执行引擎共享工具、账本与终态协议
 - `TodoService` 是运行内唯一任务状态源，`TodoWriteTool` 只是模型适配器；每轮 system prompt 尾部注入 fresh `current_todo_state`，压缩后仍保留 completed prefix、唯一 `in_progress` 与 pending suffix，并用当前步骤驱动工具预选
 - DEEP Todo 的每一步显式声明 `NONE / TOOL` evidence policy，并在进入步骤时生成独立 `activationId`：`NONE` 步骤只能通过 `todo_write` 更新，`TOOL` 步骤只能消费当前步骤、当前 activation 内新产生且尚未消费的真实工具证据；禁止跨步骤、跨 activation、重复消费 evidence，也禁止用 `ToolOperationLedger` 的 reused 结果证明新步骤。历史 Todo 缺少新字段时按 `LEGACY` 兼容回放
 - `CompletionGate` 检查未完成 Todo、未解决工具失败、必需 artifact 与最终覆盖；多对象比较必须逐 `subject × dimension` 提供实质内容，拒绝时把修正动作写回同一上下文继续当前项
@@ -137,7 +180,7 @@ flowchart LR
 
 ### 2. 共享工作区与工具组合执行
 
-- 搭建工具产物登记与可见性机制，将搜索结果、分析文件、报告、图片、多模态检索结果统一沉淀到会话级工作区
+- 搭建工具产物登记与可见性机制，将搜索结果、分析文件、报告和图片结果统一沉淀到会话级工作区
 - 支持跨工具传递、上下文续用与任务级结果串联，形成 `搜索 -> 分析 -> 报告 -> 汇总` 的**多工具组合闭环**
 - 让前序工具生成的文件与中间结果可以被后续工具直接复用，避免链路割裂和重复处理
 
@@ -156,9 +199,10 @@ flowchart LR
 
 ### 5. RAG 与混合检索增强
 
-- 基于 Qdrant 搭建 **语义向量召回 + BM25 关键词召回 + 文本到图片/页面的跨模态混合检索体系**
-- 结合**查询重写**、**子问题扩展**、**多轮检索**与**重排序**机制，提升图文混合知识场景下的检索相关性
-- 支持复杂知识任务中的**证据补全**、上下文增强与多源内容融合
+- `AnalyzeFileTool -> DocumentIngestRouter` 统一处理文件：图片写入 VLM 描述，小文本直接返回上下文，大文本切分后写入 `file_chunk`
+- 原始上传文件和报告产物写入 MinIO 私有桶，本地目录只作为工具执行缓存；缓存缺失时从 MinIO 恢复，预览和下载仍经过受控文件代理
+- PostgreSQL 单表保存文件、知识、摘要和 schema，使用 pgvector 余弦、`pg_trgm` 与 RRF 去重合并
+- embedding 或数据库失败显式降级/失败，不保留 Qdrant 双写和旧 MRAG 旁路
 
 ### 6. MCP管理
 
@@ -180,9 +224,9 @@ flowchart LR
 - Agent Loop 使用统一 `ContextManager`，将消息、系统提示、记忆、工具 schema 和安全余量纳入同一 token 预算
 - 所有 Web 对话和定时任务都进入统一 Agent Loop；任务图与 run-local Todo 是工作管理能力，不再通过独立 Workflow 运行时绕过 Harness
 - 将网页、工具输出和召回内容标记为不可信数据，大型 observation 压缩为摘要与 artifact/evidence 引用
-- 将长期记忆收敛为 `PREFERENCE / FACT / PROCEDURE`，带 owner、source、confidence、version、TTL、稳定 upsert key 与删除边界
-- 自动写入采用显式准入：普通问答不进入长期记忆；只有用户明确声明的偏好、事实或流程才写入，回答语言/风格使用稳定语义槽位覆盖更新
-- 本地作品集环境默认开启跨会话长期记忆；首次保存按真实 embedding 维度幂等创建 Qdrant 集合，并为 owner/记忆/会话过滤字段创建 keyword 索引。它与 `AGENT_GROUP_QDRANT_ENABLED` 控制的 DataAgent 问数能力相互独立
+- 长期层分为两类：每轮问答按 owner 保存为 `qa_pair` 并生成 session/cross summary；用户画像收敛为 `PREFERENCE / FACT / PROCEDURE`，带 source、confidence、version、TTL、稳定 upsert key 与删除边界
+- 画像自动写入采用显式准入：普通问答不会升级为画像；只有用户明确声明的偏好、事实或流程才写画像，回答语言/风格使用稳定语义槽位覆盖更新
+- 本地作品集环境默认开启跨会话长期记忆；PostgreSQL 按 owner 与 conversation 隔离 `qa_pair`、session/cross summary 和画像，跨会话摘要与水位线在同一事务更新
 
 固定角色配置也不会选择执行内核：`AgentProfileResolver` 只把角色绑定的 client、步骤提示词和 MCP 范围解析为可信 Harness profile，`AgentDispatchService` 始终进入 `AgentType.AGENT_LOOP`。数据库中的 `ai_agent.strategy`、`ai_agent.flow_step_count` 与 `ai_agent_flow_config` 是迁移前沿用的存储命名，其中 `ai_agent_flow_config` 当前承载“角色 -> client + procedure prompt”绑定；它们不能恢复 Workflow/ReAct/Plan-Solve 运行时。后续若重做角色管理后台，可用独立幂等迁移将这些列和表重命名为 profile 语义，不应在当前已有角色数据上直接删除。
 
@@ -231,21 +275,16 @@ M -->|否| N --> E
 M -->|是| O
 ```
 
-前端只消费 canonical events：`run_started`、`phase_changed`、`todo_snapshot`、
-`tool_call`、`tool_result`、工具专属 artifact 事件、`verification_started`、
-`verification_result`、`completion_blocked`、`run_finished` 和终态 `result`。
+前端只消费 11 类 canonical events：`agent_start`、`thinking`、`text`、`tool_start`、
+`tool_end`、`todo_progress`、`paused`、`resume_start`、`stage_output`、`error`、`complete`。
+SSE 使用同名 `event:` 与 JSON `data:`；账本保存并原样回放这些事件。
 
-## 验证快照（2026-07-18）
+## 当前提交验证
 
-- Agent 当前 Surefire 报告汇总：`508` tests，`0` failures，`0` errors，`0` skipped。
-- 前端本轮实际执行 `pnpm test`：`47` test files、`192` tests 全部通过；ESLint 与生产构建通过。
-- 双账号浏览器闭环已验证：A 开团并支付后团队仍开放，B 参团支付后显式封团，双方各到账 60 点永久额度；
-  随后 DEEP Agent Loop 使用 `todo_write` 与 `code_interpreter` 完成 2/2 Todo 和最终验证。
-- 真实 `qwen-plus` 浏览器验收调用两次 `platform_context`，完成
-  `tool_call -> tool_result -> verification_result(passed) -> run_finished(SUCCESS) -> result`；账户卡片显示
-  付费额度 `120` 点，订单卡片显示最近 `2` 笔，重新打开最近会话后两张卡片仍由 typed projector 还原。
-- 工具账本新增 `tool_result` 后，实时 UI 结果与模型 `llm_observation` 不再混用；旧账本缺少该列数据时保留回退策略。
-- 浏览器已验收桌面双栏与 `390x844` 移动单栏：移动端可切换全宽工作区，页面无横向溢出，本轮无新增控制台错误。
+全量命令、外部依赖前提和结果写入
+`.trellis/tasks/07-27-stack-modernization/`。`docs/dev-ops/verify-modernization.ps1`
+执行确定性静态/契约门禁，`verify-acceptance.ps1` 聚合 Maven、Python 与前端验证；
+在线模型和浏览器结果只作为单机样本，不冒充生产 SLA 或稳定成功率。
 
 ## 项目结构
 
@@ -352,12 +391,12 @@ ai-agent/
 ├── runtime/                                         # 运行时资产
 │   ├── skills/                                      # Skills 技能包（磁盘加载）
 │   └── tools/                                       # 工具运行时服务（HTTP :1601，Loop 调用的重执行后端）
-├── assets/                                          # 可选：自建 README 截图（默认无，见文末待办）
+├── assets/readme/                                   # Chrome 验收截图
 ├── pom.xml                                          # Maven 聚合构建入口
 └── README.md                                        # 项目说明
+```
 
 > 平台前端已迁至仓库根目录 `web/`（React / Vite），不再位于本目录下。
-```
 
 
 ## 架构说明
@@ -375,46 +414,29 @@ Work Management 已落地 run-local `TodoService` 和跨会话 `TaskGraphService
 历史回放用于审计和投影。TaskGraph 已使用 MySQL 持久化并支持跨进程恢复，但仍不等于运行中 Agent Loop 的
 durable checkpoint/resume。
 `CheckpointService`、通用 `SubagentRunner` 与 `BackgroundTaskRunner` 尚未实现，也不为架构图完整性创建空壳。
+当前多 Agent 仅指 DEEP 研究图的受控并行分支，不提供模型任意派生子 Agent 的通用工具。
 
 
-## 后续待办：演示截图与展示材料
+## 本地复现与已知边界
 
-> 这是**后续要补的事项清单**，不是系统自动任务。旧展示资源已删，需要重跑后再贴图。
+完整启动和验收入口见 [开发运维说明](../docs/dev-ops/README.md)。Java 负责 Loop、Todo、门禁和账本；`runtime/tools` 是搜索、报告、代码执行等重工具的 Python 后端，不是第二套 Agent。需要验证这些工具时必须启动该服务，安装细节见 `runtime/tools/README.md`。
 
-### 和 Agent Loop 的关系（先搞清）
+当前仍有三条明确边界：
 
-- **现在主路径就是统一 Agent Loop**（`AUTO / STANDARD / DEEP` 只是强度，不是三套旧运行时）。
-- **`runtime/tools` 不是旧模式替代品**，也不是第二套 Agent。它是 Loop 里「重工具」的执行后端（Python HTTP，默认 `1601`）。
-- 模型在 Loop 里选工具 → Java 调 `deep_search` / `web_fetch` / 生图 / 代码执行等 → **干活在 runtime/tools** → 结果回 Loop 记 artifact / 账本 / 门禁。
-- **不打算演示联网搜索、出报告、生图、跑脚本**：可以先不启 runtime/tools，但这些能力在配置里仍指向它，相关演示会失败。
-- **要演示「多步骤研究 + 产物」**：需要起 runtime/tools，且这是**当前架构仍在用的**能力。
+- 用户自定义 MCP 的任意域名目标尚未实现 DNS 解析结果固定与连接期复验，不能宣称已完整防御 DNS rebinding；公开部署前应限制可信域名或补齐 IP pinning。
+- HITL 只支持当前在线连接：审批在收费/高风险工具预扣前持久化到 MySQL，并通过 REST 决策和 SSE `resume_start` 恢复；断线、超时或服务异常 fail-closed，不支持刷新后续跑。
+- `TaskGraphService` 支持跨进程工作项恢复，但运行中的 Agent Loop 尚无 durable checkpoint/resume。
 
-### 你需要做的事
-
-1. **起环境**：中间件 + `agent_db` 迁移；起 `runtime/tools`；起 `ai-agent-app`；按需起网关/鉴权/会员；起根目录 `web/`。
-2. **跑通 2 条对话**（前端选 `STANDARD` / `DEEP`）：
-   - STANDARD：联网调研一个技术点，要求有来源小结。
-   - DEEP：先 Todo，再搜索取证，最后尽量产出可预览 HTML 报告。
-3. **截图**（新建目录 `assets/readme/`，文件名可自定）：
-   - 首页对话（含 executionMode）
-   - STANDARD 工具时间线
-   - DEEP 的 Todo + 验证/补齐痕迹
-   - 报告或图片产物预览
-   - （可选）额度变化、Work 看板
-4. **回写本 README**：在「展示图与报告样例」一节用 Markdown 插图，确认预览能显示；勿提交密钥与隐私。
-5. **讲解口径**：Java 管 Loop / Todo / 门禁 / 账本；`runtime/tools` 管搜索等重执行——两者是一层分工，不是新旧两套 Agent。
-
-`runtime/tools` 安装细节见 `runtime/tools/README.md`。
+上述浏览器与在线模型结果均来自单机本地环境；生产 SLA、跨模型稳定成功率和多实例故障恢复需要独立环境、多 trial 与故障注入复测。
 
 ---
 
 ## 后续演进方向
 
 - 更灵活的智能体角色配置
-- 受限子 Agent 与最小工具集委派（引入前先补齐权限和预算继承）
 - 更完善的管理后台、配置中心与可观测性能力
 - 更丰富的工具组合
-- 在现有 `PermissionPolicy + HookBus` 之上增加面向用户的交互审批控制面、Hook 可观测性与副作用工具幂等协议
-- 在统一循环状态模型之上再评估持久化断点恢复与 HITL
+- 为在线审批增加跨实例通知后，再评估刷新后续跑；当前不创建持久执行空壳
+- 为任意域名用户 MCP 增加 DNS 解析固定、连接期复验与出站网络隔离
+- 在统一循环状态模型之上再评估持久化断点恢复
 - 持续扩充 outcome-based eval，避免只依赖单次演示或 LLM 自评判断 Agent 质量
-- 按上文「后续待办：演示截图与展示材料」补齐自有展示材料
