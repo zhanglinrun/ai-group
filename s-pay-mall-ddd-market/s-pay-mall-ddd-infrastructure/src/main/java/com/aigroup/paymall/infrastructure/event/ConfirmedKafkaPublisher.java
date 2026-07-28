@@ -12,10 +12,8 @@ import java.util.concurrent.TimeoutException;
 
 /**
  * Publishes a Kafka message and only returns after the broker has ACKed it (acks=all
- * + idempotent producer). Replaces the legacy RabbitMQ publisher-confirm + returns
- * pattern; {@code send().get(timeout)} provides the same "only return after broker
- * confirms" semantics. Every failure outcome is reported to the caller so its retry
- * or compensation path can keep the operation pending.
+ * + idempotent producer). Every failure outcome is reported to the caller so its
+ * retry or compensation path can keep the operation pending.
  */
 @Slf4j
 @Component
@@ -44,6 +42,12 @@ public class ConfirmedKafkaPublisher {
         try {
             SendResult<String, String> result = kafkaTemplate.send(topic, key, payload)
                     .get(confirmTimeoutMillis, TimeUnit.MILLISECONDS);
+            if (result == null || result.getRecordMetadata() == null
+                    || !topic.equals(result.getRecordMetadata().topic())
+                    || result.getRecordMetadata().partition() < 0
+                    || result.getRecordMetadata().offset() < 0) {
+                throw publishFailure(topic, "broker returned invalid record metadata", null);
+            }
             log.debug("kafka publish ok topic={} partition={} offset={}",
                     topic, result.getRecordMetadata().partition(), result.getRecordMetadata().offset());
         } catch (TimeoutException e) {

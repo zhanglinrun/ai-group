@@ -6,12 +6,12 @@ app:
     api-version: v1
     cross-origin: ${APP_CROSS_ORIGIN:https://your-frontend.example.com}
     group-buy-market:
-      api-url: ${GROUP_BUY_API_URL:http://127.0.0.1:8091}
+      api-url: ${GROUP_BUY_API_URL:}
       notify-url: ${GROUP_BUY_NOTIFY_URL:http://127.0.0.1:8070/api/v1/alipay/group_buy_notify}
       source: ${GROUP_BUY_SOURCE:s01}
       chanel: ${GROUP_BUY_CHANNEL:c01}
     member-service:
-      api-url: ${MEMBER_SERVICE_URL:http://127.0.0.1:18082}
+      api-url: ${MEMBER_SERVICE_URL:}
 
 thread:
   pool:

@@ -32,6 +32,7 @@ public class MarketSettlementCompensateJob {
             }
         } catch (Exception e) {
             log.error("market settlement compensate job failed", e);
+            throw e instanceof RuntimeException runtime ? runtime : new RuntimeException(e);
         }
     }
 

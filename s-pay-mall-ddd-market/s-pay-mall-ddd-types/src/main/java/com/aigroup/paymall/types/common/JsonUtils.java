@@ -7,7 +7,7 @@ import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 
 /**
- * Jackson-based JSON utility replacing fastjson static access ({@code JSON.toJSONString} / {@code JSON.parseObject}).
+ * Shared Jackson JSON helpers.
  */
 public final class JsonUtils {
 

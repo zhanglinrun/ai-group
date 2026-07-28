@@ -5,9 +5,10 @@ import jakarta.xml.bind.JAXBException;
 import jakarta.xml.bind.Marshaller;
 import jakarta.xml.bind.Unmarshaller;
 
+import javax.xml.stream.XMLInputFactory;
+import javax.xml.stream.XMLStreamReader;
 import javax.xml.stream.XMLStreamException;
 import javax.xml.stream.XMLStreamWriter;
-import javax.xml.transform.stream.StreamSource;
 import java.io.StringReader;
 import java.io.StringWriter;
 import java.util.concurrent.ConcurrentHashMap;
@@ -64,12 +65,25 @@ public class XmlUtil {
         if (resultXml == null || resultXml.isBlank()) {
             return null;
         }
+        XMLStreamReader reader = null;
         try {
+            XMLInputFactory factory = XMLInputFactory.newFactory();
+            factory.setProperty(XMLInputFactory.SUPPORT_DTD, false);
+            factory.setProperty("javax.xml.stream.isSupportingExternalEntities", false);
+            reader = factory.createXMLStreamReader(new StringReader(resultXml));
             JAXBContext context = contextOf(clazz);
             Unmarshaller unmarshaller = context.createUnmarshaller();
-            return (T) unmarshaller.unmarshal(new StreamSource(new StringReader(resultXml)));
-        } catch (JAXBException e) {
+            return (T) unmarshaller.unmarshal(reader);
+        } catch (JAXBException | XMLStreamException | IllegalArgumentException e) {
             throw new IllegalStateException("xml to bean failed: " + clazz.getName(), e);
+        } finally {
+            if (reader != null) {
+                try {
+                    reader.close();
+                } catch (XMLStreamException ignored) {
+                    // Parsing has already completed or failed; there is no recoverable resource state here.
+                }
+            }
         }
     }
 
@@ -87,12 +101,12 @@ public class XmlUtil {
 
         @Override
         public void writeCharacters(String text) throws XMLStreamException {
-            delegate.writeCData(text);
+            writeCDataSafely(text);
         }
 
         @Override
         public void writeCharacters(char[] text, int start, int len) throws XMLStreamException {
-            delegate.writeCData(new String(text, start, len));
+            writeCDataSafely(new String(text, start, len));
         }
 
         @Override
@@ -188,7 +202,17 @@ public class XmlUtil {
 
         @Override
         public void writeCData(String data) throws XMLStreamException {
-            delegate.writeCData(data);
+            writeCDataSafely(data);
+        }
+
+        private void writeCDataSafely(String text) throws XMLStreamException {
+            int start = 0;
+            int boundary;
+            while ((boundary = text.indexOf("]]>", start)) >= 0) {
+                delegate.writeCData(text.substring(start, boundary + 2));
+                start = boundary + 2;
+            }
+            delegate.writeCData(text.substring(start));
         }
 
         @Override

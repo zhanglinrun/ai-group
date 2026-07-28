@@ -31,6 +31,7 @@ public class WaitRefundCompensateJob {
             }
         } catch (Exception e) {
             log.error("wait-refund compensate job failed", e);
+            throw e instanceof RuntimeException runtime ? runtime : new RuntimeException(e);
         }
     }
 

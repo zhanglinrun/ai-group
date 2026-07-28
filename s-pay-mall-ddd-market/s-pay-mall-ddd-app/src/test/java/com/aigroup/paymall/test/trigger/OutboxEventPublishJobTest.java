@@ -6,6 +6,7 @@ import org.junit.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -21,5 +22,15 @@ public class OutboxEventPublishJobTest {
         job.exec();
 
         verify(service).publishPendingEvents();
+    }
+
+    @Test(expected = IllegalStateException.class)
+    public void jobPropagatesPublisherFailureToXxlJob() {
+        IBenefitEventService service = mock(IBenefitEventService.class);
+        doThrow(new IllegalStateException("broker down")).when(service).publishPendingEvents();
+        OutboxEventPublishJob job = new OutboxEventPublishJob();
+        ReflectionTestUtils.setField(job, "benefitEventService", service);
+
+        job.exec();
     }
 }

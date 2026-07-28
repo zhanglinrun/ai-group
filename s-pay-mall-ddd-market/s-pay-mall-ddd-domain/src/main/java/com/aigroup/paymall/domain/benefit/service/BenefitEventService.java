@@ -134,28 +134,22 @@ public class BenefitEventService implements IBenefitEventService {
         if (Boolean.TRUE.equals(entity.getEventPublished())) {
             return false;
         }
-        try {
-            OutboxEventType eventType = OutboxEventType.valueOf(entity.getEventType());
-            if (OutboxEventType.GROUP_BUY_COMPLETED.equals(eventType) && hasUnpublishedRevoke(entity)) {
-                log.info("defer completed outbox event until revoke tombstone is published orderId={} eventId={}",
-                        entity.getOrderId(), entity.getEventId());
-                return false;
-            }
-            if (OutboxEventType.ORDER_PAY_SUCCESS.equals(eventType)) {
-                benefitEventPort.publishOrderPaySuccess(
-                        entity.getEventId(), entity.getUserId(), entity.getOrderId());
-            } else {
-                benefitEventPort.publishTradeCompleted(toTradeCompletedEvent(entity));
-            }
-            benefitEventRepository.markPublished(entity.getEventId());
-            log.info("published outbox event orderId={} eventId={} eventType={}",
-                    entity.getOrderId(), entity.getEventId(), entity.getEventType());
-            return true;
-        } catch (Exception e) {
-            log.error("failed to publish outbox event orderId={} eventId={} eventType={}",
-                    entity.getOrderId(), entity.getEventId(), entity.getEventType(), e);
+        OutboxEventType eventType = OutboxEventType.valueOf(entity.getEventType());
+        if (OutboxEventType.GROUP_BUY_COMPLETED.equals(eventType) && hasUnpublishedRevoke(entity)) {
+            log.info("defer completed outbox event until revoke tombstone is published orderId={} eventId={}",
+                    entity.getOrderId(), entity.getEventId());
             return false;
         }
+        if (OutboxEventType.ORDER_PAY_SUCCESS.equals(eventType)) {
+            benefitEventPort.publishOrderPaySuccess(
+                    entity.getEventId(), entity.getUserId(), entity.getOrderId());
+        } else {
+            benefitEventPort.publishTradeCompleted(toTradeCompletedEvent(entity));
+        }
+        benefitEventRepository.markPublished(entity.getEventId());
+        log.info("published outbox event orderId={} eventId={} eventType={}",
+                entity.getOrderId(), entity.getEventId(), entity.getEventType());
+        return true;
     }
 
     private boolean hasUnpublishedRevoke(BenefitEventEntity completed) {

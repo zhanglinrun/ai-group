@@ -35,6 +35,7 @@ public class TimeoutCloseOrderJob {
             if (null == orderIds || orderIds.isEmpty()) {
                 return;
             }
+            int failures = 0;
             for (String orderId : orderIds) {
                 try {
                     if (alipayOrderReconcileSupport.recoverIfPaidOnAlipay(orderId)) {
@@ -46,6 +47,7 @@ public class TimeoutCloseOrderJob {
                     // next run instead of risking "paid but locally closed"
                     if (!alipayOrderReconcileSupport.closeAlipayTrade(orderId)) {
                         log.warn("timeout close job - alipay close unconfirmed, skip local close orderId:{}", orderId);
+                        failures++;
                         continue;
                     }
                     boolean status = orderService.changeOrderClose(orderId);
@@ -53,10 +55,15 @@ public class TimeoutCloseOrderJob {
                 } catch (Exception e) {
                     // reconcile failed: payment state unknown, never close blindly
                     log.error("timeout close job - reconcile failed, order kept open orderId:{}", orderId, e);
+                    failures++;
                 }
+            }
+            if (failures > 0) {
+                throw new IllegalStateException("timeout close job failed orders=" + failures);
             }
         } catch (Exception e) {
             log.error("timeout close job failed", e);
+            throw e instanceof RuntimeException runtime ? runtime : new RuntimeException(e);
         }
     }
 

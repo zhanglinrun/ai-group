@@ -8,6 +8,7 @@ import com.aigroup.paymall.types.common.JsonUtils;
 import com.alipay.api.AlipayApiException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.annotation.KafkaListener;
+import org.springframework.kafka.support.Acknowledgment;
 import org.springframework.stereotype.Component;
 
 import jakarta.annotation.Resource;
@@ -26,7 +27,7 @@ public class RefundSuccessTopicListener {
     @KafkaListener(
             topics = "${spring.kafka.config.consumer.topic_team_refund.topic:group.team_refund}",
             groupId = "${spring.kafka.config.consumer.group-id:s-pay-mall-ddd}")
-    public void listener(String message) {
+    public void listener(String message, Acknowledgment acknowledgment) {
         try {
             log.info("team refund callback, start refund {}", message);
             TeamRefundSuccessRequestDTO requestDTO = JsonUtils.parseObject(message, TeamRefundSuccessRequestDTO.class);
@@ -38,6 +39,7 @@ public class RefundSuccessTopicListener {
                             "refund pay order failed userId:" + requestDTO.getUserId() + " outTradeNo:" + requestDTO.getOutTradeNo());
                 }
             }
+            acknowledgment.acknowledge();
         } catch (AlipayApiException ex) {
             throw new RuntimeException(ex);
         } catch (Exception e) {

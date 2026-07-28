@@ -10,7 +10,7 @@ import com.aigroup.paymall.domain.order.model.entity.OrderEntity;
 import com.aigroup.paymall.domain.order.model.entity.PayOrderEntity;
 import com.aigroup.paymall.domain.order.model.valobj.MarketTypeVO;
 import com.aigroup.paymall.domain.order.model.valobj.OrderStatusVO;
-import com.aigroup.paymall.types.common.JSONObject;
+import com.aigroup.paymall.types.common.JsonUtils;
 import com.alipay.api.AlipayApiException;
 import com.alipay.api.AlipayClient;
 import com.alipay.api.domain.AlipayTradeCloseModel;
@@ -33,6 +33,8 @@ import java.math.BigDecimal;
 import java.util.Collections;
 import java.util.Date;
 import java.util.List;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 @Slf4j
 @Service
@@ -107,12 +109,12 @@ public class OrderService extends AbstractOrderService {
         request.setNotifyUrl(notifyUrl);
         request.setReturnUrl(returnUrl);
 
-        JSONObject bizContent = new JSONObject();
+        Map<String, Object> bizContent = new LinkedHashMap<>();
         bizContent.put("out_trade_no", orderId);
         bizContent.put("total_amount", payAmount);
         bizContent.put("subject", productName);
         bizContent.put("product_code", "FAST_INSTANT_TRADE_PAY");
-        request.setBizContent(bizContent.toString());
+        request.setBizContent(JsonUtils.toJson(bizContent));
 
         String form;
         try {
@@ -177,7 +179,7 @@ public class OrderService extends AbstractOrderService {
 
         AlipayTradePrecreateRequest request = new AlipayTradePrecreateRequest();
         request.setNotifyUrl(notifyUrl);
-        JSONObject bizContent = new JSONObject();
+        Map<String, Object> bizContent = new LinkedHashMap<>();
         bizContent.put("out_trade_no", orderId);
         bizContent.put("total_amount", payAmount);
         bizContent.put("subject", orderEntity.getProductName());
@@ -185,7 +187,7 @@ public class OrderService extends AbstractOrderService {
         bizContent.put("product_code", "FACE_TO_FACE_PAYMENT");
         // 二维码/交易有效期，避免扫码时交易已过期解析失败
         bizContent.put("timeout_express", "30m");
-        request.setBizContent(bizContent.toString());
+        request.setBizContent(JsonUtils.toJson(bizContent));
 
         AlipayTradePrecreateResponse response;
         try {

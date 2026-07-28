@@ -6,6 +6,7 @@ import com.aigroup.paymall.types.exception.AppException;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.springframework.kafka.support.Acknowledgment;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import static org.mockito.Mockito.mock;
@@ -21,10 +22,12 @@ public class RefundSuccessTopicListenerTest {
 
     private RefundSuccessTopicListener listener;
     private IOrderService orderService;
+    private Acknowledgment acknowledgment;
 
     @Before
     public void setUp() {
         orderService = mock(IOrderService.class);
+        acknowledgment = mock(Acknowledgment.class);
         listener = new RefundSuccessTopicListener();
         ReflectionTestUtils.setField(listener, "orderService", orderService);
     }
@@ -35,12 +38,13 @@ public class RefundSuccessTopicListenerTest {
 
         String message = "{\"type\":\"paid_unformed\",\"userId\":\"u1\",\"outTradeNo\":\"order-001\"}";
         try {
-            listener.listener(message);
+            listener.listener(message, acknowledgment);
             Assert.fail("expected AppException on refund business failure");
         } catch (AppException expected) {
             // triggers MQ redelivery, then DLQ after retry exhaustion (C5)
         }
         verify(orderService).refundPayOrder("u1", "order-001");
+        verifyNoInteractions(acknowledgment);
     }
 
     @Test
@@ -48,17 +52,19 @@ public class RefundSuccessTopicListenerTest {
         when(orderService.refundPayOrder("u1", "order-002")).thenReturn(true);
 
         String message = "{\"type\":\"paid_formed\",\"userId\":\"u1\",\"outTradeNo\":\"order-002\"}";
-        listener.listener(message);
+        listener.listener(message, acknowledgment);
 
         verify(orderService).refundPayOrder("u1", "order-002");
+        verify(acknowledgment).acknowledge();
     }
 
     @Test
     public void listener_ignoresUnpaidRefundTypes() throws Exception {
         String message = "{\"type\":\"unpaid_unlock\",\"userId\":\"u1\",\"outTradeNo\":\"order-003\"}";
-        listener.listener(message);
+        listener.listener(message, acknowledgment);
 
         verifyNoInteractions(orderService);
+        verify(acknowledgment).acknowledge();
     }
 
 }

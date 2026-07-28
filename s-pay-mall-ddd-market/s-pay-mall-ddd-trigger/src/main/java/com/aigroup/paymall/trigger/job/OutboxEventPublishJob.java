@@ -22,13 +22,9 @@ public class OutboxEventPublishJob {
 
     @XxlJob("outboxEventPublishJob")
     public void exec() {
-        try {
-            int count = benefitEventService.publishPendingEvents();
-            if (count > 0) {
-                log.info("outbox event publisher sent {} events", count);
-            }
-        } catch (Exception e) {
-            log.error("outbox event publisher failed", e);
+        int count = benefitEventService.publishPendingEvents();
+        if (count > 0) {
+            log.info("outbox event publisher sent {} events", count);
         }
     }
 }

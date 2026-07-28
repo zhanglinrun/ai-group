@@ -20,12 +20,12 @@ import com.aigroup.paymall.types.common.Constants;
 import com.aigroup.paymall.types.enums.ResponseCode;
 import com.aigroup.paymall.types.exception.AppException;
 import com.aigroup.paymall.types.common.JsonUtils;
-import com.aigroup.paymall.types.common.JSONObject;
 import com.alipay.api.AlipayApiException;
 import com.alipay.api.AlipayClient;
 import com.alipay.api.domain.AlipayTradeQueryModel;
 import com.alipay.api.internal.util.AlipaySignature;
 import com.alipay.api.request.AlipayTradeQueryRequest;
+import com.alipay.api.response.AlipayTradeQueryResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.env.Environment;
@@ -446,9 +446,9 @@ public class AliPayController {
             bizModel.setOutTradeNo(outTradeNo);
             AlipayTradeQueryRequest queryRequest = new AlipayTradeQueryRequest();
             queryRequest.setBizModel(bizModel);
-            String body;
+            AlipayTradeQueryResponse queryResponse;
             try {
-                body = alipayClient.execute(queryRequest).getBody();
+                queryResponse = alipayClient.execute(queryRequest);
             } catch (Exception queryError) {
                 // 支付宝沙箱偶发 504/网关超时时，订单真相仍是本地 PAY_WAIT。
                 // 对用户侧轮询返回稳定 UNPAID，避免每三秒触发一次全局错误提示。
@@ -460,11 +460,11 @@ public class AliPayController {
                         .data("UNPAID:QUERY_TEMPORARILY_UNAVAILABLE")
                         .build();
             }
-            log.info("sync settle trade query outTradeNo={} response={}", outTradeNo, body);
+            log.info("sync settle trade query outTradeNo={} code={} tradeStatus={}",
+                    outTradeNo, queryResponse.getCode(), queryResponse.getTradeStatus());
 
-            JSONObject queryResponse = JSONObject.parseObject(body).getJSONObject("alipay_trade_query_response");
-            if (queryResponse == null || !"10000".equals(queryResponse.getString("code"))) {
-                String msg = queryResponse != null ? queryResponse.getString("sub_msg") : "trade query failed";
+            if (!queryResponse.isSuccess() || !"10000".equals(queryResponse.getCode())) {
+                String msg = queryResponse.getSubMsg() == null ? "trade query failed" : queryResponse.getSubMsg();
                 return Response.<String>builder()
                         .code(Constants.ResponseCode.SUCCESS.getCode())
                         .info(Constants.ResponseCode.SUCCESS.getInfo())
@@ -472,7 +472,7 @@ public class AliPayController {
                         .build();
             }
 
-            String tradeStatus = queryResponse.getString("trade_status");
+            String tradeStatus = queryResponse.getTradeStatus();
             if (!"TRADE_SUCCESS".equals(tradeStatus)) {
                 return Response.<String>builder()
                         .code(Constants.ResponseCode.SUCCESS.getCode())
@@ -481,11 +481,9 @@ public class AliPayController {
                         .build();
             }
 
-            String gmtPayment = queryResponse.getString("send_pay_date");
-            SimpleDateFormat payDateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-            payDateFormat.setTimeZone(TimeZone.getTimeZone("Asia/Shanghai"));
+            Date gmtPayment = queryResponse.getSendPayDate();
             orderService.changeOrderPaySuccess(outTradeNo,
-                    gmtPayment != null ? payDateFormat.parse(gmtPayment) : new Date());
+                    gmtPayment != null ? gmtPayment : new Date());
             log.info("sync settle success userId={} outTradeNo={}", userId, outTradeNo);
             return Response.<String>builder()
                     .code(Constants.ResponseCode.SUCCESS.getCode())

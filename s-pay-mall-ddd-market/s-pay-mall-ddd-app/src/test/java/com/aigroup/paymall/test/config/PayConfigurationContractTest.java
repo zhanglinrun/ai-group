@@ -16,11 +16,11 @@ import static org.junit.Assert.assertTrue;
 public class PayConfigurationContractTest {
 
     @Test
-    public void devAndProdDefaultToTheActualMemberServicePort() throws IOException {
-        String expected = "${MEMBER_SERVICE_URL:" + Retrofit2Config.DEFAULT_MEMBER_SERVICE_URL + "}";
-
-        assertEquals(expected, property("application-dev.yml", "app.config.member-service.api-url"));
-        assertEquals(expected, property("application-prod.yml", "app.config.member-service.api-url"));
+    public void onlyDevDefaultsToTheLocalMemberServicePort() throws IOException {
+        assertEquals("${MEMBER_SERVICE_URL:" + Retrofit2Config.DEFAULT_MEMBER_SERVICE_URL + "}",
+                property("application-dev.yml", "app.config.member-service.api-url"));
+        assertEquals("${MEMBER_SERVICE_URL:}",
+                property("application-prod.yml", "app.config.member-service.api-url"));
         assertEquals("http://127.0.0.1:18082", Retrofit2Config.DEFAULT_MEMBER_SERVICE_URL);
     }
 

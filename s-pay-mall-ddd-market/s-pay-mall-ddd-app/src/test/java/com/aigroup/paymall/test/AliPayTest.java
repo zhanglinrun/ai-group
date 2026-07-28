@@ -1,6 +1,6 @@
 package com.aigroup.paymall.test;
 
-import com.aigroup.paymall.types.common.JSONObject;
+import com.aigroup.paymall.types.common.JsonUtils;
 import com.alipay.api.AlipayApiException;
 import com.alipay.api.AlipayClient;
 import com.alipay.api.DefaultAlipayClient;
@@ -16,6 +16,8 @@ import org.junit.Before;
 import org.junit.Test;
 
 import java.math.BigDecimal;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 @Slf4j
 public class AliPayTest {
@@ -59,12 +61,12 @@ public class AliPayTest {
         request.setNotifyUrl(notify_url);
         request.setReturnUrl(return_url);
 
-        JSONObject bizContent = new JSONObject();
+        Map<String, Object> bizContent = new LinkedHashMap<>();
         bizContent.put("out_trade_no", "xfg000091001902");  // 我们自己生成的订单编号
         bizContent.put("total_amount", "0.01"); // 订单的总金额
         bizContent.put("subject", "测试商品");   // 支付的名称
         bizContent.put("product_code", "FAST_INSTANT_TRADE_PAY");  // 固定配置
-        request.setBizContent(bizContent.toString());
+        request.setBizContent(JsonUtils.toJson(bizContent));
 
         String form = alipayClient.pageExecute(request).getBody();
         log.info("测试结果：{}", form);

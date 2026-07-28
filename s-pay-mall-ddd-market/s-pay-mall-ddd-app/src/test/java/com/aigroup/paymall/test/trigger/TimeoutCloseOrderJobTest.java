@@ -5,6 +5,7 @@ import com.aigroup.paymall.trigger.job.TimeoutCloseOrderJob;
 import com.aigroup.paymall.trigger.job.support.AlipayOrderReconcileSupport;
 import com.alipay.api.AlipayApiException;
 import org.junit.Before;
+import org.junit.Assert;
 import org.junit.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -64,7 +65,12 @@ public class TimeoutCloseOrderJobTest {
         when(reconcileSupport.recoverIfPaidOnAlipay("order-003")).thenReturn(false);
         when(reconcileSupport.closeAlipayTrade("order-003")).thenReturn(false);
 
-        job.exec();
+        try {
+            job.exec();
+            Assert.fail("unconfirmed Alipay close must fail the XXL job");
+        } catch (IllegalStateException expected) {
+            Assert.assertTrue(expected.getMessage().contains("failed orders=1"));
+        }
 
         verify(orderService, never()).changeOrderClose("order-003");
     }
@@ -75,7 +81,12 @@ public class TimeoutCloseOrderJobTest {
         when(reconcileSupport.recoverIfPaidOnAlipay("order-004"))
                 .thenThrow(new AlipayApiException("alipay unreachable"));
 
-        job.exec();
+        try {
+            job.exec();
+            Assert.fail("unknown payment state must fail the XXL job");
+        } catch (IllegalStateException expected) {
+            Assert.assertTrue(expected.getMessage().contains("failed orders=1"));
+        }
 
         // payment state unknown: never close blindly
         verify(orderService, never()).changeOrderClose("order-004");

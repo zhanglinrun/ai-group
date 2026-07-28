@@ -33,6 +33,7 @@
     <properties>
         <java.version>21</java.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <spring-cloud-alibaba.version>2025.0.0.0</spring-cloud-alibaba.version>
     </properties>
     
     <developers>
@@ -64,6 +65,13 @@
                 <groupId>org.springframework.cloud</groupId>
                 <artifactId>spring-cloud-dependencies</artifactId>
                 <version>2025.0.3</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>com.alibaba.cloud</groupId>
+                <artifactId>spring-cloud-alibaba-dependencies</artifactId>
+                <version>${spring-cloud-alibaba.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -122,11 +130,6 @@
                 <artifactId>converter-jackson</artifactId>
                 <version>2.9.0</version>
             </dependency>
-            <dependency>
-                <groupId>com.squareup.retrofit2</groupId>
-                <artifactId>adapter-rxjava2</artifactId>
-                <version>2.9.0</version>
-            </dependency>
     
             <!-- 支付宝沙箱支付对接文档：https://opendocs.alipay.com/common/02kkv7 -->
             <dependency>
@@ -165,7 +168,7 @@
             <dependency>
                 <groupId>com.xuxueli</groupId>
                 <artifactId>xxl-job-core</artifactId>
-                <version>2.4.2</version>
+                <version>3.4.2</version>
             </dependency>
         </dependencies>
     </dependencyManagement>

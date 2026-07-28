@@ -31,6 +31,7 @@ public class NoPayNotifyOrderJob {
             List<String> orderIds = orderService.queryNoPayNotifyOrder();
             if (null == orderIds || orderIds.isEmpty()) return;
 
+            int failures = 0;
             for (String orderId : orderIds) {
                 try {
                     boolean recovered = alipayOrderReconcileSupport.recoverIfPaidOnAlipay(orderId);
@@ -39,10 +40,15 @@ public class NoPayNotifyOrderJob {
                     }
                 } catch (Exception e) {
                     log.error("no-pay notify job - reconcile failed orderId:{}", orderId, e);
+                    failures++;
                 }
+            }
+            if (failures > 0) {
+                throw new IllegalStateException("no-pay notify job failed orders=" + failures);
             }
         } catch (Exception e) {
             log.error("no-pay notify job failed", e);
+            throw e instanceof RuntimeException runtime ? runtime : new RuntimeException(e);
         }
     }
 

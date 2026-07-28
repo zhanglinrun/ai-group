@@ -118,9 +118,7 @@ public class BenefitEventServiceTest {
         doThrow(new IllegalStateException("publisher confirm timeout"))
                 .when(benefitEventPort).publishTradeCompleted(any(TradeCompletedEvent.class));
 
-        int count = benefitEventService.publishPendingEvents();
-
-        assertEquals(0, count);
+        assertThrows(IllegalStateException.class, () -> benefitEventService.publishPendingEvents());
         verify(benefitEventRepository, never()).markPublished("evt-confirm-timeout");
     }
 
@@ -134,9 +132,7 @@ public class BenefitEventServiceTest {
                 .when(benefitEventPort).publishOrderPaySuccess(
                         "evt-fulfillment-timeout", 10001L, "order-fulfillment-timeout");
 
-        int count = benefitEventService.publishPendingEvents();
-
-        assertEquals(0, count);
+        assertThrows(IllegalStateException.class, () -> benefitEventService.publishPendingEvents());
         verify(benefitEventRepository, never()).markPublished("evt-fulfillment-timeout");
     }
 
