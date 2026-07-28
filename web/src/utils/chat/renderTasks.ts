@@ -87,6 +87,17 @@ function getTaskRenderSignature(task: RenderableTask, baseId: string): string {
     resultMap.answer?.length || 0,
     resultMap.codeOutput?.length || 0,
     resultMap.data?.length || 0,
+    resultMap.nodeId || '',
+    resultMap.role || '',
+    resultMap.progress ?? '',
+    resultMap.evidenceCount ?? '',
+    resultMap.reportArtifactId || '',
+    resultMap.qualityStatus || '',
+    resultMap.sourceCount ?? '',
+    resultMap.charCount ?? '',
+    resultMap.previewMarkdown?.length || 0,
+    (resultMap.completedSections || []).join(','),
+    resultMap.branches ? Object.keys(resultMap.branches).join(',') : '',
     artifactRefs.length,
     artifactRefs[0]?.resourceKey ||
       artifactRefs[0]?.previewUrl ||

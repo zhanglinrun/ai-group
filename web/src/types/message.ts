@@ -169,6 +169,12 @@ declare global {
       toolProvider?: string;
       dispatchIndex?: number;
       summary?: string;
+      // sealed 事件字段（thinking / tool_start / tool_end）
+      content?: string;
+      argumentsPreview?: string;
+      resultPreview?: string;
+      success?: boolean;
+      durationMillis?: number;
       errorMsg?: string;
       runStatus?: string;
       stopReason?: string;
@@ -180,6 +186,19 @@ declare global {
       input?: Record<string, unknown>;
       toolParam?: Record<string, unknown>;
       artifactRefs?: ArtifactReference[];
+      nodeId?: string;
+      role?: string;
+      progress?: number;
+      evidenceCount?: number;
+      completedSections?: string[];
+      reportArtifactId?: string;
+      qualityStatus?: string;
+      citationCoverage?: number;
+      sourceCount?: number;
+      charCount?: number;
+      previewMarkdown?: string;
+      checkpointThreadId?: string;
+      branches?: Record<string, ResultMap>;
       refList?: {
         name: string;
         pageContent: string;

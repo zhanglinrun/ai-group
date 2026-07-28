@@ -23,16 +23,6 @@ vi.mock('@/components/Dialogue', () => ({
   default: ({ chat }: any) => <div data-chat-id={chat.requestId}>{chat.query}</div>,
 }));
 
-const dataDialogueMock = vi.fn(({ chat }: any) => (
-  <div data-data-chat={chat.query} data-loading={String(Boolean(chat.loading))}>
-    {chat.query}
-  </div>
-));
-
-vi.mock('@/components/Dialogue/DataDialogue', () => ({
-  default: (props: any) => dataDialogueMock(props),
-}));
-
 const generalInputMock = vi.fn((_props: any) => <div data-general-input="true">input</div>);
 
 vi.mock('@/components/GeneralInput', () => ({
@@ -72,17 +62,9 @@ vi.mock('@/utils/constants', () => {
     img: 'icon-docs',
     color: 'text-[#4040FF]',
   };
-  const dataAgentProduct = {
-    type: 'dataAgent',
-    name: '数据分析',
-    placeholder: '请输入问题',
-    img: 'icon-data',
-    color: 'text-[#4040FF]',
-  };
-
   return {
     defaultProduct: chatProduct,
-    productList: [chatProduct, dataAgentProduct, htmlProduct, docsProduct],
+    productList: [chatProduct, htmlProduct, docsProduct],
   };
 });
 
@@ -153,9 +135,8 @@ describe('ChatView layout', () => {
     conversationStreamMock.showAction = false;
   });
 
-  it('data agent pending first input renders optimistic loading dialogue', () => {
-    dataDialogueMock.mockClear();
-
+  it('legacy data agent conversation uses the unified chat input', () => {
+    generalInputMock.mockClear();
     const product: CHAT.Product = {
       type: 'dataAgent',
       name: '数据分析',
@@ -193,17 +174,12 @@ describe('ChatView layout', () => {
       />,
     );
 
-    expect(dataDialogueMock).toHaveBeenCalledTimes(1);
-    expect(dataDialogueMock.mock.calls[0]?.[0]).toEqual(
-      expect.objectContaining({
-        chat: expect.objectContaining({
-          query: '帮我分析最近7天销量',
-          loading: true,
-          think: '',
-          error: '',
-        }),
-      }),
-    );
+    const lastCall = generalInputMock.mock.calls[generalInputMock.mock.calls.length - 1]?.[0];
+    expect(lastCall).toMatchObject({
+      product: expect.objectContaining({ type: 'chat' }),
+      displayOutput: expect.objectContaining({ type: 'chat' }),
+      executionMode: 'STANDARD',
+    });
   });
 
   it('quick conversation keeps structured input mode props in chat view', () => {

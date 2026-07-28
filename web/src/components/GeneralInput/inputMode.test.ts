@@ -3,35 +3,33 @@ import { describe, expect, it } from 'vitest';
 import { buildSubmitPayload, resolveInputMode } from './inputMode';
 
 describe('inputMode', () => {
-  it('自动模式应保留输出格式并交给后端路由', () => {
+  it('普通问题模式应保留输出格式', () => {
     const payload = buildSubmitPayload({
       question: '调研三家主流 Agent 产品',
-      visibleMode: 'auto',
-      isDataAgent: false,
+      visibleMode: 'standard',
       visibleOutputProduct: { type: 'docs' } as CHAT.Product,
       uploadedFiles: [],
     });
 
     expect(payload).toMatchObject({
       outputStyle: 'docs',
-      executionMode: 'AUTO',
+      executionMode: 'STANDARD',
     });
     expect(payload).not.toHaveProperty('deepThink');
     expect(payload).not.toHaveProperty('autoRoute');
-    expect(resolveInputMode(payload.executionMode)).toBe('auto');
+    expect(resolveInputMode(payload.executionMode)).toBe('standard');
   });
 
-  it('深度模式应只通过 executionMode 表达', () => {
+  it('深度调研模式应固定输出 Markdown 报告', () => {
     expect(
       buildSubmitPayload({
         question: '帮我调研竞品',
         visibleMode: 'deep',
-        isDataAgent: false,
         visibleOutputProduct: { type: 'html' } as CHAT.Product,
         uploadedFiles: [],
       }),
     ).toMatchObject({
-      outputStyle: 'html',
+      outputStyle: 'markdown',
       executionMode: 'DEEP',
     });
   });
@@ -40,7 +38,6 @@ describe('inputMode', () => {
     const payload = buildSubmitPayload({
       question: '你好',
       visibleMode: 'standard',
-      isDataAgent: false,
       visibleOutputProduct: { type: 'chat' } as CHAT.Product,
       uploadedFiles: [],
     });
@@ -58,7 +55,6 @@ describe('inputMode', () => {
     const payload = buildSubmitPayload({
       question: '仔细分析并生成网页',
       visibleMode: 'standard',
-      isDataAgent: false,
       visibleOutputProduct: { type: 'html' } as CHAT.Product,
       uploadedFiles: [],
     });
@@ -68,7 +64,7 @@ describe('inputMode', () => {
   });
 
   it('应从 executionMode 稳定恢复可见模式', () => {
-    expect(resolveInputMode('AUTO')).toBe('auto');
+    expect(resolveInputMode('AUTO')).toBe('standard');
     expect(resolveInputMode('STANDARD')).toBe('standard');
     expect(resolveInputMode('DEEP')).toBe('deep');
   });

@@ -28,24 +28,134 @@ const eventDataSchema = z
   })
   .passthrough();
 
-const dataChatEventSchema = z.discriminatedUnion('eventType', [
-  z.object({
-    eventType: z.literal('THINK'),
-    data: z.string(),
+const baseStreamEventSchema = z.object({ runId: z.string().nullable().optional() });
+const artifactRefSchema = z.object({}).passthrough();
+export const agentStreamEventSchema = z.discriminatedUnion('type', [
+  baseStreamEventSchema.extend({
+    type: z.literal('agent_start'),
+    ownerId: z.string().nullable().optional(),
+    conversationId: z.string().nullable().optional(),
+    agentName: z.string().nullable().optional(),
+    modelId: z.string().nullable().optional(),
   }),
-  z.object({
-    eventType: z.literal('CHART_DATA'),
-    data: z.array(z.record(z.string(), z.unknown())),
+  baseStreamEventSchema.extend({ type: z.literal('thinking'), content: z.string() }),
+  baseStreamEventSchema.extend({ type: z.literal('text'), delta: z.string() }),
+  baseStreamEventSchema.extend({
+    type: z.literal('tool_start'),
+    toolCallId: z.string(),
+    toolName: z.string().nullable().optional(),
+    argumentsPreview: z.unknown().optional(),
   }),
-  z.object({
-    eventType: z.literal('ERROR'),
-    data: z.string(),
+  baseStreamEventSchema.extend({
+    type: z.literal('tool_end'),
+    toolCallId: z.string(),
+    toolName: z.string().nullable().optional(),
+    resultPreview: z.unknown().optional(),
+    success: z.boolean(),
+    durationMillis: z.number().nonnegative(),
   }),
-  z.object({
-    eventType: z.literal('READY'),
-    data: z.unknown().optional(),
+  baseStreamEventSchema.extend({
+    type: z.literal('todo_progress'),
+    items: z.array(z.object({}).passthrough()),
+  }),
+  baseStreamEventSchema.extend({
+    type: z.literal('paused'),
+    approvalId: z.string(),
+    toolCallId: z.string(),
+    toolName: z.string(),
+    argumentsPreview: z.unknown().optional(),
+    estimatedMicrocredits: z.number().nonnegative(),
+    expiresAt: z.string(),
+  }),
+  baseStreamEventSchema.extend({
+    type: z.literal('resume_start'),
+    approvalId: z.string(),
+    toolCallId: z.string(),
+    decision: z.string(),
+  }),
+  baseStreamEventSchema.extend({
+    type: z.literal('stage_output'),
+    toolCallId: z.string().nullable().optional(),
+    outputType: z.string(),
+    payload: z.unknown(),
+    artifactRefs: z.array(artifactRefSchema),
+    isFinal: z.boolean(),
+  }),
+  baseStreamEventSchema.extend({
+    type: z.literal('error'),
+    code: z.string(),
+    message: z.string(),
+  }),
+  baseStreamEventSchema.extend({
+    type: z.literal('complete'),
+    summary: z.string().nullable().optional(),
+    totalDurationMillis: z.number().nonnegative(),
+    microcreditsConsumed: z.number().nonnegative(),
   }),
 ]);
+
+export type AgentStreamEvent = z.infer<typeof agentStreamEventSchema>;
+
+export function isAgentStreamEventMessage(value: unknown): value is AgentStreamEvent {
+  return agentStreamEventSchema.safeParse(value).success;
+}
+
+export function parseAgentStreamMessage(
+  raw: unknown,
+  eventName?: string,
+): AgentStreamEvent | MESSAGE.Answer {
+  const canonical = agentStreamEventSchema.safeParse(raw);
+  if (canonical.success) {
+    if (eventName && canonical.data.type !== eventName) {
+      throw new Error(`SSE event name ${eventName} does not match data type ${canonical.data.type}`);
+    }
+    return canonical.data;
+  }
+  if (eventName) {
+    throw canonical.error;
+  }
+  return parseAgentAnswer(raw);
+}
+
+export function canonicalEventData(
+  event: AgentStreamEvent,
+  messageOrder: number,
+): MESSAGE.EventData {
+  const toolCallId = 'toolCallId' in event ? event.toolCallId : undefined;
+  return {
+    messageOrder,
+    messageType: 'agent_event',
+    messageId: toolCallId || `${event.runId || 'run'}-${event.type}-${messageOrder}`,
+    taskId: event.runId || 'agent-run',
+    taskOrder: messageOrder,
+    resultMap: { messageType: event.type, resultMap: event },
+    ...('artifactRefs' in event && event.artifactRefs.length
+      ? { artifactRefs: event.artifactRefs }
+      : {}),
+  } as unknown as MESSAGE.EventData;
+}
+
+export function stageOutputEventData(
+  event: Extract<AgentStreamEvent, { type: 'stage_output' }>,
+  messageOrder: number,
+): MESSAGE.EventData {
+  const payload = isRecord(event.payload) ? event.payload : { result: event.payload };
+  return {
+    messageOrder,
+    messageType: 'agent_event',
+    messageId: event.toolCallId || `${event.runId || 'run'}-${event.outputType}-${messageOrder}`,
+    taskId: event.runId || 'agent-run',
+    taskOrder: messageOrder,
+    artifactRefs: event.artifactRefs,
+    resultMap: {
+      ...payload,
+      requestId: event.runId,
+      messageId: event.toolCallId,
+      messageType: event.outputType,
+      isFinal: event.isFinal,
+    },
+  } as unknown as MESSAGE.EventData;
+}
 
 function isRecord(value: unknown): value is RecordValue {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -108,6 +218,7 @@ function buildAgentResponsePayload(raw: RecordValue): RecordValue {
 
   switch (messageType) {
     case 'tool_thought':
+    case 'thinking':
       payload.toolThought = raw.toolThought;
       break;
     case 'task':
@@ -217,8 +328,4 @@ export function parseAgentAnswer(raw: unknown): MESSAGE.Answer {
  */
 export function parseEventData(raw: unknown): MESSAGE.EventData {
   return eventDataSchema.parse(raw) as unknown as MESSAGE.EventData;
-}
-
-export function parseDataChatEvent(raw: unknown): CHAT.DataChatEvent {
-  return dataChatEventSchema.parse(raw);
 }

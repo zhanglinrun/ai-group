@@ -1,10 +1,8 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ActionViewItemEnum } from '@/utils';
-import querySSE from '@/utils/querySSE';
 import { getStableTaskIdentity } from '@/utils/chat';
 import Dialogue from '@/components/Dialogue';
-import DataDialogue from '@/components/Dialogue/DataDialogue';
 import GeneralInput from '@/components/GeneralInput';
 import ActionView from '@/components/ActionView';
 import { productList, defaultProduct } from '@/utils/constants';
@@ -17,12 +15,8 @@ import {
   ConversationScrollButton,
 } from '@/components/ai-elements/conversation';
 import { Maximize2, PanelLeftClose, PanelRightClose } from 'lucide-react';
-import { parseDataChatEvent } from '@/utils/sseParsers';
-import type { DataConversationRuntime } from './chatView.types';
 import {
   canRegenerateChat,
-  createConversationDraftController,
-  createDraftConversation,
   isAgentRunBlockingInput,
   useConversationStream,
 } from './useConversationStream';
@@ -92,9 +86,6 @@ const ChatView: ReactorType.FC<Props> = (props) => {
   const [modal, contextHolder] = Modal.useModal();
   const conversationRef = useRef(conversation);
   const [isConversationSwitching, setIsConversationSwitching] = useState(false);
-  const [dataLoading, setDataLoading] = useState(false);
-  // dataAgent SSE 流的取消句柄：切换会话/卸载/发起新请求时中断旧流，避免迟到事件污染 + 输入框卡死
-  const dataStreamAbortRef = useRef<AbortController | null>(null);
   const {
     taskList,
     workspaceStreamTask,
@@ -130,21 +121,6 @@ const ChatView: ReactorType.FC<Props> = (props) => {
   }, [conversation]);
 
   useEffect(() => {
-    // 切换会话：中断上一会话仍在进行的 dataAgent 流，丢弃其迟到事件
-    dataStreamAbortRef.current?.abort();
-    dataStreamAbortRef.current = null;
-    setDataLoading(false);
-  }, [conversation.id]);
-
-  // 组件卸载时中断在途 dataAgent 流，避免泄漏与对已卸载组件的状态更新
-  useEffect(() => {
-    return () => {
-      dataStreamAbortRef.current?.abort();
-      dataStreamAbortRef.current = null;
-    };
-  }, []);
-
-  useEffect(() => {
     setActiveTask((prevActiveTask) => {
       if (!prevActiveTask) {
         return prevActiveTask;
@@ -175,42 +151,6 @@ const ChatView: ReactorType.FC<Props> = (props) => {
     return () => clearTimeout(timer);
   }, [conversation.id]);
 
-  const commitConversation = useMemoizedFn(
-    (conversationId: string, nextConversation: CHAT.ConversationHistory) => {
-      onConversationChange(conversationId, {
-        ...nextConversation,
-        updatedAt: Date.now(),
-      });
-    },
-  );
-
-  const updateDataChatFromEvent = useMemoizedFn(
-    (runtime: DataConversationRuntime, event: CHAT.DataChatEvent) => {
-      switch (event.eventType) {
-        case 'THINK':
-          runtime.currentChat.think = event.data;
-          break;
-        case 'CHART_DATA':
-          runtime.currentChat.chartData = event.data;
-          break;
-        case 'ERROR':
-          runtime.currentChat.error = event.data;
-          runtime.currentChat.loading = false;
-          setDataLoading(false);
-          break;
-        case 'READY':
-          runtime.currentChat.loading = false;
-          setDataLoading(false);
-          break;
-        default:
-          break;
-      }
-
-      const nextConversation = runtime.draftController.replaceLastItem({ ...runtime.currentChat });
-      runtime.draftController.commit(nextConversation);
-    },
-  );
-
   const changeTask = (task: CHAT.Task, chat?: CHAT.ChatItem) => {
     setIsRightCollapsed(false);
     actionViewRef.current?.changeActionView(ActionViewItemEnum.follow);
@@ -237,136 +177,26 @@ const ChatView: ReactorType.FC<Props> = (props) => {
     toggleWorkspaceRightPanel();
   });
 
-  const sendDataMessage = useMemoizedFn((inputInfo: CHAT.TInputInfo) => {
-    const baseConversation = conversationRef.current;
-    const conversationId = baseConversation.id;
-    const params = { content: inputInfo.message };
-    const currentChat: CHAT.DataChatItem = {
-      query: inputInfo.message,
-      loading: true,
-      think: '',
-      chartData: undefined,
-      error: '',
-    };
-    const initialConversation = createDraftConversation(baseConversation, {
-      chatTitle: inputInfo.message || '',
-      productType: 'dataAgent',
-      executionMode: 'STANDARD',
-      dataChatList: [...baseConversation.dataChatList, { ...currentChat }],
-    });
-    const draftController = createConversationDraftController<CHAT.DataChatItem>(
-      conversationId,
-      initialConversation,
-      'dataChatList',
-      commitConversation,
-    );
-
-    draftController.commit(initialConversation);
-    setDataLoading(true);
-
-    const runtime: DataConversationRuntime = {
-      draftController,
-      currentChat,
-    };
-
-    // 发起新请求前中断上一条仍在进行的 dataAgent 流
-    dataStreamAbortRef.current?.abort();
-    const abortController = new AbortController();
-    dataStreamAbortRef.current = abortController;
-
-    const handleMessage = (data: CHAT.DataChatEvent) => {
-      // 丢弃已被中断（切会话/新请求）的迟到流事件，避免污染当前会话
-      if (abortController.signal.aborted) return;
-      updateDataChatFromEvent(runtime, data);
-    };
-    const handleError = (error: unknown) => {
-      // 传输层断连时如实反馈并解除输入框锁定，而不是永远停留在“任务进行中...”
-      if (abortController.signal.aborted) return;
-      console.error('DataAgent SSE stream error', error);
-      runtime.currentChat.loading = false;
-      runtime.currentChat.error = '数据分析连接异常，请重试';
-      const nextConversation = runtime.draftController.replaceLastItem({ ...runtime.currentChat });
-      runtime.draftController.commit(nextConversation);
-      setDataLoading(false);
-    };
-
-    const handleClose = () => {
-      // 兜底：流关闭时若仍处 loading（未收到 READY/ERROR），解除锁定
-      if (abortController === dataStreamAbortRef.current) {
-        dataStreamAbortRef.current = null;
-      }
-      if (runtime.currentChat.loading) {
-        runtime.currentChat.loading = false;
-        const nextConversation = runtime.draftController.replaceLastItem({
-          ...runtime.currentChat,
-        });
-        runtime.draftController.commit(nextConversation);
-      }
-      setDataLoading(false);
-    };
-    querySSE(
-      {
-        body: params,
-        parser: parseDataChatEvent,
-        handleMessage,
-        handleError,
-        handleClose,
-        signal: abortController.signal,
-      },
-      `${SERVICE_BASE_URL}/data/chatQuery`,
-    );
-  });
-
   useEffect(() => {
     if (inputInfoProp.message?.length !== 0) {
-      const targetOutput = inputInfoProp.outputStyle || conversationRef.current.productType;
-      if (targetOutput === 'dataAgent') {
-        sendDataMessage(inputInfoProp);
-      } else {
-        sendMessage(inputInfoProp);
-      }
+      sendMessage(
+        inputInfoProp.outputStyle === 'dataAgent'
+          ? { ...inputInfoProp, outputStyle: 'chat', executionMode: 'STANDARD' }
+          : inputInfoProp,
+      );
       onInputConsumed?.();
     }
-  }, [inputInfoProp, onInputConsumed, sendDataMessage, sendMessage]);
+  }, [inputInfoProp, onInputConsumed, sendMessage]);
 
   const handleRegenerate = useMemoizedFn(() => {
     regenerateLastMessage();
   });
 
-  const loading = streamLoading || dataLoading;
-  const optimisticDataChat = useMemo(() => {
-    const targetOutput = inputInfoProp.outputStyle || conversation.productType;
-    const lastDataChat = conversation.dataChatList[conversation.dataChatList.length - 1];
-    const latestChatAlreadyHydrated =
-      lastDataChat?.loading &&
-      lastDataChat.query === inputInfoProp.message &&
-      !lastDataChat.chartData &&
-      !lastDataChat.error;
-    const shouldRenderOptimisticPlaceholder =
-      targetOutput === 'dataAgent' &&
-      inputInfoProp.message?.length > 0 &&
-      !latestChatAlreadyHydrated;
-
-    if (!shouldRenderOptimisticPlaceholder) {
-      return undefined;
-    }
-
-    return {
-      query: inputInfoProp.message,
-      loading: true,
-      think: '',
-      chartData: undefined,
-      error: '',
-    } satisfies CHAT.DataChatItem;
-  }, [
-    conversation.dataChatList,
-    conversation.productType,
-    inputInfoProp.message,
-    inputInfoProp.outputStyle,
-  ]);
+  const loading = streamLoading;
 
   const currentProduct = useMemo(() => {
-    return getProductByType(conversation.productType || product?.type);
+    const nextProduct = getProductByType(conversation.productType || product?.type);
+    return nextProduct.type === 'dataAgent' ? defaultProduct : nextProduct;
   }, [conversation.productType, product?.type]);
 
   const headerTitle = conversation.chatTitle || conversation.title;
@@ -444,64 +274,6 @@ const ChatView: ReactorType.FC<Props> = (props) => {
     );
   };
 
-  const renderDataDialogues = () => {
-    const visibleDataChats = optimisticDataChat
-      ? [...conversation.dataChatList, optimisticDataChat]
-      : conversation.dataChatList;
-
-    if (isConversationSwitching) {
-      return (
-        <motion.div
-          key={`switch-data-${conversation.id}`}
-          initial={{
-            opacity: 0.9,
-            y: 6,
-          }}
-          animate={{
-            opacity: 1,
-            y: 0,
-          }}
-          transition={{
-            duration: 0.14,
-            ease: [0.25, 0.46, 0.45, 0.94],
-          }}
-        >
-          {visibleDataChats.map((chat, idx) => (
-            <DataDialogue key={`${conversation.id}-${idx}`} chat={chat} />
-          ))}
-        </motion.div>
-      );
-    }
-
-    return (
-      <AnimatePresence mode="popLayout" initial={false}>
-        {visibleDataChats.map((chat, idx) => (
-          <motion.div
-            key={`${conversation.id}-${idx}`}
-            initial={{
-              opacity: 0.9,
-              y: 6,
-            }}
-            animate={{
-              opacity: 1,
-              y: 0,
-            }}
-            exit={{
-              opacity: 0.85,
-              y: -4,
-            }}
-            transition={{
-              duration: 0.14,
-              ease: [0.25, 0.46, 0.45, 0.94],
-            }}
-          >
-            <DataDialogue chat={chat} />
-          </motion.div>
-        ))}
-      </AnimatePresence>
-    );
-  };
-
   const renderMultAgent = () => {
     // 如果没有工作空间内容，显示单面板
     if (!showAction) {
@@ -558,8 +330,7 @@ const ChatView: ReactorType.FC<Props> = (props) => {
                   chatRoles={chatRoles}
                   models={models}
                   selectedModelId={selectedModelId}
-                  showModelSelector={conversation.productType !== 'dataAgent'}
-                  allowDataAgentToggle={false}
+                  showModelSelector={true}
                   onSelectionChange={onSelectionChange}
                   onRoleSelect={onRoleSelect}
                   onSelectModel={onSelectModel}
@@ -670,8 +441,7 @@ const ChatView: ReactorType.FC<Props> = (props) => {
                       chatRoles={chatRoles}
                       models={models}
                       selectedModelId={selectedModelId}
-                      showModelSelector={conversation.productType !== 'dataAgent'}
-                      allowDataAgentToggle={false}
+                      showModelSelector={true}
                       onSelectionChange={onSelectionChange}
                       onRoleSelect={onRoleSelect}
                       onSelectModel={onSelectModel}
@@ -764,65 +534,9 @@ const ChatView: ReactorType.FC<Props> = (props) => {
     );
   };
 
-  const renderDataAgent = () => {
-    return (
-      <div className="flex h-full w-full justify-center overflow-hidden px-4 pt-4 md:px-6">
-        <div
-          className="flex h-full min-h-0 w-full max-w-[980px] flex-col overflow-hidden"
-          id="chat-view"
-        >
-          <div className="mb-3 flex min-h-[36px] items-center justify-between px-1">
-            <div className="flex min-w-0 items-center gap-3">
-              <h2 className="truncate text-[16px] font-semibold tracking-tight text-[var(--chat-text)]">
-                {headerTitle}
-              </h2>
-              <div className="flex shrink-0 items-center gap-1.5 rounded-full bg-[var(--chat-surface-muted)] px-3 py-1 text-[12px] font-medium text-[var(--chat-text-soft)]">
-                <i className="font_family icon-shendusikao text-[11px]"></i>
-                <span>数据分析</span>
-              </div>
-            </div>
-          </div>
-
-          <Conversation className="chat-fade-bottom min-h-0 flex-1 overflow-hidden">
-            <ConversationContent className="mx-auto w-full max-w-[860px] px-1 pb-6">
-              {renderDataDialogues()}
-            </ConversationContent>
-            <ConversationScrollButton />
-          </Conversation>
-
-          <div className="shrink-0 bg-gradient-to-t from-[var(--page-gradient)] via-[var(--page-gradient)]/95 to-transparent pb-5 pt-4">
-            <div className="mx-auto w-full max-w-[860px]">
-              <GeneralInput
-                key={`input-${conversation.sessionId}-data`}
-                sessionId={conversation.sessionId}
-                placeholder={loading ? '任务进行中...' : '希望熊博士agent为你做哪些任务呢？'}
-                showBtn={false}
-                loading={dataLoading}
-                size="medium"
-                disabled={loading}
-                product={currentProduct}
-                executionMode="STANDARD"
-                displayOutput={currentProduct}
-                send={(info) =>
-                  sendDataMessage({
-                    ...info,
-                    outputStyle: 'dataAgent',
-                    executionMode: 'STANDARD',
-                  })
-                }
-              />
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  const isDataConversation = conversation.productType === 'dataAgent';
-
   return (
     <div className="flex h-full w-full justify-center">
-      {isDataConversation ? renderDataAgent() : renderMultAgent()}
+      {renderMultAgent()}
     </div>
   );
 };

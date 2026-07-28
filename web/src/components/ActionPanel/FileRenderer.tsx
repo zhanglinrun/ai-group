@@ -4,10 +4,13 @@ import { Alert } from 'antd';
 import MarkdownRenderer from './MarkdownRenderer';
 import Loading from './Loading';
 import { ViewerPanelShell } from '@/components/ui/viewer-panel-shell';
+import { Button } from '@/components/ui/button';
+import { Download, FileText } from 'lucide-react';
 
 const LOADING_CLASS = 'mr-32';
 const ERROR_CLASS =
   'm-12 md:m-24 min-w-[260px] max-w-[calc(100%-24px)] md:max-w-[calc(100%-48px)] [&_.ant-alert-description]:break-words [&_.ant-alert-description]:whitespace-normal';
+const DOWNLOAD_ONLY_EXTENSIONS = new Set(['ppt', 'pptx', 'doc', 'docx', 'pdf', 'zip']);
 
 interface FileRendererProps {
   /** 文件路径 */
@@ -58,9 +61,11 @@ const FileRenderer: ReactorType.FC<FileRendererProps> = React.memo((props) => {
   const { fileUrl, fileName, missingReason, className } = props;
 
   const ext = useMemo(() => getFileExtension(fileName), [fileName]);
+  const downloadOnly = DOWNLOAD_ONLY_EXTENSIONS.has(ext || '');
 
   const { data, loading, error } = useRequest(
     async () => {
+      if (downloadOnly) return '';
       if (missingReason) {
         throw new Error(missingReason);
       }
@@ -73,10 +78,29 @@ const FileRenderer: ReactorType.FC<FileRendererProps> = React.memo((props) => {
       }
       return await response.text();
     },
-    { refreshDeps: [fileUrl, missingReason] },
+    { refreshDeps: [fileUrl, missingReason, downloadOnly] },
   );
 
   const markStr = useMemo(() => formatFileContent(ext, data), [ext, data]);
+
+  if (downloadOnly) {
+    return (
+      <ViewerPanelShell label={(ext || 'FILE').toUpperCase()} subtitle={fileName || '文件'} className={className}>
+        <div className="flex h-full min-h-64 flex-col items-center justify-center gap-3 text-center">
+          <FileText className="h-10 w-10 text-[#86868b]" />
+          <p className="text-sm text-[#1d1d1f]">此格式不支持在线预览</p>
+          {fileUrl ? (
+            <Button asChild size="sm" className="gap-1.5">
+              <a href={fileUrl} target="_blank" rel="noreferrer" download>
+                <Download className="h-4 w-4" />
+                下载文件
+              </a>
+            </Button>
+          ) : null}
+        </div>
+      </ViewerPanelShell>
+    );
+  }
 
   if (loading) {
     return (

@@ -14,7 +14,6 @@ const request: AxiosInstance = axios.create({
   baseURL: apiBaseUrl,
   timeout: 10000,
   withCredentials: true,
-  headers: { 'Content-Type': 'application/json' },
 });
 
 // Bare client for token refresh to avoid interceptor recursion.
@@ -22,7 +21,6 @@ const refreshClient = axios.create({
   baseURL: apiBaseUrl,
   timeout: 10000,
   withCredentials: true,
-  headers: { 'Content-Type': 'application/json' },
 });
 
 // 请求拦截器

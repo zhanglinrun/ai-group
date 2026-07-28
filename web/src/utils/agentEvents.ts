@@ -4,16 +4,28 @@ const AGENT_LOOP_EVENT_TYPES = new Set([
   'run_started',
   'phase_changed',
   'todo_snapshot',
+  'todo_progress',
   'verification_started',
   'verification_result',
   'completion_blocked',
   'run_finished',
+  'agent_start',
+  'complete',
+  'paused',
+  'resume_start',
+  'thinking',
+  'text',
+  'tool_start',
+  'tool_end',
+  'stage_output',
+  'error',
 ]);
 
 export type UiAgentEvent =
   | { type: 'run_started'; runId?: string; phase?: CHAT.AgentRunPhase }
   | { type: 'phase_changed'; phase: CHAT.AgentRunPhase }
   | { type: 'todo_snapshot'; title?: string; todos: CHAT.TodoItem[] }
+  | { type: 'todo_progress'; title?: string; todos: CHAT.TodoItem[]; completedCount?: number; totalCount?: number }
   | { type: 'verification_started'; attempt?: number }
   | { type: 'verification_result'; verification: CHAT.VerificationState }
   | { type: 'completion_blocked'; verification: CHAT.VerificationState }
@@ -24,6 +36,32 @@ export type UiAgentEvent =
       stopReason?: string;
     }
   | { type: 'final_result' }
+  | { type: 'thinking'; content: string }
+  | {
+      type: 'tool_start';
+      toolCallId?: string;
+      toolName?: string;
+      argumentsPreview?: string;
+    }
+  | {
+      type: 'tool_end';
+      toolCallId?: string;
+      toolName?: string;
+      success?: boolean;
+      resultPreview?: string;
+      durationMillis?: number;
+    }
+  | { type: 'text'; delta: string }
+  | { type: 'paused'; approval: CHAT.PendingToolApproval }
+  | { type: 'resume_start'; approvalId: string; decision: string }
+  | {
+      type: 'stage_output';
+      outputType: string;
+      payload: unknown;
+      toolCallId?: string;
+      artifactRefs?: Record<string, unknown>[];
+      isFinal: boolean;
+    }
   | { type: 'activity' };
 
 const isRecord = (value: unknown): value is RecordValue =>
@@ -155,6 +193,102 @@ export function normalizeAgentEvent(eventData: MESSAGE.EventData): UiAgentEvent 
         .filter((todo): todo is CHAT.TodoItem => Boolean(todo)),
     };
   }
+  if (eventType === 'todo_progress') {
+    const rawItems = Array.isArray(payload.items) ? payload.items : [];
+    return {
+      type: 'todo_progress',
+      title: firstText(payload.title) || undefined,
+      completedCount: typeof payload.completedCount === 'number' ? payload.completedCount : undefined,
+      totalCount: typeof payload.totalCount === 'number' ? payload.totalCount : undefined,
+      todos: rawItems
+        .map((item, index) => {
+          if (!isRecord(item)) return undefined;
+          return normalizeTodo(
+            {
+              id: firstText(item.stepId, item.id),
+              title: firstText(item.description, item.title),
+              status: item.status,
+            },
+            `${eventData.taskId}-progress-${index}`,
+          );
+        })
+        .filter((todo): todo is CHAT.TodoItem => Boolean(todo)),
+    };
+  }
+  if (eventType === 'thinking') {
+    const content = firstText(payload.content, payload.message);
+    return content ? { type: 'thinking', content } : undefined;
+  }
+  if (eventType === 'tool_start') {
+    return {
+      type: 'tool_start',
+      toolCallId: firstText(payload.toolCallId) || undefined,
+      toolName: firstText(payload.toolName) || undefined,
+      argumentsPreview: firstText(payload.argumentsPreview) || undefined,
+    };
+  }
+  if (eventType === 'tool_end') {
+    return {
+      type: 'tool_end',
+      toolCallId: firstText(payload.toolCallId) || undefined,
+      toolName: firstText(payload.toolName) || undefined,
+      success: payload.success === true,
+      resultPreview: firstText(payload.resultPreview) || undefined,
+      durationMillis: typeof payload.durationMillis === 'number' ? payload.durationMillis : undefined,
+    };
+  }
+  if (eventType === 'paused') {
+    const approvalId = firstText(payload.approvalId);
+    const toolCallId = firstText(payload.toolCallId);
+    const toolName = firstText(payload.toolName);
+    if (!approvalId || !toolCallId || !toolName) return undefined;
+    return {
+      type: 'paused',
+      approval: {
+        approvalId,
+        runId: firstText(payload.runId) || undefined,
+        toolCallId,
+        toolName,
+        argumentsPreview: payload.argumentsPreview,
+        estimatedMicrocredits:
+          typeof payload.estimatedMicrocredits === 'number' ? payload.estimatedMicrocredits : 0,
+        expiresAt: firstText(payload.expiresAt),
+      },
+    };
+  }
+  if (eventType === 'resume_start') {
+    return {
+      type: 'resume_start',
+      approvalId: firstText(payload.approvalId),
+      decision: firstText(payload.decision),
+    };
+  }
+  if (eventType === 'stage_output') {
+    return {
+      type: 'stage_output',
+      outputType: firstText(payload.outputType),
+      payload: payload.payload,
+      toolCallId: firstText(payload.toolCallId) || undefined,
+      artifactRefs: Array.isArray(payload.artifactRefs)
+        ? payload.artifactRefs.filter(isRecord)
+        : undefined,
+      isFinal: payload.isFinal === true,
+    };
+  }
+  if (eventType === 'agent_start') {
+    return { type: 'activity' };
+  }
+  if (eventType === 'complete') {
+    return {
+      type: 'run_finished',
+      status: payload.success === false ? 'FAILED' : 'SUCCESS',
+      completionGatePassed: payload.success !== false,
+    };
+  }
+  if (eventType === 'text') return { type: 'text', delta: firstText(payload.delta) };
+  if (eventType === 'error') {
+    return { type: 'run_finished', status: 'FAILED', stopReason: firstText(payload.code) };
+  }
   if (eventType === 'verification_started') {
     return {
       type: 'verification_started',
@@ -227,6 +361,35 @@ export function applyAgentEvent(chat: CHAT.ChatItem, event: UiAgentEvent): CHAT.
       run.todos = event.todos;
       run.phase = 'PLANNING';
       break;
+    case 'todo_progress':
+      run.todoTitle = event.title || run.todoTitle;
+      if (event.todos.length) {
+        run.todos = event.todos;
+      }
+      run.phase = 'EXECUTING';
+      break;
+    case 'thinking':
+      if (run.phase !== 'VERIFYING') run.phase = 'ANALYZING';
+      break;
+    case 'tool_start':
+    case 'tool_end':
+      if (run.phase !== 'VERIFYING') run.phase = 'EXECUTING';
+      break;
+    case 'text':
+      chat.response = `${chat.response || ''}${event.delta}`;
+      break;
+    case 'paused':
+      chat.pendingApproval = event.approval;
+      break;
+    case 'resume_start':
+      if (!chat.pendingApproval || chat.pendingApproval.approvalId === event.approvalId) {
+        chat.pendingApproval = undefined;
+      }
+      if (run.phase !== 'VERIFYING') run.phase = 'EXECUTING';
+      break;
+    case 'stage_output':
+      if (run.phase !== 'VERIFYING') run.phase = 'EXECUTING';
+      break;
     case 'verification_started':
       run.phase = 'VERIFYING';
       run.verification = { status: 'running', attempt: event.attempt };
@@ -240,6 +403,7 @@ export function applyAgentEvent(chat: CHAT.ChatItem, event: UiAgentEvent): CHAT.
       run.verification = event.verification;
       break;
     case 'run_finished':
+      chat.pendingApproval = undefined;
       run.terminalEventSeen = true;
       run.status =
         event.status === 'SUCCESS' && event.completionGatePassed !== true ? 'FAILED' : event.status;

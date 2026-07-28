@@ -1,10 +1,9 @@
 import { motion } from 'motion/react';
-import classNames from 'classnames';
 
 import GeneralInput from '@/components/GeneralInput';
 import { AiChatSurface } from '@/components/ai-elements/ai-chat-surface';
 import { KeyboardTypewriter } from '@/components/ai-elements/keyboard-typewriter';
-import { chatQustions, demoList } from '@/utils/constants';
+import { demoList } from '@/utils/constants';
 import type { ModelItem } from '@/services/models';
 
 const SHOW_FEATURED_CASES = false;
@@ -115,7 +114,6 @@ export default function WelcomeView(props: {
   }) => void;
   onRoleSelect: (role: CHAT.FixRole) => void;
   onSend: (inputInfo: CHAT.TInputInfo) => void;
-  onSendQuestion: (query: { label: string; type: number }) => void;
   onOpenVideo: (url: string) => void;
   onCloseVideo: () => void;
   onSelectModel?: (modelId: string) => void;
@@ -168,46 +166,13 @@ export default function WelcomeView(props: {
               chatRoles={props.fixRoles}
               models={props.models}
               selectedModelId={props.selectedModelId}
-              showModelSelector={props.product.type !== 'dataAgent'}
+              showModelSelector={true}
               send={props.onSend}
               onSelectionChange={props.onSelectionChange}
               onRoleSelect={props.onRoleSelect}
               onSelectModel={props.onSelectModel}
             />
           </AiChatSurface>
-        </motion.div>
-
-        <motion.div
-          initial={false}
-          animate={{
-            opacity: props.product.type === 'dataAgent' ? 1 : 0,
-            y: props.product.type === 'dataAgent' ? 0 : -10,
-          }}
-          transition={{
-            duration: 0.3,
-            ease: [0.16, 1, 0.3, 1],
-          }}
-          className={classNames(
-            'mx-auto w-full max-w-[800px] overflow-hidden',
-            props.product.type === 'dataAgent'
-              ? 'mb-12 max-h-[100px] pointer-events-auto'
-              : 'mb-0 max-h-0 pointer-events-none',
-          )}
-        >
-          <div className="flex flex-wrap justify-center gap-3">
-            {chatQustions.map((item, index) => (
-              <div
-                key={index}
-                className="flex cursor-pointer items-center gap-2 rounded-full border border-[var(--chat-border)] bg-[var(--chat-surface)] px-5 py-2.5 text-[13px] text-[var(--chat-text-soft)] transition-all duration-300 hover:border-[var(--chat-border-strong)] hover:text-[var(--chat-text)] hover:shadow-[var(--shadow-sm)]"
-                onClick={() => props.onSendQuestion(item)}
-              >
-                {item.type === 2 && (
-                  <i className="font_family icon-shendusikao text-[12px] text-[var(--primary)]" />
-                )}
-                {item.label}
-              </div>
-            ))}
-          </div>
         </motion.div>
 
         {SHOW_FEATURED_CASES && (

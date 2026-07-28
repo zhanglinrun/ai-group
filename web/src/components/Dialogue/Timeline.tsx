@@ -1,4 +1,4 @@
-import { FC, memo, useMemo } from 'react';
+import { FC, memo, useMemo, useState } from 'react';
 import { motion } from 'motion/react';
 import AttachmentList from '@/components/AttachmentList';
 import LoadingSpinner from '@/components/LoadingSpinner';
@@ -10,7 +10,18 @@ import {
 } from '@/utils/deepSearch';
 import { getTaskFiles } from '@/utils/taskArtifacts';
 import { Reasoning, ReasoningTrigger, ReasoningContent } from '@/components/ai-elements/reasoning';
-import { CheckIcon, LoaderCircleIcon, FileTextIcon, SearchIcon, UserIcon } from 'lucide-react';
+import {
+  CheckIcon,
+  CheckCheckIcon,
+  LoaderCircleIcon,
+  FileTextIcon,
+  SearchIcon,
+  UserIcon,
+  ShieldAlertIcon,
+  SkipForwardIcon,
+  XIcon,
+  PencilIcon,
+} from 'lucide-react';
 import { resolveTaskSummaryText } from './contentHelpers';
 import { sanitizeReasoningText } from '@/utils/reasoningDisplay';
 import {
@@ -19,6 +30,7 @@ import {
 } from './timelineStatus';
 import { parsePlatformContextTask } from '@/utils/platformContext';
 import { PlatformContextCard } from './PlatformContextCard';
+import request from '@/utils/request';
 
 type TimelineProps = {
   chat: CHAT.ChatItem;
@@ -43,16 +55,18 @@ const ToolItem: FC<ToolItemProps> = memo(
     }
 
     switch (tool.messageType) {
-      case 'tool_thought': {
+      case 'tool_thought':
+      case 'thinking': {
         // 思考流是否仍在进行：必须同时满足「本轮未标记 isFinal」且「整条对话仍在 loading」。
         // 仅看 isFinal 会在模型/工具轮次收尾、末条 tool_thought 未回填 isFinal 时，
-        // 让思考标签永久停在“思考中”。对齐 Dialogue/DataDialogue 的 chat.loading 门控。
+        // 让思考标签永久停在“思考中”。对齐 Dialogue 的 chat.loading 门控。
         const streamingThought = !!chat.loading && !tool.resultMap?.isFinal;
+        const reasoningText = tool.toolThought || tool.resultMap?.content || '';
         return (
           <div className="mt-[8px] rounded-2xl border border-[var(--chat-border)]/18 bg-[var(--chat-surface-soft)]/38 px-3 py-2.5">
             <Reasoning isStreaming={streamingThought} defaultOpen>
               <ReasoningTrigger />
-              <ReasoningContent>{sanitizeReasoningText(tool.toolThought || '')}</ReasoningContent>
+              <ReasoningContent>{sanitizeReasoningText(reasoningText)}</ReasoningContent>
             </Reasoning>
           </div>
         );
@@ -235,6 +249,119 @@ const DeepSearchPreviewItem: FC<{
 
 DeepSearchPreviewItem.displayName = 'DeepSearchPreviewItem';
 
+type ApprovalDecision = 'APPROVED' | 'APPROVED_ALL' | 'REJECTED' | 'SKIPPED' | 'MODIFIED';
+
+const ApprovalDialog: FC<{ approval: CHAT.PendingToolApproval }> = ({ approval }) => {
+  const preview =
+    typeof approval.argumentsPreview === 'string'
+      ? approval.argumentsPreview
+      : JSON.stringify(approval.argumentsPreview ?? {}, null, 2);
+  const [modifiedArguments, setModifiedArguments] = useState(preview);
+  const [submitting, setSubmitting] = useState<ApprovalDecision>();
+
+  const decide = async (decision: ApprovalDecision) => {
+    setSubmitting(decision);
+    try {
+      await request.post(`/api/v1/agent/approvals/${approval.approvalId}/decision`, {
+        decision,
+        ...(decision === 'MODIFIED' ? { modifiedArguments } : {}),
+      });
+    } catch {
+      setSubmitting(undefined);
+    }
+  };
+
+  const buttonClass =
+    'inline-flex h-9 items-center justify-center gap-2 rounded-md border px-3 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50';
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 px-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="tool-approval-title"
+    >
+      <div className="w-full max-w-xl rounded-lg border border-border bg-background p-5 shadow-xl">
+        <div className="flex items-start gap-3">
+          <ShieldAlertIcon className="mt-0.5 size-5 shrink-0 text-amber-600" />
+          <div className="min-w-0 flex-1">
+            <h2 id="tool-approval-title" className="text-base font-semibold">
+              工具执行审批
+            </h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {approval.toolName} · 预计 {approval.estimatedMicrocredits.toLocaleString()} 微积分
+            </p>
+          </div>
+        </div>
+
+        <pre className="mt-4 max-h-44 overflow-auto rounded-md bg-muted p-3 text-xs leading-5">
+          {preview}
+        </pre>
+        <textarea
+          aria-label="修改后的工具参数"
+          className="mt-3 min-h-28 w-full resize-y rounded-md border border-input bg-background p-3 font-mono text-xs outline-none focus:ring-2 focus:ring-ring"
+          value={modifiedArguments}
+          onChange={(event) => setModifiedArguments(event.target.value)}
+          disabled={Boolean(submitting)}
+        />
+
+        <div className="mt-4 flex flex-wrap justify-end gap-2">
+          <button
+            type="button"
+            title="拒绝"
+            className={`${buttonClass} border-destructive/40 text-destructive hover:bg-destructive/10`}
+            disabled={Boolean(submitting)}
+            onClick={() => void decide('REJECTED')}
+          >
+            <XIcon className="size-4" />拒绝
+          </button>
+          <button
+            type="button"
+            title="跳过本次"
+            className={`${buttonClass} border-input hover:bg-muted`}
+            disabled={Boolean(submitting)}
+            onClick={() => void decide('SKIPPED')}
+          >
+            <SkipForwardIcon className="size-4" />跳过
+          </button>
+          <button
+            type="button"
+            title="按修改后的参数执行"
+            className={`${buttonClass} border-input hover:bg-muted`}
+            disabled={Boolean(submitting) || !modifiedArguments.trim()}
+            onClick={() => void decide('MODIFIED')}
+          >
+            <PencilIcon className="size-4" />修改并执行
+          </button>
+          <button
+            type="button"
+            title="批准本次"
+            className={`${buttonClass} border-primary bg-primary text-primary-foreground hover:bg-primary/90`}
+            disabled={Boolean(submitting)}
+            onClick={() => void decide('APPROVED')}
+          >
+            {submitting === 'APPROVED' ? (
+              <LoaderCircleIcon className="size-4 animate-spin" />
+            ) : (
+              <CheckIcon className="size-4" />
+            )}
+            批准
+          </button>
+          <button
+            type="button"
+            title="本次运行内批准该工具的后续调用"
+            className={`${buttonClass} border-primary/40 text-primary hover:bg-primary/10`}
+            disabled={Boolean(submitting)}
+            onClick={() => void decide('APPROVED_ALL')}
+          >
+            <CheckCheckIcon className="size-4" />本轮全部批准
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const resolveDigitalEmployee = (task: CHAT.Task): string | undefined => {
   return task.children?.find((child) => child.digitalEmployee)?.digitalEmployee;
 };
@@ -311,6 +438,9 @@ const TimelineContent: FC<{
 
 export const Timeline: FC<TimelineProps> = ({ chat, changeActiveChat, changeFile }) => (
   <>
+    {chat.pendingApproval ? (
+      <ApprovalDialog key={chat.pendingApproval.approvalId} approval={chat.pendingApproval} />
+    ) : null}
     {chat.tasks.map((tasks, index) => {
       const lastTask = index === chat.tasks.length - 1;
       const groupKey = tasks[0]?.id || tasks[0]?.messageId || tasks[0]?.taskId || index;

@@ -38,38 +38,12 @@ export const actionViewOptions = [
 
 export const defaultActiveActionView = actionViewOptions[0].value;
 
-export const chatQustions = [
-  {
-    label: '分析上传数据的月度趋势与异常波动',
-    type: 1,
-  },
-  {
-    label: '找出成本最高的前十项并解释原因',
-    type: 1,
-  },
-  {
-    label: '对销售数据进行综合分析',
-    type: 2,
-  },
-  {
-    label: '分析产品的销售表现',
-    type: 2,
-  },
-];
-
 export const productList = [
   {
     name: '聊天模式',
     img: 'icon-aichat',
     type: 'chat',
     placeholder: '熊博士agent会以聊天模式回答你的问题',
-    color: 'text-[#4040FF]',
-  },
-  {
-    name: '数据分析',
-    img: 'icon-xinjianduihua',
-    type: 'dataAgent',
-    placeholder: '熊博士agent会完成你的数据分析任务',
     color: 'text-[#4040FF]',
   },
   {
@@ -132,8 +106,8 @@ export const demoList = [
     image: demo2,
   },
   {
-    title: 'HR智能招聘产品竞品分析',
-    description: '分析一下HR智能招聘领域的优秀产品，形成一个竞品对比报告',
+    title: '企业协同 SaaS 产品竞品分析',
+    description: '分析企业协同 SaaS 领域的代表产品，形成一份竞品对比报告',
     tag: '竞品调研',
     videoUrl:
       'https://private-user-images.githubusercontent.com/49786633/469171112-cd99e2f8-9887-459f-ae51-00e7883fa050.mp4?jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJnaXRodWIuY29tIiwiYXVkIjoicmF3LmdpdGh1YnVzZXJjb250ZW50LmNvbSIsImtleSI6ImtleTUiLCJleHAiOjE3NTM2OTE5ODgsIm5iZiI6MTc1MzY5MTY4OCwicGF0aCI6Ii80OTc4NjYzMy80NjkxNzExMTItY2Q5OWUyZjgtOTg4Ny00NTlmLWFlNTEtMDBlNzg4M2ZhMDUwLm1wND9YLUFtei1BbGdvcml0aG09QVdTNC1ITUFDLVNIQTI1NiZYLUFtei1DcmVkZW50aWFsPUFLSUFWQ09EWUxTQTUzUFFLNFpBJTJGMjAyNTA3MjglMkZ1cy1lYXN0LTElMkZzMyUyRmF3czRfcmVxdWVzdCZYLUFtei1EYXRlPTIwMjUwNzI4VDA4MzQ0OFomWC1BbXotRXhwaXJlcz0zMDAmWC1BbXotU2lnbmF0dXJlPTA2MDNiNDk5MThlZTRhMTY0YTM0YWQ1MGU2NDRlYzg1NWIxNDM4ZmYyMmE1MTY2YzgwZmUyOTI1MjY3NjFiNTQmWC1BbXotU2lnbmVkSGVhZGVycz1ob3N0In0.-r9MhEJ9RgbYPi-cTCmG0wMxNmFC0rjXNMti4LRvspc',

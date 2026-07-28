@@ -16,6 +16,8 @@ type HtmlPanelView = {
   type: 'html';
   htmlUrl?: string;
   downloadUrl?: string;
+  label?: string;
+  subtitle?: string;
   missingReason?: string;
   outputCode?: string;
   showToolBar: boolean;
@@ -115,7 +117,20 @@ export function resolvePanelView(params: ResolvePanelViewParams): PanelView {
     };
   }
 
-  if (useHtml || usePpt) {
+  if (usePpt) {
+    return {
+      type: 'html',
+      htmlUrl: primaryFile?.url,
+      downloadUrl: primaryFile?.downloadUrl,
+      label: 'PPTX',
+      subtitle: primaryFile?.name || '演示文稿',
+      missingReason,
+      showToolBar: Boolean(allowShowToolBar && isFinal),
+      isStreaming: false,
+    };
+  }
+
+  if (useHtml) {
     return {
       type: 'html',
       htmlUrl,

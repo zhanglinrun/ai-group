@@ -12,6 +12,8 @@ import MarkdownRenderer from './MarkdownRenderer';
 interface HTMLRendererProps {
   htmlUrl?: string;
   downloadUrl?: string;
+  label?: string;
+  subtitle?: string;
   missingReason?: string;
   showToolBar?: boolean;
   outputCode?: string;
@@ -24,6 +26,8 @@ const HTMLRenderer: ReactorType.FC<HTMLRendererProps> = memo((props) => {
     htmlUrl,
     className,
     downloadUrl,
+    label = 'HTML',
+    subtitle = 'Preview',
     missingReason,
     showToolBar,
     outputCode,
@@ -81,9 +85,10 @@ const HTMLRenderer: ReactorType.FC<HTMLRendererProps> = memo((props) => {
     if (htmlUrl) {
       return (
         <iframe
-          className="block h-[min(60vh,520px)] w-full rounded-lg bg-[var(--chat-surface)]"
+          className="block h-full min-h-[360px] w-full rounded-lg bg-[var(--chat-surface)] sm:min-h-[420px]"
+          sandbox="allow-scripts"
           src={htmlUrl}
-          title="HTML preview"
+          title={`${label} preview`}
           onLoad={stopLoading}
           onError={() => {
             setError('引用资源不存在或已失效');
@@ -93,7 +98,7 @@ const HTMLRenderer: ReactorType.FC<HTMLRendererProps> = memo((props) => {
       );
     }
     return <Empty description="暂无内容" className="mt-32" />;
-  }, [error, htmlUrl, missingReason, stopLoading]);
+  }, [error, htmlUrl, label, missingReason, stopLoading]);
 
   if (!htmlUrl && outputCode) {
     return (
@@ -111,8 +116,8 @@ const HTMLRenderer: ReactorType.FC<HTMLRendererProps> = memo((props) => {
         bodyClassName="p-2 sm:p-3"
         className={classNames(className, 'relative flex min-h-0 flex-1 flex-col')}
         headerRight={headerActions}
-        label="HTML"
-        subtitle="Preview"
+        label={label}
+        subtitle={subtitle}
       >
         <div className="relative min-h-0 flex-1 overflow-hidden rounded-lg">
           <Loading loading={loading} className="absolute left-0 top-0 z-10 h-full w-full" />

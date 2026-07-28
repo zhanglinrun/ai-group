@@ -67,7 +67,7 @@ export const normalizeTaskFile = (raw: any): CHAT.TFile | null => {
   );
   const downloadUrl = normalizeFileUrlForBrowser(
     firstText(raw.downloadUrl, raw.ossUrl, raw.domainUrl, raw.url, raw.previewUrl),
-  );
+  ).replace('/file_tool/preview/', '/file_tool/download/');
   const resourceKey = firstText(
     raw.resourceKey,
     raw.ossUrl,
@@ -152,13 +152,7 @@ const readResultMapFile = (resultMap?: Record<string, unknown>) => {
     firstText(resultMap.previewUrl, resultMap.domainUrl, resultMap.url),
   );
   const downloadUrl = normalizeFileUrlForBrowser(
-    firstText(
-      resultMap.downloadUrl,
-      resultMap.ossUrl,
-      resultMap.previewUrl,
-      resultMap.domainUrl,
-      resultMap.url,
-    ),
+    firstText(resultMap.downloadUrl, resultMap.ossUrl),
   );
   const primaryFileName = firstText(
     resultMap.primaryFileName,
@@ -240,7 +234,8 @@ export const getTaskFiles = (taskLike: any): CHAT.TFile[] => {
   });
 
   const files = Array.from(dedup.values());
-  const primaryFilePatch = normalizeTaskFile(readPrimaryResultMapFile(taskLike));
+  const primaryResultMapFile = readPrimaryResultMapFile(taskLike);
+  const primaryFilePatch = normalizeTaskFile(primaryResultMapFile);
 
   if (!primaryFilePatch) {
     return files;
@@ -255,7 +250,9 @@ export const getTaskFiles = (taskLike: any): CHAT.TFile[] => {
     ...files[0],
     name: files[0].name && files[0].name !== '未命名文件' ? files[0].name : primaryFilePatch.name,
     url: files[0].url || primaryFilePatch.url,
-    downloadUrl: primaryFilePatch.downloadUrl || files[0].downloadUrl,
+    downloadUrl: primaryResultMapFile?.downloadUrl
+      ? primaryFilePatch.downloadUrl || files[0].downloadUrl
+      : files[0].downloadUrl || primaryFilePatch.downloadUrl,
     missing: files[0].missing && primaryFilePatch.missing,
     missingReason: files[0].missingReason || primaryFilePatch.missingReason,
     resourceKey: files[0].resourceKey || primaryFilePatch.resourceKey,

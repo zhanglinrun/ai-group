@@ -22,6 +22,47 @@ function buildToolCallMarkdown(resultMap?: PanelItemType['resultMap']) {
   return contentBlocks.join('\n\n');
 }
 
+function buildDeepResearchMarkdown(resultMap?: PanelItemType['resultMap']) {
+  if (!resultMap) {
+    return '';
+  }
+  if (resultMap.previewMarkdown) {
+    return resultMap.previewMarkdown;
+  }
+
+  const lines = ['# 深度调研', ''];
+  const progress = Number(resultMap.progress || 0);
+  lines.push(`进度：${Math.round(progress * 100)}%`);
+  if (resultMap.status) lines.push(`状态：${resultMap.status}`);
+  if (resultMap.evidenceCount !== undefined) lines.push(`证据：${resultMap.evidenceCount}`);
+  if (resultMap.completedSections?.length) {
+    lines.push('', '## 已完成章节', ...resultMap.completedSections.map((item) => `- ${item}`));
+  }
+  const branches = Object.values(resultMap.branches || {});
+  if (branches.length) {
+    lines.push(
+      '',
+      '## Researcher',
+      ...branches.map(
+        (branch) =>
+          `- ${branch.nodeId || branch.role || 'researcher'}：${branch.status || 'running'}，证据 ${branch.evidenceCount || 0}`,
+      ),
+    );
+  }
+  if (resultMap.qualityStatus) {
+    lines.push(
+      '',
+      '## 质量',
+      `- 状态：${resultMap.qualityStatus}`,
+      `- 来源：${resultMap.sourceCount || 0}`,
+      `- 引用覆盖：${Math.round(Number(resultMap.citationCoverage || 0) * 100)}%`,
+      `- 字数：${resultMap.charCount || 0}`,
+    );
+  }
+
+  return lines.join('\n');
+}
+
 export const resolveMarkdownContent = (taskItem?: PanelItemType) => {
   let markDownContent = '';
 
@@ -54,6 +95,10 @@ export const resolveMarkdownContent = (taskItem?: PanelItemType) => {
       break;
     case 'data_analysis':
       markDownContent = resultMap?.codeOutput || '';
+      break;
+    case 'deep_research_progress':
+    case 'deep_research_report':
+      markDownContent = buildDeepResearchMarkdown(resultMap);
       break;
     case 'deep_search':
     case 'report':

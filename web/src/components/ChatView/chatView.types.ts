@@ -14,16 +14,11 @@ export type ThrottledStreamController<TValue> = {
   reset: (value: TValue) => void;
 };
 
-export type ConversationListKey = 'chatList' | 'dataChatList';
+export type ConversationListKey = 'chatList';
 
 export type ConversationDraftController<TItem> = {
   conversationId: string;
   getSnapshot: () => CHAT.ConversationHistory;
   replaceLastItem: (item: TItem) => CHAT.ConversationHistory;
   commit: (nextConversation: CHAT.ConversationHistory) => void;
-};
-
-export type DataConversationRuntime = {
-  draftController: ConversationDraftController<CHAT.DataChatItem>;
-  currentChat: CHAT.DataChatItem;
 };

@@ -7,7 +7,14 @@ import {
 } from './homeState';
 
 describe('homeState', () => {
-  it('切到 dataAgent 时应清空角色并回到标准执行模式', () => {
+  it('legacy dataAgent 输入应回落到普通聊天', () => {
+    const role = {
+      agentId: 'agent-1',
+      agentName: '默认角色',
+      available: true,
+      defaultRole: true,
+    };
+
     expect(
       deriveConversationMetaFromInput(
         {
@@ -16,18 +23,13 @@ describe('homeState', () => {
         },
         {
           productType: 'html',
-          currentRole: {
-            agentId: 'agent-1',
-            agentName: '默认角色',
-            available: true,
-            defaultRole: true,
-          },
+          currentRole: role,
         },
       ),
     ).toMatchObject({
-      productType: 'dataAgent',
+      productType: 'chat',
       executionMode: 'STANDARD',
-      role: null,
+      role,
     });
   });
 
@@ -59,6 +61,10 @@ describe('homeState', () => {
     expect(resolveNewConversationMode({ productType: 'docs', executionMode: 'AUTO' })).toEqual({
       productType: 'docs',
       executionMode: 'AUTO',
+    });
+    expect(resolveNewConversationMode({ productType: 'dataAgent', executionMode: 'DEEP' })).toEqual({
+      productType: 'chat',
+      executionMode: 'STANDARD',
     });
   });
 

@@ -11,7 +11,7 @@ export default defineConfig(({ mode }) => {
   const agentBase = env.SERVICE_BASE_URL || apiTarget;
   const toolBase =
     env.REACTOR_TOOL_BASE_URL || env.AGENT_GROUP_REACTOR_TOOL_BASE_URL || 'http://127.0.0.1:1601';
-  const toolToken = env.AGENT_GROUP_REACTOR_TOOL_TOKEN || env.AI_GROUP_INTERNAL_TOKEN || '';
+  const toolToken = env.AGENT_GROUP_REACTOR_TOOL_TOKEN || '';
 
   return {
     plugins: [react(), tailwindcss()],
@@ -37,8 +37,9 @@ export default defineConfig(({ mode }) => {
       exclude: ['clsx', 'nanoid', 'radix-ui', 'lucide-react', 'tailwind-merge'],
     },
     server: {
-      // true = 监听所有网卡，兼容 localhost(IPv6) 与 127.0.0.1(IPv4)
-      host: true,
+      // Bind the local demo server to loopback; public exposure should be an
+      // explicit reverse-proxy/deployment decision.
+      host: '127.0.0.1',
       port: 5173,
       strictPort: true,
       open: '/login',

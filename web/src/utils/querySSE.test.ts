@@ -3,21 +3,30 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const fetchMocks = vi.hoisted(() => ({
   fetchEventSource: vi.fn(),
 }));
+const authMocks = vi.hoisted(() => ({
+  clearAuthTokens: vi.fn(),
+}));
 
 vi.mock('@microsoft/fetch-event-source', () => ({
   EventStreamContentType: 'text/event-stream',
   fetchEventSource: fetchMocks.fetchEventSource,
+}));
+vi.mock('@/auth/token', () => ({
+  clearAuthTokens: authMocks.clearAuthTokens,
+  getAccessToken: vi.fn(() => 'expired-token'),
 }));
 
 import querySSE from './querySSE';
 
 type FetchOptions = {
   signal: AbortSignal;
+  onopen: (response: Response) => Promise<void>;
 };
 
 describe('querySSE transport cancellation', () => {
   beforeEach(() => {
     fetchMocks.fetchEventSource.mockReset();
+    authMocks.clearAuthTokens.mockReset();
     fetchMocks.fetchEventSource.mockImplementation(
       (_url: string, options: FetchOptions) =>
         new Promise<void>((_resolve, reject) => {
@@ -82,5 +91,24 @@ describe('querySSE transport cancellation', () => {
     expect(fetchMocks.fetchEventSource).not.toHaveBeenCalled();
     expect(handleClose).toHaveBeenCalledTimes(1);
     expect(cancel).toBeTypeOf('function');
+  });
+
+  it('401 会清理失效凭据并跳转登录页', async () => {
+    const location = { pathname: '/chat', href: '' };
+    vi.stubGlobal('location', location);
+    fetchMocks.fetchEventSource.mockImplementation(async (_url: string, options: FetchOptions) => {
+      await options.onopen(new Response('', { status: 401 }));
+    });
+
+    querySSE({
+      body: { requestId: 'req-401' },
+      handleMessage: vi.fn(),
+      handleError: vi.fn(),
+      handleClose: vi.fn(),
+    });
+
+    await vi.waitFor(() => expect(authMocks.clearAuthTokens).toHaveBeenCalledTimes(1));
+    expect(location.href).toBe('/login');
+    vi.unstubAllGlobals();
   });
 });

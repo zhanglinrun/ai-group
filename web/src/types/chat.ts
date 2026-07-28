@@ -17,6 +17,7 @@ declare global {
         taskStatus?: MESSAGE.MsgItem['taskStatus'];
         timeline?: TimelineEntry[];
         agentRun?: AgentLoopViewState;
+        pendingApproval?: PendingToolApproval;
         metrics?: {
           event_count?: number;
           status?: string;
@@ -73,6 +74,16 @@ declare global {
       terminalEventSeen?: boolean;
       completionGatePassed?: boolean;
       stopReason?: string;
+    };
+
+    export type PendingToolApproval = {
+      approvalId: string;
+      runId?: string;
+      toolCallId: string;
+      toolName: string;
+      argumentsPreview?: unknown;
+      estimatedMicrocredits: number;
+      expiresAt: string;
     };
 
     export type TimelineEntry = {
@@ -150,34 +161,6 @@ declare global {
       }
     >;
 
-    export type DataChatChartItem = Record<string, unknown>;
-
-    export type DataChatItem = {
-      query: string;
-      loading: boolean;
-      think: string;
-      chartData?: DataChatChartItem[];
-      error: string;
-    };
-
-    export type DataChatEvent =
-      | {
-          eventType: 'THINK';
-          data: string;
-        }
-      | {
-          eventType: 'CHART_DATA';
-          data: DataChatChartItem[];
-        }
-      | {
-          eventType: 'ERROR';
-          data: string;
-        }
-      | {
-          eventType: 'READY';
-          data?: unknown;
-        };
-
     export type FileList = MESSAGE.FileInfo;
 
     export type Product = {
@@ -199,7 +182,7 @@ declare global {
       updatedAt: number;
       chatTitle: string;
       chatList: ChatItem[];
-      dataChatList: DataChatItem[];
+      dataChatList: unknown[];
     };
 
     export type ModelInfo = {

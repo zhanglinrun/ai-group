@@ -5,12 +5,14 @@ export function deriveConversationMetaFromInput(
     currentRole: CHAT.ConversationRole | null;
   },
 ) {
-  const outputStyle = info.outputStyle || params.productType;
+  const outputStyle = info.outputStyle === 'dataAgent'
+    ? 'chat'
+    : info.outputStyle || params.productType;
   const isChatMode = outputStyle === 'chat';
 
   return {
     productType: outputStyle,
-    executionMode: outputStyle === 'dataAgent' ? ('STANDARD' as const) : info.executionMode,
+    executionMode: info.outputStyle === 'dataAgent' ? ('STANDARD' as const) : info.executionMode,
     role: isChatMode ? params.currentRole : null,
   };
 }
@@ -30,10 +32,11 @@ export function shouldHydrateConversationHistory(params: {
 export function resolveNewConversationMode(
   override?: Pick<Partial<CHAT.ConversationHistory>, 'productType' | 'executionMode'>,
 ) {
-  const productType = override?.productType || 'chat';
+  const productType = override?.productType === 'dataAgent' ? 'chat' : override?.productType || 'chat';
   return {
     productType,
-    executionMode:
-      productType === 'dataAgent' ? ('STANDARD' as const) : override?.executionMode || 'STANDARD',
+    executionMode: override?.productType === 'dataAgent'
+      ? ('STANDARD' as const)
+      : override?.executionMode || 'STANDARD',
   };
 }

@@ -48,7 +48,7 @@ const SKU_DISPLAY_NAMES: Record<string, string> = {
 
 const SKU_DESCRIPTIONS: Record<string, string> = {
   QUOTA_LIGHT: '适合体验和低频使用，付费额度永久有效。',
-  QUOTA_STANDARD: '适合日常求职学习与多轮对话。',
+  QUOTA_STANDARD: '适合日常技术学习与多轮对话。',
   QUOTA_LARGE: '适合高频使用，单点价格与大团赠送更划算。',
 };
 

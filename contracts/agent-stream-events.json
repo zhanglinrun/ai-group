@@ -1,0 +1,13 @@
+[
+  {"type":"agent_start","runId":"run-1","ownerId":"owner-1","conversationId":"conversation-1","agentName":"AgentLoop","modelId":"qwen-plus"},
+  {"type":"thinking","runId":"run-1","content":"分析问题"},
+  {"type":"text","runId":"run-1","delta":"结论"},
+  {"type":"tool_start","runId":"run-1","toolCallId":"call-1","toolName":"deep_search","argumentsPreview":{"query":"AI Agent"}},
+  {"type":"tool_end","runId":"run-1","toolCallId":"call-1","toolName":"deep_search","resultPreview":{"hits":3},"success":true,"durationMillis":1200},
+  {"type":"todo_progress","runId":"run-1","items":[{"title":"检索","status":"completed"}]},
+  {"type":"paused","runId":"run-1","approvalId":"approval-1","toolCallId":"call-2","toolName":"image_generation","argumentsPreview":{"prompt":"diagram"},"estimatedMicrocredits":200000,"expiresAt":"2026-07-27T12:00:00Z"},
+  {"type":"resume_start","runId":"run-1","approvalId":"approval-1","toolCallId":"call-2","decision":"APPROVED"},
+  {"type":"stage_output","runId":"run-1","toolCallId":"call-3","outputType":"markdown","payload":{"content":"# Report"},"artifactRefs":[{"artifactId":"artifact-1","fileName":"report.md"}],"isFinal":true},
+  {"type":"error","runId":"run-1","code":"TOOL_FAILED","message":"tool failed"},
+  {"type":"complete","runId":"run-1","summary":"done","totalDurationMillis":2500,"microcreditsConsumed":200000}
+]

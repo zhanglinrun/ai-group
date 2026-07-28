@@ -1,12 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
   ArrowUpIcon,
-  BarChart3Icon,
   CheckIcon,
   ChevronDownIcon,
   PlusIcon,
   Globe2Icon,
-  RouteIcon,
   SearchIcon,
   ZapIcon,
 } from 'lucide-react';
@@ -59,10 +57,8 @@ type Props = {
   models?: ModelItem[];
   /** 当前选择的模型 ID。 */
   selectedModelId?: string;
-  /** 是否展示模型选择器（chat / multiAgent 展示，dataAgent 隐藏）。 */
+  /** 是否展示模型选择器。 */
   showModelSelector?: boolean;
-  /** 是否允许切到“数据分析”。会话内默认关闭（数据分析是独立渲染页，中途切换体验割裂）。 */
-  allowDataAgentToggle?: boolean;
   send: (p: CHAT.TInputInfo) => void;
   onSelectionChange?: (selection: {
     product: CHAT.Product;
@@ -76,9 +72,6 @@ const OUTPUT_TYPES = ['html', 'docs', 'ppt', 'table'];
 const OUTPUT_PRODUCTS = productList.filter(
   (item) => item.type === 'chat' || OUTPUT_TYPES.includes(item.type),
 ) as CHAT.Product[];
-const DATA_AGENT_PRODUCT =
-  (productList.find((item) => item.type === 'dataAgent') as CHAT.Product | undefined) ??
-  defaultProduct;
 const DEFAULT_STRUCTURED_OUTPUT_PRODUCT =
   (OUTPUT_PRODUCTS.find((item) => OUTPUT_TYPES.includes(item.type)) as CHAT.Product | undefined) ??
   defaultProduct;
@@ -90,21 +83,15 @@ const MODE_OPTIONS: Array<{
   icon: typeof ZapIcon;
 }> = [
   {
-    key: 'auto',
-    label: '自动',
-    description: '按任务复杂度调整规划与验证强度',
-    icon: RouteIcon,
-  },
-  {
     key: 'standard',
-    label: '标准',
-    description: '直接执行，必要时自动建立任务列表',
+    label: '普通问题',
+    description: '直接提问与日常任务',
     icon: ZapIcon,
   },
   {
     key: 'deep',
-    label: '深度',
-    description: '强制任务跟踪与完成前验证',
+    label: '深度调研',
+    description: '并行检索、汇总并生成报告',
     icon: SearchIcon,
   },
 ];
@@ -152,7 +139,6 @@ const BRAND_TONE: SelectorTone = {
 };
 
 const MODE_TONES: Record<InputModeKey, SelectorTone> = {
-  auto: BRAND_TONE,
   standard: BRAND_TONE,
   deep: BRAND_TONE,
 };
@@ -163,8 +149,6 @@ const OUTPUT_TONES: Record<string, SelectorTone> = {
   ppt: BRAND_TONE,
   table: BRAND_TONE,
 };
-
-const DATA_AGENT_TONE: SelectorTone = BRAND_TONE;
 
 const selectorTrayClassName =
   'flex min-w-0 flex-wrap items-center gap-1 rounded-full bg-transparent p-0.5';
@@ -222,7 +206,6 @@ const GeneralInput: ReactorType.FC<Props> = (props) => {
     models = [],
     selectedModelId,
     showModelSelector = false,
-    allowDataAgentToggle = true,
     send,
     onSelectionChange,
     onRoleSelect,
@@ -244,36 +227,15 @@ const GeneralInput: ReactorType.FC<Props> = (props) => {
   } = useAttachmentUploads(sessionId);
 
   const currentMode = resolveInputMode(executionMode);
-  const isDataAgent = product?.type === 'dataAgent';
   const resolvedOutputProduct = useMemo(
     () => getOutputProduct(product, displayOutput),
     [displayOutput, product],
   );
 
-  // 记住上一次标准任务模式，切到“数据分析”后仍能保持用户刚才的选择感。
-  const lastStandardModeRef = useRef<InputModeKey>(currentMode);
-  const lastOutputProductRef = useRef<CHAT.Product>(
-    OUTPUT_TYPES.includes(resolvedOutputProduct.type)
-      ? resolvedOutputProduct
-      : DEFAULT_STRUCTURED_OUTPUT_PRODUCT,
-  );
-
-  useEffect(() => {
-    if (product?.type === 'dataAgent') {
-      return;
-    }
-
-    lastStandardModeRef.current = currentMode;
-    if (OUTPUT_TYPES.includes(resolvedOutputProduct.type)) {
-      lastOutputProductRef.current = resolvedOutputProduct;
-    }
-  }, [currentMode, product?.type, resolvedOutputProduct]);
-
-  const visibleMode = isDataAgent ? lastStandardModeRef.current : currentMode;
-  const visibleOutputProduct = isDataAgent ? lastOutputProductRef.current : resolvedOutputProduct;
+  const visibleMode = currentMode;
+  const visibleOutputProduct = resolvedOutputProduct;
   const currentModeOption =
     MODE_OPTIONS.find((item) => item.key === visibleMode) ?? MODE_OPTIONS[0];
-  const isQuickMode = visibleMode === 'standard';
   const CurrentModeIcon = currentModeOption.icon;
   const currentModeTone = MODE_TONES[currentModeOption.key];
   const visibleOutputTone = OUTPUT_TONES[visibleOutputProduct.type] ?? OUTPUT_TONES.html;
@@ -289,9 +251,7 @@ const GeneralInput: ReactorType.FC<Props> = (props) => {
     .filter((file): file is CHAT.TFile => Boolean(file));
   const canSend =
     Boolean(question.trim()) && !disabled && !hasUploadingAttachment && !hasFailedAttachment;
-  // 推理模式与输出格式相互独立，切换网页后仍可改为对话/文档/PPT/表格。
-  const showOutputSelector = showBtn && !isDataAgent;
-  const showDataAgentToggle = showBtn && allowDataAgentToggle && (isDataAgent || !isQuickMode);
+  const showOutputSelector = showBtn && visibleMode !== 'deep';
 
   const handleAttachmentsAdded = useCallback(
     (attachments: PromptInputAttachmentItem[]) => {
@@ -312,7 +272,7 @@ const GeneralInput: ReactorType.FC<Props> = (props) => {
   const handleSelectionChange = (nextProduct: CHAT.Product, nextMode: InputModeKey) => {
     onSelectionChange?.({
       product: nextProduct,
-      executionMode: nextMode === 'auto' ? 'AUTO' : nextMode === 'deep' ? 'DEEP' : 'STANDARD',
+      executionMode: nextMode === 'deep' ? 'DEEP' : 'STANDARD',
     });
   };
 
@@ -333,7 +293,6 @@ const GeneralInput: ReactorType.FC<Props> = (props) => {
       buildSubmitPayload({
         question: text,
         visibleMode,
-        isDataAgent,
         visibleOutputProduct,
         uploadedFiles,
         modelId: selectedModelId,
@@ -445,7 +404,7 @@ const GeneralInput: ReactorType.FC<Props> = (props) => {
                 </PromptInputActionMenuContent>
               </PromptInputActionMenu>
 
-              {showBtn && !isDataAgent ? (
+              {showBtn ? (
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <button
@@ -470,7 +429,7 @@ const GeneralInput: ReactorType.FC<Props> = (props) => {
                 </Tooltip>
               ) : null}
 
-              {showBtn && !isDataAgent ? (
+              {showBtn ? (
                 <span className="mx-0.5 hidden h-5 w-px bg-[var(--chat-border)]/70 sm:block" />
               ) : null}
 
@@ -556,11 +515,11 @@ const GeneralInput: ReactorType.FC<Props> = (props) => {
                       <DropdownMenuTrigger asChild>
                         <button
                           type="button"
-                          aria-pressed={!isDataAgent}
-                          disabled={disabled || isDataAgent}
-                          className={chipButtonClassName(!isDataAgent, disabled || isDataAgent)}
+                          aria-pressed={true}
+                          disabled={disabled}
+                          className={chipButtonClassName(true, disabled)}
                         >
-                          <span className={chipIconWrapClassName(visibleOutputTone, !isDataAgent)}>
+                          <span className={chipIconWrapClassName(visibleOutputTone, true)}>
                             <i
                               className={cn('font_family text-[14px]', visibleOutputProduct.img)}
                             />
@@ -586,8 +545,7 @@ const GeneralInput: ReactorType.FC<Props> = (props) => {
                         <div className={menuTitleClassName}>输出格式</div>
                         <div className="space-y-1">
                           {OUTPUT_PRODUCTS.map((item) => {
-                            const isActive =
-                              item.type === visibleOutputProduct.type && !isDataAgent;
+                            const isActive = item.type === visibleOutputProduct.type;
                             const tone = OUTPUT_TONES[item.type] ?? visibleOutputTone;
                             return (
                               <button
@@ -616,24 +574,6 @@ const GeneralInput: ReactorType.FC<Props> = (props) => {
                         </div>
                       </DropdownMenuContent>
                     </DropdownMenu>
-                  ) : null}
-
-                  {showDataAgentToggle ? (
-                    <button
-                      type="button"
-                      aria-pressed={isDataAgent}
-                      disabled={disabled}
-                      className={chipButtonClassName(isDataAgent, disabled)}
-                      onClick={() => {
-                        if (visibleMode === 'standard' && !isDataAgent) return;
-                        handleSelectionChange(DATA_AGENT_PRODUCT, visibleMode);
-                      }}
-                    >
-                      <span className={chipIconWrapClassName(DATA_AGENT_TONE, isDataAgent)}>
-                        <BarChart3Icon className="size-4" />
-                      </span>
-                      <span className="truncate">数据分析</span>
-                    </button>
                   ) : null}
                 </div>
               ) : showRoleSelector ? (

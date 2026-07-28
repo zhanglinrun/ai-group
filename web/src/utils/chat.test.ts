@@ -133,6 +133,44 @@ function createDeepSearchEvent(stage: DeepSearchStage): MESSAGE.EventData {
   } as unknown as MESSAGE.EventData;
 }
 
+function createDeepResearchEvent(options: {
+  messageType: 'deep_research_progress' | 'deep_research_report';
+  nodeId: string;
+  progress: number;
+  isFinal?: boolean;
+  artifactRefs?: Array<Record<string, any>>;
+  completedSections?: string[];
+}): MESSAGE.EventData {
+  return {
+    messageType: 'agent_event',
+    messageId: `deep-research-${options.nodeId}`,
+    taskId: 'req-deep-research-1',
+    taskOrder: 1,
+    messageOrder: options.progress,
+    artifactRefs: options.artifactRefs,
+    resultMap: {
+      requestId: 'req-deep-research-1',
+      messageId: `deep-research-${options.nodeId}`,
+      messageType: options.messageType,
+      messageTime: String(1714041600000 + options.progress),
+      finish: Boolean(options.isFinal),
+      isFinal: Boolean(options.isFinal),
+      resultMap: {
+        messageType: options.messageType,
+        requestId: 'req-deep-research-1',
+        nodeId: options.nodeId,
+        role: options.nodeId.startsWith('researcher_') ? 'researcher' : 'reporter',
+        status: options.isFinal ? 'completed' : 'running',
+        progress: options.progress,
+        evidenceCount: options.progress >= 50 ? 2 : 0,
+        completedSections: options.completedSections || [],
+        previewMarkdown: options.isFinal ? '# 报告\n\n正文 [S1]' : '正在调研',
+        markdown: options.isFinal ? '# 报告\n\n正文 [S1]' : undefined,
+      },
+    },
+  } as unknown as MESSAGE.EventData;
+}
+
 function createHtmlEvent(options?: {
   isFinal?: boolean;
   data?: string;
@@ -432,6 +470,67 @@ describe('chat deep_search progress', () => {
 
     expect(taskList[0]?.messageId).toBe(taskList[2]?.messageId);
     expect(getStableTaskIdentity(taskList[0])).not.toBe(getStableTaskIdentity(taskList[2]));
+  });
+
+  it('deep_research 重放进度与最终报告时会合并为一个可恢复工作区任务', () => {
+    const currentChat = {
+      sessionId: 'session-deep-research-1',
+      requestId: 'req-deep-research-1',
+      query: '深度调研问题',
+      files: [],
+      forceStop: false,
+      loading: true,
+      tasks: [],
+      timeline: [],
+      multiAgent: { tasks: [] },
+    } as CHAT.ChatItem;
+
+    combineData(
+      createDeepResearchEvent({
+        messageType: 'deep_research_progress',
+        nodeId: 'researcher_1',
+        progress: 40,
+        completedSections: ['研究背景'],
+      }),
+      currentChat,
+    );
+    combineData(
+      createDeepResearchEvent({
+        messageType: 'deep_research_progress',
+        nodeId: 'researcher_2',
+        progress: 65,
+        completedSections: ['竞争格局'],
+      }),
+      currentChat,
+    );
+    combineData(
+      createDeepResearchEvent({
+        messageType: 'deep_research_report',
+        nodeId: 'markdown_artifact',
+        progress: 100,
+        isFinal: true,
+        completedSections: ['研究背景', '竞争格局'],
+        artifactRefs: [
+          {
+            displayName: 'deep-research.md',
+            previewUrl: 'https://example.com/deep-research.md',
+            downloadUrl: 'https://example.com/download/deep-research.md',
+            resourceKey: 'deep-research-report',
+          },
+        ],
+      }),
+      currentChat,
+    );
+
+    const { taskList } = handleTaskData(currentChat, currentChat.multiAgent);
+    const task = taskList[0];
+
+    expect(taskList).toHaveLength(1);
+    expect(task.messageType).toBe('deep_research_report');
+    expect(task.resultMap?.progress).toBe(100);
+    expect(task.resultMap?.completedSections).toEqual(['研究背景', '竞争格局']);
+    expect(Object.keys(task.resultMap?.branches || {})).toEqual(['researcher_1', 'researcher_2']);
+    expect(getPrimaryTaskFile(task)?.url).toBe('https://example.com/deep-research.md');
   });
 
   it('html 最终包会把 artifact 引用合并回现有任务，供右侧直接预览', () => {

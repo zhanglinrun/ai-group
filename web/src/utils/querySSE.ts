@@ -5,7 +5,8 @@ import {
 } from '@microsoft/fetch-event-source';
 
 import { getDeviceId } from '@/services/agentConversation';
-import { getAccessToken } from '@/auth/token';
+import { clearAuthTokens, getAccessToken } from '@/auth/token';
+import { ROUTES } from '@/router/routes';
 import { resolveServiceBaseUrl } from './origin';
 
 const customHost = resolveServiceBaseUrl(SERVICE_BASE_URL);
@@ -40,7 +41,7 @@ class FatalSseError extends Error {
 
 interface SSEConfig<TMessage = unknown> {
   body: unknown;
-  parser?: (raw: unknown) => TMessage;
+  parser?: (raw: unknown, eventName?: string) => TMessage;
   handleMessage: (data: TMessage) => void;
   handleError: (error: Error) => void;
   handleClose: () => void;
@@ -95,6 +96,13 @@ export default <TMessage = unknown>(
         return;
       }
 
+      if (response.status === 401) {
+        clearAuthTokens();
+        if (!location.pathname.startsWith(ROUTES.LOGIN)) {
+          location.href = ROUTES.LOGIN;
+        }
+      }
+
       let errorText = `SSE request failed with status ${response.status}`;
       try {
         const bodyText = await response.text();
@@ -118,7 +126,7 @@ export default <TMessage = unknown>(
       }
       try {
         const parsedData = JSON.parse(trimmed);
-        handleMessage(parser ? parser(parsedData) : (parsedData as TMessage));
+        handleMessage(parser ? parser(parsedData, event.event) : (parsedData as TMessage));
       } catch (error) {
         console.error('Error parsing SSE message:', error);
         throw new FatalSseError('Failed to parse SSE message');

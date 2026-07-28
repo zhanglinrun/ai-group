@@ -103,11 +103,27 @@ export function buildTaskFromEventData(eventData: MESSAGE.EventData): MESSAGE.Ta
   const artifactRefs = Array.isArray(eventData.artifactRefs)
     ? [...eventData.artifactRefs]
     : undefined;
+  const rawTask = eventData.resultMap as unknown as Partial<MESSAGE.Task> & MESSAGE.ResultMap;
+  const resultMap = isRecord(rawTask.resultMap)
+    ? (rawTask.resultMap as MESSAGE.ResultMap)
+    : (rawTask as MESSAGE.ResultMap);
+  const isFinal = Boolean(rawTask.isFinal ?? resultMap.isFinal);
 
   return {
     taskId: eventData.taskId,
     ...(artifactRefs?.length ? { artifactRefs } : {}),
-    ...eventData.resultMap,
+    ...rawTask,
+    resultMap,
+    messageTime: rawTask.messageTime || String(Date.now()),
+    requestId: rawTask.requestId || eventData.taskId || '',
+    messageId: rawTask.messageId || eventData.messageId || '',
+    finish: Boolean(rawTask.finish ?? isFinal),
+    isFinal,
+    id:
+      rawTask.id ||
+      rawTask.messageId ||
+      eventData.messageId ||
+      `${eventData.taskId || 'task'}-${eventData.messageOrder}`,
   } as MESSAGE.Task;
 }
 
@@ -189,6 +205,7 @@ function handleTaskMessageByType(
       handleAgentStreamMessage(eventData, currentChat);
       break;
     case 'tool_thought':
+    case 'thinking':
       handleToolThoughtMessage(eventData, currentChat, taskIndex, toolIndex);
       break;
     case 'html':
@@ -201,8 +218,16 @@ function handleTaskMessageByType(
     case 'deep_search':
       handleDeepSearchMessage(eventData, currentChat, taskIndex);
       break;
+    case 'deep_research_progress':
+    case 'deep_research_report':
+      handleDeepResearchMessage(eventData, currentChat, taskIndex);
+      break;
     case 'tool_call':
       handleToolCallMessage(eventData, currentChat, taskIndex, toolIndex);
+      break;
+    case 'tool_start':
+    case 'tool_end':
+      handleSealedToolEvent(eventData, currentChat, taskIndex);
       break;
     default:
       handleNonStreamingMessage(eventData, currentChat, taskIndex);
@@ -523,6 +548,87 @@ function handleDeepSearchMessage(
   }
 }
 
+function isDeepResearchTask(task?: MESSAGE.Task) {
+  return task?.messageType === 'deep_research_progress' || task?.messageType === 'deep_research_report';
+}
+
+function mergeArtifactRefs(existing?: MESSAGE.ArtifactReference[], next?: MESSAGE.ArtifactReference[]) {
+  const refs = [...(existing || []), ...(next || [])];
+  const seen = new Set<string>();
+  return refs.filter((ref) => {
+    const key = ref.resourceKey || ref.downloadUrl || ref.previewUrl || ref.displayName || '';
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function mergeDeepResearchTask(existing: MESSAGE.Task, nextTask: MESSAGE.Task): MESSAGE.Task {
+  const previousMap = existing.resultMap || ({} as MESSAGE.ResultMap);
+  const nextMap = nextTask.resultMap || ({} as MESSAGE.ResultMap);
+  const branches = { ...(previousMap.branches || {}) };
+  const nodeId = nextMap.nodeId;
+
+  if (nodeId?.startsWith('researcher_')) {
+    branches[nodeId] = {
+      ...(branches[nodeId] || {}),
+      nodeId,
+      role: nextMap.role,
+      status: nextMap.status,
+      progress: nextMap.progress,
+      evidenceCount: nextMap.evidenceCount,
+      completedSections: nextMap.completedSections,
+    } as MESSAGE.ResultMap;
+  }
+
+  const artifactRefs = mergeArtifactRefs(existing.artifactRefs, nextTask.artifactRefs);
+  const mergedMap = {
+    ...previousMap,
+    ...nextMap,
+    progress: Math.max(Number(previousMap.progress || 0), Number(nextMap.progress || 0)),
+    completedSections: nextMap.completedSections || previousMap.completedSections,
+    previewMarkdown: nextMap.previewMarkdown || previousMap.previewMarkdown,
+    branches,
+  };
+
+  return {
+    ...existing,
+    ...nextTask,
+    messageType:
+      nextTask.messageType === 'deep_research_report'
+        ? 'deep_research_report'
+        : existing.messageType,
+    artifactRefs: artifactRefs.length ? artifactRefs : undefined,
+    resultMap: mergedMap,
+  };
+}
+
+function captureInitialDeepResearchBranch(task: MESSAGE.Task): MESSAGE.Task {
+  return task.resultMap?.nodeId?.startsWith('researcher_') ? mergeDeepResearchTask(task, task) : task;
+}
+
+function handleDeepResearchMessage(
+  eventData: MESSAGE.EventData,
+  currentChat: CHAT.ChatItem,
+  taskIndex: number,
+) {
+  const nextTask = captureInitialDeepResearchBranch(buildTaskFromEventData(eventData));
+
+  if (taskIndex === -1) {
+    currentChat.multiAgent.tasks.push([nextTask]);
+    return;
+  }
+
+  const taskGroup = currentChat.multiAgent.tasks[taskIndex];
+  const existingIndex = findLastTaskIndex(taskGroup, isDeepResearchTask);
+  if (existingIndex === -1) {
+    taskGroup.push(nextTask);
+    return;
+  }
+
+  taskGroup[existingIndex] = mergeDeepResearchTask(taskGroup[existingIndex], nextTask);
+}
+
 /**
  * tool_call 需要立即在左侧时间线和右侧工作区可见，
  * 同一 messageId 的后续终态包则应原位覆盖，避免重复插入占位卡片。
@@ -559,6 +665,59 @@ function handleToolCallMessage(
   }
 
   taskGroup.push(nextTask);
+}
+
+/**
+ * sealed 事件 tool_start / tool_end 按 toolCallId 合并到同一条时间线节点：
+ * tool_start 创建/更新节点（标记进行中），tool_end 回填成功状态与结果预览。
+ * 不复用 tool_call/tool_result 的占位逻辑，因为占位匹配仅认 messageType === 'tool_call'。
+ */
+function handleSealedToolEvent(
+  eventData: MESSAGE.EventData,
+  currentChat: CHAT.ChatItem,
+  taskIndex: number,
+) {
+  const nextTask = buildTaskFromEventData(eventData);
+  const toolCallId = resolveTaskToolCallId(nextTask);
+  const messageType = eventData.resultMap?.messageType;
+
+  if (taskIndex === -1) {
+    currentChat.multiAgent.tasks.push([nextTask]);
+    return;
+  }
+
+  const taskGroup = currentChat.multiAgent.tasks[taskIndex];
+  const existingIndex = toolCallId
+    ? findLastTaskIndex(
+        taskGroup,
+        (task) =>
+          (task.messageType === 'tool_start' || task.messageType === 'tool_end') &&
+          resolveTaskToolCallId(task) === toolCallId,
+      )
+    : -1;
+
+  if (existingIndex === -1) {
+    taskGroup.push(nextTask);
+    return;
+  }
+
+  const existing = taskGroup[existingIndex];
+  const mergedResultMap = {
+    ...(existing.resultMap || {}),
+    ...(nextTask.resultMap || {}),
+  };
+  // tool_end 回填终态字段；tool_start 仅刷新工具名/参数预览
+  if (messageType === 'tool_end') {
+    mergedResultMap.isFinal = true;
+    mergedResultMap.status = nextTask.resultMap?.success === false ? 'failed' : 'success';
+  } else {
+    mergedResultMap.isFinal = false;
+  }
+  taskGroup[existingIndex] = {
+    ...existing,
+    ...nextTask,
+    resultMap: mergedResultMap,
+  };
 }
 
 /**
@@ -746,6 +905,8 @@ export const handleTaskData = (currentChat: CHAT.ChatItem, multiAgent?: MESSAGE.
     'knowledge',
     'result',
     'deep_search',
+    'deep_research_progress',
+    'deep_research_report',
     'markdown',
     'ppt',
     'data_analysis',
@@ -838,6 +999,9 @@ export const buildAction = (task: CHAT.Task) => {
   const MESSAGE_TYPES = {
     TOOL_CALL: 'tool_call',
     TOOL_RESULT: 'tool_result',
+    TOOL_START: 'tool_start',
+    TOOL_END: 'tool_end',
+    THINKING: 'thinking',
     CODE: 'code',
     HTML: 'html',
     FILE: 'file',
@@ -859,6 +1023,27 @@ export const buildAction = (task: CHAT.Task) => {
 
     case MESSAGE_TYPES.TOOL_RESULT:
       return handleToolResult(task);
+
+    case MESSAGE_TYPES.TOOL_START:
+      return {
+        action: '正在调用工具',
+        tool: task?.resultMap?.toolName || '',
+        name: task?.resultMap?.argumentsPreview || task?.resultMap?.toolName || '',
+      };
+
+    case MESSAGE_TYPES.TOOL_END:
+      return {
+        action: task?.resultMap?.success === false ? '工具调用失败' : '工具调用完成',
+        tool: task?.resultMap?.toolName || '',
+        name: task?.resultMap?.resultPreview || task?.resultMap?.toolName || '',
+      };
+
+    case MESSAGE_TYPES.THINKING:
+      return {
+        action: '思考中',
+        tool: '推理',
+        name: '',
+      };
 
     case MESSAGE_TYPES.CODE:
       return {
@@ -886,6 +1071,14 @@ export const buildAction = (task: CHAT.Task) => {
 
     case MESSAGE_TYPES.DEEP_SEARCH:
       return handleDeepSearchTask(task);
+
+    case 'deep_research_progress':
+    case 'deep_research_report':
+      return {
+        action: task.resultMap?.isFinal ? '调研报告已生成' : '正在深度调研',
+        tool: '深度调研',
+        name: task.resultMap?.nodeId || task.resultMap?.qualityStatus || '',
+      };
 
     case MESSAGE_TYPES.MARKDOWN:
       return {

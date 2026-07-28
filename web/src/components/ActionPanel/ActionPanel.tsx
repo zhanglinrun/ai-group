@@ -128,6 +128,8 @@ const ActionPanel: ReactorType.FC<ActionPanelProps> = React.memo((props) => {
               htmlUrl={panelView.htmlUrl}
               className="h-full"
               downloadUrl={panelView.downloadUrl}
+              label={panelView.label}
+              subtitle={panelView.subtitle}
               missingReason={panelView.missingReason}
               outputCode={panelView.outputCode}
               showToolBar={panelView.showToolBar}

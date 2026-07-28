@@ -387,11 +387,8 @@ const Home: ReactorType.FC<HomeProps> = memo(() => {
 
       updateCurrentConversationMeta({
         productType: nextProduct.type,
-        executionMode: nextProduct.type === 'dataAgent' ? 'STANDARD' : nextExecutionMode,
-        role:
-          nextProduct.type === 'chat'
-            ? currentConversation.role || toConversationRole(defaultFixRole)
-            : null,
+        executionMode: nextExecutionMode,
+        role: nextProduct.type === 'chat' ? currentConversation.role || toConversationRole(defaultFixRole) : null,
       });
     },
     [currentConversation.role, defaultFixRole, updateCurrentConversationMeta],
@@ -422,17 +419,6 @@ const Home: ReactorType.FC<HomeProps> = memo(() => {
       setActiveView('chat');
     },
     [createNewChat, currentConversation, updateCurrentConversationMeta],
-  );
-
-  const toSendMessage = useCallback(
-    (query: { label: string; type: number }) => {
-      changeInputInfo({
-        message: query.label,
-        outputStyle: 'dataAgent',
-        executionMode: 'STANDARD',
-      });
-    },
-    [changeInputInfo],
   );
 
   if (conversationBootstrapLoading) {
@@ -486,7 +472,6 @@ const Home: ReactorType.FC<HomeProps> = memo(() => {
               onSelectionChange={handleInputSelectionChange}
               onRoleSelect={handleRoleSelect}
               onSend={changeInputInfo}
-              onSendQuestion={toSendMessage}
               onOpenVideo={setVideoModalOpen}
               onCloseVideo={() => setVideoModalOpen(undefined)}
               onSelectModel={handleSelectModel}

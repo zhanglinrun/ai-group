@@ -12,7 +12,13 @@ import {
   normalizeEventData,
 } from '@/utils/chat';
 import querySSE from '@/utils/querySSE';
-import { parseAgentAnswer } from '@/utils/sseParsers';
+import {
+  canonicalEventData,
+  isAgentStreamEventMessage,
+  parseAgentStreamMessage,
+  stageOutputEventData,
+  type AgentStreamEvent,
+} from '@/utils/sseParsers';
 import { isAgentLoopEvent } from '@/utils/agentEvents';
 import type {
   ActiveRunState,
@@ -201,6 +207,32 @@ function createRunningChat(
     multiAgent: { tasks: [] },
     agentRun: { status: 'RUNNING', phase: 'ANALYZING', todos: [] },
     metrics: { status: 'RUNNING' },
+  };
+}
+
+function createDeepResearchWorkspaceTask(requestId: string): MESSAGE.Task {
+  const messageTime = String(Date.now());
+  const resultMap = {
+    messageType: 'deep_research_progress',
+    requestId,
+    nodeId: 'research_planner',
+    role: 'planner',
+    status: 'pending',
+    progress: 0,
+    evidenceCount: 0,
+    completedSections: [],
+  } as MESSAGE.ResultMap;
+
+  return {
+    taskId: requestId,
+    messageId: `${requestId}-deep-research`,
+    messageTime,
+    requestId,
+    messageType: 'deep_research_progress',
+    resultMap,
+    finish: false,
+    isFinal: false,
+    id: `${requestId}-deep-research`,
   };
 }
 
@@ -870,6 +902,11 @@ export function useConversationStream(
     // transport recovery loop below is allowed to reuse this durable requestId.
     const requestId = getUniqId();
     let currentChat = createRunningChat(inputInfo, baseConversation.sessionId, requestId);
+    let initialDeepResearchTaskList: CHAT.Task[] = [];
+    if (executionMode === 'DEEP') {
+      currentChat.multiAgent.tasks.push([createDeepResearchWorkspaceTask(requestId)]);
+      initialDeepResearchTaskList = handleTaskData(currentChat, currentChat.multiAgent).taskList;
+    }
     let recoveringCurrentRun = false;
     const streamLifecycle = createStreamLifecycleController();
     const recoveryTimer = createRecoveryTimerController();
@@ -919,6 +956,11 @@ export function useConversationStream(
     draftController.commit(initialConversation);
     setLoading(true);
     onPrepareStreamingWorkspace?.();
+    if (initialDeepResearchTaskList.length) {
+      setTaskList(initialDeepResearchTaskList);
+      setWorkspaceStreamTask(cloneWorkspaceTask(initialDeepResearchTaskList[0]));
+      setShowAction(true);
+    }
 
     const syncRunningConversation = () => {
       draftController.commit(draftController.replaceLastItem({ ...currentChat }));
@@ -1082,8 +1124,47 @@ export function useConversationStream(
       draftController.commit(draftController.replaceLastItem({ ...currentChat }));
     };
 
-    const handleMessage = (data: MESSAGE.Answer) => {
+    let canonicalMessageOrder = 0;
+    const handleCanonicalMessage = (event: AgentStreamEvent) => {
+      if (abortController.signal.aborted || streamLifecycle.isSettled()) return;
+      if (recoveringCurrentRun && event.type === 'agent_start') {
+        resetProjectionForAuthoritativeReplay();
+      }
+      const eventData = canonicalEventData(event, ++canonicalMessageOrder);
+      if (!replayDeduper.accept(eventData)) return;
+      currentChat = combineData(eventData, currentChat);
+
+      if (event.type === 'stage_output') {
+        const artifactEvent = stageOutputEventData(event, ++canonicalMessageOrder);
+        currentChat = combineData(artifactEvent, currentChat);
+        taskDataDirty = true;
+        scheduleWorkspaceStreamTask(currentChat, event.isFinal);
+      }
+
+      const terminal = event.type === 'complete' || event.type === 'error';
+      if (event.type === 'complete') {
+        if (!currentChat.response && event.summary) currentChat.response = event.summary;
+        currentChat.loading = false;
+        currentChat.metrics = { ...(currentChat.metrics || {}), status: 'SUCCESS' };
+        setLoading(false);
+        notifyRunSettled();
+      } else if (event.type === 'error') {
+        currentChat = applyTerminalRunError(currentChat, 'FAILED', event.message);
+        setLoading(false);
+        notifyRunSettled();
+      }
+
+      draftController.replaceLastItem({ ...currentChat });
+      pendingConversation = draftController.getSnapshot();
+      scheduleNonChatFlush(terminal);
+    };
+
+    const handleMessage = (data: MESSAGE.Answer | AgentStreamEvent) => {
       if (abortController.signal.aborted || streamLifecycle.isSettled()) {
+        return;
+      }
+      if (isAgentStreamEventMessage(data)) {
+        handleCanonicalMessage(data);
         return;
       }
       const { finished, resultMap, packageType, status } = data;
@@ -1314,7 +1395,7 @@ export function useConversationStream(
       }
       const cancelTransport = querySSE({
         body: params,
-        parser: parseAgentAnswer,
+        parser: parseAgentStreamMessage,
         handleMessage: (data) => {
           if (streamLifecycle.accepts(generation)) {
             handleMessage(data);

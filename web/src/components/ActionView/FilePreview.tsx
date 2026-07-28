@@ -6,7 +6,7 @@ import { useMemoizedFn } from 'ahooks';
 import dayjs from 'dayjs';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { ChevronLeft, ChevronRight, Clock } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Clock, Download, FileText } from 'lucide-react';
 import RunStatus from './RunStatus';
 import { getPrimaryTaskFile } from '@/utils/taskArtifacts';
 import {
@@ -96,6 +96,8 @@ const FilePreview: React.FC<{
   const primaryFile = useMemo(() => getPrimaryTaskFile(taskItem), [taskItem]);
   const artifactMissing = Boolean(primaryFile?.missing);
   const taskRenderKey = useMemo(() => resolvePreviewTaskRenderKey(taskItem), [taskItem]);
+  const artifactDownloadUrl = primaryFile?.downloadUrl || primaryFile?.url || '';
+  const artifactLabel = primaryFile?.name || '';
 
   // Empty State
   if (!taskItem) {
@@ -113,6 +115,29 @@ const FilePreview: React.FC<{
             finishedAt={runState?.finishedAt}
             className="mx-3 mt-2 mb-1"
           />
+          {!artifactMissing && artifactLabel ? (
+            <div className="mx-3 mb-2 flex items-center justify-between gap-2 rounded-md border border-[#e8e8ed] bg-[#fafafa] px-3 py-1.5">
+              <div className="flex min-w-0 items-center gap-2 text-[13px] text-[#1d1d1f]">
+                <FileText className="h-3.5 w-3.5 shrink-0 text-[#86868b]" />
+                <span className="truncate" title={artifactLabel}>
+                  {artifactLabel}
+                </span>
+              </div>
+              {artifactDownloadUrl ? (
+                <Button
+                  asChild
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 shrink-0 gap-1 px-2 text-[12px] text-[#0071e3] hover:text-[#0077ed]"
+                >
+                  <a href={artifactDownloadUrl} target="_blank" rel="noreferrer" download>
+                    <Download className="h-3.5 w-3.5" />
+                    下载产物
+                  </a>
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
           <div className="min-h-0 flex-1">
             {artifactMissing ? (
               <MissingArtifactState reason={primaryFile?.missingReason} />
