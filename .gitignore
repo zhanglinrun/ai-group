@@ -21,6 +21,8 @@ docs/evals/last-report.json
 *.iml
 
 # Local agent development assets
+.agents/
+.codex/
 .cursor/
 .cursor-tmp/
 .trellis/
@@ -28,8 +30,7 @@ docs/evals/last-report.json
 
 study/
 
-# Private interview / local-only docs (never publish)
+# Private study notes and local-only documents
 ai-agent/project-docs/
 docs/research/
-**/AUTUMN-RECRUITMENT*
 
