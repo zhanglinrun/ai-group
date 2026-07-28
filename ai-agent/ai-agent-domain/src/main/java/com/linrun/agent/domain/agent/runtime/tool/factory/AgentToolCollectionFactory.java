@@ -98,7 +98,7 @@ public class AgentToolCollectionFactory {
             }
 
             List<String> agentToolList = Arrays.stream(reactorConfig.getMultiAgentToolListMap()
-                            .getOrDefault("default", "search,web_fetch,code,report,multimodalagent")
+                            .getOrDefault("default", "search,web_fetch,code,report")
                             .split(","))
                     .map(String::trim)
                     .filter(item -> !item.isEmpty())
