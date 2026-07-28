@@ -1,6 +1,5 @@
 package com.linrun.agent.trigger.job;
 
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
@@ -11,6 +10,9 @@ import com.linrun.agent.trigger.stream.HeadlessAgentSessionStream;
 import com.linrun.agent.domain.agent.model.valobj.AiAgentTaskScheduleVO;
 import com.linrun.agent.domain.agent.reactor.model.req.AgentRequest;
 import com.linrun.agent.domain.agent.runtime.enums.AgentType;
+import com.linrun.agent.domain.agent.ledger.AgentStreamEventStore;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.util.UUID;
 
@@ -20,10 +22,26 @@ import java.util.UUID;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class ScheduledAgentTaskExecutor {
 
     private final IAgentDispatchService agentDispatchService;
+    private final AgentStreamEventStore streamEventStore;
+
+    public ScheduledAgentTaskExecutor(IAgentDispatchService agentDispatchService) {
+        this(agentDispatchService, (AgentStreamEventStore) null);
+    }
+
+    @Autowired
+    public ScheduledAgentTaskExecutor(IAgentDispatchService agentDispatchService,
+                                      ObjectProvider<AgentStreamEventStore> streamEventStore) {
+        this(agentDispatchService, streamEventStore.getIfAvailable());
+    }
+
+    private ScheduledAgentTaskExecutor(IAgentDispatchService agentDispatchService,
+                                       AgentStreamEventStore streamEventStore) {
+        this.agentDispatchService = agentDispatchService;
+        this.streamEventStore = streamEventStore;
+    }
 
     /**
      * 校验调度记录是否可注册。
@@ -72,7 +90,7 @@ public class ScheduledAgentTaskExecutor {
     public void executeAndClose(AgentRequest request, AgentMessageStream stream) {
         try {
             agentDispatchService.dispatch(request,
-                    new AgentSessionPrinter(stream, request));
+                    new AgentSessionPrinter(stream, request, streamEventStore));
             stream.complete();
         } catch (Exception ex) {
             stream.completeWithError(ex);

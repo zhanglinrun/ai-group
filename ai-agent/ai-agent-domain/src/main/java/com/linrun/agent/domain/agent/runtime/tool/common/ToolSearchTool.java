@@ -1,6 +1,6 @@
 package com.linrun.agent.domain.agent.runtime.tool.common;
 
-import com.alibaba.fastjson.JSON;
+import com.linrun.agent.types.common.JsonUtils;
 import lombok.Data;
 import org.apache.commons.lang3.StringUtils;
 import com.linrun.agent.domain.agent.reactor.config.ReactorConfig;
@@ -80,7 +80,7 @@ public class ToolSearchTool implements BaseTool {
         result.put("instruction", names.isEmpty()
                 ? "No matching deferred tools were found; continue with visible tools or explain the limitation."
                 : "The matched tools are authorized for this run. Invoke them only through execute_extra_tool using the returned native input_schema; do not expect their schemas to appear in the next tool list.");
-        return JSON.toJSONString(result);
+        return JsonUtils.toJson(result);
     }
 
     private Object parseInputSchema(String parameters) {
@@ -88,7 +88,7 @@ public class ToolSearchTool implements BaseTool {
             return Map.of();
         }
         try {
-            return JSON.parse(parameters);
+            return JsonUtils.parseTree(parameters);
         } catch (Exception ignored) {
             return parameters;
         }

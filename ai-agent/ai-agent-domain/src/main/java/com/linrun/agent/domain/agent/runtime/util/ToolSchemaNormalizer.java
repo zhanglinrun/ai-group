@@ -1,7 +1,7 @@
 package com.linrun.agent.domain.agent.runtime.util;
 
-import com.alibaba.fastjson.JSON;
-import com.alibaba.fastjson.TypeReference;
+import com.linrun.agent.types.common.JsonUtils;
+import com.fasterxml.jackson.core.type.TypeReference;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 
@@ -26,7 +26,7 @@ public final class ToolSchemaNormalizer {
      */
     public static String normalizeSchema(String rawSchema, String toolName) {
         Map<String, Object> normalized = normalizeSchemaAsMap(rawSchema, toolName);
-        return JSON.toJSONString(normalized);
+        return JsonUtils.toJson(normalized);
     }
 
     /**
@@ -60,7 +60,7 @@ public final class ToolSchemaNormalizer {
         }
 
         try {
-            Map<String, Object> parsed = JSON.parseObject(rawSchema, new TypeReference<LinkedHashMap<String, Object>>() {
+            Map<String, Object> parsed = JsonUtils.parseObject(rawSchema, new TypeReference<LinkedHashMap<String, Object>>() {
             });
             return parsed == null ? createEmptyObjectSchema() : parsed;
         } catch (Exception e) {
@@ -78,7 +78,7 @@ public final class ToolSchemaNormalizer {
         }
 
         try {
-            Map<String, Object> copied = JSON.parseObject(JSON.toJSONString(rawSchema),
+            Map<String, Object> copied = JsonUtils.parseObject(JsonUtils.toJson(rawSchema),
                     new TypeReference<LinkedHashMap<String, Object>>() {
                     });
             return copied == null ? new LinkedHashMap<>() : copied;

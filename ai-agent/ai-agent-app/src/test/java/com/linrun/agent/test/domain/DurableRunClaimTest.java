@@ -24,8 +24,11 @@ import com.linrun.agent.domain.agent.reactor.model.response.GptProcessResult;
 import com.linrun.agent.domain.agent.runtime.AgentLoopFactory;
 import com.linrun.agent.domain.agent.runtime.AgentRuntime;
 import com.linrun.agent.domain.agent.runtime.ReactorRuntimeDependencies;
+import com.linrun.agent.domain.agent.runtime.llm.LLMSettings;
+import com.linrun.agent.domain.agent.reactor.config.ReactorConfig;
 import com.linrun.agent.domain.agent.runtime.printer.Printer;
 import com.linrun.agent.domain.agent.runtime.printer.ReplayFrameSink;
+import com.linrun.agent.domain.agent.runtime.stream.AgentStreamEvent;
 import com.linrun.agent.domain.agent.runtime.tool.factory.AgentToolCollectionFactory;
 import com.linrun.agent.domain.agent.runtime.tool.ToolCollection;
 import com.linrun.agent.domain.agent.ledger.tooloutput.ToolOutputWriter;
@@ -221,16 +224,9 @@ public class DurableRunClaimTest {
         Assert.assertEquals("", result);
         Mockito.verifyNoInteractions(toolFactory, loopFactory);
         Mockito.verify(recorder, Mockito.never()).finishRun(Mockito.any());
-        InOrder protocol = Mockito.inOrder(printer);
-        protocol.verify(printer).send(Mockito.eq("run_finished"), Mockito.argThat(value ->
-                value instanceof Map<?, ?> map
-                        && "STOPPED".equals(map.get("status"))
-                        && "RUN_ALREADY_IN_PROGRESS".equals(map.get("stopReason"))
-                        && Boolean.TRUE.equals(map.get("retryable"))));
-        protocol.verify(printer).send(Mockito.eq("result"), Mockito.argThat(value ->
-                value instanceof Map<?, ?> map
-                        && "STOPPED".equals(map.get("status"))
-                        && Boolean.FALSE.equals(map.get("completionGatePassed"))));
+        Mockito.verify(printer).send(Mockito.argThat(event ->
+                event instanceof AgentStreamEvent.Error failure
+                        && "RUN_ALREADY_IN_PROGRESS".equals(failure.code())));
     }
 
     @Test
@@ -434,7 +430,12 @@ public class DurableRunClaimTest {
                 .build());
         Mockito.when(toolFactory.buildForUnified(Mockito.any(), Mockito.any()))
                 .thenReturn(new ToolCollection());
+        ReactorConfig reactorConfig = Mockito.mock(ReactorConfig.class);
+        Mockito.when(reactorConfig.getAgentLoopModelName()).thenReturn("test-model");
+        Mockito.when(reactorConfig.getLlmSettingsMap()).thenReturn(Map.of(
+                "test-model", LLMSettings.builder().model("test-model").build()));
         ReactorRuntimeDependencies dependencies = ReactorRuntimeDependencies.builder()
+                .reactorConfig(reactorConfig)
                 .heartbeatScheduler(scheduler)
                 .runHeartbeatIntervalMillis(10_000L)
                 .build();
@@ -477,9 +478,9 @@ public class DurableRunClaimTest {
 
         Assert.assertEquals("", answer);
         Mockito.verifyNoInteractions(toolFactory, loopFactory);
-        Mockito.verify(printer).send(Mockito.eq("run_finished"), Mockito.argThat(value ->
-                value instanceof Map<?, ?> map
-                        && "RUN_REQUEST_MISMATCH".equals(map.get("errorCode"))));
+        Mockito.verify(printer).send(Mockito.argThat(event ->
+                event instanceof AgentStreamEvent.Error failure
+                        && "RUN_REQUEST_MISMATCH".equals(failure.code())));
     }
 
     private DialogueRunStartRecord startRecord(String requestId, String sessionId, String ownerId) {

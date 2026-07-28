@@ -117,6 +117,7 @@ public class GptQueryIngressServiceTest {
             Assert.assertEquals("DEEP", prepareRoute(service, "web", "  deep ").getExecutionMode());
             Assert.assertEquals("STANDARD", prepareRoute(service, "web", "unsupported").getExecutionMode());
             Assert.assertEquals("STANDARD", prepareRoute(service, "web", null).getExecutionMode());
+            Assert.assertEquals("markdown", prepareRoute(service, null, "DEEP").getOutputStyle());
         } finally {
             OwnerRequestContext.clear();
         }

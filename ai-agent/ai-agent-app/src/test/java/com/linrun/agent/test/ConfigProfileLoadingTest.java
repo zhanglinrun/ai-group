@@ -22,6 +22,9 @@ public class ConfigProfileLoadingTest {
             Assert.assertEquals("com.mysql.cj.jdbc.Driver",
                     context.getEnvironment().getProperty("spring.datasource.mysql.driver-class-name"));
             Assert.assertNotNull(context.getEnvironment().getProperty("spring.datasource.mysql.url"));
+            Assert.assertNotNull(context.getEnvironment().getProperty("spring.ai.openai.embedding.base-url"));
+            Assert.assertEquals("text-embedding-v3",
+                    context.getEnvironment().getProperty("spring.ai.openai.embedding.options.model"));
             Assert.assertEquals("true",
                     context.getEnvironment().getProperty("autobots.autoagent.skill.enabled"));
             Assert.assertEquals("runtime/skills",
@@ -32,7 +35,7 @@ public class ConfigProfileLoadingTest {
                     context.getEnvironment().getProperty("autobots.autoagent.agent-loop.max-tool-calls"));
             Assert.assertEquals("3",
                     context.getEnvironment().getProperty("autobots.autoagent.agent-loop.max-completion-attempts"));
-            Assert.assertEquals("900",
+            Assert.assertEquals("1800",
                     context.getEnvironment().getProperty("autobots.autoagent.agent-loop.max-duration-seconds"));
             Assert.assertEquals("200000",
                     context.getEnvironment().getProperty("autobots.autoagent.agent-loop.max-total-tokens"));

@@ -5,6 +5,7 @@ import org.junit.Test;
 import org.mockito.InOrder;
 import org.mockito.Mockito;
 import org.mockito.ArgumentCaptor;
+import com.linrun.agent.domain.agent.adapter.port.QuotaInsufficientException;
 import com.linrun.agent.domain.agent.ledger.AgentExecutionRecorder;
 import com.linrun.agent.domain.agent.ledger.model.DialogueRunFinishRecord;
 import com.linrun.agent.domain.agent.ledger.model.DialogueRunClaim;
@@ -18,8 +19,11 @@ import com.linrun.agent.domain.agent.runtime.agent.AgentLoop;
 import com.linrun.agent.domain.agent.runtime.enums.AgentState;
 import com.linrun.agent.domain.agent.runtime.enums.AgentStopReason;
 import com.linrun.agent.domain.agent.runtime.AgentRuntime;
+import com.linrun.agent.domain.agent.runtime.deepresearch.DeepResearchGraphRunner;
+import com.linrun.agent.domain.agent.runtime.llm.LLMSettings;
 import com.linrun.agent.domain.agent.reactor.config.ReactorConfig;
 import com.linrun.agent.domain.agent.runtime.printer.Printer;
+import com.linrun.agent.domain.agent.runtime.stream.AgentStreamEvent;
 import com.linrun.agent.domain.agent.runtime.tool.BaseTool;
 import com.linrun.agent.domain.agent.runtime.tool.ToolCollection;
 import com.linrun.agent.domain.agent.runtime.tool.factory.AgentToolCollectionFactory;
@@ -34,6 +38,7 @@ public class AgentRuntimeFailureProtocolTest {
         AgentToolCollectionFactory toolFactory = Mockito.mock(AgentToolCollectionFactory.class);
         AgentExecutionRecorder recorder = Mockito.mock(AgentExecutionRecorder.class);
         ReactorRuntimeDependencies runtimeDependencies = Mockito.mock(ReactorRuntimeDependencies.class);
+        stubLlm(runtimeDependencies);
         Printer printer = Mockito.mock(Printer.class);
         Mockito.when(recorder.claimRun(Mockito.any())).thenReturn(newClaim(40L, "req-role-ledger"));
         Mockito.when(toolFactory.buildForUnified(Mockito.any(), Mockito.any()))
@@ -63,6 +68,7 @@ public class AgentRuntimeFailureProtocolTest {
         AgentToolCollectionFactory toolFactory = Mockito.mock(AgentToolCollectionFactory.class);
         AgentExecutionRecorder recorder = Mockito.mock(AgentExecutionRecorder.class);
         ReactorRuntimeDependencies runtimeDependencies = Mockito.mock(ReactorRuntimeDependencies.class);
+        stubLlm(runtimeDependencies);
         Printer printer = Mockito.mock(Printer.class);
         Mockito.when(recorder.claimRun(Mockito.any())).thenReturn(newClaim(41L, "req-runner-failure-001"));
         Mockito.when(toolFactory.buildForUnified(Mockito.any(), Mockito.any()))
@@ -80,15 +86,13 @@ public class AgentRuntimeFailureProtocolTest {
 
         Assert.assertEquals("", answer);
         InOrder protocol = Mockito.inOrder(printer);
-        protocol.verify(printer).send(Mockito.eq("run_started"), Mockito.any());
-        protocol.verify(printer).send(Mockito.eq("run_finished"), Mockito.argThat(value ->
-                value instanceof Map<?, ?> map
-                        && "FAILED".equals(map.get("status"))
-                        && AgentStopReason.EXECUTION_ERROR.name().equals(map.get("stopReason"))));
-        protocol.verify(printer).send(Mockito.eq("result"), Mockito.argThat(value ->
-                value instanceof Map<?, ?> map
-                        && "FAILED".equals(map.get("status"))
-                        && Boolean.FALSE.equals(map.get("completionGatePassed"))));
+        protocol.verify(printer).send(Mockito.argThat(event -> event instanceof AgentStreamEvent.AgentStart));
+        protocol.verify(printer).send(Mockito.argThat(event ->
+                event instanceof AgentStreamEvent.StageOutput output
+                        && "failure_details".equals(output.outputType())));
+        protocol.verify(printer).send(Mockito.argThat(event ->
+                event instanceof AgentStreamEvent.Error failure
+                        && AgentStopReason.EXECUTION_ERROR.name().equals(failure.code())));
         Mockito.verify(recorder).finishRun(Mockito.argThat((DialogueRunFinishRecord record) ->
                 record != null
                         && Integer.valueOf(ExecutionLedgerConstants.STATUS_FAILED).equals(record.getStatus())
@@ -100,6 +104,7 @@ public class AgentRuntimeFailureProtocolTest {
         AgentToolCollectionFactory toolFactory = Mockito.mock(AgentToolCollectionFactory.class);
         AgentExecutionRecorder recorder = Mockito.mock(AgentExecutionRecorder.class);
         ReactorRuntimeDependencies runtimeDependencies = Mockito.mock(ReactorRuntimeDependencies.class);
+        stubLlm(runtimeDependencies);
         AgentLoopFactory loopFactory = Mockito.mock(AgentLoopFactory.class);
         AgentLoop loop = Mockito.mock(AgentLoop.class);
         Printer printer = Mockito.mock(Printer.class);
@@ -123,15 +128,14 @@ public class AgentRuntimeFailureProtocolTest {
         Assert.assertEquals("durable answer", answer);
         InOrder order = Mockito.inOrder(recorder, printer);
         order.verify(recorder).claimRun(Mockito.any());
-        order.verify(printer).send(Mockito.eq("run_started"), Mockito.any());
+        order.verify(printer).send(Mockito.argThat(event -> event instanceof AgentStreamEvent.AgentStart));
         order.verify(recorder).finishRun(Mockito.argThat((DialogueRunFinishRecord record) ->
                 record != null
                         && Integer.valueOf(ExecutionLedgerConstants.STATUS_SUCCESS).equals(record.getStatus())
                         && "durable answer".equals(record.getFinalSummaryText())));
-        order.verify(printer).send(Mockito.eq("run_finished"), Mockito.argThat(value ->
-                value instanceof Map<?, ?> map && "SUCCESS".equals(map.get("status"))));
-        order.verify(printer).send(Mockito.eq("result"), Mockito.argThat(value ->
-                value instanceof Map<?, ?> map && "SUCCESS".equals(map.get("status"))));
+        order.verify(printer).send(Mockito.argThat(event ->
+                event instanceof AgentStreamEvent.Complete complete
+                        && "durable answer".equals(complete.summary())));
     }
 
     @Test
@@ -139,6 +143,7 @@ public class AgentRuntimeFailureProtocolTest {
         AgentToolCollectionFactory toolFactory = Mockito.mock(AgentToolCollectionFactory.class);
         AgentExecutionRecorder recorder = Mockito.mock(AgentExecutionRecorder.class);
         ReactorRuntimeDependencies runtimeDependencies = Mockito.mock(ReactorRuntimeDependencies.class);
+        stubLlm(runtimeDependencies);
         AgentLoopFactory loopFactory = Mockito.mock(AgentLoopFactory.class);
         AgentLoop loop = Mockito.mock(AgentLoop.class);
         Printer printer = Mockito.mock(Printer.class);
@@ -161,19 +166,19 @@ public class AgentRuntimeFailureProtocolTest {
                 .build(), printer);
 
         Assert.assertEquals("", answer);
-        Mockito.verify(printer, Mockito.never()).send(Mockito.anyString(), Mockito.argThat(value ->
-                value instanceof Map<?, ?> map && "SUCCESS".equals(map.get("status"))));
+        Mockito.verify(printer, Mockito.never()).send(Mockito.argThat(event ->
+                event instanceof AgentStreamEvent.Complete));
         InOrder protocol = Mockito.inOrder(printer);
-        protocol.verify(printer).send(Mockito.eq("run_started"), Mockito.any());
-        protocol.verify(printer).send(Mockito.eq("run_finished"), Mockito.argThat(value ->
-                value instanceof Map<?, ?> map
-                        && "FAILED".equals(map.get("status"))
+        protocol.verify(printer).send(Mockito.argThat(event -> event instanceof AgentStreamEvent.AgentStart));
+        protocol.verify(printer).send(Mockito.argThat(event ->
+                event instanceof AgentStreamEvent.StageOutput output
+                        && output.payload() instanceof Map<?, ?> map
                         && "RUN_FINALIZATION_FAILED".equals(map.get("errorCode"))
-                        && Boolean.FALSE.equals(map.get("durableTerminalPersisted"))));
-        protocol.verify(printer).send(Mockito.eq("result"), Mockito.argThat(value ->
-                value instanceof Map<?, ?> map
-                        && "FAILED".equals(map.get("status"))
+                        && Boolean.FALSE.equals(map.get("durableTerminalPersisted"))
                         && Boolean.TRUE.equals(map.get("retryable"))));
+        protocol.verify(printer).send(Mockito.argThat(event ->
+                event instanceof AgentStreamEvent.Error failure
+                        && "RUN_FINALIZATION_FAILED".equals(failure.code())));
         Mockito.verify(recorder, Mockito.times(2)).finishRun(Mockito.any());
     }
 
@@ -182,6 +187,7 @@ public class AgentRuntimeFailureProtocolTest {
         AgentToolCollectionFactory toolFactory = Mockito.mock(AgentToolCollectionFactory.class);
         AgentExecutionRecorder recorder = Mockito.mock(AgentExecutionRecorder.class);
         ReactorRuntimeDependencies runtimeDependencies = Mockito.mock(ReactorRuntimeDependencies.class);
+        stubLlm(runtimeDependencies);
         AgentLoopFactory loopFactory = Mockito.mock(AgentLoopFactory.class);
         Printer printer = Mockito.mock(Printer.class);
         Mockito.when(recorder.claimRun(Mockito.any())).thenReturn(newClaim(42L, "req-factory-delegation"));
@@ -211,6 +217,7 @@ public class AgentRuntimeFailureProtocolTest {
         AgentToolCollectionFactory toolFactory = Mockito.mock(AgentToolCollectionFactory.class);
         AgentExecutionRecorder recorder = Mockito.mock(AgentExecutionRecorder.class);
         ReactorRuntimeDependencies runtimeDependencies = Mockito.mock(ReactorRuntimeDependencies.class);
+        stubLlm(runtimeDependencies);
         AgentLoopFactory loopFactory = Mockito.mock(AgentLoopFactory.class);
         Printer printer = Mockito.mock(Printer.class);
         Mockito.when(recorder.claimRun(Mockito.any())).thenReturn(newClaim(43L, "req-network-unavailable"));
@@ -229,16 +236,10 @@ public class AgentRuntimeFailureProtocolTest {
         Assert.assertEquals("", answer);
         Mockito.verifyNoInteractions(loopFactory);
         InOrder protocol = Mockito.inOrder(printer);
-        protocol.verify(printer).send(Mockito.eq("run_started"), Mockito.any());
-        protocol.verify(printer).send(Mockito.eq("run_finished"), Mockito.argThat(value ->
-                value instanceof Map<?, ?> map
-                        && "FAILED".equals(map.get("status"))
-                        && AgentStopReason.REQUIRED_CAPABILITY_UNAVAILABLE.name()
-                        .equals(map.get("stopReason"))));
-        protocol.verify(printer).send(Mockito.eq("result"), Mockito.argThat(value ->
-                value instanceof Map<?, ?> map
-                        && AgentStopReason.REQUIRED_CAPABILITY_UNAVAILABLE.name()
-                        .equals(map.get("stopReason"))));
+        protocol.verify(printer).send(Mockito.argThat(event -> event instanceof AgentStreamEvent.AgentStart));
+        protocol.verify(printer).send(Mockito.argThat(event ->
+                event instanceof AgentStreamEvent.Error failure
+                        && AgentStopReason.REQUIRED_CAPABILITY_UNAVAILABLE.name().equals(failure.code())));
         Mockito.verify(recorder).finishRun(Mockito.argThat((DialogueRunFinishRecord record) ->
                 record != null
                         && Integer.valueOf(ExecutionLedgerConstants.STATUS_FAILED).equals(record.getStatus())
@@ -250,6 +251,7 @@ public class AgentRuntimeFailureProtocolTest {
         AgentToolCollectionFactory toolFactory = Mockito.mock(AgentToolCollectionFactory.class);
         AgentExecutionRecorder recorder = Mockito.mock(AgentExecutionRecorder.class);
         ReactorRuntimeDependencies runtimeDependencies = Mockito.mock(ReactorRuntimeDependencies.class);
+        stubLlm(runtimeDependencies);
         AgentLoopFactory loopFactory = Mockito.mock(AgentLoopFactory.class);
         Printer printer = Mockito.mock(Printer.class);
         Mockito.when(recorder.claimRun(Mockito.any())).thenReturn(newClaim(44L, "req-explicit-tool-unavailable"));
@@ -268,20 +270,16 @@ public class AgentRuntimeFailureProtocolTest {
         Assert.assertEquals("", answer);
         Mockito.verifyNoInteractions(loopFactory);
         InOrder protocol = Mockito.inOrder(printer);
-        protocol.verify(printer).send(Mockito.eq("run_started"), Mockito.any());
-        protocol.verify(printer).send(Mockito.eq("run_finished"), Mockito.argThat(value ->
-                value instanceof Map<?, ?> map
-                        && "FAILED".equals(map.get("status"))
-                        && AgentStopReason.REQUIRED_CAPABILITY_UNAVAILABLE.name()
-                        .equals(map.get("stopReason"))
+        protocol.verify(printer).send(Mockito.argThat(event -> event instanceof AgentStreamEvent.AgentStart));
+        protocol.verify(printer).send(Mockito.argThat(event ->
+                event instanceof AgentStreamEvent.StageOutput output
+                        && output.payload() instanceof Map<?, ?> map
                         && "TOOL".equals(map.get("requiredCapability"))
                         && "utility_estimate_llm_quota".equals(map.get("requestedToolName"))
                         && "UNAVAILABLE".equals(map.get("capabilityResolution"))));
-        protocol.verify(printer).send(Mockito.eq("result"), Mockito.argThat(value ->
-                value instanceof Map<?, ?> map
-                        && AgentStopReason.REQUIRED_CAPABILITY_UNAVAILABLE.name()
-                        .equals(map.get("stopReason"))
-                        && "utility_estimate_llm_quota".equals(map.get("requestedToolName"))));
+        protocol.verify(printer).send(Mockito.argThat(event ->
+                event instanceof AgentStreamEvent.Error failure
+                        && AgentStopReason.REQUIRED_CAPABILITY_UNAVAILABLE.name().equals(failure.code())));
         Mockito.verify(recorder).finishRun(Mockito.argThat((DialogueRunFinishRecord record) ->
                 record != null
                         && Integer.valueOf(ExecutionLedgerConstants.STATUS_FAILED).equals(record.getStatus())
@@ -289,10 +287,54 @@ public class AgentRuntimeFailureProtocolTest {
     }
 
     @Test
+    public void shouldEmitQuotaFailureWhenDeepResearchCannotReserveQuota() throws Exception {
+        AgentToolCollectionFactory toolFactory = Mockito.mock(AgentToolCollectionFactory.class);
+        AgentExecutionRecorder recorder = Mockito.mock(AgentExecutionRecorder.class);
+        ReactorRuntimeDependencies runtimeDependencies = Mockito.mock(ReactorRuntimeDependencies.class);
+        stubLlm(runtimeDependencies);
+        AgentLoopFactory loopFactory = Mockito.mock(AgentLoopFactory.class);
+        DeepResearchGraphRunner deepResearchGraphRunner = Mockito.mock(DeepResearchGraphRunner.class);
+        Printer printer = Mockito.mock(Printer.class);
+        Mockito.when(recorder.claimRun(Mockito.any())).thenReturn(newClaim(48L, "req-deep-quota"));
+        Mockito.when(toolFactory.buildForUnified(Mockito.any(), Mockito.any()))
+                .thenReturn(new ToolCollection());
+        Mockito.when(deepResearchGraphRunner.run(Mockito.any(), Mockito.any()))
+                .thenThrow(new QuotaInsufficientException("额度不足，无法支持最少256个输出Token"));
+
+        AgentRuntime runner = new AgentRuntime(toolFactory, recorder, runtimeDependencies,
+                loopFactory, deepResearchGraphRunner);
+        String answer = runner.run(AgentRequest.builder()
+                .requestId("req-deep-quota")
+                .sessionId("session-deep-quota")
+                .ownerId("1001")
+                .query("深度调研一个行业")
+                .executionMode("DEEP")
+                .build(), printer);
+
+        Assert.assertEquals("", answer);
+        InOrder protocol = Mockito.inOrder(printer);
+        protocol.verify(printer).send(Mockito.argThat(event -> event instanceof AgentStreamEvent.AgentStart));
+        protocol.verify(printer).send(Mockito.argThat(event ->
+                event instanceof AgentStreamEvent.StageOutput output
+                        && output.payload() instanceof Map<?, ?> map
+                        && "QUOTA_INSUFFICIENT".equals(map.get("errorCode"))));
+        protocol.verify(printer).send(Mockito.argThat(event ->
+                event instanceof AgentStreamEvent.Error failure
+                        && "QUOTA_INSUFFICIENT".equals(failure.code())
+                        && failure.message().contains("额度不足")));
+        Mockito.verify(recorder).finishRun(Mockito.argThat((DialogueRunFinishRecord record) ->
+                record != null
+                        && Integer.valueOf(ExecutionLedgerConstants.STATUS_FAILED).equals(record.getStatus())
+                        && "QUOTA_INSUFFICIENT".equals(record.getErrorCode())
+                        && record.getErrorMsg().contains("额度不足")));
+    }
+
+    @Test
     public void shouldAttachCanonicalInvocationContractBeforeCreatingLoop() {
         AgentToolCollectionFactory toolFactory = Mockito.mock(AgentToolCollectionFactory.class);
         AgentExecutionRecorder recorder = Mockito.mock(AgentExecutionRecorder.class);
         ReactorRuntimeDependencies runtimeDependencies = Mockito.mock(ReactorRuntimeDependencies.class);
+        stubLlm(runtimeDependencies);
         AgentLoopFactory loopFactory = Mockito.mock(AgentLoopFactory.class);
         Printer printer = Mockito.mock(Printer.class);
         ToolCollection catalog = new ToolCollection();
@@ -326,6 +368,11 @@ public class AgentRuntimeFailureProtocolTest {
         Assert.assertEquals(
                 java.util.Set.of("blocked_tool"),
                 context.getToolInvocationContract().forbiddenToolNames());
+    }
+
+    private void stubLlm(ReactorRuntimeDependencies dependencies) {
+        Mockito.when(dependencies.resolveAgentLlmSettings(Mockito.any()))
+                .thenReturn(LLMSettings.builder().model("test-model").build());
     }
 
     private DialogueRunClaim newClaim(long runId, String requestId) {

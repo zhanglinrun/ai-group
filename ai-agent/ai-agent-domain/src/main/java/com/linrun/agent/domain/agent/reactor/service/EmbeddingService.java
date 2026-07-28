@@ -1,83 +1,43 @@
 package com.linrun.agent.domain.agent.reactor.service;
 
-
-import com.alibaba.fastjson.JSONObject;
-import com.alibaba.fastjson.TypeReference;
-import com.linrun.agent.domain.agent.adapter.port.RemoteHttpPort;
-import com.linrun.agent.domain.agent.adapter.port.RemoteHttpRequest;
-import com.linrun.agent.domain.agent.reactor.config.data.DataAgentConfig;
-import com.linrun.agent.domain.agent.reactor.config.ReactorConfig;
-import com.linrun.agent.domain.agent.reactor.config.ReactorToolRequestHeaders;
+import com.linrun.agent.domain.agent.runtime.llm.TokenCounter;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
-import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 
 
 @Slf4j
 @Service
 public class EmbeddingService {
-    @Autowired
-    private DataAgentConfig dataAgentConfig;
-    @Autowired
-    private RemoteHttpPort remoteHttpPort;
-    @Autowired
-    private ReactorConfig reactorConfig;
+    private static final int MAX_INPUT_CHARS = 8000;
+    private static final int MAX_INPUT_TOKENS = 2048;
+    private static final TokenCounter TOKEN_COUNTER = new TokenCounter();
+    private final EmbeddingModel embeddingModel;
 
-    public String resolveEmbeddingUrl() {
-        if (dataAgentConfig.getQdrantConfig() != null && StringUtils.isNotBlank(dataAgentConfig.getQdrantConfig().getEmbeddingUrl())) {
-            return dataAgentConfig.getQdrantConfig().getEmbeddingUrl();
-        }
-        if (StringUtils.isBlank(dataAgentConfig.getAgentUrl())) {
-            return null;
-        }
-        return StringUtils.removeEnd(dataAgentConfig.getAgentUrl(), "/") + "/v1/tool/embedding/text";
-    }
-
-    public List<List<Float>> parseEmbeddingResponse(String res) {
-        if (StringUtils.isBlank(res)) {
-            return null;
-        }
-        String normalized = res.trim();
-        if (normalized.startsWith("[")) {
-            return JSONObject.parseObject(normalized, new TypeReference<>() {
-            });
-        }
-        Map<String, Object> body = JSONObject.parseObject(normalized, new TypeReference<>() {
-        });
-        Object vectors = body.get("vectors");
-        if (vectors == null) {
-            return null;
-        }
-        return JSONObject.parseObject(JSONObject.toJSONString(vectors), new TypeReference<>() {
-        });
+    public EmbeddingService(EmbeddingModel embeddingModel) {
+        this.embeddingModel = embeddingModel;
     }
 
     public List<List<Float>> getVectorBatch(List<String> text) {
         try {
-            String embeddingUrl = resolveEmbeddingUrl();
-            if (StringUtils.isBlank(embeddingUrl)) {
-                throw new IllegalStateException("embeddingUrl is blank");
+            List<String> boundedInputs = text == null ? List.of() : text.stream()
+                    .map(this::boundInput)
+                    .toList();
+            if (boundedInputs.isEmpty()) {
+                return List.of();
             }
-            JSONObject body = new JSONObject();
-            body.put("inputs", text);
-            body.put("normalize", true);
-            String res = remoteHttpPort.execute(RemoteHttpRequest.builder()
-                    .method("POST")
-                    .url(embeddingUrl)
-                    .headers(ReactorToolRequestHeaders.json(
-                            isReactorToolUrl(embeddingUrl) ? reactorConfig : null))
-                    .body(body.toJSONString())
-                    .build());
-            return parseEmbeddingResponse(res);
+            return embeddingModel.embed(boundedInputs).stream()
+                    .map(this::box)
+                    .toList();
         } catch (Exception e) {
             log.error("embedding failed, error:{}", e.getMessage(), e);
-            return null;
+            return List.of();
         }
     }
 
@@ -94,10 +54,19 @@ public class EmbeddingService {
         return CollectionUtils.isNotEmpty(vector);
     }
 
-    private boolean isReactorToolUrl(String url) {
-        String agentUrl = StringUtils.removeEnd(StringUtils.trimToEmpty(dataAgentConfig.getAgentUrl()), "/");
-        String targetUrl = StringUtils.trimToEmpty(url);
-        return StringUtils.isNotBlank(agentUrl)
-                && (targetUrl.equals(agentUrl) || targetUrl.startsWith(agentUrl + "/"));
+    private String boundInput(String input) {
+        String bounded = StringUtils.left(StringUtils.defaultString(input), MAX_INPUT_CHARS);
+        return TOKEN_COUNTER.truncateTextToTokens(bounded, MAX_INPUT_TOKENS);
+    }
+
+    private List<Float> box(float[] vector) {
+        if (vector == null || vector.length == 0) {
+            return List.of();
+        }
+        List<Float> values = new ArrayList<>(vector.length);
+        for (float value : vector) {
+            values.add(value);
+        }
+        return values;
     }
 }

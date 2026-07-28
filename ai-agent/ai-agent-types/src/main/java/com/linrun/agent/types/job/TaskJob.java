@@ -2,7 +2,7 @@ package com.linrun.agent.types.job;
 
 import com.linrun.agent.types.job.config.TaskJobAutoProperties;
 import com.linrun.agent.types.job.service.ITaskJobService;
-import org.springframework.scheduling.annotation.Scheduled;
+import com.xxl.job.core.handler.annotation.XxlJob;
 
 /**
  * 任务调度作业
@@ -22,7 +22,7 @@ public class TaskJob {
     /**
      * 定时刷新任务调度配置
      */
-    @Scheduled(fixedRateString = "${xfg.wrench.task.job.refresh-interval:60000}")
+    @XxlJob("agentTaskRefreshJob")
     public void refreshTasks() {
         if (!properties.isEnabled()) {
             return;
@@ -33,7 +33,7 @@ public class TaskJob {
     /**
      * 定时清理无效任务
      */
-    @Scheduled(cron = "${xfg.wrench.task.job.clean-invalid-tasks-cron:0 0/10 * * * ?}")
+    @XxlJob("agentTaskCleanupJob")
     public void cleanInvalidTasks() {
         if (!properties.isEnabled()) {
             return;

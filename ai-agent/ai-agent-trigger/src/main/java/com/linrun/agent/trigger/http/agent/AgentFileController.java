@@ -14,7 +14,7 @@ import com.linrun.agent.trigger.http.agent.vo.AgentFileUploadRespVO;
 import com.linrun.agent.types.agent.owner.OwnerRequestContext;
 import com.linrun.agent.types.enums.ResponseCode;
 
-import javax.annotation.Resource;
+import jakarta.annotation.Resource;
 
 /**
  * 对话附件上传 Controller。

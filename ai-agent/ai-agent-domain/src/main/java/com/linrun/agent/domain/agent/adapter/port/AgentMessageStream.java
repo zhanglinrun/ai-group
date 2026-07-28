@@ -8,6 +8,10 @@ public interface AgentMessageStream {
 
     void send(Object payload) throws Exception;
 
+    default void send(String eventName, Object payload) throws Exception {
+        send(payload);
+    }
+
     void complete();
 
     void completeWithError(Throwable throwable);

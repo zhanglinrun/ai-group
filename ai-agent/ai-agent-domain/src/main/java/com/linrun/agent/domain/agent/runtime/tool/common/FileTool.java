@@ -1,6 +1,6 @@
 package com.linrun.agent.domain.agent.runtime.tool.common;
 
-import com.alibaba.fastjson.JSON;
+import com.linrun.agent.types.common.JsonUtils;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import com.linrun.agent.domain.agent.adapter.port.FileArtifactPort;
@@ -12,6 +12,7 @@ import com.linrun.agent.domain.agent.runtime.dto.FileRequest;
 import com.linrun.agent.domain.agent.runtime.dto.FileResponse;
 import com.linrun.agent.domain.agent.runtime.tool.BaseTool;
 import com.linrun.agent.domain.agent.runtime.tool.ToolResultPayload;
+import com.linrun.agent.domain.agent.runtime.stream.AgentStreamEvent;
 import com.linrun.agent.domain.agent.runtime.util.StringUtil;
 import com.linrun.agent.domain.agent.reactor.config.ReactorConfig;
 import com.linrun.agent.domain.agent.ledger.model.tooloutput.FileToolOutput;
@@ -19,6 +20,8 @@ import com.linrun.agent.domain.agent.ledger.model.tooloutput.ToolFileRefMapper;
 
 import java.io.IOException;
 import java.util.*;
+
+import static com.linrun.agent.domain.agent.runtime.artifact.ToolArtifactFormatter.toArtifactRefs;
 
 @Slf4j
 @Data
@@ -81,7 +84,7 @@ public class FileTool implements BaseTool {
         try {
             Map<String, Object> params = (Map<String, Object>) input;
             command = (String) params.getOrDefault("command", "");
-            FileRequest fileRequest = JSON.parseObject(JSON.toJSONString(input), FileRequest.class);
+            FileRequest fileRequest = JsonUtils.parseObject(JsonUtils.toJson(input), FileRequest.class);
             ToolArtifactSource artifactSource = agentContext.requireCurrentToolArtifactSource(getName());
             fileRequest.setRequestId(agentContext.getRequestId());
             if ("upload".equals(command)) {
@@ -190,7 +193,11 @@ public class FileTool implements BaseTool {
             agentContext.registerGeneratedArtifact(artifactSource, file);
             if (isNoticeFe) {
                 // 内部文件不通知前端
-                agentContext.getPrinter().send("file", resultMap, null);
+                agentContext.getPrinter().send(new AgentStreamEvent.StageOutput(
+                        agentContext.getRequestId(), artifactSource == null ? null : artifactSource.getToolCallId(),
+                        "file", resultMap,
+                        toArtifactRefs(agentContext.getArtifactBindingsByToolCallId(
+                                artifactSource == null ? null : artifactSource.getToolCallId())), true));
             }
             // 返回工具执行结果
             String toolResult = fileRequest.getFileName() + " 写入到文件链接: " + fileResponse.getOssUrl();
@@ -255,7 +262,9 @@ public class FileTool implements BaseTool {
             resultMap.put("fileInfo", fileInfo);
             // 通知前端
             if (noticeFe) {
-                agentContext.getPrinter().send("file", resultMap, null);
+                agentContext.getPrinter().send(new AgentStreamEvent.StageOutput(
+                        agentContext.getRequestId(), artifactSource == null ? null : artifactSource.getToolCallId(),
+                        "file", resultMap, List.of(), true));
             }
             // 返回工具执行结果
             String fileContent = getUrlContent(fileResponse.getOssUrl());

@@ -7,7 +7,7 @@ import org.springframework.stereotype.Component;
 import com.linrun.agent.domain.agent.runtime.dto.tool.ToolChoice;
 import com.linrun.agent.domain.agent.runtime.tool.ToolCollection;
 
-import javax.annotation.Resource;
+import jakarta.annotation.Resource;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;

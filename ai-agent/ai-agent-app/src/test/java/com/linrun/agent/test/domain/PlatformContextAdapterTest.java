@@ -1,6 +1,6 @@
 package com.linrun.agent.test.domain;
 
-import com.alibaba.fastjson.JSON;
+import com.linrun.agent.types.common.JsonUtils;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.Assert;
@@ -37,7 +37,7 @@ public class PlatformContextAdapterTest {
         Assert.assertEquals("ORDER_LIST_PARTIAL", result.meta().errors().get(0).code());
         Assert.assertEquals("order-1", result.data().items().get(0).orderId());
         Assert.assertTrue(result.data().items().get(0).paymentActionAvailable());
-        String domainJson = JSON.toJSONString(result);
+        String domainJson = JsonUtils.toJson(result);
         Assert.assertFalse(domainJson.contains("payUrl"));
         Assert.assertFalse(domainJson.contains("secret form"));
         Mockito.verify(client).orders(77L);
@@ -101,7 +101,7 @@ public class PlatformContextAdapterTest {
         Assert.assertEquals("GROUP_MARKET_UNAVAILABLE", groupResult.meta().errors().get(0).code());
         Assert.assertTrue(ordersResult.data().items().get(0).paymentActionAvailable());
 
-        String mappedJson = JSON.toJSONString(List.of(
+        String mappedJson = JsonUtils.toJson(List.of(
                 accountResult.data(), groupResult.data(), ordersResult.data()));
         Assert.assertFalse(mappedJson.contains("userId"));
         Assert.assertFalse(mappedJson.contains("ownerId"));

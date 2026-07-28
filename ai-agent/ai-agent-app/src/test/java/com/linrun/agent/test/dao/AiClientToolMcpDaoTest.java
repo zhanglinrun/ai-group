@@ -14,7 +14,7 @@ import java.util.List;
 
 /**
  * MCP客户端配置表 DAO 测试
- * @author bugstack虫洞栈
+ * @author linrun
  * @description MCP客户端配置表数据访问对象测试
  */
 @Slf4j

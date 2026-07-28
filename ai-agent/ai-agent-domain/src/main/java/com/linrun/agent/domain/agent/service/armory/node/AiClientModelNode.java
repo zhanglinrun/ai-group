@@ -4,14 +4,14 @@ import com.linrun.agent.domain.agent.model.entity.ArmoryCommandEntity;
 import com.linrun.agent.domain.agent.model.valobj.enums.AiAgentEnumVO;
 import com.linrun.agent.domain.agent.model.valobj.AiClientModelVO;
 import com.linrun.agent.domain.agent.service.armory.node.factory.DefaultArmoryStrategyFactory;
-import cn.bugstack.wrench.design.framework.tree.StrategyHandler;
+import com.linrun.agent.types.design.tree.StrategyHandler;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.ai.openai.api.OpenAiApi;
 import org.springframework.stereotype.Service;
 
-import javax.annotation.Resource;
+import jakarta.annotation.Resource;
 import java.util.ArrayList;
 import java.util.List;
 

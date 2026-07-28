@@ -50,7 +50,8 @@ public class ContextManagerTest {
         Assert.assertTrue(toolMessage.getContent().contains(ContextTrustBoundary.START_PREFIX));
         Assert.assertTrue(toolMessage.getContent().contains("artifactKey:call-1::report.md"));
         Assert.assertFalse(managed.messages().stream()
-                .anyMatch(message -> message.getContent() != null && message.getContent().contains("旧回答旧回答")));
+                .anyMatch(message -> message.getRole() == RoleType.ASSISTANT
+                        && message.getContent() != null && message.getContent().contains("旧回答旧回答")));
     }
 
     @Test
@@ -74,7 +75,7 @@ public class ContextManagerTest {
     }
 
     @Test
-    public void shouldKeepRecentToolUnitWhenLatestUserPromptIsLast() {
+    public void shouldKeepOnlyContiguousTurnsAndSummarizeOmittedHistory() {
         TokenCounter counter = new TokenCounter();
         ContextManager manager = new ContextManager(counter);
         ToolCall toolCall = ToolCall.builder()
@@ -113,11 +114,19 @@ public class ContextManagerTest {
             }
         }
 
-        Assert.assertTrue("recent assistant tool call must survive compaction", toolCallIndex >= 0);
-        Assert.assertEquals("tool result must remain adjacent to its tool call", toolCallIndex + 1, toolResultIndex);
+        Assert.assertEquals("tool calls and results must be omitted together", toolCallIndex >= 0, toolResultIndex >= 0);
+        if (toolCallIndex >= 0) {
+            Assert.assertEquals("tool result must remain adjacent to its tool call", toolCallIndex + 1, toolResultIndex);
+        }
         Assert.assertTrue(managed.messages().stream()
                 .anyMatch(message -> message.getRole() == RoleType.USER
-                        && message.getContent().contains("不要重复搜索")));
+                        && message.getContent().startsWith("历史摘要")));
+        Assert.assertTrue(managed.messages().stream()
+                .anyMatch(message -> message.getRole() == RoleType.ASSISTANT
+                        && "已了解上述历史上下文。".equals(message.getContent())));
+        Assert.assertTrue(managed.messages().stream()
+                .anyMatch(message -> message.getRole() == RoleType.USER
+                        && "根据刚才的证据继续修正，不要重复搜索。".equals(message.getContent())));
     }
 
     @Test

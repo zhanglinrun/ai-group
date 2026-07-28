@@ -13,14 +13,14 @@ import com.linrun.agent.domain.agent.memory.MemoryQuery;
 import com.linrun.agent.types.agent.owner.OwnerRequestContext;
 import com.linrun.agent.types.enums.ResponseCode;
 
-import javax.annotation.Resource;
+import jakarta.annotation.Resource;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
  * 三层对话记忆只读检视接口（演示/排障用）。
  * 返回某会话为当前用户组装出的记忆注入块（长期跨会话召回 + 中期会话摘要/近期原文），
- * 便于面试演示与观察记忆分层效果。只读、按会话归属校验，不产生副作用。
+ * 便于调试与观察记忆分层效果。只读、按会话归属校验，不产生副作用。
  */
 @Slf4j
 @RestController

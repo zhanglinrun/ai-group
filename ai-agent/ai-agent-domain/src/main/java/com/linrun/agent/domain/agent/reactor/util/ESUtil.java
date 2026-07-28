@@ -1,8 +1,9 @@
 package com.linrun.agent.domain.agent.reactor.util;
 
 
-import com.alibaba.fastjson.JSON;
-import com.alibaba.fastjson.JSONObject;
+import com.linrun.agent.types.common.JsonUtils;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -264,7 +265,7 @@ public class ESUtil {
                 aliases.put(aliasName, Collections.emptyMap());
                 body.put("aliases", aliases);
             }
-            return createIndex(client, indexName, JSON.toJSONString(body));
+            return createIndex(client, indexName, JsonUtils.toJson(body));
         } catch (Exception e) {
             log.error("创建es索引失败，index:{}", indexName, e);
             return false;
@@ -294,13 +295,16 @@ public class ESUtil {
         if (StringUtils.isBlank(body)) {
             return body;
         }
-        JSONObject definition = JSON.parseObject(body);
-        JSONObject settings = definition.getJSONObject("settings");
-        if (settings == null) {
-            return definition.toJSONString();
+        JsonNode parsed = JsonUtils.parseTree(body);
+        if (!(parsed instanceof ObjectNode definition)) {
+            return body;
         }
-        JSONObject indexSettings = settings.getJSONObject("index");
-        if (indexSettings != null) {
+        JsonNode settingsNode = definition.get("settings");
+        if (!(settingsNode instanceof ObjectNode settings)) {
+            return JsonUtils.toJson(definition);
+        }
+        JsonNode indexNode = settings.get("index");
+        if (indexNode instanceof ObjectNode indexSettings) {
             indexSettings.remove("number_of_shards");
             indexSettings.remove("number_of_replicas");
             if (indexSettings.isEmpty()) {
@@ -312,7 +316,7 @@ public class ESUtil {
         if (settings.isEmpty()) {
             definition.remove("settings");
         }
-        return definition.toJSONString();
+        return JsonUtils.toJson(definition);
     }
 
     private static boolean shouldFallbackToStandardAnalyzer(ResponseException exception, String body) {
@@ -353,8 +357,8 @@ public class ESUtil {
         // 这里统一走低层 REST 接口并自行解析结果，避免“写成功但响应解析失败”的误报。
         Response response = client.getLowLevelClient().performRequest(request);
         String responseBody = EntityUtils.toString(response.getEntity(), StandardCharsets.UTF_8);
-        JSONObject responseJson = JSON.parseObject(responseBody);
-        if (Boolean.TRUE.equals(responseJson.getBoolean("errors"))) {
+        JsonNode responseJson = JsonUtils.parseTree(responseBody);
+        if (responseJson.path("errors").asBoolean(false)) {
             log.error("批量写入 ES 失败，index:{}, detail:{}", index, extractBulkFailureMessage(responseJson));
             return false;
         }
@@ -373,31 +377,30 @@ public class ESUtil {
                 metadata.put("_id", String.valueOf(idValue));
             }
             action.put("index", metadata);
-            builder.append(JSON.toJSONString(action)).append('\n');
-            builder.append(JSON.toJSONString(data)).append('\n');
+            builder.append(JsonUtils.toJson(action)).append('\n');
+            builder.append(JsonUtils.toJson(data)).append('\n');
         }
         return builder.toString();
     }
 
-    private static String extractBulkFailureMessage(JSONObject responseJson) {
+    private static String extractBulkFailureMessage(JsonNode responseJson) {
         List<String> failures = new ArrayList<>();
-        List<Object> items = responseJson.getJSONArray("items");
-        if (items == null) {
+        JsonNode items = responseJson.get("items");
+        if (items == null || !items.isArray()) {
             return "bulk response missing items";
         }
-        for (Object item : items) {
-            if (!(item instanceof JSONObject itemJson)) {
+        for (JsonNode item : items) {
+            JsonNode indexResult = item.get("index");
+            if (indexResult == null || !indexResult.isObject() || !indexResult.has("error")) {
                 continue;
             }
-            JSONObject indexResult = itemJson.getJSONObject("index");
-            if (indexResult == null || !indexResult.containsKey("error")) {
-                continue;
-            }
-            JSONObject error = indexResult.getJSONObject("error");
-            String reason = error == null ? indexResult.getString("error") : error.getString("reason");
+            JsonNode error = indexResult.get("error");
+            String reason = error != null && error.isObject()
+                    ? error.path("reason").asText(null)
+                    : error == null ? null : error.asText(null);
             failures.add(String.format("id=%s,status=%s,reason=%s",
-                    indexResult.getString("_id"),
-                    indexResult.getInteger("status"),
+                    indexResult.path("_id").asText(null),
+                    indexResult.path("status").isNumber() ? indexResult.path("status").intValue() : null,
                     StringUtils.defaultIfBlank(reason, "unknown")));
             if (failures.size() >= 5) {
                 break;
@@ -406,4 +409,3 @@ public class ESUtil {
         return CollectionUtils.isEmpty(failures) ? "bulk response contains errors" : String.join("; ", failures);
     }
 }
-

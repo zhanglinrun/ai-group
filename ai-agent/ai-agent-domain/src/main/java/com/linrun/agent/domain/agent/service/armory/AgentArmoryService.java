@@ -1,6 +1,6 @@
 package com.linrun.agent.domain.agent.service.armory;
 
-import cn.bugstack.wrench.design.framework.tree.StrategyHandler;
+import com.linrun.agent.types.design.tree.StrategyHandler;
 import org.springframework.stereotype.Service;
 import com.linrun.agent.domain.agent.adapter.repository.IAgentRepository;
 import com.linrun.agent.domain.agent.model.entity.ArmoryCommandEntity;
@@ -9,7 +9,7 @@ import com.linrun.agent.domain.agent.model.valobj.AiAgentVO;
 import com.linrun.agent.domain.agent.model.valobj.enums.AiAgentEnumVO;
 import com.linrun.agent.domain.agent.service.armory.node.factory.DefaultArmoryStrategyFactory;
 
-import javax.annotation.Resource;
+import jakarta.annotation.Resource;
 import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;

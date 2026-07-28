@@ -1,6 +1,6 @@
 package com.linrun.agent.test.spring.ai;
 
-import com.alibaba.fastjson.JSON;
+import com.linrun.agent.types.common.JsonUtils;
 import io.modelcontextprotocol.client.McpClient;
 import io.modelcontextprotocol.client.McpSyncClient;
 import io.modelcontextprotocol.client.transport.HttpClientSseClientTransport;
@@ -29,7 +29,7 @@ import org.springframework.ai.openai.api.OpenAiApi;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.junit4.SpringRunner;
 import com.linrun.agent.domain.agent.model.valobj.AiClientAdvisorVO;
-import com.linrun.agent.domain.agent.reactor.service.VectorService;
+import com.linrun.agent.domain.agent.rag.retrieval.HybridRetriever;
 import com.linrun.agent.domain.agent.service.armory.node.factory.element.RagAnswerAdvisor;
 import reactor.core.publisher.Flux;
 
@@ -47,7 +47,7 @@ public class AiAgentTest {
     private ChatClient chatClient;
 
     @Resource
-    private VectorService vectorService;
+    private HybridRetriever hybridRetriever;
 
     public static final String CHAT_MEMORY_CONVERSATION_ID_KEY = "chat_memory_conversation_id";
     public static final String CHAT_MEMORY_RETRIEVE_SIZE_KEY = "chat_memory_response_size";
@@ -118,7 +118,7 @@ public class AiAgentTest {
         stream.subscribe(
                 chatResponse -> {
                     AssistantMessage output = chatResponse.getResult().getOutput();
-                    log.info("测试结果: {}", JSON.toJSONString(output));
+                    log.info("测试结果: {}", JsonUtils.toJson(output));
                 },
                 Throwable::printStackTrace,
                 () -> {
@@ -141,7 +141,7 @@ public class AiAgentTest {
 
         ChatResponse chatResponse = chatModel.call(prompt);
 
-        log.info("测试结果(call):{}", JSON.toJSONString(chatResponse));
+        log.info("测试结果(call):{}", JsonUtils.toJson(chatResponse));
     }
 
     @Test
@@ -326,7 +326,7 @@ public class AiAgentTest {
 
     private RagAnswerAdvisor buildRagAnswerAdvisor(String filterExpression, int topK) {
         return new RagAnswerAdvisor(
-                vectorService,
+                hybridRetriever,
                 AiClientAdvisorVO.RagAnswer.builder()
                         .topK(topK)
                         .filterExpression(filterExpression)

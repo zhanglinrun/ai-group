@@ -15,6 +15,7 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 import org.springframework.core.env.Environment;
 import org.springframework.core.type.AnnotatedTypeMetadata;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.util.StringUtils;
 
 import javax.sql.DataSource;
@@ -53,6 +54,12 @@ public class DataSourceConfig {
         dataSource.setPoolName("MainHikariPool");
 
         return dataSource;
+    }
+
+    @Bean("mysqlJdbcTemplate")
+    @Primary
+    public JdbcTemplate mysqlJdbcTemplate(@Qualifier("mysqlDataSource") DataSource mysqlDataSource) {
+        return new JdbcTemplate(mysqlDataSource);
     }
 
     @Bean("sqlSessionFactory")

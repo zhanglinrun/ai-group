@@ -1,13 +1,17 @@
 package com.linrun.agent.domain.agent.memory;
 
-import io.qdrant.client.grpc.Points;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import com.linrun.agent.domain.agent.reactor.config.ReactorConfig;
-import com.linrun.agent.domain.agent.reactor.data.dto.VectorRecallReq;
-import com.linrun.agent.domain.agent.reactor.data.dto.VectorSaveReq;
-import com.linrun.agent.domain.agent.reactor.service.VectorService;
+import com.linrun.agent.domain.agent.rag.retrieval.HybridRetrievalHit;
+import com.linrun.agent.domain.agent.rag.retrieval.HybridRetrievalRequest;
+import com.linrun.agent.domain.agent.rag.retrieval.HybridRetriever;
+import com.linrun.agent.domain.agent.rag.storage.PgVectorMemoryRepository;
+import com.linrun.agent.domain.agent.rag.memory.SemanticMemoryManager;
+import com.linrun.agent.types.common.JsonUtils;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Comparator;
@@ -17,28 +21,31 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 
-import static io.qdrant.client.ConditionFactory.matchKeyword;
-
 /**
- * 结构化长期记忆实现：Qdrant 负责语义候选召回，本服务负责 owner 隔离、TTL、版本冲突消解和时间衰减。
- * 旧的 turn payload 仍可无迁移召回，并按 FACT 兼容读取。
+ * PostgreSQL 记忆生产入口：普通回合写 qa_pair，显式偏好/事实写用户画像，
+ * 召回合并画像、会话/跨会话摘要和混合检索结果。
  */
 @Slf4j
 @Service
 public class LongTermMemoryServiceImpl implements LongTermMemoryService {
 
-    private static final String KIND_TURN = "turn";
-    private static final String KIND_STRUCTURED = "structured-memory";
-    private static final long RECALL_TIMEOUT_MILLIS = 3000L;
+    private static final String DOC_QA_PAIR = "qa_pair";
     private static final int MAX_EMBEDDING_TEXT_CHARS = 2000;
     private static final long FACT_TTL_MILLIS = 180L * 86_400_000L;
     private static final long STABLE_MEMORY_TTL_MILLIS = 365L * 86_400_000L;
 
-    private final VectorService vectorService;
+    private final PgVectorMemoryRepository memoryRepository;
+    private final HybridRetriever hybridRetriever;
     private final ReactorConfig reactorConfig;
 
-    public LongTermMemoryServiceImpl(VectorService vectorService, ReactorConfig reactorConfig) {
-        this.vectorService = vectorService;
+    @Autowired(required = false)
+    private SemanticMemoryManager semanticMemoryManager;
+
+    public LongTermMemoryServiceImpl(ObjectProvider<PgVectorMemoryRepository> memoryRepository,
+                                     ObjectProvider<HybridRetriever> hybridRetriever,
+                                     ReactorConfig reactorConfig) {
+        this.memoryRepository = memoryRepository.getIfAvailable();
+        this.hybridRetriever = hybridRetriever.getIfAvailable();
         this.reactorConfig = reactorConfig;
     }
 
@@ -47,17 +54,26 @@ public class LongTermMemoryServiceImpl implements LongTermMemoryService {
         if (!isLongTermEnabled() || turn == null || StringUtils.isBlank(turn.ownerId())) {
             return;
         }
-        MemoryAdmission admission = admitTurn(turn.query());
-        if (admission == null) {
-            log.debug("skip non-durable conversation turn, ownerId={}, requestId={}",
-                    turn.ownerId(), turn.requestId());
-            return;
-        }
         long now = System.currentTimeMillis();
-        String content = buildExplicitMemoryText(turn.query());
-        if (StringUtils.isBlank(content)) {
-            return;
+        String qaContent = truncateEmbeddingText("用户: " + StringUtils.defaultString(turn.query())
+                + "\n助手: " + StringUtils.defaultString(turn.answerSummary()));
+        if (StringUtils.isNotBlank(qaContent)) {
+            Map<String, Object> metadata = Map.of(
+                    "requestId", StringUtils.defaultString(turn.requestId()),
+                    "createdAt", now,
+                    "kind", "qa-pair");
+            boolean saved = memoryRepository.saveMemory(
+                    stableUuid(turn.ownerId(), StringUtils.defaultIfBlank(turn.requestId(), qaContent)),
+                    turn.ownerId(), DOC_QA_PAIR, qaContent, metadata, turn.sessionId());
+            if (saved && semanticMemoryManager != null && StringUtils.isNotBlank(turn.sessionId())) {
+                semanticMemoryManager.mergeSessionSummary(turn.ownerId(), turn.sessionId(), qaContent);
+                semanticMemoryManager.maybeSummarizeCrossSession(turn.ownerId());
+            }
         }
+        MemoryAdmission admission = admitTurn(turn.query());
+        if (admission == null) return;
+        String content = buildExplicitMemoryText(turn.query());
+        if (StringUtils.isBlank(content)) return;
         LongTermMemoryEntry entry = LongTermMemoryEntry.builder()
                 .ownerId(turn.ownerId())
                 .sessionId(turn.sessionId())
@@ -73,53 +89,26 @@ public class LongTermMemoryServiceImpl implements LongTermMemoryService {
                 .createdAtEpochMillis(now)
                 .expiresAtEpochMillis(now + defaultTtlMillis(admission.type()))
                 .build();
-        saveInternal(entry, KIND_TURN);
+        saveProfile(entry);
     }
 
     @Override
     public void save(LongTermMemoryEntry entry) {
-        saveInternal(entry, KIND_STRUCTURED);
+        saveProfile(normalizeEntry(entry));
     }
 
-    private void saveInternal(LongTermMemoryEntry candidate, String kind) {
-        if (!isLongTermEnabled() || candidate == null || StringUtils.isBlank(candidate.getOwnerId())) {
+    private void saveProfile(LongTermMemoryEntry entry) {
+        if (!isLongTermEnabled() || memoryRepository == null || entry == null
+                || StringUtils.isBlank(entry.getOwnerId())) {
             return;
         }
-        LongTermMemoryEntry entry = normalizeEntry(candidate);
         if (StringUtils.isBlank(entry.getContent()) || entry.isExpired(System.currentTimeMillis())) {
             return;
         }
         try {
-            Map<String, Object> payload = new LinkedHashMap<>();
-            payload.put("ownerId", entry.getOwnerId());
-            payload.put("sessionId", StringUtils.defaultString(entry.getSessionId()));
-            payload.put("requestId", StringUtils.defaultString(entry.getRequestId()));
-            payload.put("kind", kind);
-            payload.put("text", entry.getContent());
-            payload.put("memoryId", entry.getId());
-            payload.put("memoryKey", entry.getMemoryKey());
-            payload.put("memoryType", entry.getType().name());
-            payload.put("source", entry.getSource());
-            payload.put("confidence", String.valueOf(entry.getConfidence()));
-            payload.put("version", String.valueOf(entry.getVersion()));
-            payload.put("createdAt", String.valueOf(entry.getCreatedAtEpochMillis()));
-            payload.put("expiresAt", String.valueOf(entry.getExpiresAtEpochMillis()));
-            // 保留旧字段供现有数据工具和查询兼容。
-            payload.put("ts", String.valueOf(entry.getCreatedAtEpochMillis()));
-
-            VectorSaveReq.VectorData data = new VectorSaveReq.VectorData();
-            data.setEmbeddingText(entry.getContent());
-            data.setPayloads(payload);
-            // owner + memoryKey 生成稳定 ID：相同请求重试为 upsert，不制造重复记忆。
-            data.setUuid(entry.getId());
-
-            VectorSaveReq req = new VectorSaveReq();
-            req.setCollectionName(reactorConfig.getLongTermMemoryCollection());
-            req.setDataList(List.of(data));
-            req.setKeywordIndexFields(List.of(
-                    "ownerId", "memoryId", "memoryKey", "memoryType", "sessionId"));
-
-            boolean ok = Boolean.TRUE.equals(vectorService.saveVector(req));
+            boolean ok = memoryRepository.saveUserProfile(
+                    entry.getOwnerId(), entry.getMemoryKey(), entry.getType().name(),
+                    entry.getContent(), entry.getConfidence(), entry.getSource());
             if (!ok) {
                 log.warn("long-term memory save returned false, ownerId={}, memoryKey={}",
                         entry.getOwnerId(), entry.getMemoryKey());
@@ -142,38 +131,44 @@ public class LongTermMemoryServiceImpl implements LongTermMemoryService {
     public List<LongTermMemoryEntry> recallEntries(String ownerId,
                                                    String currentSessionId,
                                                    String query) {
-        if (!isLongTermEnabled() || StringUtils.isBlank(ownerId) || StringUtils.isBlank(query)) {
+        if (!isLongTermEnabled() || memoryRepository == null
+                || StringUtils.isBlank(ownerId) || StringUtils.isBlank(query)) {
             return List.of();
         }
         int topK = resolveTopK();
         try {
-            VectorRecallReq req = new VectorRecallReq();
-            req.setCollectionName(reactorConfig.getLongTermMemoryCollection());
-            req.setQuery(query);
-            req.setKeywordFilterMap(Map.of("ownerId", ownerId));
-            req.setScoreThreshold(reactorConfig.getLongTermMemoryScoreThreshold());
-            req.setLimit(Math.max(topK * 3, topK));
-            req.setTimeout(RECALL_TIMEOUT_MILLIS);
-
-            List<Map<String, Object>> hits = vectorService.vectorRecall(req);
-            if (hits == null || hits.isEmpty()) {
-                return List.of();
-            }
+            List<LongTermMemoryEntry> profileEntries = memoryRepository.getUserProfile(ownerId).stream()
+                    .map(row -> profileEntry(ownerId, row))
+                    .filter(java.util.Objects::nonNull)
+                    .toList();
+            List<HybridRetrievalHit> hits = hybridRetriever == null ? List.of() : hybridRetriever.retrieve(
+                    HybridRetrievalRequest.builder()
+                            .ownerId(ownerId)
+                            .query(query)
+                            .docTypes(List.of(DOC_QA_PAIR, "session_summary", "cross_summary"))
+                            .metadataFilters(Map.of())
+                            .topK(Math.max(topK * 3, topK))
+                            .scoreThreshold(reactorConfig.getLongTermMemoryScoreThreshold())
+                            .keywordEnabled(true)
+                            .build());
 
             long now = System.currentTimeMillis();
             double halfLifeDays = resolveHalfLifeDays();
             Map<String, ScoredMemory> newestByKey = new LinkedHashMap<>();
-            for (Map<String, Object> hit : hits) {
+            for (LongTermMemoryEntry entry : profileEntries) {
+                newestByKey.put(entry.getMemoryKey(), new ScoredMemory(entry, 1d));
+            }
+            for (HybridRetrievalHit hit : hits) {
                 LongTermMemoryEntry entry = toEntry(hit, ownerId);
                 if (entry == null || entry.isExpired(now)) {
                     continue;
                 }
-                if (StringUtils.isNotBlank(currentSessionId)
+                if (DOC_QA_PAIR.equals(hit.getDocType()) && StringUtils.isNotBlank(currentSessionId)
                         && StringUtils.equals(entry.getSessionId(), currentSessionId)) {
                     continue;
                 }
-                double rawScore = asDouble(hit.get("score"));
-                long createdAt = valueOr(entry.getCreatedAtEpochMillis(), asLong(hit.get("ts")));
+                double rawScore = hit.getFusedScore();
+                long createdAt = valueOr(entry.getCreatedAtEpochMillis(), 0L);
                 double adjusted = rawScore * timeDecay(now, createdAt, halfLifeDays);
                 LongTermMemoryEntry scoredEntry = entry.toBuilder().relevanceScore(adjusted).build();
                 ScoredMemory scored = new ScoredMemory(scoredEntry, adjusted);
@@ -193,16 +188,19 @@ public class LongTermMemoryServiceImpl implements LongTermMemoryService {
 
     @Override
     public boolean delete(String ownerId, String memoryId) {
-        if (!isLongTermEnabled() || StringUtils.isBlank(ownerId) || StringUtils.isBlank(memoryId)) {
+        if (!isLongTermEnabled() || memoryRepository == null
+                || StringUtils.isBlank(ownerId) || StringUtils.isBlank(memoryId)) {
             return false;
         }
         try {
-            Points.Filter filter = Points.Filter.newBuilder()
-                    .addMust(matchKeyword("ownerId", ownerId))
-                    .addMust(matchKeyword("memoryId", memoryId))
-                    .build();
-            return Boolean.TRUE.equals(vectorService.deleteVector(
-                    reactorConfig.getLongTermMemoryCollection(), filter));
+            if (memoryRepository.deleteMemory(ownerId, memoryId)) return true;
+            for (Map<String, Object> row : memoryRepository.getUserProfile(ownerId)) {
+                String key = asString(row.get("memory_key"));
+                if (memoryId.equals(stableUuid(ownerId, key))) {
+                    return memoryRepository.deleteUserProfileKey(ownerId, key);
+                }
+            }
+            return false;
         } catch (Exception e) {
             log.warn("long-term memory delete failed, ownerId={}, memoryId={}", ownerId, memoryId, e);
             return false;
@@ -235,37 +233,54 @@ public class LongTermMemoryServiceImpl implements LongTermMemoryService {
                 .build();
     }
 
-    private LongTermMemoryEntry toEntry(Map<String, Object> hit, String ownerId) {
+    private LongTermMemoryEntry toEntry(HybridRetrievalHit hit, String ownerId) {
         if (hit == null) {
             return null;
         }
-        String content = asString(hit.get("text"));
+        Map<String, Object> metadata = hit.getMetadata() == null ? Map.of() : hit.getMetadata();
+        String content = hit.getContent();
         if (StringUtils.isBlank(content)) {
             return null;
         }
-        String id = StringUtils.defaultIfBlank(asString(hit.get("memoryId")), asString(hit.get("_id")));
+        String id = hit.getMemoryId();
         if (StringUtils.isBlank(id)) {
             id = stableUuid(ownerId, content);
         }
         String memoryKey = StringUtils.defaultIfBlank(
-                asString(hit.get("memoryKey")),
+                asString(metadata.get("memoryKey")),
                 "legacy:" + id
         );
-        long createdAt = firstPositive(asLong(hit.get("createdAt")), asLong(hit.get("ts")));
-        long expiresAt = asLong(hit.get("expiresAt"));
+        long createdAt = asLong(metadata.get("createdAt"));
+        long expiresAt = asLong(metadata.get("expiresAt"));
         return LongTermMemoryEntry.builder()
                 .id(id)
                 .ownerId(ownerId)
-                .sessionId(asString(hit.get("sessionId")))
-                .requestId(asString(hit.get("requestId")))
-                .type(LongTermMemoryType.from(hit.get("memoryType")))
+                .sessionId(hit.getConversationId())
+                .requestId(asString(metadata.get("requestId")))
+                .type(LongTermMemoryType.from(metadata.get("memoryType")))
                 .memoryKey(memoryKey)
                 .content(content)
-                .source(StringUtils.defaultIfBlank(asString(hit.get("source")), "legacy-turn"))
-                .confidence(clampConfidence(defaultIfZero(asDouble(hit.get("confidence")), 0.5d)))
-                .version(Math.max(1L, asLong(hit.get("version"))))
+                .source(StringUtils.defaultIfBlank(asString(metadata.get("source")), hit.getDocType()))
+                .confidence(clampConfidence(defaultIfZero(asDouble(metadata.get("confidence")), 0.5d)))
+                .version(Math.max(1L, asLong(metadata.get("version"))))
                 .createdAtEpochMillis(createdAt > 0 ? createdAt : null)
                 .expiresAtEpochMillis(expiresAt > 0 ? expiresAt : null)
+                .build();
+    }
+
+    private LongTermMemoryEntry profileEntry(String ownerId, Map<String, Object> row) {
+        String key = asString(row.get("memory_key"));
+        String content = asString(row.get("content"));
+        if (StringUtils.isAnyBlank(key, content)) return null;
+        return LongTermMemoryEntry.builder()
+                .id(stableUuid(ownerId, key))
+                .ownerId(ownerId)
+                .type(LongTermMemoryType.from(row.get("memory_type")))
+                .memoryKey(key)
+                .content(content)
+                .source(asString(row.get("source")))
+                .confidence(clampConfidence(asDouble(row.get("confidence"))))
+                .version(1L)
                 .build();
     }
 
@@ -286,7 +301,7 @@ public class LongTermMemoryServiceImpl implements LongTermMemoryService {
     private boolean isLongTermEnabled() {
         return Boolean.TRUE.equals(reactorConfig.getMemoryEnabled())
                 && Boolean.TRUE.equals(reactorConfig.getLongTermMemoryEnabled())
-                && StringUtils.isNotBlank(reactorConfig.getLongTermMemoryCollection());
+                && memoryRepository != null;
     }
 
     private int resolveTopK() {

@@ -1,6 +1,5 @@
 package com.linrun.agent.domain.agent.service.armory.node.factory.element;
 
-import com.alibaba.fastjson.JSON;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClientRequest;
 import org.springframework.ai.chat.client.ChatClientResponse;
@@ -16,9 +15,9 @@ import org.springframework.ai.document.Document;
 import org.springframework.util.StringUtils;
 import reactor.core.publisher.Flux;
 import com.linrun.agent.domain.agent.model.valobj.AiClientAdvisorVO;
-import com.linrun.agent.domain.agent.reactor.config.data.DataAgentConstants;
-import com.linrun.agent.domain.agent.reactor.data.dto.VectorRecallReq;
-import com.linrun.agent.domain.agent.reactor.service.VectorService;
+import com.linrun.agent.domain.agent.rag.retrieval.HybridRetrievalHit;
+import com.linrun.agent.domain.agent.rag.retrieval.HybridRetrievalRequest;
+import com.linrun.agent.domain.agent.rag.retrieval.HybridRetriever;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -30,8 +29,7 @@ import java.util.stream.Collectors;
 @Slf4j
 public class RagAnswerAdvisor implements BaseAdvisor {
 
-    /** 现有成熟的 Qdrant 检索服务，统一承接知识库召回。 */
-    private final VectorService vectorService;
+    private final HybridRetriever hybridRetriever;
 
     /** 顾问配置中的 RAG 检索参数。 */
     private final AiClientAdvisorVO.RagAnswer ragAnswer;
@@ -45,11 +43,11 @@ public class RagAnswerAdvisor implements BaseAdvisor {
 
     /**
      * 构造方法，注入核心依赖并初始化RAG提示词模板
-     * @param vectorService Qdrant 向量检索服务
+     * @param hybridRetriever PostgreSQL 混合检索服务
      * @param ragAnswer 顾问 RAG 配置
      */
-    public RagAnswerAdvisor(VectorService vectorService, AiClientAdvisorVO.RagAnswer ragAnswer) {
-        this.vectorService = vectorService;
+    public RagAnswerAdvisor(HybridRetriever hybridRetriever, AiClientAdvisorVO.RagAnswer ragAnswer) {
+        this.hybridRetriever = hybridRetriever;
         this.ragAnswer = ragAnswer;
         // 初始化RAG提示词模板，明确大模型的回答约束
         this.userTextAdvise = "\nContext information is below, surrounded by ---------------------\n\n---------------------\n{question_answer_context}\n---------------------\n\nGiven the context and provided history information and not prior knowledge,\nreply to the user comment. If the answer is not in the context, inform\nthe user that you can't answer the question.\n";
@@ -76,8 +74,9 @@ public class RagAnswerAdvisor implements BaseAdvisor {
         String userText = chatClientRequest.prompt().getUserMessage().getText();
 
         // 3. 构建检索请求并召回文档
-        VectorRecallReq vectorRecallReq = buildVectorRecallReq(userText, context);
-        List<Document> documents = this.vectorService.vectorRecall(vectorRecallReq).stream()
+        HybridRetrievalRequest retrievalRequest = buildRetrievalRequest(userText, context);
+        List<Document> documents = retrievalRequest == null || hybridRetriever == null ? List.of()
+                : hybridRetriever.retrieve(retrievalRequest).stream()
                 .map(this::toDocument)
                 .collect(Collectors.toList());
         context.put("qa_retrieved_documents", documents);
@@ -191,20 +190,27 @@ public class RagAnswerAdvisor implements BaseAdvisor {
      * @param context 对话请求的上下文，可传递自定义过滤表达式键：qa_filter_expression
      * @return 向量库可识别的过滤表达式对象，若无可返回null
      */
-    protected VectorRecallReq buildVectorRecallReq(String userText, Map<String, Object> context) {
-        VectorRecallReq req = new VectorRecallReq();
-        req.setCollectionName(DataAgentConstants.SCHEMA_COLLECTION_NAME);
-        req.setQuery(userText);
-        req.setLimit(resolveTopK());
-        req.setKeywordFilterMap(resolveKeywordFilter(context));
-        return req;
+    protected HybridRetrievalRequest buildRetrievalRequest(String userText, Map<String, Object> context) {
+        String knowledge = resolveKnowledge(context);
+        if (!StringUtils.hasText(knowledge)) {
+            return null;
+        }
+        return HybridRetrievalRequest.builder()
+                .ownerId(knowledge)
+                .query(userText)
+                .docTypes(List.of("knowledge_chunk", "file_chunk", "image_description"))
+                .metadataFilters(Map.of())
+                .topK(resolveTopK())
+                .scoreThreshold(0.0)
+                .keywordEnabled(true)
+                .build();
     }
 
     /**
      * 当前项目里知识库顾问的过滤表达式实际只在用 `knowledge == 'xxx'` 这一种形式。
-     * 这里直接解析成现有 Qdrant keywordFilterMap，避免继续维护 pgvector/Filter AST 语义。
+     * knowledge 值本身就是 PostgreSQL owner 边界；没有过滤条件时禁止全表召回。
      */
-    protected Map<String, Object> resolveKeywordFilter(Map<String, Object> context) {
+    protected String resolveKnowledge(Map<String, Object> context) {
         String filterExpression = resolveFilterExpression(context);
         if (!StringUtils.hasText(filterExpression)) {
             return null;
@@ -212,9 +218,7 @@ public class RagAnswerAdvisor implements BaseAdvisor {
         String normalized = filterExpression.trim();
         if (normalized.startsWith("knowledge == '") && normalized.endsWith("'")) {
             String knowledge = normalized.substring("knowledge == '".length(), normalized.length() - 1);
-            Map<String, Object> filters = new LinkedHashMap<>();
-            filters.put("knowledge", knowledge);
-            return filters;
+            return knowledge;
         }
         throw new IllegalArgumentException("当前仅支持 knowledge == 'xxx' 形式的知识库过滤表达式: " + filterExpression);
     }
@@ -234,12 +238,12 @@ public class RagAnswerAdvisor implements BaseAdvisor {
         return ragAnswer.getTopK();
     }
 
-    private Document toDocument(Map<String, Object> payload) {
-        Map<String, Object> metadata = new HashMap<>(payload);
-        Object text = metadata.remove("content");
-        metadata.remove("score");
-        metadata.remove("_id");
-        return new Document(text == null ? "" : text.toString(), metadata);
+    private Document toDocument(HybridRetrievalHit hit) {
+        Map<String, Object> metadata = new HashMap<>(hit.getMetadata());
+        metadata.put("memoryId", hit.getMemoryId());
+        metadata.put("score", hit.getFusedScore());
+        metadata.put("source", hit.getSource());
+        return new Document(hit.getContent() == null ? "" : hit.getContent(), metadata);
     }
 
 }

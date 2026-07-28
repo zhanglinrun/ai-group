@@ -1,6 +1,6 @@
 package com.linrun.agent.infrastructure.tooloutput;
 
-import com.alibaba.fastjson.JSON;
+import com.linrun.agent.types.common.JsonUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -262,14 +262,14 @@ public class ToolOutputReaderImpl implements ToolOutputReader {
         if (StringUtils.isBlank(json)) {
             return new ArrayList<>();
         }
-        return JSON.parseArray(json, DeepSearchStage.class);
+        return JsonUtils.parseArray(json, DeepSearchStage.class);
     }
 
     private TodoList readTodoList(String json) {
         if (StringUtils.isBlank(json)) {
             return null;
         }
-        return JSON.parseObject(json, TodoList.class);
+        return JsonUtils.parseObject(json, TodoList.class);
     }
 
     private List<ToolFileRef> resolveFileRefs(Map<String, Object> row) {

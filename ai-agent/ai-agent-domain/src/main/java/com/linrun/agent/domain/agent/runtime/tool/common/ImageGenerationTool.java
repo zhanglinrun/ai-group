@@ -1,6 +1,5 @@
 package com.linrun.agent.domain.agent.runtime.tool.common;
 
-import com.alibaba.fastjson.JSONObject;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import okhttp3.*;
@@ -13,6 +12,7 @@ import com.linrun.agent.domain.agent.runtime.artifact.ToolArtifactSource;
 import com.linrun.agent.domain.agent.runtime.dto.File;
 import com.linrun.agent.domain.agent.runtime.tool.BaseTool;
 import com.linrun.agent.domain.agent.runtime.tool.ToolResultPayload;
+import com.linrun.agent.domain.agent.runtime.stream.AgentStreamEvent;
 import com.linrun.agent.domain.agent.runtime.util.StringUtil;
 import com.linrun.agent.domain.agent.reactor.config.ReactorConfig;
 import com.linrun.agent.domain.agent.reactor.model.imagegeneration.ImageGenerationExecuteCommand;
@@ -24,6 +24,8 @@ import com.linrun.agent.domain.agent.reactor.service.imagegeneration.IImageGener
 
 import java.util.*;
 import java.util.stream.Collectors;
+
+import static com.linrun.agent.domain.agent.runtime.artifact.ToolArtifactFormatter.toArtifactRefs;
 
 /**
  * 图片生成工具，负责把文生图 / 图生图请求转发到 runtime/tools。
@@ -217,7 +219,11 @@ public class ImageGenerationTool implements BaseTool {
             resultMap.put("toolName", artifactSource.getToolName());
         }
         String messageId = StringUtil.getUUID();
-        agentContext.getPrinter().send(messageId, "file", resultMap, null, true);
+        agentContext.getPrinter().send(new AgentStreamEvent.StageOutput(
+                agentContext.getRequestId(), artifactSource == null ? null : artifactSource.getToolCallId(),
+                "file", resultMap,
+                toArtifactRefs(agentContext.getArtifactBindingsByToolCallId(
+                        artifactSource == null ? null : artifactSource.getToolCallId())), true));
     }
 
     private List<String> collectContextImageFileNames() {

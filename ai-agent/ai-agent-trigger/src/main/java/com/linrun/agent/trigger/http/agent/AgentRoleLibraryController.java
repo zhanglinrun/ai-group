@@ -9,7 +9,7 @@ import com.linrun.agent.domain.agent.model.valobj.FixRoleVO;
 import com.linrun.agent.trigger.http.agent.vo.FixRoleRespVO;
 import com.linrun.agent.types.enums.ResponseCode;
 
-import javax.annotation.Resource;
+import jakarta.annotation.Resource;
 import java.util.List;
 import java.util.stream.Collectors;
 

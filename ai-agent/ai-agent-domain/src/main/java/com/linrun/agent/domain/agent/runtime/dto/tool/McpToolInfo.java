@@ -1,6 +1,6 @@
 package com.linrun.agent.domain.agent.runtime.dto.tool;
 
-import com.alibaba.fastjson.annotation.JSONField;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -77,7 +77,7 @@ public class McpToolInfo {
      * 运行时服务描述，仅用于本地执行，不参与序列化。
      */
     @ToString.Exclude
-    @JSONField(serialize = false, deserialize = false)
+    @JsonIgnore
     private McpServerDescriptor descriptor;
 
     public String resolveExposedName() {

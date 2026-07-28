@@ -1,6 +1,6 @@
 package com.linrun.agent.domain.agent.runtime.llm;
 
-import com.alibaba.fastjson.annotation.JSONField;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -19,37 +19,37 @@ import java.util.Map;
 public class LLMSettings {
     private String model;
 
-    @JSONField(name = "max_tokens")
+    @JsonProperty("max_tokens")
     private int maxTokens;
 
     private double temperature;
 
     private String apiType;
 
-    @JSONField(name = "apikey")
+    @JsonProperty("apikey")
     private String apiKey;
 
     private String apiVersion;
 
-    @JSONField(name = "base_url")
+    @JsonProperty("base_url")
     private String baseUrl;
 
-    @JSONField(name = "interface_url")
+    @JsonProperty("interface_url")
     private String interfaceUrl;
 
     private String functionCallType;
 
-    @JSONField(name = "max_input_tokens")
+    @JsonProperty("max_input_tokens")
     private int maxInputTokens;
 
     /** Credits charged per one million input tokens. */
     @Builder.Default
-    @JSONField(name = "input_credits_per_million")
+    @JsonProperty("input_credits_per_million")
     private long inputCreditsPerMillion = 5L;
 
     /** Credits charged per one million output tokens. */
     @Builder.Default
-    @JSONField(name = "output_credits_per_million")
+    @JsonProperty("output_credits_per_million")
     private long outputCreditsPerMillion = 30L;
 
     private Map<String, Object> extParams;

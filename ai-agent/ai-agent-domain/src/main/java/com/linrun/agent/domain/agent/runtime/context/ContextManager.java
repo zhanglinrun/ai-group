@@ -6,10 +6,7 @@ import com.linrun.agent.domain.agent.runtime.enums.RoleType;
 import com.linrun.agent.domain.agent.runtime.llm.TokenCounter;
 
 import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 
 /**
  * 所有主 Agent LLM 调用共享的上下文治理器。
@@ -98,39 +95,62 @@ public final class ContextManager implements ContextCompactor {
                 .map(ContextManager::copyOf)
                 .toList();
 
-        int latestUserIndex = findLatestUserIndex(conversation);
-        int minimumConversationBudget = latestUserIndex >= 0 ? Math.min(256, Math.max(64, messageBudget / 4)) : 0;
-        int systemLimit = Math.max(0, messageBudget - minimumConversationBudget);
+        List<MessageUnit> units = toUserTurns(conversation);
+        int latestUserUnit = findLatestUserUnit(units);
+        int requiredConversationTokens = latestUserUnit < 0
+                ? 0
+                : tokenCounter.countMessages(units.get(latestUserUnit).messages());
+        int minimumSystemTokens = systems.isEmpty() ? 0 : MIN_REQUIRED_MESSAGE_TOKENS;
+        if (requiredConversationTokens + minimumSystemTokens > messageBudget) {
+            throw new ContextBudgetExceededException(
+                    "最新用户轮次与必要系统指令超过消息预算：required="
+                            + (requiredConversationTokens + minimumSystemTokens)
+                            + ", budget=" + messageBudget);
+        }
+        int systemLimit = Math.max(0, messageBudget - requiredConversationTokens);
         List<Message> fittedSystems = fitMessagesInOrder(systems, systemLimit, true);
         int remaining = Math.max(0, messageBudget - tokenCounter.countMessages(fittedSystems));
-
-        List<MessageUnit> units = toAtomicUnits(conversation);
-        int latestUserUnit = findUnitContainingIndex(units, latestUserIndex);
-        Set<Integer> selected = new HashSet<>();
-
+        int selectedStart = latestUserUnit < 0 ? units.size() : latestUserUnit;
         if (latestUserUnit >= 0) {
-            MessageUnit userUnit = units.get(latestUserUnit);
-            Message fittedUser = fitSingleRequiredMessage(userUnit.messages().get(0), remaining);
-            units.set(latestUserUnit, new MessageUnit(userUnit.startIndex(), List.of(fittedUser)));
-            selected.add(latestUserUnit);
-            remaining -= tokenCounter.countMessageTokens(fittedUser);
-        }
-
-        for (int i = units.size() - 1; i >= 0; i--) {
-            if (i == latestUserUnit) {
-                continue;
-            }
-            int unitTokens = tokenCounter.countMessages(units.get(i).messages());
-            if (unitTokens <= remaining) {
-                selected.add(i);
+            remaining -= requiredConversationTokens;
+            for (int i = latestUserUnit - 1; i >= 0; i--) {
+                int unitTokens = tokenCounter.countMessages(units.get(i).messages());
+                if (unitTokens > remaining) break;
+                selectedStart = i;
                 remaining -= unitTokens;
             }
         }
 
+        List<Message> summary = selectedStart > 0
+                ? buildHistorySummary(units.subList(0, selectedStart), remaining)
+                : List.of();
         List<Message> result = new ArrayList<>(fittedSystems);
-        selected.stream().sorted(Comparator.naturalOrder())
-                .forEach(index -> result.addAll(units.get(index).messages()));
+        result.addAll(summary);
+        for (int i = selectedStart; i < units.size(); i++) {
+            result.addAll(units.get(i).messages());
+        }
         return result;
+    }
+
+    private List<Message> buildHistorySummary(List<MessageUnit> omitted, int budget) {
+        if (omitted.isEmpty() || budget < MIN_REQUIRED_MESSAGE_TOKENS * 2) return List.of();
+        StringBuilder raw = new StringBuilder("历史摘要：\n");
+        omitted.forEach(unit -> unit.messages().forEach(message -> raw
+                .append(message.getRole().name().toLowerCase())
+                .append(": ")
+                .append(StringUtils.defaultString(message.getContent()))
+                .append('\n')));
+        Message acknowledgement = Message.assistantMessage("已了解上述历史上下文。", null);
+        Message emptySummary = Message.userMessage("", null);
+        int contentBudget = budget
+                - tokenCounter.countMessageTokens(acknowledgement)
+                - tokenCounter.countMessageTokens(emptySummary)
+                - MESSAGE_LIST_FORMAT_TOKENS;
+        if (contentBudget <= 0) return List.of();
+        Message summary = Message.userMessage(
+                tokenCounter.truncateTextToTokens(raw.toString(), contentBudget), null);
+        List<Message> pair = List.of(summary, acknowledgement);
+        return tokenCounter.countMessages(pair) <= budget ? pair : List.of();
     }
 
     private List<Message> fitMessagesInOrder(List<Message> messages, int budget, boolean required) {
@@ -220,44 +240,29 @@ public final class ContextManager implements ContextCompactor {
         return content.substring(startIndex);
     }
 
-    private List<MessageUnit> toAtomicUnits(List<Message> messages) {
+    private List<MessageUnit> toUserTurns(List<Message> messages) {
         List<MessageUnit> units = new ArrayList<>();
-        for (int index = 0; index < messages.size();) {
-            int start = index;
-            List<Message> unit = new ArrayList<>();
-            Message current = messages.get(index++);
-            unit.add(current);
-            if (current.getRole() == RoleType.ASSISTANT
-                    && current.getToolCalls() != null
-                    && !current.getToolCalls().isEmpty()) {
-                while (index < messages.size() && messages.get(index).getRole() == RoleType.TOOL) {
-                    unit.add(messages.get(index++));
-                }
+        List<Message> current = new ArrayList<>();
+        int start = 0;
+        boolean containsUser = false;
+        for (int index = 0; index < messages.size(); index++) {
+            Message message = messages.get(index);
+            if (message.getRole() == RoleType.USER && !current.isEmpty()) {
+                units.add(new MessageUnit(start, List.copyOf(current), containsUser));
+                current.clear();
+                start = index;
+                containsUser = false;
             }
-            units.add(new MessageUnit(start, unit));
+            current.add(message);
+            containsUser |= message.getRole() == RoleType.USER;
         }
+        if (!current.isEmpty()) units.add(new MessageUnit(start, List.copyOf(current), containsUser));
         return units;
     }
 
-    private int findLatestUserIndex(List<Message> messages) {
-        for (int i = messages.size() - 1; i >= 0; i--) {
-            if (messages.get(i).getRole() == RoleType.USER) {
-                return i;
-            }
-        }
-        return -1;
-    }
-
-    private int findUnitContainingIndex(List<MessageUnit> units, int messageIndex) {
-        if (messageIndex < 0) {
-            return -1;
-        }
-        for (int i = 0; i < units.size(); i++) {
-            MessageUnit unit = units.get(i);
-            int end = unit.startIndex() + unit.messages().size();
-            if (messageIndex >= unit.startIndex() && messageIndex < end) {
-                return i;
-            }
+    private int findLatestUserUnit(List<MessageUnit> units) {
+        for (int i = units.size() - 1; i >= 0; i--) {
+            if (units.get(i).containsUser()) return i;
         }
         return -1;
     }
@@ -277,6 +282,6 @@ public final class ContextManager implements ContextCompactor {
         return safeLeft.equals(right);
     }
 
-    private record MessageUnit(int startIndex, List<Message> messages) {
+    private record MessageUnit(int startIndex, List<Message> messages, boolean containsUser) {
     }
 }

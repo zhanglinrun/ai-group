@@ -1,6 +1,6 @@
 package com.linrun.agent.test.domain;
 
-import com.alibaba.fastjson.JSONObject;
+import com.linrun.agent.types.common.JsonUtils;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
@@ -12,6 +12,7 @@ import com.linrun.agent.domain.agent.adapter.port.QuotaBillingPort;
 import com.linrun.agent.domain.agent.runtime.agent.AgentContext;
 import com.linrun.agent.domain.agent.runtime.artifact.ToolArtifactSource;
 import com.linrun.agent.domain.agent.runtime.printer.Printer;
+import com.linrun.agent.domain.agent.runtime.stream.AgentStreamEvent;
 import com.linrun.agent.domain.agent.runtime.tool.ToolCollection;
 import com.linrun.agent.domain.agent.runtime.tool.ToolResultPayload;
 import com.linrun.agent.domain.agent.runtime.dto.File;
@@ -106,9 +107,9 @@ public class ImageGenerationToolTest {
             ToolResultPayload payload;
             context.bindCurrentToolArtifactSource(artifactSource);
             try {
-                payload = (ToolResultPayload) tool.execute(JSONObject.parseObject("""
+                payload = (ToolResultPayload) tool.execute(JsonUtils.parseObject("""
                         {"prompt":"生成活动海报","n":2,"size":"1536x1024","model":"gpt-image-1"}
-                        """));
+                        """, Map.class));
             } finally {
                 context.clearCurrentToolArtifactSource();
             }
@@ -187,9 +188,9 @@ public class ImageGenerationToolTest {
 
             context.bindCurrentToolArtifactSource(artifactSource);
             try {
-                ToolResultPayload payload = (ToolResultPayload) tool.execute(JSONObject.parseObject("""
+                ToolResultPayload payload = (ToolResultPayload) tool.execute(JsonUtils.parseObject("""
                         {"prompt":"基于上传图片改成赛博朋克风"}
-                        """));
+                        """, Map.class));
                 Assert.assertFalse(payload.getFailed());
             } finally {
                 context.clearCurrentToolArtifactSource();
@@ -249,9 +250,9 @@ public class ImageGenerationToolTest {
 
             context.bindCurrentToolArtifactSource(artifactSource);
             try {
-                ToolResultPayload payload = (ToolResultPayload) tool.execute(JSONObject.parseObject("""
+                ToolResultPayload payload = (ToolResultPayload) tool.execute(JsonUtils.parseObject("""
                         {"prompt":"沿用上一张图继续修改"}
-                        """));
+                        """, Map.class));
                 Assert.assertFalse(payload.getFailed());
             } finally {
                 context.clearCurrentToolArtifactSource();
@@ -335,7 +336,8 @@ public class ImageGenerationToolTest {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
             byte[] requestBody = exchange.getRequestBody().readAllBytes();
-            lastRequest.set(JSONObject.parseObject(new String(requestBody, StandardCharsets.UTF_8), ImageGenerationRequest.class));
+            lastRequest.set(JsonUtils.parseObject(
+                    new String(requestBody, StandardCharsets.UTF_8), ImageGenerationRequest.class));
             byte[] body = """
                     {"data":"已生成图片文件：poster.png","requestId":"req-image-response","mode":"images","usedFallback":true,"fileInfo":[{"fileName":"poster.png","ossUrl":"https://file.example.com/poster.png","domainUrl":"https://file.example.com/preview/poster.png","fileSize":256,"mimeType":"image/png"}]}
                     """.getBytes(StandardCharsets.UTF_8);
@@ -352,45 +354,10 @@ public class ImageGenerationToolTest {
         private final AtomicReference<Object> lastMessage = new AtomicReference<>();
 
         @Override
-        public void send(String messageId, String messageType, Object message, String digitalEmployee, Boolean isFinal) {
-            messageTypes.add(messageType);
-            lastMessage.set(message);
-        }
-
-        @Override
-        public void send(String messageId, String messageType, Object message, Map<String, Object> extraResultMap, String digitalEmployee, Boolean isFinal) {
-            messageTypes.add(messageType);
-            lastMessage.set(message);
-        }
-
-        @Override
-        public void send(String messageType, Object message) {
-            messageTypes.add(messageType);
-            lastMessage.set(message);
-        }
-
-        @Override
-        public void send(String messageType, Object message, String digitalEmployee) {
-            messageTypes.add(messageType);
-            lastMessage.set(message);
-        }
-
-        @Override
-        public void send(String messageId, String messageType, Object message, Boolean isFinal) {
-            messageTypes.add(messageType);
-            lastMessage.set(message);
-        }
-
-        @Override
-        public void sendWithResultMap(String messageId, String messageType, Object message, Map<String, Object> extraResultMap, Boolean isFinal) {
-            messageTypes.add(messageType);
-            lastMessage.set(message);
-        }
-
-        @Override
-        public void sendWithResultMap(String messageType, Object message, Map<String, Object> extraResultMap) {
-            messageTypes.add(messageType);
-            lastMessage.set(message);
+        public void send(AgentStreamEvent event) {
+            AgentStreamEvent.StageOutput output = (AgentStreamEvent.StageOutput) event;
+            messageTypes.add(output.outputType());
+            lastMessage.set(output.payload());
         }
 
         @Override

@@ -21,6 +21,7 @@ public final class ExecutionLedgerConstants {
     public static final String CALL_KIND_INTERNAL_DIGITAL_EMPLOYEE = "internalDigitalEmployee";
 
     public static final String AGENT_NAME_AGENT_LOOP = "agent_loop";
+    public static final String AGENT_NAME_DEEP_RESEARCH_GRAPH = "deep_research_graph";
     public static final String ENTRY_AGENT_LOOP_PREFIX = "agent_loop:";
     public static final String ENTRY_AGENT_LOOP_STANDARD = "agent_loop:standard";
     public static final String ENTRY_AGENT_LOOP_AUTO = "agent_loop:auto";

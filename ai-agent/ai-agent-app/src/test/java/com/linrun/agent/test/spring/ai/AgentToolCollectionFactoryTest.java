@@ -137,7 +137,6 @@ public class AgentToolCollectionFactoryTest {
         Assert.assertFalse(toolCollection.getToolMap().containsKey("script_runner_tool"));
         Assert.assertTrue(toolCollection.getToolMap().containsKey("file_tool"));
         Assert.assertTrue(toolCollection.getToolMap().containsKey("todo_write"));
-        Assert.assertFalse(toolCollection.getToolMap().containsKey("multimodalagent_tool"));
     }
 
     @Test
@@ -236,34 +235,7 @@ public class AgentToolCollectionFactoryTest {
     }
 
     @Test
-    public void shouldNotIncludeMultiModalAgentWhenRemovedFromDefaultList() {
-        McpToolExecutor mcpToolExecutor = Mockito.mock(McpToolExecutor.class);
-        Mockito.when(mcpToolExecutor.discoverConfiguredTools()).thenReturn(List.of());
-
-        ReactorConfig reactorConfig = buildReactorConfig();
-        reactorConfig.setMultiAgentToolList("{\"default\":\"search,code,report\"}");
-
-        AgentToolCollectionFactory factory = new AgentToolCollectionFactory(
-                reactorConfig,
-                mcpToolExecutor,
-                Mockito.mock(DefaultSkillRegistry.class),
-                SkillRuntimeOptions.builder()
-                        .enabled(false)
-                        .agentLoopEnabled(false)
-                        .build(),
-                Mockito.mock(SkillScriptRunnerClient.class),
-                mockUserSkillService(),
-                mockUserMcpService()
-        );
-
-        ToolCollection toolCollection = factory.buildForUnified(buildAgentContext(), buildAgentRequest("html"));
-
-        Assert.assertFalse(toolCollection.getToolMap().containsKey("multimodalagent_tool"));
-        Assert.assertTrue(toolCollection.getToolMap().containsKey("todo_write"));
-    }
-
-    @Test
-    public void shouldKeepDataAgentToolingStableWithoutMultiModalAgent() {
+    public void shouldRouteLegacyDataAgentOutputThroughUnifiedTools() {
         McpToolExecutor mcpToolExecutor = Mockito.mock(McpToolExecutor.class);
         Mockito.when(mcpToolExecutor.discoverConfiguredTools()).thenReturn(List.of());
 
@@ -282,10 +254,9 @@ public class AgentToolCollectionFactoryTest {
 
         ToolCollection toolCollection = factory.buildForUnified(buildAgentContext(), buildAgentRequest("dataAgent"));
 
-        Assert.assertTrue(toolCollection.getToolMap().containsKey("report_tool"));
-        Assert.assertTrue(toolCollection.getToolMap().containsKey("data_analysis"));
+        Assert.assertTrue(toolCollection.getToolMap().containsKey("file_tool"));
+        Assert.assertFalse(toolCollection.getToolMap().containsKey("data_analysis"));
         Assert.assertTrue(toolCollection.getToolMap().containsKey("todo_write"));
-        Assert.assertFalse(toolCollection.getToolMap().containsKey("multimodalagent_tool"));
     }
 
     @Test
@@ -334,7 +305,7 @@ public class AgentToolCollectionFactoryTest {
 
     private ReactorConfig buildReactorConfig() {
         ReactorConfig reactorConfig = new ReactorConfig();
-        reactorConfig.setMultiAgentToolList("{\"default\":\"search,web_fetch,code,report,multimodalagent\"}");
+        reactorConfig.setMultiAgentToolList("{\"default\":\"search,web_fetch,code,report\"}");
         return reactorConfig;
     }
 
@@ -379,31 +350,7 @@ public class AgentToolCollectionFactoryTest {
     private static final class SilentPrinter implements Printer {
 
         @Override
-        public void send(String messageId, String messageType, Object message, String digitalEmployee, Boolean isFinal) {
-        }
-
-        @Override
-        public void send(String messageId, String messageType, Object message, java.util.Map<String, Object> extraResultMap, String digitalEmployee, Boolean isFinal) {
-        }
-
-        @Override
-        public void send(String messageType, Object message) {
-        }
-
-        @Override
-        public void send(String messageType, Object message, String digitalEmployee) {
-        }
-
-        @Override
-        public void send(String messageId, String messageType, Object message, Boolean isFinal) {
-        }
-
-        @Override
-        public void sendWithResultMap(String messageId, String messageType, Object message, java.util.Map<String, Object> extraResultMap, Boolean isFinal) {
-        }
-
-        @Override
-        public void sendWithResultMap(String messageType, Object message, java.util.Map<String, Object> extraResultMap) {
+        public void send(com.linrun.agent.domain.agent.runtime.stream.AgentStreamEvent event) {
         }
 
         @Override

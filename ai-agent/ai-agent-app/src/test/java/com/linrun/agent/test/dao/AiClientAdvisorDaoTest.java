@@ -14,7 +14,7 @@ import java.util.List;
 
 /**
  * 顾问配置表 DAO 测试
- * @author bugstack虫洞栈
+ * @author linrun
  * @description 顾问配置表数据访问对象测试
  */
 @Slf4j

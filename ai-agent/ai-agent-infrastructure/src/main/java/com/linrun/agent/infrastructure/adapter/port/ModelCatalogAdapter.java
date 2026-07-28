@@ -3,6 +3,7 @@ package com.linrun.agent.infrastructure.adapter.port;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
+import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Component;
 import com.linrun.agent.domain.agent.adapter.port.ModelCatalogPort;
 import com.linrun.agent.domain.agent.model.valobj.AiClientModelVO;
@@ -16,6 +17,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -38,6 +40,9 @@ public class ModelCatalogAdapter implements ModelCatalogPort {
 
     @Resource
     private IAiClientApiDao aiClientApiDao;
+
+    @Resource
+    private Environment environment;
 
     private volatile Snapshot snapshot;
 
@@ -143,13 +148,31 @@ public class ModelCatalogAdapter implements ModelCatalogPort {
     }
 
     private LLMSettings toLlmSettings(AiClientModel model, AiClientApi api) {
+        String modelName = model.getModelName();
+        String baseUrl = api.getBaseUrl();
+        String apiKey = api.getApiKey();
+        String interfaceUrl = StringUtils.isNotBlank(api.getCompletionsPath())
+                ? api.getCompletionsPath()
+                : DEFAULT_COMPLETIONS_PATH;
+        if (isPlaceholderSecret(apiKey)) {
+            String envApiKey = firstNonBlank(
+                    env("AGENT_GROUP_LLM_API_KEY"),
+                    env("SPRING_AI_OPENAI_API_KEY"),
+                    env("DASHSCOPE_API_KEY"),
+                    env("llm.default.apikey"));
+            if (StringUtils.isNotBlank(envApiKey)) {
+                apiKey = envApiKey;
+                modelName = firstNonBlank(env("AGENT_GROUP_LLM_CHAT_MODEL"), env("llm.default.model"), modelName);
+                baseUrl = firstNonBlank(env("AGENT_GROUP_LLM_BASE_URL"), env("llm.default.base_url"), baseUrl);
+                interfaceUrl = firstNonBlank(env("AGENT_GROUP_LLM_INTERFACE_URL"), env("llm.default.interface_url"), interfaceUrl);
+                log.info("Model catalog API {} uses environment LLM settings because DB api_key is a placeholder", api.getApiId());
+            }
+        }
         return LLMSettings.builder()
-                .model(model.getModelName())
-                .baseUrl(api.getBaseUrl())
-                .apiKey(api.getApiKey())
-                .interfaceUrl(StringUtils.isNotBlank(api.getCompletionsPath())
-                        ? api.getCompletionsPath()
-                        : DEFAULT_COMPLETIONS_PATH)
+                .model(modelName)
+                .baseUrl(baseUrl)
+                .apiKey(apiKey)
+                .interfaceUrl(interfaceUrl)
                 .functionCallType("function_call")
                 .maxTokens(DEFAULT_MAX_TOKENS)
                 .maxInputTokens(DEFAULT_MAX_INPUT_TOKENS)
@@ -158,6 +181,38 @@ public class ModelCatalogAdapter implements ModelCatalogPort {
                 .temperature(0.0)
                 .extParams(new HashMap<>())
                 .build();
+    }
+
+    private String env(String key) {
+        return environment == null ? null : environment.getProperty(key);
+    }
+
+    private String firstNonBlank(String... values) {
+        if (values == null) {
+            return null;
+        }
+        for (String value : values) {
+            if (StringUtils.isNotBlank(value)) {
+                return value.trim();
+            }
+        }
+        return null;
+    }
+
+    private boolean isPlaceholderSecret(String value) {
+        if (StringUtils.isBlank(value)) {
+            return true;
+        }
+        String normalized = value.trim().toLowerCase(Locale.ROOT);
+        return "not-configured".equals(normalized)
+                || "not_configured".equals(normalized)
+                || "change-me".equals(normalized)
+                || "changeme".equals(normalized)
+                || "replace-me".equals(normalized)
+                || "your-api-key".equals(normalized)
+                || "sk-xxxxxxxx".equals(normalized)
+                || "xxx".equals(normalized)
+                || normalized.startsWith("your-");
     }
 
     private long defaultRate(Long configured, long fallback) {

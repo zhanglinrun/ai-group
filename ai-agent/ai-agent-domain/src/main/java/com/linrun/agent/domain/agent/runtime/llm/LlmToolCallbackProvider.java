@@ -8,7 +8,7 @@ import com.linrun.agent.domain.agent.runtime.tool.ToolCollection;
 import com.linrun.agent.domain.agent.runtime.tool.mcp.runtime.McpRegistry;
 import com.linrun.agent.domain.agent.runtime.tool.mcp.runtime.RegistryBackedToolCallback;
 
-import javax.annotation.Resource;
+import jakarta.annotation.Resource;
 import java.util.ArrayList;
 import java.util.List;
 

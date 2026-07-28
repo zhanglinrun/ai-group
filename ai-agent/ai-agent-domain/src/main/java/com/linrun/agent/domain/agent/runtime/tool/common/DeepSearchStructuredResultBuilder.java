@@ -1,6 +1,6 @@
 package com.linrun.agent.domain.agent.runtime.tool.common;
 
-import com.alibaba.fastjson.JSON;
+import com.linrun.agent.types.common.JsonUtils;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -95,7 +95,7 @@ public class DeepSearchStructuredResultBuilder {
     public String buildJson(String fallbackAnswer) {
         String normalizedAnswer = StringUtils.defaultIfBlank(finalAnswer, StringUtils.defaultString(fallbackAnswer));
         DeepSearchToolOutput output = buildOutput(normalizedAnswer);
-        return JSON.toJSONString(output);
+        return JsonUtils.toJson(output);
     }
 
     /**
@@ -125,7 +125,7 @@ public class DeepSearchStructuredResultBuilder {
                 .results(buildObservationResults())
                 .answerSummary(truncate(normalizedAnswer, OBSERVATION_ANSWER_MAX_LEN))
                 .build();
-        return JSON.toJSONString(observation);
+        return JsonUtils.toJson(observation);
     }
 
     private void recordExtend(DeepSearchrResponse.SearchResult searchResult) {

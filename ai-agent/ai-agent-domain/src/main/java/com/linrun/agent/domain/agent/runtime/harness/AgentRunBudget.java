@@ -45,6 +45,17 @@ public record AgentRunBudget(
         );
     }
 
+    public AgentRunBudget withMaxDurationMillis(long value) {
+        return new AgentRunBudget(
+                maxTurns,
+                maxToolCalls,
+                maxCompletionAttempts,
+                value,
+                maxTotalTokens,
+                maxMicrocredits
+        );
+    }
+
     public AgentRunBudget withMaxMicrocredits(long value) {
         return new AgentRunBudget(
                 maxTurns,

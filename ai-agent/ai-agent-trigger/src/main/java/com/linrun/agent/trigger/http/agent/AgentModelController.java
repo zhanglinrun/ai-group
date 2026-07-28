@@ -9,7 +9,7 @@ import com.linrun.agent.domain.agent.model.valobj.AiClientModelVO;
 import com.linrun.agent.trigger.http.agent.vo.ModelRespVO;
 import com.linrun.agent.types.enums.ResponseCode;
 
-import javax.annotation.Resource;
+import jakarta.annotation.Resource;
 import java.util.List;
 import java.util.stream.Collectors;
 

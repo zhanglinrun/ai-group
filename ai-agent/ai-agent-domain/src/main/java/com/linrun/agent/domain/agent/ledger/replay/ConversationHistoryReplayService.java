@@ -1,8 +1,9 @@
 package com.linrun.agent.domain.agent.ledger.replay;
 
-import lombok.RequiredArgsConstructor;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.linrun.agent.domain.agent.ledger.AgentStreamEventStore;
 import com.linrun.agent.domain.agent.model.valobj.ConversationRoleVO;
 import com.linrun.agent.domain.agent.ledger.model.ArtifactView;
 import com.linrun.agent.domain.agent.ledger.model.ConversationHistoryDetail;
@@ -12,13 +13,16 @@ import com.linrun.agent.domain.agent.ledger.model.ExecutionLedgerConstants;
 import com.linrun.agent.domain.agent.ledger.model.ExecutionRunDetail;
 import com.linrun.agent.domain.agent.ledger.model.LlmInvocationView;
 import com.linrun.agent.domain.agent.ledger.model.ToolInvocationView;
+import com.linrun.agent.domain.agent.reactor.model.constant.Constants;
 import com.linrun.agent.domain.agent.reactor.model.response.GptProcessResult;
 import com.linrun.agent.domain.agent.ledger.model.replay.ReplayFactBundle;
 import com.linrun.agent.domain.agent.ledger.ExecutionLedgerQueryService;
 import com.linrun.agent.domain.agent.ledger.model.tooloutput.ReportToolOutput;
 import com.linrun.agent.domain.agent.ledger.model.tooloutput.ToolStructuredOutput;
+import com.linrun.agent.types.common.JsonUtils;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -26,12 +30,28 @@ import java.util.Map;
 /**
  * 会话历史详情聚合服务。
  */
-@RequiredArgsConstructor
 public class ConversationHistoryReplayService {
 
     private final ExecutionLedgerQueryService executionLedgerQueryService;
     private final ReplayProjector replayProjector;
     private final HistoryReplayPrinter historyReplayPrinter;
+    private final AgentStreamEventStore streamEventStore;
+
+    public ConversationHistoryReplayService(ExecutionLedgerQueryService executionLedgerQueryService,
+                                            ReplayProjector replayProjector,
+                                            HistoryReplayPrinter historyReplayPrinter) {
+        this(executionLedgerQueryService, replayProjector, historyReplayPrinter, null);
+    }
+
+    public ConversationHistoryReplayService(ExecutionLedgerQueryService executionLedgerQueryService,
+                                            ReplayProjector replayProjector,
+                                            HistoryReplayPrinter historyReplayPrinter,
+                                            AgentStreamEventStore streamEventStore) {
+        this.executionLedgerQueryService = executionLedgerQueryService;
+        this.replayProjector = replayProjector;
+        this.historyReplayPrinter = historyReplayPrinter;
+        this.streamEventStore = streamEventStore;
+    }
 
     public ConversationHistoryDetail queryConversationHistory(String sessionId) {
         if (StringUtils.isBlank(sessionId) || executionLedgerQueryService == null) {
@@ -61,6 +81,7 @@ public class ConversationHistoryReplayService {
                 List<GptProcessResult> replayFrames = replayProjector == null
                         ? List.of()
                         : replayProjector.projectHistoryFrames(bundle);
+                replayFrames = mergeCanonicalReplayFrames(run.getRequestId(), replayFrames);
                 historyModeSnapshot = resolveHistoryModeSnapshot(run, runDetail, replayFrames);
                 // 展示级 run 元数据（模型 / tokens / 耗时）：优先取单 run 明细的账本聚合，回退列表视图。
                 DialogueRunView metricsRun = (runDetail != null && runDetail.getRun() != null)
@@ -97,6 +118,140 @@ public class ConversationHistoryReplayService {
                 .lastActiveAt(session.getLastActiveAt())
                 .runs(runDetails)
                 .build();
+    }
+
+    private List<GptProcessResult> mergeCanonicalReplayFrames(String requestId,
+                                                              List<GptProcessResult> legacyFrames) {
+        if (StringUtils.isBlank(requestId) || streamEventStore == null) {
+            return legacyFrames;
+        }
+        List<AgentStreamEventStore.StoredStreamEvent> stored = streamEventStore.findByRequestId(requestId);
+        if (CollectionUtils.isEmpty(stored)) {
+            return legacyFrames;
+        }
+        List<GptProcessResult> result = new ArrayList<>();
+        int order = 1;
+        for (AgentStreamEventStore.StoredStreamEvent event : stored) {
+            GptProcessResult frame = canonicalFrame(requestId, event, order++);
+            if (frame != null) {
+                result.add(frame);
+            }
+            GptProcessResult stageTaskFrame = stageTaskFrame(requestId, event, order++);
+            if (stageTaskFrame != null) {
+                result.add(stageTaskFrame);
+            }
+        }
+        return result.isEmpty() ? legacyFrames : result;
+    }
+
+    private GptProcessResult canonicalFrame(String requestId,
+                                            AgentStreamEventStore.StoredStreamEvent event,
+                                            int messageOrder) {
+        JsonNode json = JsonUtils.parseTree(event.eventJson());
+        if (json == null || StringUtils.isBlank(text(json, "type"))) {
+            return null;
+        }
+        Map<String, Object> payload = JsonUtils.convertValue(json, Map.class);
+        Map<String, Object> nested = new LinkedHashMap<>();
+        nested.put("messageType", event.eventType());
+        nested.put("resultMap", payload);
+        List<Map<String, Object>> artifactRefs = artifactRefs(payload.get("artifactRefs"));
+        return frame(
+                requestId,
+                messageOrder,
+                messageId(payload, event, messageOrder),
+                nested,
+                artifactRefs,
+                "complete".equals(event.eventType()) || "error".equals(event.eventType())
+        );
+    }
+
+    private GptProcessResult stageTaskFrame(String requestId,
+                                            AgentStreamEventStore.StoredStreamEvent event,
+                                            int messageOrder) {
+        if (!"stage_output".equals(event.eventType())) {
+            return null;
+        }
+        JsonNode json = JsonUtils.parseTree(event.eventJson());
+        if (json == null) {
+            return null;
+        }
+        JsonNode payloadNode = json.get("payload");
+        Map<String, Object> payload = payloadNode == null || payloadNode.isNull()
+                ? new LinkedHashMap<>()
+                : JsonUtils.convertValue(payloadNode, Map.class);
+        if (payload == null) {
+            payload = new LinkedHashMap<>();
+        }
+        String outputType = text(json, "outputType");
+        payload.put("requestId", requestId);
+        payload.put("messageId", text(json, "toolCallId"));
+        payload.put("messageType", outputType);
+        payload.put("isFinal", json.path("isFinal").asBoolean(false));
+        return frame(
+                requestId,
+                messageOrder,
+                StringUtils.defaultIfBlank(text(json, "toolCallId"),
+                        requestId + ":" + outputType + ":" + messageOrder),
+                payload,
+                artifactRefs(JsonUtils.convertValue(json.path("artifactRefs"), List.class)),
+                false
+        );
+    }
+
+    private GptProcessResult frame(String requestId,
+                                   int messageOrder,
+                                   String messageId,
+                                   Map<String, Object> result,
+                                   List<Map<String, Object>> artifactRefs,
+                                   boolean finished) {
+        Map<String, Object> eventData = new LinkedHashMap<>();
+        eventData.put("taskId", requestId);
+        eventData.put("taskOrder", messageOrder);
+        eventData.put("messageType", "agent_event");
+        eventData.put("messageOrder", messageOrder);
+        eventData.put("messageId", messageId);
+        if (CollectionUtils.isNotEmpty(artifactRefs)) {
+            eventData.put("artifactRefs", artifactRefs);
+        }
+        eventData.put("resultMap", result);
+
+        Map<String, Object> resultMap = new LinkedHashMap<>();
+        resultMap.put("eventData", eventData);
+        return GptProcessResult.builder()
+                .status(Constants.SUCCESS)
+                .finished(finished)
+                .reqId(requestId)
+                .resultMap(resultMap)
+                .build();
+    }
+
+    private String messageId(Map<String, Object> payload,
+                             AgentStreamEventStore.StoredStreamEvent event,
+                             int messageOrder) {
+        Object toolCallId = payload.get("toolCallId");
+        if (toolCallId != null && StringUtils.isNotBlank(String.valueOf(toolCallId))) {
+            return String.valueOf(toolCallId);
+        }
+        Object runId = payload.get("runId");
+        return StringUtils.defaultIfBlank(runId == null ? null : String.valueOf(runId), "run")
+                + ":" + event.eventType() + ":" + messageOrder;
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> artifactRefs(Object raw) {
+        if (!(raw instanceof List<?> refs)) {
+            return List.of();
+        }
+        return refs.stream()
+                .filter(Map.class::isInstance)
+                .map(ref -> (Map<String, Object>) ref)
+                .toList();
+    }
+
+    private String text(JsonNode node, String field) {
+        JsonNode value = node == null ? null : node.get(field);
+        return value == null || value.isNull() ? null : value.asText();
     }
 
     /** Restores the unified execution mode encoded in entry_agent. */
@@ -244,6 +399,7 @@ public class ConversationHistoryReplayService {
                 .toLowerCase(Locale.ROOT);
         return switch (normalized) {
             case "html" -> "html";
+            case "deep_research_report" -> "docs";
             case "markdown", "docs" -> "docs";
             case "ppt" -> "ppt";
             case "table", "data_analysis" -> "table";

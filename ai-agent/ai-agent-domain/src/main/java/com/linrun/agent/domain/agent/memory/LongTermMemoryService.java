@@ -4,8 +4,7 @@ import java.util.List;
 
 /**
  * 长期跨会话记忆（三层记忆中的「长期/持久记忆」）。
- * 以 Qdrant 向量库按用户维度存储历史回合，新问题来时做语义召回，并按时间衰减实现"遗忘"。
- * 所有方法在 Qdrant 不可用或未启用时 fail-open（save 无副作用、recall 返回空）。
+ * PostgreSQL 按用户维度保存普通回合和结构化画像，新问题来时做混合召回并按时间衰减实现"遗忘"。
  */
 public interface LongTermMemoryService {
 

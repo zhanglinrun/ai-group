@@ -7,7 +7,7 @@ import lombok.NoArgsConstructor;
 import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
 import org.springframework.ai.chat.client.advisor.api.Advisor;
 import org.springframework.ai.chat.memory.MessageWindowChatMemory;
-import com.linrun.agent.domain.agent.reactor.service.VectorService;
+import com.linrun.agent.domain.agent.rag.retrieval.HybridRetriever;
 import com.linrun.agent.domain.agent.service.armory.node.factory.element.RagAnswerAdvisor;
 
 import java.util.HashMap;
@@ -23,7 +23,7 @@ public enum AiClientAdvisorTypeEnumVO {
 
     CHAT_MEMORY("ChatMemory", "上下文记忆（内存模式）") {
         @Override
-        public Advisor createAdvisor(AiClientAdvisorVO aiClientAdvisorVO, VectorService vectorService) {
+        public Advisor createAdvisor(AiClientAdvisorVO aiClientAdvisorVO, HybridRetriever hybridRetriever) {
             AiClientAdvisorVO.ChatMemory chatMemory = aiClientAdvisorVO.getChatMemory();
             return MessageChatMemoryAdvisor.builder(
                     MessageWindowChatMemory.builder()
@@ -35,9 +35,9 @@ public enum AiClientAdvisorTypeEnumVO {
 
     RAG_ANSWER("RagAnswer", "知识库") {
         @Override
-        public Advisor createAdvisor(AiClientAdvisorVO aiClientAdvisorVO, VectorService vectorService) {
+        public Advisor createAdvisor(AiClientAdvisorVO aiClientAdvisorVO, HybridRetriever hybridRetriever) {
             AiClientAdvisorVO.RagAnswer ragAnswer = aiClientAdvisorVO.getRagAnswer();
-            return new RagAnswerAdvisor(vectorService, ragAnswer);
+            return new RagAnswerAdvisor(hybridRetriever, ragAnswer);
         }
     }
 
@@ -59,10 +59,10 @@ public enum AiClientAdvisorTypeEnumVO {
     /**
      * 策略方法：创建顾问对象
      * @param aiClientAdvisorVO 顾问配置对象
-     * @param vectorService Qdrant 向量检索服务
+     * @param hybridRetriever PostgreSQL 混合检索服务
      * @return 顾问对象
      */
-    public abstract Advisor createAdvisor(AiClientAdvisorVO aiClientAdvisorVO, VectorService vectorService);
+    public abstract Advisor createAdvisor(AiClientAdvisorVO aiClientAdvisorVO, HybridRetriever hybridRetriever);
 
     /**
      * 根据code获取枚举

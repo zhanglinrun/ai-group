@@ -21,7 +21,7 @@ import com.linrun.agent.trigger.http.agent.vo.ConversationSessionRespVO;
 import com.linrun.agent.types.agent.owner.OwnerRequestContext;
 import com.linrun.agent.types.enums.ResponseCode;
 
-import javax.annotation.Resource;
+import jakarta.annotation.Resource;
 import java.util.List;
 import java.util.stream.Collectors;
 

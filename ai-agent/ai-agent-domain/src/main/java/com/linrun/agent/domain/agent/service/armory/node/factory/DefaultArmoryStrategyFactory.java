@@ -2,7 +2,7 @@ package com.linrun.agent.domain.agent.service.armory.node.factory;
 
 import com.linrun.agent.domain.agent.model.entity.ArmoryCommandEntity;
 import com.linrun.agent.domain.agent.service.armory.node.RootNode;
-import cn.bugstack.wrench.design.framework.tree.StrategyHandler;
+import com.linrun.agent.types.design.tree.StrategyHandler;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;

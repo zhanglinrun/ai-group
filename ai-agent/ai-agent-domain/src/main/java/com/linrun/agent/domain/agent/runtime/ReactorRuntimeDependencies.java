@@ -10,9 +10,13 @@ import com.linrun.agent.domain.agent.adapter.port.RemoteHttpPort;
 import com.linrun.agent.domain.agent.adapter.port.RemoteStreamPort;
 import com.linrun.agent.domain.agent.adapter.port.QuotaBillingPort;
 import com.linrun.agent.domain.agent.runtime.llm.LLMSettings;
+import com.linrun.agent.domain.agent.runtime.llm.ModelRouter;
+import com.linrun.agent.domain.agent.runtime.agent.AgentContext;
 import com.linrun.agent.domain.agent.runtime.tool.mcp.runtime.McpToolExecutor;
 import com.linrun.agent.domain.agent.reactor.config.ReactorConfig;
-import com.linrun.agent.domain.agent.reactor.service.VectorService;
+import com.linrun.agent.domain.agent.rag.ingest.DocumentIngestRouter;
+import com.linrun.agent.domain.agent.rag.retrieval.HybridRetriever;
+import com.linrun.agent.domain.agent.runtime.hitl.ApprovalGate;
 import com.linrun.agent.domain.agent.reactor.service.imagegeneration.IImageGenerationExecutionKernel;
 import org.springframework.scheduling.TaskScheduler;
 
@@ -45,7 +49,13 @@ public class ReactorRuntimeDependencies {
 
     FileArtifactPort fileArtifactPort;
 
-    VectorService vectorService;
+    DocumentIngestRouter documentIngestRouter;
+
+    HybridRetriever hybridRetriever;
+
+    ApprovalGate approvalGate;
+
+    ModelRouter modelRouter;
 
     /** 模型目录端口，供用户按 modelId 覆盖模型时解析 DB 配置。可为空（未装配时回退静态配置）。 */
     ModelCatalogPort modelCatalogPort;
@@ -170,6 +180,13 @@ public class ReactorRuntimeDependencies {
             }
         }
         return resolveLlmSettings(fallbackModelName);
+    }
+
+    public LLMSettings resolveAgentLlmSettings(AgentContext context) {
+        String fallback = modelRouter == null
+                ? requireReactorConfig().getAgentLoopModelName()
+                : modelRouter.route(context);
+        return resolveEffectiveLlmSettings(context == null ? null : context.getModelIdOverride(), fallback);
     }
 
     private LLMSettings buildDefaultLlmSettings() {

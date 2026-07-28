@@ -15,6 +15,7 @@ import com.linrun.agent.domain.agent.ledger.ExecutionLedgerQueryService;
 import com.linrun.agent.domain.agent.ledger.impl.ExecutionLedgerQueryServiceImpl;
 import com.linrun.agent.domain.agent.ledger.replay.ConversationHistoryReplayService;
 import com.linrun.agent.domain.agent.ledger.tooloutput.ToolOutputReader;
+import com.linrun.agent.domain.agent.service.session.ConversationSessionOwnershipService;
 import com.linrun.agent.infrastructure.adapter.repository.ExecutionLedgerReadRepository;
 import com.linrun.agent.infrastructure.dao.reactor.IArtifactLedgerDao;
 import com.linrun.agent.infrastructure.dao.reactor.IDialogueRunLedgerDao;
@@ -60,10 +61,8 @@ public class ReplayProjectorBeanTopologyTest {
     public void shouldLimitAppOwnedDeferredLegacyContractsToDocumentedConfigAndMetadataServices() {
         assertDeclaredFieldTypes(DataAgentInitRunner.class,
                 "com.linrun.agent.domain.agent.reactor.config.data.DataAgentConfig",
-                "com.linrun.agent.domain.agent.reactor.service.QdrantService",
                 "com.linrun.agent.domain.agent.reactor.service.ChatModelInfoService",
-                "com.linrun.agent.domain.agent.reactor.service.ColumnValueSyncService",
-                "com.linrun.agent.domain.agent.reactor.service.EmbeddingService");
+                "com.linrun.agent.domain.agent.reactor.service.ColumnValueSyncService");
         assertDeclaredFieldTypes(Es7HighLevelClientConfig.class,
                 "com.linrun.agent.domain.agent.reactor.config.data.DataAgentConfig");
     }
@@ -110,6 +109,11 @@ public class ReplayProjectorBeanTopologyTest {
         @Bean
         public ToolOutputReader toolOutputReader() {
             return Mockito.mock(ToolOutputReader.class);
+        }
+
+        @Bean
+        public ConversationSessionOwnershipService conversationSessionOwnershipService() {
+            return Mockito.mock(ConversationSessionOwnershipService.class);
         }
     }
 }

@@ -44,6 +44,22 @@ public class SseEmitterAgentSessionStream implements AgentMessageStream {
     }
 
     @Override
+    public void send(String eventName, Object payload) throws Exception {
+        if (closed.get()) {
+            return;
+        }
+        try {
+            emitter.send(SseEmitter.event().name(eventName).data(payload));
+        } catch (Exception ex) {
+            if (SseClientDisconnectDetector.isClientDisconnected(ex)) {
+                markAborted();
+                return;
+            }
+            throw ex;
+        }
+    }
+
+    @Override
     public void complete() {
         localTermination.set(true);
         if (closed.compareAndSet(false, true)) {

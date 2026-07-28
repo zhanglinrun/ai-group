@@ -1,6 +1,6 @@
 package com.linrun.agent.domain.agent.ledger;
 
-import com.alibaba.fastjson.JSON;
+import com.linrun.agent.types.common.JsonUtils;
 import org.apache.commons.lang3.StringUtils;
 import com.linrun.agent.domain.agent.runtime.agent.AgentContext;
 import com.linrun.agent.domain.agent.reactor.model.dto.FileInformation;
@@ -185,6 +185,6 @@ public final class ExecutionLedgerRunSupport {
         if (metadata.isEmpty()) {
             return null;
         }
-        return JSON.toJSONString(metadata);
+        return JsonUtils.toJson(metadata);
     }
 }

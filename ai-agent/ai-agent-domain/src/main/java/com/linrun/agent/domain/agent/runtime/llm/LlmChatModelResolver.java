@@ -1,6 +1,6 @@
 package com.linrun.agent.domain.agent.runtime.llm;
 
-import com.alibaba.fastjson.JSON;
+import com.linrun.agent.types.common.JsonUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.ai.openai.OpenAiChatModel;
@@ -39,7 +39,7 @@ public class LlmChatModelResolver {
                 StringUtils.defaultString(settings.getBaseUrl()),
                 StringUtils.defaultString(settings.getInterfaceUrl()),
                 StringUtils.defaultString(settings.getApiKey()),
-                JSON.toJSONString(settings.getExtParams()));
+                JsonUtils.toJson(settings.getExtParams()));
     }
 
     /**

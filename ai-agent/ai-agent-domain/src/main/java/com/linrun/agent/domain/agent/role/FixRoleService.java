@@ -7,7 +7,7 @@ import com.linrun.agent.domain.agent.model.valobj.AiAgentVO;
 import com.linrun.agent.domain.agent.model.valobj.FixRoleVO;
 import com.linrun.agent.domain.agent.reactor.config.ReactorConfig;
 
-import javax.annotation.Resource;
+import jakarta.annotation.Resource;
 import java.util.ArrayList;
 import java.util.List;
 

@@ -2,7 +2,6 @@ package com.linrun.agent.config.reactor;
 
 
 import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.core.io.ClassPathResource;
@@ -10,14 +9,10 @@ import org.springframework.jdbc.datasource.init.ScriptUtils;
 import org.springframework.stereotype.Component;
 import com.linrun.agent.domain.agent.runtime.tool.skill.SkillRegistry;
 import com.linrun.agent.domain.agent.reactor.config.data.DataAgentConfig;
-import com.linrun.agent.domain.agent.reactor.config.data.DataAgentConstants;
 import com.linrun.agent.domain.agent.reactor.config.data.DbConfig;
 import com.linrun.agent.domain.agent.reactor.config.data.EsConfig;
-import com.linrun.agent.domain.agent.reactor.config.data.QdrantConfig;
 import com.linrun.agent.domain.agent.reactor.service.ChatModelInfoService;
 import com.linrun.agent.domain.agent.reactor.service.ColumnValueSyncService;
-import com.linrun.agent.domain.agent.reactor.service.EmbeddingService;
-import com.linrun.agent.domain.agent.reactor.service.QdrantService;
 import com.linrun.agent.infrastructure.dataquery.jdbc.connection.JdbcConnectionFactory;
 import com.linrun.agent.infrastructure.dataquery.util.JdbcUtils;
 
@@ -30,13 +25,9 @@ public class DataAgentInitRunner implements CommandLineRunner {
     @Autowired
     private DataAgentConfig dataAgentConfig;
     @Autowired
-    private QdrantService qdrantService;
-    @Autowired
     private ChatModelInfoService chatModelInfoService;
     @Autowired
     private ColumnValueSyncService columnValueSyncService;
-    @Autowired
-    private EmbeddingService embeddingService;
     @Autowired(required = false)
     private SkillRegistry skillRegistry;
 
@@ -64,7 +55,6 @@ public class DataAgentInitRunner implements CommandLineRunner {
             }
         }
 
-        prepareQdrantCapability(forceRefresh);
         prepareEsCapability(forceRefresh);
 
         try {
@@ -87,31 +77,6 @@ public class DataAgentInitRunner implements CommandLineRunner {
                 log.info("skill registry init success, loaded skills={}", skillRegistry.listSkills().size());
             } catch (Exception e) {
                 log.error("Failed to init skill registry", e);
-            }
-        }
-    }
-
-    private void prepareQdrantCapability(boolean forceRefresh) throws Exception {
-        QdrantConfig qdrantConfig = dataAgentConfig.getQdrantConfig();
-        if (!Boolean.TRUE.equals(qdrantConfig.getEnable())) {
-            return;
-        }
-        try {
-            if (!embeddingService.healthCheck()) {
-                throw new IllegalStateException("共享文本向量代理不可用");
-            }
-            int dimension = resolveEmbeddingDimension();
-            if (forceRefresh) {
-                qdrantService.recreateCosineCollection(DataAgentConstants.SCHEMA_COLLECTION_NAME, dimension);
-            } else {
-                qdrantService.createCosineCollection(DataAgentConstants.SCHEMA_COLLECTION_NAME, dimension);
-            }
-            log.info("qdrant collection init success");
-        } catch (Exception e) {
-            handleCapabilityFailure("qdrant", forceRefresh, e);
-            qdrantConfig.setEnable(false);
-            if (forceRefresh) {
-                throw e;
             }
         }
     }
@@ -143,18 +108,5 @@ public class DataAgentInitRunner implements CommandLineRunner {
             return;
         }
         log.warn("{} capability degraded and disabled: {}", capability, e.getMessage(), e);
-    }
-
-    private int resolveEmbeddingDimension() {
-        String dimension = System.getenv("TEXT_EMBEDDING_DIMENSION");
-        if (StringUtils.isBlank(dimension)) {
-            return 1024;
-        }
-        try {
-            return Integer.parseInt(dimension);
-        } catch (NumberFormatException e) {
-            log.warn("TEXT_EMBEDDING_DIMENSION 非法，回退默认值 1024: {}", dimension);
-            return 1024;
-        }
     }
 }

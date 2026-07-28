@@ -1,6 +1,7 @@
 package com.linrun.agent.infrastructure.gateway;
 
-import com.alibaba.fastjson.JSON;
+import com.linrun.agent.types.common.JsonUtils;
+import com.fasterxml.jackson.databind.JsonNode;
 import lombok.extern.slf4j.Slf4j;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
@@ -17,7 +18,7 @@ import com.linrun.agent.domain.agent.reactor.model.imagegeneration.ImageGenerati
 import com.linrun.agent.domain.agent.reactor.model.imagegeneration.ImageGenerationGatewayRequest;
 import com.linrun.agent.domain.agent.reactor.model.imagegeneration.ImageGenerationGatewayResponse;
 
-import javax.annotation.Resource;
+import jakarta.annotation.Resource;
 import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
@@ -54,7 +55,7 @@ public class ReactorImageGenerationGateway implements IReactorImageGenerationGat
         }
 
         String url = trimTrailingSlash(baseUrl) + "/v1/tool/image_generation";
-        RequestBody requestBody = RequestBody.create(JSON.toJSONString(requestDTO), JSON_MEDIA_TYPE);
+        RequestBody requestBody = RequestBody.create(JsonUtils.toJson(requestDTO), JSON_MEDIA_TYPE);
 
         Request request = new Request.Builder()
                 .url(url)
@@ -75,13 +76,13 @@ public class ReactorImageGenerationGateway implements IReactorImageGenerationGat
             }
 
             ImageGenerationGatewayResponse responseDTO =
-                    JSON.parseObject(responseText, ImageGenerationGatewayResponse.class);
+                    JsonUtils.parseObject(responseText, ImageGenerationGatewayResponse.class);
             if (responseDTO == null) {
                 throw new IllegalStateException("Python 生图服务返回格式非法");
             }
 
             responseDTO.setRequestId(StringUtil.firstNonBlank(responseDTO.getRequestId(), requestDTO.getRequestId()));
-            responseDTO.setRawResponse(JSON.parse(responseText));
+            responseDTO.setRawResponse(JsonUtils.parseTree(responseText));
             responseDTO.setFileInfo(normalizeFileInfo(responseDTO.getFileInfo()));
             return responseDTO;
         } catch (IOException e) {
@@ -129,11 +130,11 @@ public class ReactorImageGenerationGateway implements IReactorImageGenerationGat
         }
 
         try {
-            com.alibaba.fastjson.JSONObject jsonObject = JSON.parseObject(responseText);
+            JsonNode jsonObject = JsonUtils.mapper().readTree(responseText);
             String message = StringUtil.firstNonBlank(
-                    jsonObject.getString("message"),
-                    jsonObject.getString("detail"),
-                    jsonObject.getString("data")
+                    jsonObject.path("message").asText(null),
+                    jsonObject.path("detail").asText(null),
+                    jsonObject.path("data").asText(null)
             );
             if (StringUtils.hasText(message)) {
                 return message;

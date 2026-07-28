@@ -6,6 +6,10 @@ import com.linrun.agent.domain.agent.adapter.port.FileArtifactPort;
 import com.linrun.agent.domain.agent.runtime.agent.AgentContext;
 import com.linrun.agent.domain.agent.runtime.dto.File;
 import com.linrun.agent.domain.agent.runtime.tool.BaseTool;
+import com.linrun.agent.domain.agent.rag.ingest.DocumentIngestRequest;
+import com.linrun.agent.domain.agent.rag.ingest.DocumentIngestResult;
+import com.linrun.agent.domain.agent.rag.retrieval.HybridRetrievalHit;
+import com.linrun.agent.domain.agent.rag.retrieval.HybridRetrievalRequest;
 
 import java.util.List;
 import java.util.Map;
@@ -58,14 +62,11 @@ public class AnalyzeFileTool implements BaseTool {
         File file = agentContext.getProductFiles().stream()
                 .filter(item -> fileName.equals(item.getFileName()) || fileName.equals(item.getOriginFileName()))
                 .findFirst()
-                .orElseThrow(() -> new IllegalArgumentException("未找到已上传文件: " + fileName));
-
-        if (isImage(fileName) || (!isText(fileName)
-                && (file.getFileSize() == null || file.getFileSize() > DIRECT_TEXT_BYTES))) {
-            MultiModalAgent delegate = new MultiModalAgent();
-            delegate.setAgentContext(agentContext);
-            return delegate.execute(Map.of("question", question));
-        }
+                .orElseThrow(() -> new IllegalArgumentException("未找到已上传文件: " + fileName
+                        + "；当前可用文件: " + agentContext.getProductFiles().stream()
+                        .map(File::getFileName)
+                        .filter(StringUtils::isNotBlank)
+                        .collect(java.util.stream.Collectors.joining("、"))));
 
         String url = firstNonBlank(file.getOriginDomainUrl(), file.getDomainUrl(),
                 file.getOriginOssUrl(), file.getOssUrl());
@@ -73,20 +74,46 @@ public class AnalyzeFileTool implements BaseTool {
             throw new IllegalArgumentException("文件缺少可读取地址: " + fileName);
         }
         try {
-            String content = filePort().readText(url, 60L);
+            boolean image = isImage(fileName);
+            String content = image ? url : filePort().readText(url, 60L);
             if (content == null) {
                 return "文件内容为空: " + fileName;
             }
-            if (content.length() <= MAX_DIRECT_CHARS) {
-                return content;
+            var dependencies = agentContext.getRuntimeDependencies();
+            if (dependencies == null || dependencies.getDocumentIngestRouter() == null) {
+                if (!image && content.length() <= MAX_DIRECT_CHARS) return content;
+                throw new IllegalStateException("analyze_file 缺少 PostgreSQL 文档摄取能力");
             }
-            return SessionFileRagService.analyze(
-                    agentContext.getRuntimeDependencies().getVectorService(),
-                    agentContext.getRuntimeDependencies().getReactorConfig(),
-                    agentContext.getSessionId(),
-                    fileName,
-                    question,
-                    content);
+            String ownerId = agentContext.getOwnerId() == null
+                    ? agentContext.getSessionId() : String.valueOf(agentContext.getOwnerId());
+            DocumentIngestResult result = dependencies.getDocumentIngestRouter().route(
+                    DocumentIngestRequest.builder()
+                            .ownerId(ownerId)
+                            .conversationId(agentContext.getSessionId())
+                            .fileName(fileName)
+                            .mimeType(mimeType(fileName))
+                            .content(content)
+                            .build());
+            if (!result.isSuccess()) {
+                throw new IllegalStateException("文件摄取失败: " + result.getErrorMessage());
+            }
+            if ("DIRECT_READ".equals(result.getStrategyName()) || dependencies.getHybridRetriever() == null) {
+                return result.getReadableText();
+            }
+            List<HybridRetrievalHit> hits = dependencies.getHybridRetriever().retrieve(
+                    HybridRetrievalRequest.builder()
+                            .ownerId(ownerId)
+                            .query(question)
+                            .docTypes(image ? List.of("image_description") : List.of("file_chunk"))
+                            .metadataFilters(Map.of("fileName", fileName))
+                            .topK(6)
+                            .scoreThreshold(0.2d)
+                            .keywordEnabled(true)
+                            .build());
+            return hits.isEmpty()
+                    ? result.getReadableText()
+                    : hits.stream().map(HybridRetrievalHit::getContent)
+                            .collect(java.util.stream.Collectors.joining("\n\n---\n\n"));
         } catch (Exception e) {
             throw new IllegalStateException("读取文件失败: " + fileName, e);
         }
@@ -100,6 +127,20 @@ public class AnalyzeFileTool implements BaseTool {
     private boolean isText(String fileName) {
         String normalized = fileName.toLowerCase();
         return TEXT_SUFFIXES.stream().anyMatch(normalized::endsWith);
+    }
+
+    private String mimeType(String fileName) {
+        String normalized = fileName.toLowerCase();
+        if (IMAGE_SUFFIXES.stream().anyMatch(normalized::endsWith)) {
+            if (normalized.endsWith(".jpg") || normalized.endsWith(".jpeg")) return "image/jpeg";
+            if (normalized.endsWith(".webp")) return "image/webp";
+            if (normalized.endsWith(".gif")) return "image/gif";
+            return "image/png";
+        }
+        if (normalized.endsWith(".json")) return "application/json";
+        if (normalized.endsWith(".csv")) return "text/csv";
+        if (normalized.endsWith(".md")) return "text/markdown";
+        return "text/plain";
     }
 
     private String firstNonBlank(String... values) {

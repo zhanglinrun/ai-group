@@ -59,13 +59,15 @@ public class RemoteStreamDeadlineContractTest {
         reportFuture.get(1, TimeUnit.SECONDS);
         assertTimeouts(port.lastRequest.get(), 30L, 600L, 60L, 600L);
 
+        port.lastRequest.set(null);
         DataAnalysisTool dataTool = new DataAnalysisTool();
         dataTool.setAgentContext(context);
         CompletableFuture<ToolResultPayload> dataFuture = dataTool.callAutoAnalysisStream(
                 DataAnalysisRequest.builder().request_id("session").task("analysis").build(),
                 source("data-call", "data_analysis"));
-        dataFuture.get(1, TimeUnit.SECONDS);
-        assertTimeouts(port.lastRequest.get(), 30L, 300L, 60L, 300L);
+        ToolResultPayload dataResult = dataFuture.get(1, TimeUnit.SECONDS);
+        Assert.assertEquals(Boolean.TRUE, dataResult.getFailed());
+        Assert.assertNull(port.lastRequest.get());
     }
 
     @Test(timeout = 2000L)

@@ -1,9 +1,8 @@
 package com.linrun.agent.domain.agent.reactor.service;
 
 
-import com.alibaba.fastjson.JSONObject;
-import com.alibaba.fastjson.TypeReference;
-import io.qdrant.client.grpc.Points;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.linrun.agent.types.common.JsonUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
@@ -22,8 +21,7 @@ import com.linrun.agent.domain.agent.reactor.data.QueryResult;
 import com.linrun.agent.domain.agent.reactor.data.TableColumn;
 import com.linrun.agent.domain.agent.reactor.data.dto.ChatModelInfoDto;
 import com.linrun.agent.domain.agent.reactor.data.dto.ChatSchemaDto;
-import com.linrun.agent.domain.agent.reactor.data.dto.VectorModelSchema;
-import com.linrun.agent.domain.agent.reactor.data.dto.VectorSaveReq;
+import com.linrun.agent.domain.agent.rag.storage.PgVectorMemoryRepository;
 import com.linrun.agent.domain.agent.reactor.data.exception.JdbcBizException;
 import com.linrun.agent.domain.agent.reactor.data.model.StandardColumnType;
 import com.linrun.agent.domain.agent.ledger.entity.ChatModelInfo;
@@ -33,9 +31,6 @@ import java.sql.SQLException;
 import java.util.*;
 import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
-
-import static io.qdrant.client.ConditionFactory.matchKeyword;
-import static io.qdrant.client.ConditionFactory.matchKeywords;
 
 @Slf4j
 @Service
@@ -47,9 +42,8 @@ public class ChatModelInfoService {
     private final DataQueryMetadataPort dataQueryMetadataPort;
     private final DataQueryExecutionPort dataQueryExecutionPort;
     private final ChatModelSchemaService chatModelSchemaService;
-    private final VectorService vectorService;
     private final ColumnValueSyncService columnValueSyncService;
-    private final QdrantService qdrantService;
+    private final PgVectorMemoryRepository pgVectorMemoryRepository;
 
     public void initModelInfo(DataAgentConfig dataAgentConfig) throws Exception {
         initModelInfo(dataAgentConfig, false);
@@ -116,6 +110,8 @@ public class ChatModelInfoService {
     public void cleanModelMetadata(String modelCode) {
         chatModelMetadataRepository.deleteModelInfoByCode(modelCode);
         chatModelSchemaService.cleanModelSchema(modelCode);
+        pgVectorMemoryRepository.deleteByMetadata(
+                DataAgentConstants.SCHEMA_OWNER, DataAgentConstants.SCHEMA_DOC_TYPE, "modelCode", modelCode);
     }
 
     public void cleanStaleModelMetadata(Set<String> activeModelCodes) {
@@ -183,13 +179,8 @@ public class ChatModelInfoService {
         log.info("model info save success:{}", modelCode);
         List<ChatModelSchema> chatModelSchemas = chatModelSchemaService.saveModelSchema(modelCode, modelConfig, tableSchema, fewShotMap);
         log.info("model schema save success {},size:{}", modelCode, chatModelSchemas.size());
-        if (dataAgentConfig.getQdrantConfig().getEnable()) {
-            Points.Filter filter = Points.Filter.newBuilder().addMust(matchKeyword("modelCode", modelCode)).build();
-            qdrantService.deleteByFilterSync(DataAgentConstants.SCHEMA_COLLECTION_NAME, filter);
-            log.info("model schema clean success:{}", modelCode);
-            int vectorSize = syncVectorInfo(chatModelSchemas);
-            log.info("model schema vector sync success {},vector size:{}", modelCode, vectorSize);
-        }
+        int vectorSize = syncVectorInfo(chatModelSchemas);
+        log.info("model schema vector sync success {},vector size:{}", modelCode, vectorSize);
         if (dataAgentConfig.getEsConfig().getEnable() && StringUtils.isNotBlank(modelConfig.getSyncValueFields())) {
             String[] split = modelConfig.getSyncValueFields().toUpperCase().split(",");
             List<String> syncColumn = Arrays.asList(split);
@@ -200,56 +191,32 @@ public class ChatModelInfoService {
     }
 
     private int syncVectorInfo(List<ChatModelSchema> chatModelSchemas) {
-        List<VectorSaveReq.VectorData> vectorDataList = convertToVectorData(chatModelSchemas);
-        // 分批处理
-        int batchSize = 20;
         int total = 0;
-        for (int i = 0; i < vectorDataList.size(); i += batchSize) {
-            int endIndex = Math.min(i + batchSize, vectorDataList.size());
-            List<VectorSaveReq.VectorData> batch = vectorDataList.subList(i, endIndex);
-            try {
-                VectorSaveReq req = new VectorSaveReq();
-                req.setCollectionName(DataAgentConstants.SCHEMA_COLLECTION_NAME);
-                req.setDataList(batch);
-                vectorService.saveVector(req);
-                total += endIndex - i;
-            } catch (Exception e) {
-                log.error("批量保存向量数据失败{}", e.getMessage(), e);
-                throw new RuntimeException("批量保存向量数据失败");
+        for (ChatModelSchema schema : chatModelSchemas) {
+            String[] uuids = schema.getVectorUuid().split(",");
+            total += saveSchemaVector(schema, schema.getColumnName(), uuids[0], "columnName");
+            total += saveSchemaVector(schema, schema.getSynonyms(), uuids[1], "synonyms");
+            total += saveSchemaVector(schema, schema.getColumnComment(), uuids[2], "columnComment");
+            if (!StandardColumnType.DECIMAL.name().equalsIgnoreCase(schema.getDataType())) {
+                total += saveSchemaVector(schema, schema.getFewShot(), uuids[3], "fewShot");
             }
         }
         return total;
     }
 
-    private List<VectorSaveReq.VectorData> convertToVectorData(List<ChatModelSchema> schemaList) {
-        List<VectorSaveReq.VectorData> allVectors = new ArrayList<>();
-        for (ChatModelSchema schema : schemaList) {
-            String[] uuids = schema.getVectorUuid().split(",");
-            addVectorSaveData(allVectors, schema, schema.getColumnName(), uuids[0]);
-            addVectorSaveData(allVectors, schema, schema.getSynonyms(), uuids[1]);
-            addVectorSaveData(allVectors, schema, schema.getColumnComment(), uuids[2]);
-            if (!StandardColumnType.DECIMAL.name().equalsIgnoreCase(schema.getDataType())) {
-                //数值类型fewShot不参与向量化
-                addVectorSaveData(allVectors, schema, schema.getFewShot(), uuids[3]);
-            }
-        }
-        return allVectors;
-    }
-
-
-    private void addVectorSaveData(List<VectorSaveReq.VectorData> allVectors, ChatModelSchema schema, String vectorText, String uuid) {
+    private int saveSchemaVector(ChatModelSchema schema, String vectorText, String uuid, String embeddingField) {
         if (StringUtils.isBlank(vectorText)) {
-            return;
+            return 0;
         }
-        VectorModelSchema newSchema = new VectorModelSchema();
-        BeanUtils.copyProperties(schema, newSchema);
-        VectorSaveReq.VectorData vectorData = new VectorSaveReq.VectorData();
-        vectorData.setEmbeddingText(vectorText);
-        String json = JSONObject.toJSONString(newSchema);
-        vectorData.setPayloads(JSONObject.parseObject(json, new TypeReference<>() {
-        }));
-        vectorData.setUuid(uuid);
-        allVectors.add(vectorData);
+        Map<String, Object> metadata = JsonUtils.convertValue(schema, new TypeReference<>() {});
+        metadata.remove("id");
+        metadata.remove("yn");
+        metadata.put("embeddingField", embeddingField);
+        if (!pgVectorMemoryRepository.saveMemory(uuid, DataAgentConstants.SCHEMA_OWNER,
+                DataAgentConstants.SCHEMA_DOC_TYPE, vectorText, metadata, null)) {
+            throw new IllegalStateException("保存 schema 向量失败: " + schema.getModelCode() + "/" + schema.getColumnId());
+        }
+        return 1;
     }
 
 

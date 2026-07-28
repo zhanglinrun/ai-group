@@ -71,8 +71,8 @@ public class ConversationMemoryManagerImpl implements ConversationMemoryManager 
         }
         Runnable task = () -> {
             try {
-                // Only explicit user statements may become durable memory. Never promote a
-                // model-generated final summary to a user fact implicitly.
+                // Every completed turn may become owner-scoped semantic history; only explicit
+                // user statements may additionally be promoted to a durable profile entry.
                 longTermMemoryService.save(turn);
             } catch (Exception e) {
                 log.warn("persist turn to long-term memory failed, ownerId={}, sessionId={}",

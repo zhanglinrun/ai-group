@@ -13,12 +13,13 @@ import org.elasticsearch.search.builder.SearchSourceBuilder;
 import org.elasticsearch.search.sort.SortBuilders;
 import org.elasticsearch.search.sort.SortOrder;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import com.linrun.agent.domain.agent.reactor.config.data.DataAgentConstants;
 import com.linrun.agent.domain.agent.reactor.data.dto.ColumnEsRecallReq;
 import com.linrun.agent.domain.agent.reactor.data.dto.ColumnVectorRecallReq;
-import com.linrun.agent.domain.agent.reactor.data.dto.VectorRecallReq;
-import com.linrun.agent.domain.agent.reactor.service.VectorService;
+import com.linrun.agent.domain.agent.rag.storage.PgVectorMemoryRepository;
+import com.linrun.agent.types.common.JsonUtils;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -32,21 +33,33 @@ public class SchemaRecallService {
 
     @Autowired(required = false)
     RestHighLevelClient dataAgentEsClient;
-    @Autowired
-    VectorService vectorService;
+    private final PgVectorMemoryRepository memoryRepository;
+
+    public SchemaRecallService(ObjectProvider<PgVectorMemoryRepository> memoryRepository) {
+        this.memoryRepository = memoryRepository.getIfAvailable();
+    }
 
 
     public List<Map<String, Object>> vectorRecall(ColumnVectorRecallReq recallReq) {
-        VectorRecallReq req = new VectorRecallReq();
-        req.setQuery(recallReq.getQuery());
-        req.setCollectionName(DataAgentConstants.SCHEMA_COLLECTION_NAME);
-        Map<String, Object> filterMap = new HashMap<>();
-        filterMap.put("modelCode", recallReq.getModelCodeList());
-        req.setKeywordFilterMap(filterMap);
-        req.setScoreThreshold(recallReq.getScoreThreshold());
-        req.setTimeout(recallReq.getTimeout());
-        req.setLimit(recallReq.getLimit());
-        return vectorService.vectorRecall(req);
+        if (memoryRepository == null || recallReq == null) {
+            return List.of();
+        }
+        Map<String, Object> filters = new HashMap<>();
+        filters.put("modelCode", recallReq.getModelCodeList());
+        List<Map<String, Object>> rows = memoryRepository.recallByVector(
+                DataAgentConstants.SCHEMA_OWNER, recallReq.getQuery(),
+                List.of(DataAgentConstants.SCHEMA_DOC_TYPE), filters,
+                recallReq.getLimit(), recallReq.getScoreThreshold());
+        List<Map<String, Object>> result = new ArrayList<>(rows.size());
+        for (Map<String, Object> row : rows) {
+            Map<String, Object> schema = JsonUtils.parseObject(
+                    String.valueOf(row.get("metadata_json")), Map.class);
+            if (schema != null) {
+                schema.put("_score", row.get("score"));
+                result.add(schema);
+            }
+        }
+        return result;
     }
 
     public List<Map<String, Object>> esValueRecall(ColumnEsRecallReq req) throws IOException {

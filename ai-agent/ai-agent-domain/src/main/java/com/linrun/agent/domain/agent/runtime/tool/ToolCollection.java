@@ -5,7 +5,7 @@ package com.linrun.agent.domain.agent.runtime.tool;
  * 工具集合类 - 管理可用的工具
  */
 
-import com.alibaba.fastjson.annotation.JSONField;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.ToString;
@@ -62,7 +62,7 @@ public class ToolCollection {
      */
     @ToString.Exclude
     @EqualsAndHashCode.Exclude
-    @JSONField(serialize = false, deserialize = false)
+    @JsonIgnore
     private AgentContext agentContext;
 
     /**
@@ -71,7 +71,7 @@ public class ToolCollection {
      */
     @ToString.Exclude
     @EqualsAndHashCode.Exclude
-    @JSONField(serialize = false, deserialize = false)
+    @JsonIgnore
     private McpToolExecutor mcpToolExecutor;
 
     /**
@@ -212,7 +212,7 @@ public class ToolCollection {
      * 2. 基础工具不存在时执行MCP远程工具；
      * 3. 工具不存在时记录错误日志并返回null。
      * @param name 工具名称（唯一标识）
-     * @param toolInput 工具输入参数（Object类型，适配不同工具的参数格式，如String/JSONObject）
+     * @param toolInput 工具输入参数（Object类型，适配String/Map等参数格式）
      * @return Object 工具执行结果：
      *         - 基础工具：返回 tool.execute() 的原始结果对象；
      *         - MCP工具：返回远程调用的响应结果字符串；

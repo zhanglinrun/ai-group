@@ -1,7 +1,7 @@
 package com.linrun.agent.test.spring.ai;
 
-import com.alibaba.fastjson.JSON;
-import com.alibaba.fastjson.TypeReference;
+import com.linrun.agent.types.common.JsonUtils;
+import com.fasterxml.jackson.core.type.TypeReference;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
@@ -124,7 +124,7 @@ public class ToolSchemaNormalizerTest {
     }
 
     private Map<String, Object> parseSchema(String schema) {
-        return JSON.parseObject(schema, new TypeReference<LinkedHashMap<String, Object>>() {
+        return JsonUtils.parseObject(schema, new TypeReference<LinkedHashMap<String, Object>>() {
         });
     }
 }

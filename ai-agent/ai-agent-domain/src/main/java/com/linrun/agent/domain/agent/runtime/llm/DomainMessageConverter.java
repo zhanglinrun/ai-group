@@ -17,7 +17,7 @@ import com.linrun.agent.domain.agent.runtime.dto.tool.ToolCall;
 import com.linrun.agent.domain.agent.runtime.util.StringUtil;
 import com.linrun.agent.domain.agent.reactor.config.ReactorConfig;
 
-import javax.annotation.Resource;
+import jakarta.annotation.Resource;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.Base64;

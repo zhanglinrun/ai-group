@@ -1,6 +1,6 @@
 package com.linrun.agent.domain.agent.runtime.tool.common;
 
-import com.alibaba.fastjson.JSON;
+import com.linrun.agent.types.common.JsonUtils;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
@@ -15,6 +15,7 @@ import com.linrun.agent.domain.agent.runtime.dto.WebFetchRequest;
 import com.linrun.agent.domain.agent.runtime.dto.WebFetchResponse;
 import com.linrun.agent.domain.agent.runtime.tool.BaseTool;
 import com.linrun.agent.domain.agent.runtime.tool.ToolResultPayload;
+import com.linrun.agent.domain.agent.runtime.stream.AgentStreamEvent;
 import com.linrun.agent.domain.agent.reactor.config.ReactorConfig;
 import com.linrun.agent.domain.agent.reactor.config.ReactorToolRequestHeaders;
 
@@ -24,6 +25,8 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+
+import static com.linrun.agent.domain.agent.runtime.artifact.ToolArtifactFormatter.toArtifactRefs;
 
 /**
  * 单网页抓取工具，负责调用 runtime/tools 的 web_fetch 端点并登记文件产物。
@@ -130,7 +133,7 @@ public class WebFetchTool implements BaseTool {
                     .method("POST")
                     .url(normalizeBaseUrl(reactorConfig.getWebFetchUrl()) + "/v1/tool/web_fetch")
                     .headers(ReactorToolRequestHeaders.json(reactorConfig))
-                    .body(JSON.toJSONString(request))
+                    .body(JsonUtils.toJson(request))
                     .connectTimeoutSeconds(30L)
                     .readTimeoutSeconds((long) request.getTimeoutSeconds())
                     .writeTimeoutSeconds((long) request.getTimeoutSeconds())
@@ -139,7 +142,7 @@ public class WebFetchTool implements BaseTool {
         } catch (Exception e) {
             throw new IllegalStateException("调用 web_fetch 远端服务失败: " + e.getMessage(), e);
         }
-        return JSON.parseObject(responseText, WebFetchResponse.class);
+        return JsonUtils.parseObject(responseText, WebFetchResponse.class);
     }
 
     private void appendGeneratedArtifacts(WebFetchResponse response, ToolArtifactSource artifactSource) {
@@ -170,7 +173,11 @@ public class WebFetchTool implements BaseTool {
             resultMap.put("toolCallId", artifactSource.getToolCallId());
             resultMap.put("toolName", artifactSource.getToolName());
         }
-        agentContext.getPrinter().send("file", resultMap, null);
+        agentContext.getPrinter().send(new AgentStreamEvent.StageOutput(
+                agentContext.getRequestId(), artifactSource == null ? null : artifactSource.getToolCallId(),
+                "file", resultMap,
+                toArtifactRefs(agentContext.getArtifactBindingsByToolCallId(
+                        artifactSource == null ? null : artifactSource.getToolCallId())), true));
     }
 
     private ToolResultPayload buildSuccessPayload(WebFetchResponse response) {

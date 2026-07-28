@@ -14,6 +14,7 @@ import com.linrun.agent.domain.agent.runtime.llm.LLM;
 import com.linrun.agent.domain.agent.runtime.llm.LlmChatResponseMapper;
 import com.linrun.agent.domain.agent.runtime.llm.StreamResponseHandler;
 import com.linrun.agent.domain.agent.runtime.printer.Printer;
+import com.linrun.agent.domain.agent.runtime.stream.AgentStreamEvent;
 import com.linrun.agent.domain.agent.reactor.config.ReactorConfig;
 import reactor.core.publisher.Flux;
 
@@ -58,8 +59,30 @@ public class StreamResponseHandlerTest {
         ).get(5, java.util.concurrent.TimeUnit.SECONDS);
 
         Assert.assertEquals("先分析```json {\"function_name\":\"deep_search\"}```", fullContent);
-        Assert.assertTrue(printer.messages.stream().anyMatch(message -> "先分析".equals(message.message) && message.isFinal));
-        Assert.assertFalse(printer.messages.stream().anyMatch(message -> String.valueOf(message.message).contains("function_name")));
+        Assert.assertEquals("先分析", printer.text());
+        Assert.assertFalse(printer.text().contains("function_name"));
+    }
+
+    @Test
+    public void test_handleStringStreamFlushesIncompleteMarkerAtEnd() throws Exception {
+        StreamResponseHandler handler = new StreamResponseHandler();
+        ReactorConfig reactorConfig = new ReactorConfig();
+        reactorConfig.setMessageInterval("{\"llm\":\"1,2\"}");
+        ReflectionTestUtils.setField(handler, "reactorConfig", reactorConfig);
+        ReflectionTestUtils.setField(handler, "chatResponseMapper", new LlmChatResponseMapper());
+
+        RecordingPrinter printer = new RecordingPrinter();
+        AgentContext context = AgentContext.builder()
+                .requestId("req-partial-marker")
+                .isStream(true)
+                .streamMessageType("tool_thought")
+                .printer(printer)
+                .build();
+
+        handler.handleStringStream(context, Flux.just(textChunk("正文```")), "```json", true)
+                .get(5, java.util.concurrent.TimeUnit.SECONDS);
+
+        Assert.assertEquals("正文```", printer.text());
     }
 
     @Test
@@ -94,7 +117,7 @@ public class StreamResponseHandlerTest {
         Assert.assertEquals(Integer.valueOf(18), response.getCompletionTokens());
         Assert.assertEquals(1, response.getToolCalls().size());
         Assert.assertEquals("{\"query\":\"spring ai\"}", response.getToolCalls().get(0).getFunction().getArguments());
-        Assert.assertTrue(printer.messages.stream().anyMatch(message -> "先思考".equals(message.message) && message.isFinal));
+        Assert.assertEquals("先思考", printer.text());
     }
 
     @Test
@@ -295,49 +318,25 @@ public class StreamResponseHandlerTest {
     }
 
     private static class RecordingPrinter implements Printer {
-        private final List<PrinterMessage> messages = new ArrayList<>();
+        private final List<AgentStreamEvent> messages = new ArrayList<>();
 
         @Override
-        public void send(String messageId, String messageType, Object message, String digitalEmployee, Boolean isFinal) {
-            messages.add(new PrinterMessage(messageId, messageType, message, isFinal));
-        }
-
-        @Override
-        public void send(String messageId, String messageType, Object message, Map<String, Object> extraResultMap, String digitalEmployee, Boolean isFinal) {
-            messages.add(new PrinterMessage(messageId, messageType, message, isFinal));
-        }
-
-        @Override
-        public void send(String messageType, Object message) {
-            messages.add(new PrinterMessage(null, messageType, message, true));
-        }
-
-        @Override
-        public void send(String messageType, Object message, String digitalEmployee) {
-            messages.add(new PrinterMessage(null, messageType, message, true));
-        }
-
-        @Override
-        public void send(String messageId, String messageType, Object message, Boolean isFinal) {
-            messages.add(new PrinterMessage(messageId, messageType, message, isFinal));
-        }
-
-        @Override
-        public void sendWithResultMap(String messageId, String messageType, Object message, Map<String, Object> extraResultMap, Boolean isFinal) {
-            messages.add(new PrinterMessage(messageId, messageType, message, isFinal));
-        }
-
-        @Override
-        public void sendWithResultMap(String messageType, Object message, Map<String, Object> extraResultMap) {
-            messages.add(new PrinterMessage(null, messageType, message, true));
+        public void send(AgentStreamEvent event) {
+            messages.add(event);
         }
 
         @Override
         public void close() {
         }
 
-    }
-
-    private record PrinterMessage(String messageId, String messageType, Object message, Boolean isFinal) {
+        private String text() {
+            StringBuilder result = new StringBuilder();
+            for (AgentStreamEvent event : messages) {
+                if (event instanceof AgentStreamEvent.Text text) {
+                    result.append(text.delta());
+                }
+            }
+            return result.toString();
+        }
     }
 }

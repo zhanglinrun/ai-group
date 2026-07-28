@@ -107,7 +107,7 @@ public class ConversationMemoryManagerTest {
         Mockito.when(medium.buildHistoryDialogue("s1", "r1")).thenReturn("## 单会话历史记忆");
         LongTermMemoryService longTerm = Mockito.mock(LongTermMemoryService.class);
         Mockito.when(longTerm.recall(Mockito.any(), Mockito.any(), Mockito.any()))
-                .thenThrow(new RuntimeException("qdrant down"));
+                .thenThrow(new RuntimeException("vector store down"));
 
         ConversationMemoryManagerImpl mgr = manager(medium, longTerm,
                 Mockito.mock(ExecutionLedgerQueryService.class), config(true, true));

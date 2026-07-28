@@ -7,6 +7,7 @@ import com.linrun.agent.domain.agent.runtime.completion.ToolExecutionEvidence;
 import com.linrun.agent.domain.agent.runtime.dto.TodoList;
 import com.linrun.agent.domain.agent.runtime.enums.AgentExecutionProfile;
 import com.linrun.agent.domain.agent.runtime.enums.TodoEvidencePolicy;
+import com.linrun.agent.domain.agent.runtime.stream.AgentStreamEvent;
 import com.linrun.agent.domain.agent.runtime.tool.ToolResultPayload;
 import com.linrun.agent.domain.agent.runtime.tool.common.TodoWriteTool;
 import com.linrun.agent.domain.agent.runtime.tool.common.todo.TodoLifecycleResult;
@@ -280,8 +281,14 @@ public final class TodoService {
         if (agentContext == null || agentContext.getPrinter() == null || todoList == null) {
             return;
         }
-        agentContext.getPrinter().send("phase_changed", Map.of("phase", "PLANNING"));
-        agentContext.getPrinter().send("todo_snapshot", toTodoSnapshot(todoList.copy()));
+        agentContext.getPrinter().send(new AgentStreamEvent.StageOutput(
+                agentContext.getRequestId(), null, "phase_changed",
+                Map.of("phase", "PLANNING"), List.of(), true));
+        Map<String, Object> snapshot = toTodoSnapshot(todoList.copy());
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> items = (List<Map<String, Object>>) snapshot.get("todos");
+        agentContext.getPrinter().send(new AgentStreamEvent.TodoProgress(
+                agentContext.getRequestId(), items));
     }
 
     private Map<String, Object> toTodoSnapshot(TodoList snapshot) {

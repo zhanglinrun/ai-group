@@ -7,9 +7,6 @@ import com.linrun.agent.domain.agent.adapter.port.RemoteHttpPort;
 import com.linrun.agent.domain.agent.adapter.port.RemoteHttpRequest;
 import com.linrun.agent.domain.agent.reactor.config.ReactorConfig;
 import com.linrun.agent.domain.agent.reactor.config.ReactorToolRequestHeaders;
-import com.linrun.agent.domain.agent.reactor.config.data.DataAgentConfig;
-import com.linrun.agent.domain.agent.reactor.config.data.QdrantConfig;
-import com.linrun.agent.domain.agent.reactor.service.EmbeddingService;
 import com.linrun.agent.domain.agent.runtime.dto.skill.ScriptRunnerToolRequest;
 import com.linrun.agent.domain.agent.runtime.dto.skill.ScriptRunnerToolResponse;
 import com.linrun.agent.domain.agent.runtime.tool.skill.SkillScriptRunnerClient;
@@ -66,26 +63,4 @@ public class ReactorToolSecurityTest {
         Assert.assertFalse(ReactorToolRequestHeaders.json(" ").containsKey("X-Tool-Token"));
     }
 
-    @Test
-    public void embeddingOverrideShouldNotReceiveInternalToolToken() {
-        DataAgentConfig dataAgentConfig = new DataAgentConfig();
-        dataAgentConfig.setAgentUrl("http://127.0.0.1:1601");
-        ReactorConfig config = new ReactorConfig();
-        ReflectionTestUtils.setField(config, "reactorToolToken", "internal-token");
-        QdrantConfig qdrantConfig = new QdrantConfig();
-        qdrantConfig.setEmbeddingUrl("https://embedding.example/v1/embeddings");
-        dataAgentConfig.setQdrantConfig(qdrantConfig);
-        AtomicReference<RemoteHttpRequest> capturedRequest = new AtomicReference<>();
-        RemoteHttpPort remoteHttpPort = request -> {
-            capturedRequest.set(request);
-            return "[[0.1,0.2]]";
-        };
-        EmbeddingService embeddingService = new EmbeddingService();
-        ReflectionTestUtils.setField(embeddingService, "dataAgentConfig", dataAgentConfig);
-        ReflectionTestUtils.setField(embeddingService, "remoteHttpPort", remoteHttpPort);
-        ReflectionTestUtils.setField(embeddingService, "reactorConfig", config);
-
-        Assert.assertNotNull(embeddingService.getVector("hello"));
-        Assert.assertFalse(capturedRequest.get().getHeaders().containsKey("X-Tool-Token"));
-    }
 }

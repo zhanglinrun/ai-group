@@ -25,17 +25,22 @@ public class AgentDispatchServiceTest {
         AgentRequest defaultRequest = new AgentRequest();
         AgentRequest legacyTypedRequest = new AgentRequest();
         legacyTypedRequest.setAgentType(2);
+        AgentRequest legacyAuto = new AgentRequest();
+        legacyAuto.setExecutionMode("AUTO");
         service.dispatch(agentLoop, printer);
         service.dispatch(defaultRequest, printer);
         service.dispatch(legacyTypedRequest, printer);
+        service.dispatch(legacyAuto, printer);
 
         ArgumentCaptor<AgentRequest> requestCaptor = ArgumentCaptor.forClass(AgentRequest.class);
-        Mockito.verify(unified, Mockito.times(3)).execute(requestCaptor.capture(), Mockito.same(printer));
+        Mockito.verify(unified, Mockito.times(4)).execute(requestCaptor.capture(), Mockito.same(printer));
         List<AgentRequest> dispatchedRequests = requestCaptor.getAllValues();
         Assert.assertSame(agentLoop, dispatchedRequests.get(0));
         Assert.assertSame(defaultRequest, dispatchedRequests.get(1));
         Assert.assertSame(legacyTypedRequest, dispatchedRequests.get(2));
+        Assert.assertSame(legacyAuto, dispatchedRequests.get(3));
         Assert.assertEquals(AgentType.AGENT_LOOP.getValue(), legacyTypedRequest.getAgentType());
+        Assert.assertEquals("STANDARD", legacyAuto.getExecutionMode());
     }
 
     private AgentRequest request(AgentType type) {

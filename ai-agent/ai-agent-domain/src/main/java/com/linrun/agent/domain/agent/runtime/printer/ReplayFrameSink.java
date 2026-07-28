@@ -8,4 +8,8 @@ import com.linrun.agent.domain.agent.reactor.model.response.GptProcessResult;
 public interface ReplayFrameSink {
 
     void sendReplayFrame(GptProcessResult frame);
+
+    default void sendCanonicalReplay(String eventType, String eventJson) {
+        throw new UnsupportedOperationException("canonical replay is not supported");
+    }
 }

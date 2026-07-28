@@ -3,3 +3,7 @@ spring:
     openai:
       api-key: test-api-key
       base-url: https://example.com/v1
+
+ai-group:
+  internal:
+    token: test-internal-token-for-local-regression-012345678901234567890

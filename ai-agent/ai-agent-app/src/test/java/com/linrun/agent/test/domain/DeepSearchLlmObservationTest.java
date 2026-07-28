@@ -1,8 +1,7 @@
 package com.linrun.agent.test.domain;
 
-import com.alibaba.fastjson.JSON;
-import com.alibaba.fastjson.JSONArray;
-import com.alibaba.fastjson.JSONObject;
+import com.linrun.agent.types.common.JsonUtils;
+import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.Assert;
 import org.junit.Test;
 import com.linrun.agent.domain.agent.runtime.agent.AgentContext;
@@ -48,18 +47,18 @@ public class DeepSearchLlmObservationTest {
 
         ToolResultPayload payload = builder.buildPayload("fallback");
         DeepSearchToolOutput structuredOutput = (DeepSearchToolOutput) payload.getStructuredOutput();
-        JSONObject llmObservation = JSON.parseObject(payload.getLlmObservation());
+        JsonNode llmObservation = JsonUtils.parseTree(payload.getLlmObservation());
 
         Assert.assertNotNull(structuredOutput);
         Assert.assertEquals("deep_search", structuredOutput.getToolName());
         Assert.assertEquals("新能源车出口趋势", structuredOutput.getQuery());
         Assert.assertEquals(3, structuredOutput.getStages().size());
         Assert.assertTrue(structuredOutput.getStages().stream().anyMatch(stage -> "search".equals(stage.getStage())));
-        Assert.assertFalse(llmObservation.containsKey("stages"));
-        Assert.assertEquals("deep_search", llmObservation.getString("tool"));
-        Assert.assertEquals("新能源车出口趋势", llmObservation.getString("query"));
-        Assert.assertEquals(2, llmObservation.getJSONArray("subQueries").size());
-        Assert.assertEquals(2, llmObservation.getJSONArray("results").size());
+        Assert.assertFalse(llmObservation.has("stages"));
+        Assert.assertEquals("deep_search", llmObservation.path("tool").asText());
+        Assert.assertEquals("新能源车出口趋势", llmObservation.path("query").asText());
+        Assert.assertEquals(2, llmObservation.path("subQueries").size());
+        Assert.assertEquals(2, llmObservation.path("results").size());
         Assert.assertFalse(payload.getFailed());
         Assert.assertTrue(payload.getLlmObservation().contains("海关总署：出口量创新高"));
         Assert.assertTrue(payload.getLlmObservation().contains("https://example.com/customs"));
@@ -88,13 +87,12 @@ public class DeepSearchLlmObservationTest {
                 .build());
         builder.recordFinalAnswer("AI 芯片供应链", repeat("总结", 150));
 
-        JSONObject llmObservation = JSON.parseObject(builder.buildPayload("fallback").getLlmObservation());
-        JSONArray results = llmObservation.getJSONArray("results");
-        JSONArray docs = results.getJSONObject(0).getJSONArray("docs");
+        JsonNode llmObservation = JsonUtils.parseTree(builder.buildPayload("fallback").getLlmObservation());
+        JsonNode docs = llmObservation.path("results").path(0).path("docs");
 
         Assert.assertEquals(3, docs.size());
-        Assert.assertTrue(docs.getJSONObject(0).getString("summary").length() <= 183);
-        Assert.assertTrue(llmObservation.getString("answerSummary").length() <= 243);
+        Assert.assertTrue(docs.path(0).path("summary").asText().length() <= 183);
+        Assert.assertTrue(llmObservation.path("answerSummary").asText().length() <= 243);
     }
 
     @Test

@@ -12,7 +12,6 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.TaskScheduler;
-import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 
 import java.util.List;
@@ -22,9 +21,8 @@ import java.util.List;
  *
  */
 @Configuration
-@EnableScheduling
 @EnableConfigurationProperties(TaskJobAutoProperties.class)
-@ConditionalOnProperty(prefix = "xfg.wrench.task.job", name = "enabled", havingValue = "true", matchIfMissing = true)
+@ConditionalOnProperty(prefix = "agent.task.job", name = "enabled", havingValue = "true", matchIfMissing = true)
 public class TaskJobAutoConfig {
 
     private final Logger log = LoggerFactory.getLogger(TaskJobAutoConfig.class);
@@ -32,7 +30,7 @@ public class TaskJobAutoConfig {
     /**
      * 创建线程池任务调度器实例，用于执行定时任务和异步任务调度
      */
-    @Bean({"xfgWrenchTaskScheduler", "taskScheduler"})
+    @Bean({"agentTaskScheduler", "taskScheduler"})
     public TaskScheduler taskScheduler(TaskJobAutoProperties properties) {
         ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
         scheduler.setPoolSize(properties.getPoolSize());
@@ -41,17 +39,17 @@ public class TaskJobAutoConfig {
         scheduler.setAwaitTerminationSeconds(properties.getAwaitTerminationSeconds());
         scheduler.initialize();
 
-        log.info("xfg-wrench，任务调度器初始化完成。线程池大小: {}, 线程名前缀: {}",
+        log.info("agent-task-job，任务调度器初始化完成。线程池大小: {}, 线程名前缀: {}",
                 properties.getPoolSize(), properties.getThreadNamePrefix());
 
         return scheduler;
     }
 
     @Bean
-    public ITaskJobService taskJobService(@Qualifier("xfgWrenchTaskScheduler") TaskScheduler xfgWrenchTaskScheduler,
+    public ITaskJobService taskJobService(@Qualifier("agentTaskScheduler") TaskScheduler agentTaskScheduler,
                                           List<ITaskDataProvider> taskDataProviders) {
         // 实例化任务并初始化调度
-        TaskJobService taskJobService = new TaskJobService(xfgWrenchTaskScheduler, taskDataProviders);
+        TaskJobService taskJobService = new TaskJobService(agentTaskScheduler, taskDataProviders);
         taskJobService.initializeTasks();
 
         return taskJobService;
@@ -62,7 +60,7 @@ public class TaskJobAutoConfig {
      */
     @Bean
     public TaskJob taskJob(TaskJobAutoProperties properties, ITaskJobService taskJobService) {
-        log.info("xfg-wrench，任务调度作业初始化完成。刷新间隔: {}ms, 清理cron: {}",
+        log.info("agent-task-job，任务调度作业初始化完成。刷新间隔: {}ms, 清理cron: {}",
                 properties.getRefreshInterval(), properties.getCleanInvalidTasksCron());
         return new TaskJob(properties, taskJobService);
     }

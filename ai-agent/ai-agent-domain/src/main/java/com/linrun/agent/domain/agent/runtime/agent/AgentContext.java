@@ -1,6 +1,6 @@
 package com.linrun.agent.domain.agent.runtime.agent;
 
-import com.alibaba.fastjson.annotation.JSONField;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.*;
 import lombok.extern.slf4j.Slf4j;
 import com.linrun.agent.domain.agent.runtime.artifact.ToolArtifactBinding;
@@ -85,10 +85,10 @@ public class AgentContext {
      * 用途：
      * 1. 实时推送：向前端/用户推送智能体执行过程（如思考过程、计划步骤、工具执行结果）；
      * 2. 消息分类：支持按 canonical Agent Loop event 推送不同格式的消息；
-     * 核心方法：printer.send(String type, Object content)
+     * 核心方法：printer.send(AgentStreamEvent)
      */
     @ToString.Exclude
-    @JSONField(serialize = false)
+    @JsonIgnore
     Printer printer;
 
     /**
@@ -99,13 +99,13 @@ public class AgentContext {
      * 核心能力：工具注册、更新、查询、执行结果存储
      */
     @ToString.Exclude
-    @JSONField(serialize = false)
+    @JsonIgnore
     ToolCollection toolCollection;
 
     /** Canonical user tool constraints shared by exposure, permission, and completion gates. */
     @Builder.Default
     @ToString.Exclude
-    @JSONField(serialize = false)
+    @JsonIgnore
     ToolInvocationContract toolInvocationContract = ToolInvocationContract.none();
 
     /**
@@ -113,7 +113,7 @@ public class AgentContext {
      * 所有 Agent / Tool / LLM 必须通过这里读取运行时协作者，禁止自行回 Spring 容器查找。
      */
     @ToString.Exclude
-    @JSONField(serialize = false)
+    @JsonIgnore
     ReactorRuntimeDependencies runtimeDependencies;
 
     /**
@@ -182,7 +182,7 @@ public class AgentContext {
     /** Typed run-local tool outcomes. Completion checks never infer failure from text. */
     @Builder.Default
     @ToString.Exclude
-    @JSONField(serialize = false)
+    @JsonIgnore
     List<ToolExecutionEvidence> toolExecutionEvidence = new CopyOnWriteArrayList<>();
 
     /**
@@ -191,7 +191,7 @@ public class AgentContext {
      */
     @Builder.Default
     @ToString.Exclude
-    @JSONField(serialize = false)
+    @JsonIgnore
     ToolArtifactRegistry toolArtifactRegistry = new ToolArtifactRegistry();
 
     /**
@@ -200,7 +200,7 @@ public class AgentContext {
      */
     @Builder.Default
     @ToString.Exclude
-    @JSONField(serialize = false)
+    @JsonIgnore
     ThreadLocal<ToolArtifactSource> currentToolArtifactSourceHolder = new ThreadLocal<>();
 
     /**
@@ -208,7 +208,7 @@ public class AgentContext {
      * 根节点初始化后挂入，ModelGateway / ToolDispatcher / AgentRuntime 统一复用。
      */
     @ToString.Exclude
-    @JSONField(serialize = false)
+    @JsonIgnore
     AgentExecutionRecorder executionRecorder;
 
     /**
@@ -217,7 +217,7 @@ public class AgentContext {
      */
     @Builder.Default
     @ToString.Exclude
-    @JSONField(serialize = false)
+    @JsonIgnore
     AgentRunState agentRunState = AgentRunState.builder().build();
 
     /**
@@ -245,6 +245,9 @@ public class AgentContext {
      */
     String modelIdOverride;
 
+    /** Actual model selected for this run after explicit override and routing. */
+    String selectedModelName;
+
     /**
      * 本次 run 起始时间戳（epoch millis），在根节点构建上下文时设置。
      * 用于在最终结果帧上估算展示级耗时（modelName/tokens/耗时 chips），与账本 duration 解耦。
@@ -254,7 +257,7 @@ public class AgentContext {
     /** Shared structured cancellation for the root loop and any child work. */
     @Builder.Default
     @ToString.Exclude
-    @JSONField(serialize = false)
+    @JsonIgnore
     CancellationToken cancellationToken = new CancellationToken();
 
     /** 在每次 Agent Loop run 开始时重置本次运行的绝对截止点。 */

@@ -1,7 +1,6 @@
 package com.linrun.agent.domain.agent.reactor.model.req;
 
 
-import com.alibaba.fastjson.JSONObject;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -11,6 +10,7 @@ import com.linrun.agent.domain.agent.runtime.enums.AgentExecutionProfile;
 import com.linrun.agent.domain.agent.reactor.model.dto.FileInformation;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * Assistant请求
@@ -85,7 +85,7 @@ public class AgentRequest {
         /**
          * 稳定产物引用，供节点和工具链复用。
          */
-        private List<JSONObject> artifactRefs;
+        private List<Map<String, Object>> artifactRefs;
         /**
          * 是否只保留摘要或引用，不直接内联正文。
          */

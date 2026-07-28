@@ -16,7 +16,7 @@ import com.linrun.agent.domain.agent.reactor.service.imagegeneration.IImageGener
 import com.linrun.agent.domain.agent.reactor.service.imagegeneration.ImageGenerationWorkspaceConstants;
 import com.linrun.agent.domain.agent.ledger.tooloutput.ToolOutputWriter;
 
-import javax.annotation.Resource;
+import jakarta.annotation.Resource;
 import java.util.ArrayList;
 import java.util.List;
 

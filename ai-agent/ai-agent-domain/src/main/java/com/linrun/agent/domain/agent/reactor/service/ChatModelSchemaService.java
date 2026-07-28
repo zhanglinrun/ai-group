@@ -1,8 +1,8 @@
 package com.linrun.agent.domain.agent.reactor.service;
 
 
-import com.alibaba.fastjson.JSONObject;
-import com.alibaba.fastjson.TypeReference;
+import com.linrun.agent.types.common.JsonUtils;
+import com.fasterxml.jackson.core.type.TypeReference;
 import lombok.RequiredArgsConstructor;
 import com.linrun.agent.domain.agent.reactor.config.data.DataAgentModelConfig;
 import com.linrun.agent.domain.agent.reactor.data.TableColumn;
@@ -36,7 +36,7 @@ public class ChatModelSchemaService {
         if(StringUtils.isBlank(modelConfig.getColumnAliasMap())){
             return new HashMap<>();
         }
-        return JSONObject.parseObject(modelConfig.getColumnAliasMap(), new TypeReference<>() {
+        return JsonUtils.parseObject(modelConfig.getColumnAliasMap(), new TypeReference<>() {
         });
     }
 

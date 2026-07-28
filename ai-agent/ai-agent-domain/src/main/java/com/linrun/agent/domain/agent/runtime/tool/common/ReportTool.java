@@ -1,7 +1,7 @@
 package com.linrun.agent.domain.agent.runtime.tool.common;
 
 
-import com.alibaba.fastjson.JSONObject;
+import com.linrun.agent.types.common.JsonUtils;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -17,6 +17,7 @@ import com.linrun.agent.domain.agent.runtime.dto.File;
 import com.linrun.agent.domain.agent.runtime.tool.BaseTool;
 import com.linrun.agent.domain.agent.runtime.tool.ToolResultPayload;
 import com.linrun.agent.domain.agent.runtime.harness.AgentFutureWaiter;
+import com.linrun.agent.domain.agent.runtime.stream.AgentStreamEvent;
 import com.linrun.agent.domain.agent.runtime.util.StringUtil;
 import com.linrun.agent.domain.agent.reactor.config.ReactorConfig;
 import com.linrun.agent.domain.agent.reactor.config.ReactorToolRequestHeaders;
@@ -28,6 +29,8 @@ import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
+
+import static com.linrun.agent.domain.agent.runtime.artifact.ToolArtifactFormatter.toArtifactRefs;
 
 @Slf4j
 @Data
@@ -175,7 +178,7 @@ public class ReportTool implements BaseTool {
                     .method("POST")
                     .url(url)
                     .headers(ReactorToolRequestHeaders.json(reactorConfig))
-                    .body(JSONObject.toJSONString(codeRequest))
+                    .body(JsonUtils.toJson(codeRequest))
                     .connectTimeoutSeconds(CONNECT_TIMEOUT_SECONDS)
                     .readTimeoutSeconds(READ_TIMEOUT_SECONDS)
                     .writeTimeoutSeconds(WRITE_TIMEOUT_SECONDS)
@@ -200,7 +203,7 @@ public class ReportTool implements BaseTool {
                         log.debug("{} report_tool event received sequence={} payloadChars={}",
                                 agentContext.getRequestId(), currentIndex, data.length());
                     }
-                    CodeInterpreterResponse codeResponse = JSONObject.parseObject(data, CodeInterpreterResponse.class);
+                    CodeInterpreterResponse codeResponse = JsonUtils.parseObject(data, CodeInterpreterResponse.class);
                     codeResponse.setToolCallId(toolCallId);
                     if (Boolean.TRUE.equals(codeResponse.getIsFinal())) {
                         String validationError = validateFinalResponse(codeResponse);
@@ -227,13 +230,17 @@ public class ReportTool implements BaseTool {
                                 agentContext.registerGeneratedArtifact(artifactSource, file);
                             }
                         }
-                        agentContext.getPrinter().send(messageId, codeRequest.getFileType(), codeResponse, null, true);
+                        agentContext.getPrinter().send(new AgentStreamEvent.StageOutput(
+                                agentContext.getRequestId(), toolCallId, codeRequest.getFileType(),
+                                codeResponse, toArtifactRefs(agentContext.getArtifactBindingsByToolCallId(toolCallId)), true));
                         return;
                     }
                     incrementalBuffer.append(codeResponse.getData());
                     if (currentIndex == firstInterval || currentIndex % sendInterval == 0) {
                         codeResponse.setData(incrementalBuffer.toString());
-                        agentContext.getPrinter().send(messageId, codeRequest.getFileType(), codeResponse, null, false);
+                        agentContext.getPrinter().send(new AgentStreamEvent.StageOutput(
+                                agentContext.getRequestId(), toolCallId, codeRequest.getFileType(),
+                                codeResponse, List.of(), false));
                         incrementalBuffer.setLength(0);
                     }
                 }

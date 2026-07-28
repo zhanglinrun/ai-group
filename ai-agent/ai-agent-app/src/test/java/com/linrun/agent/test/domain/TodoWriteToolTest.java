@@ -5,6 +5,7 @@ import com.linrun.agent.domain.agent.runtime.agent.AgentContext;
 import com.linrun.agent.domain.agent.runtime.completion.ToolExecutionEvidence;
 import com.linrun.agent.domain.agent.runtime.enums.AgentExecutionProfile;
 import com.linrun.agent.domain.agent.runtime.printer.Printer;
+import com.linrun.agent.domain.agent.runtime.stream.AgentStreamEvent;
 import com.linrun.agent.domain.agent.runtime.tool.ToolResultPayload;
 import com.linrun.agent.domain.agent.runtime.tool.common.TodoWriteTool;
 import com.linrun.agent.domain.agent.runtime.work.TodoStepEvidenceScope;
@@ -42,10 +43,14 @@ public class TodoWriteToolTest {
         Assert.assertEquals(List.of("tool-call-search-001"),
                 output.getAfterTodo().getEvidenceRefs().get(0));
 
-        ArgumentCaptor<Object> snapshots = ArgumentCaptor.forClass(Object.class);
-        Mockito.verify(printer, Mockito.times(2)).send(Mockito.eq("todo_snapshot"), snapshots.capture());
-        Map<String, Object> lastSnapshot = (Map<String, Object>) snapshots.getAllValues().get(1);
-        List<Map<String, Object>> todos = (List<Map<String, Object>>) lastSnapshot.get("todos");
+        ArgumentCaptor<AgentStreamEvent> events = ArgumentCaptor.forClass(AgentStreamEvent.class);
+        Mockito.verify(printer, Mockito.atLeastOnce()).send(events.capture());
+        List<Map<String, Object>> todos = events.getAllValues().stream()
+                .filter(AgentStreamEvent.TodoProgress.class::isInstance)
+                .map(AgentStreamEvent.TodoProgress.class::cast)
+                .reduce((first, second) -> second)
+                .orElseThrow()
+                .items();
         Assert.assertEquals(List.of("tool-call-search-001"), todos.get(0).get("evidenceRefs"));
     }
 

@@ -20,7 +20,7 @@ public class ExplicitToolChoicePolicyTest {
         Assert.assertEquals(ToolChoice.REQUIRED,
                 ExplicitToolChoicePolicy.resolve("请联网搜索并简要说明 MCP 的用途", 1));
         Assert.assertEquals(ToolChoice.REQUIRED,
-                ExplicitToolChoicePolicy.resolve("查阅 Qdrant 官方文档最新版", 1));
+                ExplicitToolChoicePolicy.resolve("查阅 pgvector 官方文档最新版", 1));
         Assert.assertEquals(ToolChoice.REQUIRED,
                 ExplicitToolChoicePolicy.resolve("最终交付物请调用 report_tool 生成 HTML 网页报告", 1));
         Assert.assertEquals(ToolChoice.REQUIRED,

@@ -22,7 +22,9 @@ import com.linrun.agent.domain.agent.runtime.harness.DefaultPermissionPolicy;
 import com.linrun.agent.domain.agent.runtime.harness.HookBus;
 import com.linrun.agent.domain.agent.runtime.harness.PermissionPolicy;
 import com.linrun.agent.domain.agent.runtime.harness.RetryPolicy;
+import com.linrun.agent.domain.agent.runtime.hitl.ApprovalGate;
 import com.linrun.agent.domain.agent.runtime.printer.Printer;
+import com.linrun.agent.domain.agent.runtime.stream.AgentStreamEvent;
 import com.linrun.agent.domain.agent.runtime.tool.BaseTool;
 import com.linrun.agent.domain.agent.runtime.tool.ToolCollection;
 import com.linrun.agent.domain.agent.runtime.tool.ToolResultPayload;
@@ -50,6 +52,8 @@ import java.util.concurrent.TimeoutException;
  */
 @Slf4j
 public final class ToolDispatcher {
+
+    private static final long APPROVAL_THRESHOLD_MICROCREDITS = 200_000L;
 
     private final Host host;
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -388,6 +392,10 @@ public final class ToolDispatcher {
     }
 
     private ToolExecutionOutcome executeToolInternal(ToolCall command) {
+        return executeToolInternal(command, false);
+    }
+
+    private ToolExecutionOutcome executeToolInternal(ToolCall command, boolean approvalGranted) {
         if (command == null || command.getFunction() == null
                 || StringUtils.isBlank(command.getFunction().getName())) {
             return ToolExecutionOutcome.failure(
@@ -434,7 +442,7 @@ public final class ToolDispatcher {
                 : host.permissionPolicy();
         PermissionPolicy.PermissionDecision permission = permissionPolicy.evaluate(
                 toolName, args, authorizationView, context);
-        if (!permission.allowed()) {
+        if (permission.decision() == PermissionPolicy.Decision.DENY) {
             String message = StringUtils.defaultIfBlank(
                     permission.reason(), "Tool permission denied.");
             return ToolExecutionOutcome.failure(message, message, null, message);
@@ -453,6 +461,11 @@ public final class ToolDispatcher {
             log.info("{} reused successful tool operation tool={} operationKey={}",
                     requestId(), toolName, operationLedger.operationKey(command));
             return reused;
+        }
+        ToolExecutionOutcome approvalOutcome = applyApproval(
+                command, toolName, permission, approvalGranted);
+        if (approvalOutcome != null) {
+            return approvalOutcome;
         }
         if (toolName.equals(host.singleUseToolName())
                 && context != null
@@ -518,6 +531,110 @@ public final class ToolDispatcher {
                 null,
                 lastError == null ? "tool failed" : lastError.getMessage()
         );
+    }
+
+    private ToolExecutionOutcome applyApproval(ToolCall command,
+                                               String toolName,
+                                               PermissionPolicy.PermissionDecision permission,
+                                               boolean approvalGranted) {
+        if (approvalGranted) {
+            return null;
+        }
+        AgentContext context = context();
+        Long ownerId = context == null ? null : context.getOwnerId();
+        long estimatedMicrocredits = estimatedMicrocredits(toolName, context);
+        boolean permissionRequiresApproval = permission != null && permission.requiresApproval();
+        boolean costRequiresApproval = ownerId != null
+                && ownerId > 0L
+                && estimatedMicrocredits >= APPROVAL_THRESHOLD_MICROCREDITS;
+        if (!permissionRequiresApproval && !costRequiresApproval) {
+            return null;
+        }
+        if (ownerId == null || ownerId <= 0L) {
+            String message = "Tool " + toolName + " requires an authenticated online approval.";
+            return ToolExecutionOutcome.failure(message, message, null, message);
+        }
+        ApprovalGate gate = context.getRuntimeDependencies() == null
+                ? null
+                : context.getRuntimeDependencies().getApprovalGate();
+        if (gate == null) {
+            String message = "Tool " + toolName + " approval service is unavailable.";
+            return ToolExecutionOutcome.failure(message, message, null, message);
+        }
+
+        ApprovalGate.ApprovalResult approval = gate.awaitApproval(
+                ApprovalGate.ApprovalRequest.builder()
+                        .runId(requestId())
+                        .ownerId(String.valueOf(ownerId))
+                        .toolCallId(command.getId())
+                        .toolName(toolName)
+                        .argumentsJson(command.getFunction().getArguments())
+                        .estimatedMicrocredits(estimatedMicrocredits)
+                        .approvalRequired(true)
+                        .build(),
+                pending -> emitPaused(pending),
+                host::isDownstreamAborted);
+
+        if (approval.getApprovalId() != null) {
+            Printer printer = host.printer();
+            if (printer != null) {
+                printer.send(new AgentStreamEvent.ResumeStart(
+                        requestId(), String.valueOf(approval.getApprovalId()), command.getId(),
+                        approval.getDecision() == null ? "REJECTED" : approval.getDecision().name()));
+            }
+        }
+        if (approval.isApproved()) {
+            return null;
+        }
+        if (approval.isModified()) {
+            ToolCall modified = ToolCall.builder()
+                    .id(command.getId())
+                    .type(command.getType())
+                    .function(ToolCall.Function.builder()
+                            .name(toolName)
+                            .arguments(approval.getModifiedArguments())
+                            .build())
+                    .build();
+            return executeToolInternal(modified, true);
+        }
+        if (approval.isSkipped()) {
+            String message = "Tool " + toolName + " was skipped by the user.";
+            return ToolExecutionOutcome.success(message, message, null);
+        }
+        String message = "Tool " + toolName + " was not approved: "
+                + StringUtils.defaultIfBlank(approval.getReason(), "approval denied");
+        return ToolExecutionOutcome.failure(message, message, null, message);
+    }
+
+    private void emitPaused(com.linrun.agent.domain.agent.runtime.hitl.ToolApproval approval) {
+        Printer printer = host.printer();
+        if (printer == null) {
+            return;
+        }
+        Object preview = approval.getArgumentsPreview();
+        try {
+            preview = objectMapper.readTree(approval.getArgumentsPreview());
+        } catch (Exception ignored) {
+            // Repository always stores a redacted value; a string fallback is still safe.
+        }
+        printer.send(new AgentStreamEvent.Paused(
+                requestId(), String.valueOf(approval.getId()), approval.getToolCallId(),
+                approval.getToolName(), preview, approval.getEstimatedMicrocredits(),
+                approval.getExpiresAt().toString()));
+    }
+
+    private long estimatedMicrocredits(String toolName, AgentContext context) {
+        if (context == null || context.getRuntimeDependencies() == null
+                || context.getRuntimeDependencies().getReactorConfig() == null) {
+            return 0L;
+        }
+        if ("deep_search".equals(toolName)) {
+            return context.getRuntimeDependencies().getReactorConfig().getDeepSearchMicrocredits();
+        }
+        if ("image_generation_tool".equals(toolName)) {
+            return context.getRuntimeDependencies().getReactorConfig().getImageGenerationMicrocredits();
+        }
+        return 0L;
     }
 
     private Object parseToolArguments(String rawArguments) throws Exception {
@@ -727,7 +844,14 @@ public final class ToolDispatcher {
         if (outcome != null && outcome.isReused()) {
             payload.put("reused", true);
         }
-        printer.send(toolCallId, "tool_call", payload, isFinal);
+        if (!isFinal) {
+            printer.send(new AgentStreamEvent.ToolStart(
+                    requestId(), toolCallId, toolName, input));
+            return;
+        }
+        printer.send(new AgentStreamEvent.ToolEnd(
+                requestId(), toolCallId, toolName, payload,
+                outcome != null && outcome.isSuccess(), 0L));
     }
 
     private Object parseToolCallInput(String arguments) {

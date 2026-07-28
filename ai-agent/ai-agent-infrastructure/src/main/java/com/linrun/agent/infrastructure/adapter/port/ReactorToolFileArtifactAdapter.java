@@ -1,6 +1,6 @@
 package com.linrun.agent.infrastructure.adapter.port;
 
-import com.alibaba.fastjson.JSON;
+import com.linrun.agent.types.common.JsonUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Component;
 import com.linrun.agent.domain.agent.reactor.config.ReactorConfig;
@@ -38,13 +38,13 @@ public class ReactorToolFileArtifactAdapter implements FileArtifactPort {
                 .method("POST")
                 .url(normalizeBaseUrl(serviceBaseUrl) + "/v1/file_tool/upload_file")
                 .headers(ReactorToolRequestHeaders.json(reactorConfig))
-                .body(JSON.toJSONString(normalizedRequest))
+                .body(JsonUtils.toJson(normalizedRequest))
                 .connectTimeoutSeconds(60L)
                 .readTimeoutSeconds(300L)
                 .writeTimeoutSeconds(300L)
                 .callTimeoutSeconds(300L)
                 .build());
-        return JSON.parseObject(responseText, FileResponse.class);
+        return JsonUtils.parseObject(responseText, FileResponse.class);
     }
 
     @Override
@@ -54,13 +54,13 @@ public class ReactorToolFileArtifactAdapter implements FileArtifactPort {
                 .method("POST")
                 .url(normalizeBaseUrl(serviceBaseUrl) + "/v1/file_tool/get_file")
                 .headers(ReactorToolRequestHeaders.json(reactorConfig))
-                .body(JSON.toJSONString(normalizedRequest))
+                .body(JsonUtils.toJson(normalizedRequest))
                 .connectTimeoutSeconds(60L)
                 .readTimeoutSeconds(300L)
                 .writeTimeoutSeconds(300L)
                 .callTimeoutSeconds(300L)
                 .build());
-        return JSON.parseObject(responseText, FileResponse.class);
+        return JsonUtils.parseObject(responseText, FileResponse.class);
     }
 
     @Override

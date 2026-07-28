@@ -21,7 +21,9 @@ spring:
       max-file-size: 50MB
       max-request-size: 60MB
   profiles:
-    active: ${SPRING_PROFILES_ACTIVE:dev}
+    # Do not silently enter a local profile.  Local launch scripts set `dev`
+    # explicitly; an omitted profile must be checked as a non-local startup.
+    active: ${SPRING_PROFILES_ACTIVE:}
   cloud:
     compatibility-verifier:
       enabled: false
@@ -29,6 +31,8 @@ spring:
       discovery:
         server-addr: ${NACOS_HOST:127.0.0.1}:${NACOS_PORT:8848}
         namespace: public
+        username: ${NACOS_USERNAME:nacos}
+        password: ${NACOS_PASSWORD:nacos}
   ai:
     openai:
       api-key: ${AGENT_GROUP_LLM_API_KEY:${DASHSCOPE_API_KEY:${OPENAI_API_KEY:}}}
@@ -36,18 +40,31 @@ spring:
       chat:
         options:
           model: ${AGENT_GROUP_LLM_CHAT_MODEL:qwen-plus}
+      embedding:
+        api-key: ${AGENT_GROUP_EMBEDDING_API_KEY:${DASHSCOPE_API_KEY:${AGENT_GROUP_LLM_API_KEY:${OPENAI_API_KEY:}}}}
+        base-url: ${AGENT_GROUP_EMBEDDING_BASE_URL:${DASHSCOPE_API_BASE:https://dashscope.aliyuncs.com/compatible-mode/v1}}
   autoconfigure:
     exclude:
       - org.springframework.ai.model.openai.autoconfigure.OpenAiAudioSpeechAutoConfiguration
       - org.springframework.ai.model.openai.autoconfigure.OpenAiAudioTranscriptionAutoConfiguration
       - org.springframework.ai.model.openai.autoconfigure.OpenAiImageAutoConfiguration
 
-jwt:
-  secret: ${JWT_SECRET:change-me-to-a-long-random-secret}
-
 ai-agent:
   debug-endpoints:
     enabled: false
+
+agent:
+  router:
+    model:
+      simple-qa: ${AGENT_ROUTER_SIMPLE_QA_MODEL:${AGENT_GROUP_LLM_CHAT_MODEL:qwen-turbo}}
+      tool-calling: ${AGENT_ROUTER_TOOL_CALLING_MODEL:${AGENT_GROUP_LLM_CHAT_MODEL:qwen-plus}}
+      report: ${AGENT_ROUTER_REPORT_MODEL:${AGENT_GROUP_LLM_CHAT_MODEL:qwen-plus}}
+      deep-search: ${AGENT_ROUTER_DEEP_SEARCH_MODEL:${AGENT_GROUP_LLM_CHAT_MODEL:qwen-long}}
+  rag:
+    vlm:
+      model: ${AGENT_GROUP_VISION_MODEL:${AGENT_GROUP_LLM_CHAT_MODEL:qwen-vl-plus}}
+    summary:
+      model: ${AGENT_GROUP_MEMORY_SUMMARY_MODEL:${AGENT_GROUP_LLM_CHAT_MODEL:qwen-plus}}
 
 ai-group:
   bff-service:
@@ -55,4 +72,21 @@ ai-group:
   member-service:
     base-url: ${AI_GROUP_MEMBER_URL:http://127.0.0.1:18082}
   internal:
-    token: ${AI_GROUP_INTERNAL_TOKEN:change-me-to-a-long-random-internal-token}
+    token: ${AI_GROUP_INTERNAL_TOKEN:}
+
+autobots:
+  autoagent:
+    reactor_tool_token: ${AGENT_GROUP_REACTOR_TOOL_TOKEN:}
+
+xxl:
+  job:
+    admin:
+      addresses: ${XXL_JOB_ADMIN_ADDRESSES:http://127.0.0.1:18081}
+    accessToken: ${XXL_JOB_ACCESS_TOKEN:default_token}
+    executor:
+      appname: ai-agent
+      address: ${XXL_JOB_EXECUTOR_ADDRESS:}
+      ip: ${XXL_JOB_EXECUTOR_IP:}
+      port: ${XXL_JOB_EXECUTOR_PORT:9996}
+      logpath: ${XXL_JOB_LOGPATH:./logs/xxl-job/agent}
+      logretentiondays: ${XXL_JOB_LOG_RETENTION_DAYS:30}

@@ -6,6 +6,7 @@ import com.linrun.agent.domain.agent.runtime.dto.tool.ToolCall;
 import com.linrun.agent.domain.agent.runtime.tool.ToolCollection;
 import com.linrun.agent.domain.agent.ledger.IExecutionLedgerReadRepository;
 import com.linrun.agent.domain.agent.ledger.IExecutionLedgerWriteRepository;
+import com.linrun.agent.domain.agent.ledger.AgentStreamEventStore;
 import com.linrun.agent.domain.agent.ledger.entity.ArtifactRecord;
 import com.linrun.agent.domain.agent.ledger.entity.DialogueSession;
 import com.linrun.agent.domain.agent.ledger.entity.DialogueRun;
@@ -74,6 +75,7 @@ public final class ExecutionLedgerFixtureFactory {
         InMemoryLlmInvocationLedgerDao llmDao = new InMemoryLlmInvocationLedgerDao(store);
         InMemoryToolInvocationLedgerDao toolDao = new InMemoryToolInvocationLedgerDao(store);
         InMemoryArtifactLedgerDao artifactDao = new InMemoryArtifactLedgerDao(store);
+        InMemoryAgentStreamEventStore streamEventStore = new InMemoryAgentStreamEventStore(store);
         InMemoryToolOutputWriter toolOutputWriter = new InMemoryToolOutputWriter(store);
         InMemoryToolOutputReader toolOutputReader = new InMemoryToolOutputReader(store);
         ExecutionLedgerReadRepository readRepository = new ExecutionLedgerReadRepository(
@@ -104,14 +106,15 @@ public final class ExecutionLedgerFixtureFactory {
                                 new DefaultToolInvocationProjector()
                         )
                 ),
-                new HistoryReplayPrinter()
+                new HistoryReplayPrinter(),
+                streamEventStore
         );
         AgentExecutionRecorder recorder = new AgentExecutionRecorderImpl(
                 writeRepository, toolOutputWriter
         );
         return new LedgerTestContext(
                 store, recorder, queryService, replayService,
-                readRepository, writeRepository,
+                readRepository, writeRepository, streamEventStore,
                 runDao, sessionDao, llmDao, toolDao, artifactDao, toolOutputWriter, toolOutputReader
         );
     }
@@ -200,6 +203,7 @@ public final class ExecutionLedgerFixtureFactory {
         final ConversationHistoryReplayService replayService;
         final ExecutionLedgerReadRepository readRepository;
         final ExecutionLedgerWriteRepository writeRepository;
+        final AgentStreamEventStore streamEventStore;
         final IDialogueRunLedgerDao runDao;
         final IDialogueSessionLedgerDao sessionDao;
         final ILlmInvocationLedgerDao llmDao;
@@ -214,6 +218,7 @@ public final class ExecutionLedgerFixtureFactory {
                                   ConversationHistoryReplayService replayService,
                                   ExecutionLedgerReadRepository readRepository,
                                   ExecutionLedgerWriteRepository writeRepository,
+                                  AgentStreamEventStore streamEventStore,
                                   IDialogueRunLedgerDao runDao,
                                   IDialogueSessionLedgerDao sessionDao,
                                   ILlmInvocationLedgerDao llmDao,
@@ -227,6 +232,7 @@ public final class ExecutionLedgerFixtureFactory {
             this.replayService = replayService;
             this.readRepository = readRepository;
             this.writeRepository = writeRepository;
+            this.streamEventStore = streamEventStore;
             this.runDao = runDao;
             this.sessionDao = sessionDao;
             this.llmDao = llmDao;
@@ -251,8 +257,29 @@ public final class ExecutionLedgerFixtureFactory {
         Map<Long, LlmInvocation> llmInvocations = new LinkedHashMap<>();
         Map<Long, ToolInvocation> toolInvocations = new LinkedHashMap<>();
         Map<Long, ArtifactRecord> artifacts = new LinkedHashMap<>();
+        Map<String, List<AgentStreamEventStore.StoredStreamEvent>> streamEventsByRequestId = new LinkedHashMap<>();
         Map<String, Map<Long, ToolOutputView>> toolOutputsByToolAndInvocationId = new LinkedHashMap<>();
         Map<String, Map<String, ToolOutputView>> toolOutputsByToolAndDirectKey = new LinkedHashMap<>();
+    }
+
+    static final class InMemoryAgentStreamEventStore implements AgentStreamEventStore {
+        private final InMemoryLedgerStore store;
+
+        private InMemoryAgentStreamEventStore(InMemoryLedgerStore store) {
+            this.store = store;
+        }
+
+        @Override
+        public void append(String requestId, String eventType, String eventJson) {
+            List<StoredStreamEvent> events = store.streamEventsByRequestId
+                    .computeIfAbsent(requestId, key -> new ArrayList<>());
+            events.add(new StoredStreamEvent(events.size() + 1L, eventType, eventJson));
+        }
+
+        @Override
+        public List<StoredStreamEvent> findByRequestId(String requestId) {
+            return List.copyOf(store.streamEventsByRequestId.getOrDefault(requestId, List.of()));
+        }
     }
 
     static final class InMemoryToolOutputWriter implements ToolOutputWriter {

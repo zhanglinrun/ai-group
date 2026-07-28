@@ -22,7 +22,7 @@ import com.linrun.agent.domain.agent.reactor.service.imagegeneration.IImageGener
 import com.linrun.agent.domain.agent.ledger.tooloutput.ToolOutputReader;
 import com.linrun.agent.infrastructure.dao.reactor.IToolOutputImageGenerationDao;
 
-import javax.annotation.Resource;
+import jakarta.annotation.Resource;
 import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.Collections;

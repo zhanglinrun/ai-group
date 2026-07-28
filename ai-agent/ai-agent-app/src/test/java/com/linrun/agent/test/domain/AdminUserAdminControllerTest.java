@@ -1,6 +1,6 @@
 package com.linrun.agent.test.domain;
 
-import com.alibaba.fastjson.JSON;
+import com.linrun.agent.types.common.JsonUtils;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -116,7 +116,7 @@ public class AdminUserAdminControllerTest {
                 .thenReturn(adminUser(storedHash, 1));
 
         Response<AdminUserResponseDTO> loginResponse = controller.loginAdminUser(loginRequest(RAW_PASSWORD));
-        String loginJson = JSON.toJSONString(loginResponse);
+        String loginJson = JsonUtils.toJson(loginResponse);
         Assert.assertFalse("登录响应不得包含明文密码", loginJson.contains(RAW_PASSWORD));
         Assert.assertFalse("登录响应不得包含密码哈希", loginJson.contains(storedHash));
 

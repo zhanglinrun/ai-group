@@ -4,7 +4,7 @@ import org.springframework.stereotype.Service;
 import com.linrun.agent.domain.agent.adapter.repository.IAgentRepository;
 import com.linrun.agent.domain.agent.model.valobj.AiAgentTaskScheduleVO;
 
-import javax.annotation.Resource;
+import jakarta.annotation.Resource;
 import java.util.List;
 
 /**

@@ -4,7 +4,7 @@ import com.linrun.agent.domain.agent.model.entity.ArmoryCommandEntity;
 import com.linrun.agent.domain.agent.model.valobj.enums.AiAgentEnumVO;
 import com.linrun.agent.domain.agent.model.valobj.AiClientApiVO;
 import com.linrun.agent.domain.agent.service.armory.node.factory.DefaultArmoryStrategyFactory;
-import cn.bugstack.wrench.design.framework.tree.StrategyHandler;
+import com.linrun.agent.types.design.tree.StrategyHandler;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.openai.api.OpenAiApi;

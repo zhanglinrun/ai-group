@@ -2,6 +2,8 @@ package com.linrun.agent.config.reactor;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.beans.factory.ObjectProvider;
+import com.linrun.agent.domain.agent.ledger.AgentStreamEventStore;
 import com.linrun.agent.domain.agent.ledger.ExecutionLedgerQueryService;
 import com.linrun.agent.domain.agent.ledger.replay.ConversationHistoryReplayService;
 import com.linrun.agent.domain.agent.ledger.replay.HistoryReplayPrinter;
@@ -98,11 +100,13 @@ public class ReplayProjectorAutoConfiguration {
     public ConversationHistoryReplayService conversationHistoryReplayService(
             ExecutionLedgerQueryService executionLedgerQueryService,
             ReplayProjector replayProjector,
-            HistoryReplayPrinter historyReplayPrinter) {
+            HistoryReplayPrinter historyReplayPrinter,
+            ObjectProvider<AgentStreamEventStore> streamEventStore) {
         return new ConversationHistoryReplayService(
                 executionLedgerQueryService,
                 replayProjector,
-                historyReplayPrinter
+                historyReplayPrinter,
+                streamEventStore.getIfAvailable()
         );
     }
 }

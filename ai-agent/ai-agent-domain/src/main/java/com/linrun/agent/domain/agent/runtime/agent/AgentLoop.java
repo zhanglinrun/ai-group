@@ -1,7 +1,6 @@
 package com.linrun.agent.domain.agent.runtime.agent;
 
 
-import com.alibaba.fastjson.JSON;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.extern.slf4j.Slf4j;
@@ -25,8 +24,8 @@ import com.linrun.agent.domain.agent.runtime.loop.DefaultModelGateway;
 import com.linrun.agent.domain.agent.runtime.loop.ModelGateway;
 import com.linrun.agent.domain.agent.runtime.prompt.ToolCallPrompt;
 import com.linrun.agent.domain.agent.reactor.config.ReactorConfig;
-import com.linrun.agent.domain.agent.reactor.model.response.AgentResponse;
 import com.linrun.agent.domain.agent.runtime.ReactorRuntimeDependencies;
+import com.linrun.agent.domain.agent.runtime.stream.AgentStreamEvent;
 import com.linrun.agent.domain.agent.runtime.tool.ToolCollection;
 import com.linrun.agent.domain.agent.runtime.tool.BaseTool;
 import com.linrun.agent.domain.agent.runtime.tool.dispatch.ToolExecutionOutcome;
@@ -140,12 +139,7 @@ public class AgentLoop extends BaseAgent {
         if (reactorConfig.getToolMaxAttempts() != null && reactorConfig.getToolMaxAttempts() > 0) {
             setToolMaxAttempts(reactorConfig.getToolMaxAttempts());
         }
-        // 用户选择模型时优先按 modelId 覆盖，否则使用 Agent Loop 默认模型。
-        LLM runtimeLlm = new LLM(
-                runtimeDependencies.resolveEffectiveLlmSettings(
-                        context.getModelIdOverride(), reactorConfig.getAgentLoopModelName()),
-                "",
-                runtimeDependencies);
+        LLM runtimeLlm = new LLM(runtimeDependencies.resolveAgentLlmSettings(context), "", runtimeDependencies);
         modelGateway = new DefaultModelGateway(runtimeLlm);
         setFunctionCallType(modelGateway.functionCallType());
 
@@ -241,7 +235,7 @@ public class AgentLoop extends BaseAgent {
             if (!response.toolCalls().isEmpty()
                     && !Boolean.TRUE.equals(context.getIsStream())
                     && !response.content().isEmpty()) {
-                printer.send("tool_thought", response.content());
+                printer.send(new AgentStreamEvent.Thinking(context.getRequestId(), response.content()));
             }
 
             Message assistantMsg;
@@ -352,7 +346,9 @@ public class AgentLoop extends BaseAgent {
             repetitionSignatureForTurn = StopGate.contentSignature(draftAnswer);
             completionAttempt++;
             emitPhase("VERIFYING");
-            printer.send("verification_started", Map.of("attempt", completionAttempt));
+            printer.send(new AgentStreamEvent.StageOutput(
+                    context.getRequestId(), null, "verification_started",
+                    Map.of("attempt", completionAttempt), List.of(), true));
             CompletionRequest completionRequest = buildCompletionRequest(draftAnswer);
             HookBus.HookDecision preCompletion = getHookBus().fire(new HookBus.HookEvent(
                     HookBus.HookPoint.PRE_COMPLETION,
@@ -391,7 +387,8 @@ public class AgentLoop extends BaseAgent {
             blocked.put("attempt", completionAttempt);
             blocked.put("reasons", decision.getReasons());
             blocked.put("requiredActions", decision.getRequiredActions());
-            printer.send("completion_blocked", blocked);
+            printer.send(new AgentStreamEvent.StageOutput(
+                    context.getRequestId(), null, "completion_blocked", blocked, List.of(), true));
             getMemory().addMessage(Message.userMessage(feedback, null));
             if (completionAttempt >= getRunBudget().maxCompletionAttempts()) {
                 context.markRunFailed();
@@ -413,14 +410,11 @@ public class AgentLoop extends BaseAgent {
             String toolResult = outcome == null ? "" : outcome.getToolResult();
 
             // 步骤3.1：特殊工具结果不推送（如代码解释器、报表工具等，避免前端展示冗余信息）
-            if (!Arrays.asList("code_interpreter", "report_tool", "file_tool", "deep_search", "multimodalagent_tool", "data_analysis").contains(command.getFunction().getName())) {
+            if (!Arrays.asList("code_interpreter", "report_tool", "file_tool", "deep_search", "data_analysis").contains(command.getFunction().getName())) {
                 // 推送工具结果到客户端：包含工具名、参数、执行结果
-                printer.send("tool_result", AgentResponse.ToolResult.builder()
-                        .toolName(command.getFunction().getName())
-                        .toolParam(parseToolParam(command))
-                        .toolResult(toolResult)
-                        .toolCallId(command.getId())
-                        .build(), null);
+                printer.send(new AgentStreamEvent.ToolEnd(
+                        context.getRequestId(), command.getId(), command.getFunction().getName(),
+                        toolResult, outcome != null && outcome.isSuccess(), 0L));
             }
 
             // 步骤3.2：统一把最终 observation 写入主智能体记忆
@@ -499,24 +493,15 @@ public class AgentLoop extends BaseAgent {
         payload.put("missingRequirements", decision.getReasons());
         payload.put("requiredActions", decision.getRequiredActions());
         payload.put("verifierExecuted", decision.isVerifierExecuted());
-        printer.send("verification_result", payload);
+        printer.send(new AgentStreamEvent.StageOutput(
+                context.getRequestId(), null, "verification_result", payload, List.of(), true));
     }
 
     private void emitPhase(String phase) {
         if (printer != null) {
-            printer.send("phase_changed", Map.of("phase", phase));
-        }
-    }
-
-    private Map<String, Object> parseToolParam(ToolCall command) {
-        try {
-            return JSON.parseObject(command.getFunction().getArguments(), Map.class);
-        } catch (Exception e) {
-            String rawArguments = command.getFunction().getArguments();
-            log.warn("{} invalid tool arguments, fallback empty map tool={} argsChars={} errorType={}",
-                    context.getRequestId(), command.getFunction().getName(),
-                    rawArguments == null ? 0 : rawArguments.length(), e.getClass().getSimpleName());
-            return Map.of();
+            printer.send(new AgentStreamEvent.StageOutput(
+                    context.getRequestId(), null, "phase_changed",
+                    Map.of("phase", phase), List.of(), true));
         }
     }
 

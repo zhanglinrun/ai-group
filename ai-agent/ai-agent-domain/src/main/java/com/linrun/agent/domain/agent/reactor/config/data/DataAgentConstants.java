@@ -2,13 +2,13 @@ package com.linrun.agent.domain.agent.reactor.config.data;
 
 public class DataAgentConstants {
 
-    //nl2sql服务地址
+    // retired legacy data-query path
     public static final String NL2SQL_SERVER_PATH = "";
-    ///模型召回服务地址
+    // retired legacy table recall path
     public static final String TABLE_RAG_SERVER_PATH = "";
 
-    //qdrant存储schema的collection名称
-    public static final String SCHEMA_COLLECTION_NAME = "reactor_model_schema";
+    public static final String SCHEMA_OWNER = "data-agent";
+    public static final String SCHEMA_DOC_TYPE = "schema";
     //es存储列值索引名称
     public static final String COLUMN_VALUE_ES_INDEX = "reactor_model_column_value";
     //es 列值索引mapping

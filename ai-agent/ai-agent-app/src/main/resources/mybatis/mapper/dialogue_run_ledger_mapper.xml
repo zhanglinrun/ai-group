@@ -160,4 +160,11 @@
         ORDER BY started_at ASC, id ASC
     </select>
 
+    <select id="queryByOwnerAndSessionId" resultMap="DialogueRunViewMap">
+        SELECT <include refid="viewColumns"/>
+        FROM dialogue_run
+        WHERE owner_id = #{ownerId} AND session_id = #{sessionId} AND deleted = 0
+        ORDER BY started_at ASC, id ASC
+    </select>
+
 </mapper>

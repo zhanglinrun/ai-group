@@ -14,7 +14,7 @@ import java.util.List;
 
 /**
  * 聊天模型配置表 DAO 测试
- * @author bugstack虫洞栈
+ * @author linrun
  * @description 聊天模型配置表数据访问对象测试
  */
 @Slf4j

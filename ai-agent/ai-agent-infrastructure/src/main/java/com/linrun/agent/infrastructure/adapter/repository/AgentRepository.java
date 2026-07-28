@@ -1,8 +1,8 @@
 package com.linrun.agent.infrastructure.adapter.repository;
 
 import com.linrun.agent.domain.agent.adapter.repository.IAgentRepository;
-import com.alibaba.fastjson.JSON;
-import com.alibaba.fastjson.TypeReference;
+import com.linrun.agent.types.common.JsonUtils;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
@@ -346,10 +346,10 @@ public class AgentRepository implements IAgentRepository {
                     try {
                         if ("ChatMemory".equals(aiClientAdvisor.getAdvisorType())) {
                             // 解析chatMemory配置
-                            chatMemory = JSON.parseObject(extParam, AiClientAdvisorVO.ChatMemory.class);
+                            chatMemory = JsonUtils.parseObject(extParam, AiClientAdvisorVO.ChatMemory.class);
                         } else if ("RagAnswer".equals(aiClientAdvisor.getAdvisorType())) {
                             // 解析ragAnswer配置
-                            ragAnswer = JSON.parseObject(extParam, AiClientAdvisorVO.RagAnswer.class);
+                            ragAnswer = JsonUtils.parseObject(extParam, AiClientAdvisorVO.RagAnswer.class);
                         }
                     } catch (Exception e) {
                         // 解析失败时忽略，使用默认值null
@@ -682,7 +682,7 @@ public class AgentRepository implements IAgentRepository {
                         objectMapper.readValue(transportConfig, AiClientToolMcpVO.TransportConfigSse.class);
                 mcpVO.setTransportConfigSse(transportConfigSse);
             } else if ("stdio".equals(transportType)) {
-                Map<String, AiClientToolMcpVO.TransportConfigStdio.Stdio> stdio = JSON.parseObject(
+                Map<String, AiClientToolMcpVO.TransportConfigStdio.Stdio> stdio = JsonUtils.parseObject(
                         transportConfig,
                         new TypeReference<>() {
                         });

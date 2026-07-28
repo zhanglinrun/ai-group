@@ -4,7 +4,7 @@ import com.linrun.agent.domain.agent.adapter.repository.IAgentRepository;
 import com.linrun.agent.domain.agent.service.runtime.AiClientRuntimeRegistry;
 import com.linrun.agent.domain.agent.model.entity.ArmoryCommandEntity;
 import com.linrun.agent.domain.agent.service.armory.node.factory.DefaultArmoryStrategyFactory;
-import cn.bugstack.wrench.design.framework.tree.AbstractMultiThreadStrategyRouter;
+import com.linrun.agent.types.design.tree.AbstractMultiThreadStrategyRouter;
 import jakarta.annotation.Resource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

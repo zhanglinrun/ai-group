@@ -1,6 +1,6 @@
 package com.linrun.agent.domain.agent.runtime.tool.skill;
 
-import com.alibaba.fastjson.JSONObject;
+import com.linrun.agent.types.common.JsonUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -35,7 +35,7 @@ public class SkillScriptRunnerClient {
                     .method("POST")
                     .url(baseUrl + "/v1/tool/script_runner")
                     .headers(ReactorToolRequestHeaders.json(reactorConfig))
-                    .body(JSONObject.toJSONString(request))
+                    .body(JsonUtils.toJson(request))
                     .connectTimeoutSeconds(timeoutSeconds)
                     .readTimeoutSeconds(timeoutSeconds)
                     .writeTimeoutSeconds(timeoutSeconds)
@@ -44,7 +44,7 @@ public class SkillScriptRunnerClient {
             if (responseText == null || responseText.isBlank()) {
                 throw new SkillLoadException("script runner returned empty response");
             }
-            ScriptRunnerToolResponse response = JSONObject.parseObject(responseText, ScriptRunnerToolResponse.class);
+            ScriptRunnerToolResponse response = JsonUtils.parseObject(responseText, ScriptRunnerToolResponse.class);
             if (response == null) {
                 throw new SkillLoadException("script runner returned invalid response");
             }

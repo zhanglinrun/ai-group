@@ -5,6 +5,7 @@ import org.junit.Test;
 import com.linrun.agent.domain.agent.runtime.agent.AgentContext;
 import com.linrun.agent.domain.agent.runtime.agent.BaseAgent;
 import com.linrun.agent.domain.agent.runtime.artifact.ToolArtifactBinding;
+import com.linrun.agent.domain.agent.runtime.artifact.ToolArtifactFormatter;
 import com.linrun.agent.domain.agent.runtime.artifact.ToolArtifactSource;
 import com.linrun.agent.domain.agent.runtime.dto.File;
 import com.linrun.agent.domain.agent.runtime.dto.tool.ToolCall;
@@ -35,6 +36,31 @@ public class ToolArtifactBindingRuntimeTest {
         Assert.assertEquals(1, context.getTaskProductFiles().size());
         Assert.assertEquals(1, context.getVisibleArtifactFiles().size());
         Assert.assertEquals("report.md", context.getVisibleArtifactFiles().get(0).getFileName());
+    }
+
+    @Test
+    public void shouldMapOnlyVisibleArtifactsForRealtimeEvents() {
+        AgentContext context = newAgentContext();
+        ToolArtifactSource source = newSource("call-report-001", "report_tool");
+        context.registerGeneratedArtifact(source, createFile("scratch.txt",
+                "https://file.example.com/internal/scratch.txt", "内部草稿", true));
+        context.registerGeneratedArtifact(source, createFile("report.md",
+                "https://file.example.com/public/report.md", "最终报告", false));
+
+        List<Map<String, Object>> refs = ToolArtifactFormatter.toArtifactRefs(
+                context.getArtifactBindingsByToolCallId("call-report-001"));
+
+        Assert.assertEquals(1, refs.size());
+        Map<String, Object> ref = refs.get(0);
+        Assert.assertEquals("call-report-001::report.md", ref.get("resourceKey"));
+        Assert.assertEquals("call-report-001", ref.get("toolCallId"));
+        Assert.assertEquals("report_tool", ref.get("toolName"));
+        Assert.assertEquals("report.md", ref.get("fileName"));
+        Assert.assertEquals("最终报告", ref.get("description"));
+        Assert.assertEquals("https://file.example.com/public/report.md", ref.get("storageKey"));
+        Assert.assertEquals("https://file.example.com/public/report.md", ref.get("downloadUrl"));
+        Assert.assertEquals("https://file.example.com/public/report.md", ref.get("previewUrl"));
+        Assert.assertEquals(Boolean.FALSE, ref.get("missing"));
     }
 
     @Test

@@ -1,6 +1,5 @@
 package com.linrun.agent.trigger.service;
 
-import lombok.RequiredArgsConstructor;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
 import com.linrun.agent.domain.agent.adapter.port.AgentMessageStream;
@@ -14,15 +13,48 @@ import com.linrun.agent.domain.agent.service.dispatch.IAgentDispatchService;
 import com.linrun.agent.domain.agent.service.session.ConversationSessionOwnershipService;
 import com.linrun.agent.trigger.stream.AgentSessionPrinter;
 import com.linrun.agent.types.agent.owner.OwnerRequestContext;
+import com.linrun.agent.domain.agent.ledger.AgentStreamEventStore;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 
 @Service
-@RequiredArgsConstructor
 public class GptQueryIngressService {
 
     private final IAgentDispatchService agentDispatchService;
     private final ConversationSessionOwnershipService conversationSessionOwnershipService;
     private final ReactorConfig reactorConfig;
     private final ModelCatalogPort modelCatalogPort;
+    private final AgentStreamEventStore streamEventStore;
+
+    public GptQueryIngressService(IAgentDispatchService agentDispatchService,
+                                  ConversationSessionOwnershipService conversationSessionOwnershipService,
+                                  ReactorConfig reactorConfig,
+                                  ModelCatalogPort modelCatalogPort) {
+        this(agentDispatchService, conversationSessionOwnershipService, reactorConfig, modelCatalogPort,
+                (AgentStreamEventStore) null);
+    }
+
+    @Autowired
+    public GptQueryIngressService(IAgentDispatchService agentDispatchService,
+                                  ConversationSessionOwnershipService conversationSessionOwnershipService,
+                                  ReactorConfig reactorConfig,
+                                  ModelCatalogPort modelCatalogPort,
+                                  ObjectProvider<AgentStreamEventStore> streamEventStore) {
+        this(agentDispatchService, conversationSessionOwnershipService, reactorConfig, modelCatalogPort,
+                streamEventStore.getIfAvailable());
+    }
+
+    private GptQueryIngressService(IAgentDispatchService agentDispatchService,
+                                   ConversationSessionOwnershipService conversationSessionOwnershipService,
+                                   ReactorConfig reactorConfig,
+                                   ModelCatalogPort modelCatalogPort,
+                                   AgentStreamEventStore streamEventStore) {
+        this.agentDispatchService = agentDispatchService;
+        this.conversationSessionOwnershipService = conversationSessionOwnershipService;
+        this.reactorConfig = reactorConfig;
+        this.modelCatalogPort = modelCatalogPort;
+        this.streamEventStore = streamEventStore;
+    }
 
     /**
      * 同步执行入口：校验请求 → dispatch；具体模型调用在运行时按调用预留并结算额度。
@@ -60,7 +92,7 @@ public class GptQueryIngressService {
         AgentMessageStream stream = prepared.stream();
         try {
             agentDispatchService.dispatch(agentRequest,
-                    new AgentSessionPrinter(stream, agentRequest));
+                    new AgentSessionPrinter(stream, agentRequest, streamEventStore));
             stream.complete();
         } catch (Exception ex) {
             stream.completeWithError(ex);
@@ -104,9 +136,9 @@ public class GptQueryIngressService {
         request.setModelId(req.getModelId());
         request.setOnline(req.getOnline());
         request.setIsStream(true);
-        request.setOutputStyle(req.getOutputStyle());
         String executionMode = resolveExecutionMode(req);
         request.setExecutionMode(executionMode);
+        request.setOutputStyle(resolveOutputStyle(req.getOutputStyle(), executionMode));
         request.setAgentType(AgentType.AGENT_LOOP.getValue());
         request.setBasePrompt(reactorConfig.getReactorBasePrompt());
         if (StringUtils.isNotBlank(req.getAiAgentId())) {
@@ -121,6 +153,13 @@ public class GptQueryIngressService {
             return explicit;
         }
         return "STANDARD";
+    }
+
+    private String resolveOutputStyle(String outputStyle, String executionMode) {
+        if ("DEEP".equalsIgnoreCase(executionMode) && StringUtils.isBlank(outputStyle)) {
+            return "markdown";
+        }
+        return outputStyle;
     }
 
 }

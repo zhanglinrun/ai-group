@@ -1,10 +1,14 @@
 package com.linrun.agent.config.reactor;
 
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.Environment;
 import org.springframework.scheduling.TaskScheduler;
+import org.bsc.langgraph4j.checkpoint.BaseCheckpointSaver;
+import org.bsc.langgraph4j.checkpoint.CreateOption;
+import org.bsc.langgraph4j.checkpoint.MysqlSaver;
 import com.linrun.agent.domain.agent.adapter.port.FileArtifactPort;
 import com.linrun.agent.domain.agent.adapter.port.ModelCatalogPort;
 import com.linrun.agent.domain.agent.adapter.port.PlatformContextPort;
@@ -16,15 +20,20 @@ import com.linrun.agent.domain.agent.runtime.llm.LlmChatModelResolver;
 import com.linrun.agent.domain.agent.runtime.llm.LlmChatResponseMapper;
 import com.linrun.agent.domain.agent.runtime.llm.OpenAiChatOptionsFactory;
 import com.linrun.agent.domain.agent.runtime.llm.StreamResponseHandler;
+import com.linrun.agent.domain.agent.runtime.llm.ModelRouter;
 import com.linrun.agent.domain.agent.runtime.tool.mcp.runtime.McpToolExecutor;
 import com.linrun.agent.domain.agent.reactor.config.ReactorConfig;
 import com.linrun.agent.domain.agent.runtime.ReactorLlmDependencies;
 import com.linrun.agent.domain.agent.runtime.ReactorRuntimeDependencies;
-import com.linrun.agent.domain.agent.reactor.service.VectorService;
+import com.linrun.agent.domain.agent.rag.ingest.DocumentIngestRouter;
+import com.linrun.agent.domain.agent.rag.retrieval.HybridRetriever;
+import com.linrun.agent.domain.agent.runtime.hitl.ApprovalGate;
+import org.springframework.beans.factory.ObjectProvider;
 import com.linrun.agent.domain.agent.reactor.service.imagegeneration.IImageGenerationExecutionKernel;
 import com.linrun.agent.types.agent.config.AgentExecutorNames;
 import com.linrun.agent.types.agent.config.AgentExecutorProperties;
 
+import javax.sql.DataSource;
 import java.util.concurrent.Executor;
 
 /**
@@ -59,7 +68,10 @@ public class ReactorRuntimeAutoConfiguration {
                                                                  RemoteHttpPort remoteHttpPort,
                                                                  RemoteStreamPort remoteStreamPort,
                                                                  FileArtifactPort fileArtifactPort,
-                                                                 VectorService vectorService,
+                                                                 ObjectProvider<DocumentIngestRouter> documentIngestRouter,
+                                                                 ObjectProvider<HybridRetriever> hybridRetriever,
+                                                                 ApprovalGate approvalGate,
+                                                                 ModelRouter modelRouter,
                                                                  ModelCatalogPort modelCatalogPort,
                                                                  QuotaBillingPort quotaBillingPort,
                                                                  PlatformContextPort platformContextPort,
@@ -77,7 +89,10 @@ public class ReactorRuntimeAutoConfiguration {
                 .remoteHttpPort(remoteHttpPort)
                 .remoteStreamPort(remoteStreamPort)
                 .fileArtifactPort(fileArtifactPort)
-                .vectorService(vectorService)
+                .documentIngestRouter(documentIngestRouter.getIfAvailable())
+                .hybridRetriever(hybridRetriever.getIfAvailable())
+                .approvalGate(approvalGate)
+                .modelRouter(modelRouter)
                 .modelCatalogPort(modelCatalogPort)
                 .quotaBillingPort(quotaBillingPort)
                 .platformContextPort(platformContextPort)
@@ -86,6 +101,15 @@ public class ReactorRuntimeAutoConfiguration {
                 .toolExecutor(toolExecutor)
                 .heartbeatScheduler(heartbeatScheduler)
                 .runHeartbeatIntervalMillis(executorProperties.getHeartbeat().getIntervalMillis())
+                .build();
+    }
+
+    @Bean
+    @ConditionalOnBean(DataSource.class)
+    public BaseCheckpointSaver deepResearchCheckpointSaver(DataSource dataSource) {
+        return MysqlSaver.builder()
+                .dataSource(dataSource)
+                .createOption(CreateOption.CREATE_NONE)
                 .build();
     }
 }

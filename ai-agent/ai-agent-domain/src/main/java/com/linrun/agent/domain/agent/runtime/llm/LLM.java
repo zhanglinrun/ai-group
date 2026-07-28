@@ -1,8 +1,7 @@
 package com.linrun.agent.domain.agent.runtime.llm;
 
-import com.alibaba.fastjson.JSON;
-import com.alibaba.fastjson.JSONObject;
-import com.alibaba.fastjson.TypeReference;
+import com.linrun.agent.types.common.JsonUtils;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -201,14 +200,16 @@ public class LLM {
                         claudeToolCall.put("type", "tool_use");
                         claudeToolCall.put("id", toolCall.getId());
                         claudeToolCall.put("name", toolCall.getFunction().getName());
-                        claudeToolCall.put("input", JSON.parseObject(toolCall.getFunction().getArguments()));
+                        claudeToolCall.put("input", JsonUtils.parseObject(
+                                toolCall.getFunction().getArguments(),
+                                new TypeReference<Map<String, Object>>() { }));
                         claudeToolCalls.add(claudeToolCall);
                     }
                     messageMap.put("content", claudeToolCalls);
                 } else {
                     messageMap.put("role", message.getRole().getValue());
-                    List<Map<String, Object>> toolCallsMap = JSON.parseObject(
-                            JSON.toJSONString(message.getToolCalls()),
+                    List<Map<String, Object>> toolCallsMap = JsonUtils.parseObject(
+                            JsonUtils.toJson(message.getToolCalls()),
                             new TypeReference<List<Map<String, Object>>>() {
                             });
                     messageMap.put("tool_calls", toolCallsMap);
@@ -667,7 +668,7 @@ public class LLM {
             functionMap.put("description", tool.getDescription());
             functionMap.put("parameters",
                     addFunctionNameParam(normalizeToolParameters(tool.toParams(), tool.getName()), tool.getName()));
-            prompt.append(String.format("- `%s`%n```json %s ```%n", tool.getName(), JSON.toJSONString(functionMap)));
+            prompt.append(String.format("- `%s`%n```json %s ```%n", tool.getName(), JsonUtils.toJson(functionMap)));
         }
 
         for (McpToolInfo tool : tools.getMcpToolMap().values()) {
@@ -676,7 +677,7 @@ public class LLM {
             functionMap.put("description", tool.getDesc());
             functionMap.put("parameters",
                     addFunctionNameParam(parseAndNormalizeToolParameters(tool.getParameters(), tool.resolveExposedName()), tool.resolveExposedName()));
-            prompt.append(String.format("- `%s`%n```json %s ```%n", tool.resolveExposedName(), JSON.toJSONString(functionMap)));
+            prompt.append(String.format("- `%s`%n```json %s ```%n", tool.resolveExposedName(), JsonUtils.toJson(functionMap)));
         }
         return prompt.toString();
     }
@@ -913,13 +914,13 @@ public class LLM {
             return tokens;
         }
         for (BaseTool tool : tools.getToolMap().values()) {
-            tokens = Math.addExact(tokens, tokenCounter.countText(JSON.toJSONString(Map.of(
+            tokens = Math.addExact(tokens, tokenCounter.countText(JsonUtils.toJson(Map.of(
                     "name", tool.getName(),
                     "description", StringUtils.defaultString(tool.getDescription()),
                     "parameters", normalizeToolParameters(tool.toParams(), tool.getName())))));
         }
         for (McpToolInfo tool : tools.getMcpToolMap().values()) {
-            tokens = Math.addExact(tokens, tokenCounter.countText(JSON.toJSONString(Map.of(
+            tokens = Math.addExact(tokens, tokenCounter.countText(JsonUtils.toJson(Map.of(
                     "name", tool.resolveExposedName(),
                     "description", StringUtils.defaultString(tool.getDesc()),
                     "parameters", parseAndNormalizeToolParameters(tool.getParameters(), tool.resolveExposedName())))));
@@ -966,7 +967,7 @@ public class LLM {
             return;
         }
         handle.estimatedOutputTokens = tokenCounter.countText(response == null ? null : response.getContent())
-                + tokenCounter.countText(response == null ? null : JSON.toJSONString(response.getToolCalls()));
+                + tokenCounter.countText(response == null ? null : JsonUtils.toJson(response.getToolCalls()));
         finishLlmInvocation(
                 context,
                 handle,
@@ -1231,15 +1232,17 @@ public class LLM {
 
     private ToolCall parseToolCall(AgentContext context, String jsonContent) {
         try {
-            JSONObject jsonObj = JSON.parseObject(jsonContent);
-            String toolName = jsonObj.getString("function_name");
+            Map<String, Object> jsonObj = JsonUtils.parseObject(
+                    jsonContent, new TypeReference<Map<String, Object>>() { });
+            String toolName = StringUtils.defaultString(
+                    Objects.toString(jsonObj.get("function_name"), null));
             jsonObj.remove("function_name");
             return ToolCall.builder()
                     .id(StringUtil.getUUID())
                     .type(FUNCTION)
                     .function(ToolCall.Function.builder()
                             .name(toolName)
-                            .arguments(JSON.toJSONString(jsonObj))
+                            .arguments(JsonUtils.toJson(jsonObj))
                             .build())
                     .build();
         } catch (Exception e) {

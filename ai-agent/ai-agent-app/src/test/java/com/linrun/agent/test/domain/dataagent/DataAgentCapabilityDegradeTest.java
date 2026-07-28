@@ -10,11 +10,8 @@ import com.linrun.agent.domain.agent.rag.DataAgentQueryService;
 import com.linrun.agent.domain.agent.reactor.config.ReactorConfig;
 import com.linrun.agent.domain.agent.reactor.config.data.DataAgentConfig;
 import com.linrun.agent.domain.agent.reactor.config.data.EsConfig;
-import com.linrun.agent.domain.agent.reactor.config.data.QdrantConfig;
 import com.linrun.agent.domain.agent.reactor.service.ChatModelInfoService;
 import com.linrun.agent.domain.agent.reactor.service.ColumnValueSyncService;
-import com.linrun.agent.domain.agent.reactor.service.EmbeddingService;
-import com.linrun.agent.domain.agent.reactor.service.QdrantService;
 import com.linrun.agent.infrastructure.adapter.port.OkHttpRemoteHttpAdapter;
 import com.linrun.agent.infrastructure.adapter.port.OkHttpRemoteStreamAdapter;
 import com.linrun.agent.infrastructure.adapter.port.ReactorToolFileArtifactAdapter;
@@ -53,11 +50,8 @@ public class DataAgentCapabilityDegradeTest {
     public void shouldDisableEsWhenRegularStartupInitFails() throws Exception {
         DataAgentInitRunner runner = new DataAgentInitRunner();
         DataAgentConfig dataAgentConfig = new DataAgentConfig();
-        QdrantConfig qdrantConfig = new QdrantConfig();
-        qdrantConfig.setEnable(false);
         EsConfig esConfig = new EsConfig();
         esConfig.setEnable(true);
-        dataAgentConfig.setQdrantConfig(qdrantConfig);
         dataAgentConfig.setEsConfig(esConfig);
         dataAgentConfig.setForceRefresh(false);
 
@@ -65,10 +59,8 @@ public class DataAgentCapabilityDegradeTest {
         Mockito.doThrow(new IllegalStateException("es init failed")).when(columnValueSyncService).initColumnValueIndex();
 
         ReflectionTestUtils.setField(runner, "dataAgentConfig", dataAgentConfig);
-        ReflectionTestUtils.setField(runner, "qdrantService", Mockito.mock(QdrantService.class));
         ReflectionTestUtils.setField(runner, "chatModelInfoService", Mockito.mock(ChatModelInfoService.class));
         ReflectionTestUtils.setField(runner, "columnValueSyncService", columnValueSyncService);
-        ReflectionTestUtils.setField(runner, "embeddingService", Mockito.mock(EmbeddingService.class));
 
         runner.run();
 

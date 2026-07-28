@@ -1,8 +1,7 @@
 package com.linrun.agent.domain.agent.runtime.tool.common;
 
 
-import com.alibaba.fastjson.JSON;
-import com.alibaba.fastjson.JSONObject;
+import com.linrun.agent.types.common.JsonUtils;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -20,6 +19,7 @@ import com.linrun.agent.domain.agent.runtime.dto.FileRequest;
 import com.linrun.agent.domain.agent.runtime.tool.BaseTool;
 import com.linrun.agent.domain.agent.runtime.tool.ToolResultPayload;
 import com.linrun.agent.domain.agent.runtime.harness.AgentFutureWaiter;
+import com.linrun.agent.domain.agent.runtime.stream.AgentStreamEvent;
 import com.linrun.agent.domain.agent.runtime.util.StringUtil;
 import com.linrun.agent.domain.agent.reactor.config.ReactorConfig;
 import com.linrun.agent.domain.agent.reactor.config.ReactorToolRequestHeaders;
@@ -29,12 +29,15 @@ import java.io.IOException;
 import java.time.Duration;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+
+import static com.linrun.agent.domain.agent.runtime.artifact.ToolArtifactFormatter.toArtifactRefs;
 
 @Slf4j
 @Data
@@ -43,10 +46,10 @@ public class DeepSearchTool implements BaseTool {
 
     /**
      * deep_search 单次调用保底上限；实际等待还会被 run 剩余时间进一步截短。
-     * 外部搜索/模型不可达时必须快速返回结构化失败 observation，让主 Agent
-     * 继续完成交付，而不是把整个 SSE 请求拖到客户端超时。
+     * 覆盖 runtime/tools 的 150 秒总预算；AgentFutureWaiter 仍会按 run
+     * 剩余时间截短，外部搜索的快速降级由 runtime/tools 自身负责。
      */
-    private static final long DEEP_SEARCH_TIMEOUT_SECONDS = 45L;
+    private static final long DEEP_SEARCH_TIMEOUT_SECONDS = 180L;
     /**
      * deep_search HTTP 连接超时时间。
      */
@@ -54,7 +57,7 @@ public class DeepSearchTool implements BaseTool {
     /**
      * deep_search HTTP 读写超时时间。
      */
-    private static final long DEEP_SEARCH_IO_TIMEOUT_SECONDS = 60L;
+    private static final long DEEP_SEARCH_IO_TIMEOUT_SECONDS = 180L;
 
     private AgentContext agentContext;
     /**
@@ -240,7 +243,7 @@ public class DeepSearchTool implements BaseTool {
                     .method("POST")
                     .url(url)
                     .headers(ReactorToolRequestHeaders.sse(reactorConfig))
-                    .body(JSONObject.toJSONString(searchRequest))
+                    .body(JsonUtils.toJson(searchRequest))
                     .connectTimeoutSeconds(DEEP_SEARCH_CONNECT_TIMEOUT_SECONDS)
                     .readTimeoutSeconds(DEEP_SEARCH_IO_TIMEOUT_SECONDS)
                     .writeTimeoutSeconds(DEEP_SEARCH_IO_TIMEOUT_SECONDS)
@@ -269,7 +272,7 @@ public class DeepSearchTool implements BaseTool {
                             log.debug("{} deep_search event received sequence={} payloadChars={}",
                                     agentContext.getRequestId(), currentIndex, data.length());
                         }
-                        DeepSearchrResponse searchResponse = JSONObject.parseObject(data, DeepSearchrResponse.class);
+                        DeepSearchrResponse searchResponse = JsonUtils.parseObject(data, DeepSearchrResponse.class);
                         searchResponse.setToolCallId(toolCallId);
                         FileTool fileTool = new FileTool();
                         fileTool.setAgentContext(agentContext);
@@ -297,7 +300,10 @@ public class DeepSearchTool implements BaseTool {
                             resultRef.set(searchResponse.getAnswer()
                                     .substring(0, Math.min(searchResponse.getAnswer().length(), reactorConfig.getDeepSearchToolMessageTruncateLen())));
 
-                            agentContext.getPrinter().send(messageIdRef.get(), "deep_search", searchResponse, null, true);
+                            agentContext.getPrinter().send(new AgentStreamEvent.StageOutput(
+                                    agentContext.getRequestId(), toolCallId, "deep_search",
+                                    searchResponse,
+                                    toArtifactRefs(agentContext.getArtifactBindingsByToolCallId(toolCallId)), true));
                             return;
                         }
 
@@ -316,15 +322,19 @@ public class DeepSearchTool implements BaseTool {
                         if ("extend".equals(searchResponse.getMessageType())) {
                             messageIdRef.set(StringUtil.getUUID());
                             searchResponse.setSearchFinish(false);
-                            agentContext.getPrinter().send(messageIdRef.get(), "deep_search", searchResponse, null, true);
+                            agentContext.getPrinter().send(new AgentStreamEvent.StageOutput(
+                                    agentContext.getRequestId(), toolCallId, "deep_search",
+                                    searchResponse, List.of(), true));
                         } else if ("search".equals(searchResponse.getMessageType())) {
                             searchResponse.setSearchFinish(true);
-                            agentContext.getPrinter().send(messageIdRef.get(), "deep_search", searchResponse, null, true);
+                            agentContext.getPrinter().send(new AgentStreamEvent.StageOutput(
+                                    agentContext.getRequestId(), toolCallId, "deep_search",
+                                    searchResponse, List.of(), true));
                             FileRequest fileRequest = FileRequest.builder()
                                     .requestId(agentContext.getRequestId())
                                     .fileName(searchResponse.getQuery() + "_search_result.txt")
                                     .description(searchResponse.getQuery() + "...")
-                                    .content(JSON.toJSONString(contentMap))
+                                    .content(JsonUtils.toJson(contentMap))
                                     .build();
                             fileTool.uploadFile(fileRequest, false, true, artifactSource);
                         } else if ("report".equals(searchResponse.getMessageType())) {
@@ -335,7 +345,9 @@ public class DeepSearchTool implements BaseTool {
                             stringBuilderAll.append(searchResponse.getAnswer());
                             if (currentIndex == firstInterval || currentIndex % sendInterval == 0) {
                                 searchResponse.setAnswer(stringBuilderIncr.toString());
-                                agentContext.getPrinter().send(messageIdRef.get(), "deep_search", searchResponse, null, false);
+                                agentContext.getPrinter().send(new AgentStreamEvent.StageOutput(
+                                        agentContext.getRequestId(), toolCallId, "deep_search",
+                                        searchResponse, List.of(), false));
                                 stringBuilderIncr.setLength(0);
                             }
                             index.incrementAndGet();

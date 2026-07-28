@@ -1,13 +1,12 @@
 package com.linrun.agent.domain.agent.rag;
 
-import com.alibaba.fastjson.JSONObject;
+import com.linrun.agent.types.common.JsonUtils;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.calcite.sql.SqlKind;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
-import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Autowired;
 import com.linrun.agent.domain.agent.adapter.port.AgentMessageStream;
 import com.linrun.agent.domain.agent.adapter.port.DataQueryExecutionPort;
@@ -54,11 +53,10 @@ import java.util.stream.Collectors;
  * 负责自然语言转 SQL、远端流式监听与数据库查询结果整形。
  */
 @Slf4j
-@Service
 @RequiredArgsConstructor
 public class Nl2SqlQueryService {
 
-    public static final String NL2SQL_URL = "/v1/tool/nl2sql";
+    private static final String RETIRED_MESSAGE = "retired data query chain";
 
     private final DataAgentConfig dataAgentConfig;
     private final DataQueryExecutionPort dataQueryExecutionPort;
@@ -68,41 +66,11 @@ public class Nl2SqlQueryService {
     private ReactorConfig reactorConfig;
 
     public List<ChatQueryData> runNL2SQLSync(NL2SQLReq request) throws Exception {
-        AtomicReference<Throwable> err = new AtomicReference<>();
-        request.setStream(false);
-        String jsonResult = remoteHttpPort.execute(RemoteHttpRequest.builder()
-                .method("POST")
-                .url(dataAgentConfig.getAgentUrl() + NL2SQL_URL)
-                .headers(ReactorToolRequestHeaders.json(reactorConfig))
-                .body(JSONObject.toJSONString(request))
-                .build());
-        log.info("{},{} nl2sql result without sse:{}", request.getTraceId(), request.getRequestId(), jsonResult);
-        NL2SQLResult nl2SQLResult = JSONObject.parseObject(jsonResult, NL2SQLResult.class);
-        if (err.get() != null) {
-            throw new RuntimeException("sse nl2sql failed:" + err.get().getMessage());
-        }
-        return nl2sqlQueryData(request, nl2SQLResult);
+        throw new UnsupportedOperationException(RETIRED_MESSAGE);
     }
 
     public List<ChatQueryData> runNL2SQLSse(NL2SQLReq request, AgentMessageStream stream) throws Exception {
-        AtomicReference<Throwable> err = new AtomicReference<>();
-        Nl2SqlSseListener sqlSseListener = new Nl2SqlSseListener(stream, request.getRequestId(), request.getTraceId());
-        remoteStreamPort.openStream(RemoteStreamRequest.builder()
-                .method("POST")
-                .url(dataAgentConfig.getAgentUrl() + NL2SQL_URL)
-                .headers(ReactorToolRequestHeaders.sse(reactorConfig))
-                .body(JSONObject.toJSONString(request))
-                .build(), sqlSseListener);
-        sqlSseListener.getCountDownLatch().await();
-        log.info("{} sse event count:{}", request.getRequestId(), sqlSseListener.getEventCount());
-        if (!sqlSseListener.isSuccess()) {
-            throw new RuntimeException("sse listener failed " + sqlSseListener.getErrorMessage());
-        }
-        NL2SQLResult nl2SQLResult = sqlSseListener.getNl2SQLResult();
-        if (err.get() != null) {
-            throw new RuntimeException("sse nl2sql failed:" + err.get().getMessage());
-        }
-        return nl2sqlQueryData(request, nl2SQLResult);
+        throw new UnsupportedOperationException(RETIRED_MESSAGE);
     }
 
     public String replaceFirstMatchedOrThrow(String input, List<String> codeList) {
@@ -453,7 +421,7 @@ public class Nl2SqlQueryService {
 
         private NL2SQLResult parseEventResult(String data) {
             try {
-                return JSONObject.parseObject(data, NL2SQLResult.class);
+                return JsonUtils.parseObject(data, NL2SQLResult.class);
             } catch (Exception e) {
                 log.error("{},{} nl2sql 解析失败 {}", traceId, requestId, e.getMessage(), e);
                 return null;

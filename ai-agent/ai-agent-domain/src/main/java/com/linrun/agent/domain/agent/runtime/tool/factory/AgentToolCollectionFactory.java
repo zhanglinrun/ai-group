@@ -8,7 +8,6 @@ import com.linrun.agent.domain.agent.runtime.dto.tool.McpToolInfo;
 import com.linrun.agent.domain.agent.runtime.tool.ToolCollection;
 import com.linrun.agent.domain.agent.runtime.tool.common.CodeInterpreterTool;
 import com.linrun.agent.domain.agent.runtime.tool.common.AnalyzeFileTool;
-import com.linrun.agent.domain.agent.runtime.tool.common.DataAnalysisTool;
 import com.linrun.agent.domain.agent.runtime.tool.common.DeepSearchTool;
 import com.linrun.agent.domain.agent.runtime.tool.common.FileTool;
 import com.linrun.agent.domain.agent.runtime.tool.common.ImageGenerationTool;
@@ -79,71 +78,56 @@ public class AgentToolCollectionFactory {
             toolCollection.addTool(platformContextTool);
         }
 
-        if ("dataAgent".equals(request.getOutputStyle())) {
+        FileTool fileTool = new FileTool();
+        fileTool.setAgentContext(agentContext);
+        toolCollection.addTool(fileTool);
+        if (request.getSessionFiles() != null && !request.getSessionFiles().isEmpty()) {
+            AnalyzeFileTool analyzeFileTool = new AnalyzeFileTool();
+            analyzeFileTool.setAgentContext(agentContext);
+            toolCollection.addTool(analyzeFileTool);
+        }
+
+        List<String> agentToolList = Arrays.stream(reactorConfig.getMultiAgentToolListMap()
+                        .getOrDefault("default", "search,web_fetch,code,report")
+                        .split(","))
+                .map(String::trim)
+                .filter(item -> !item.isEmpty())
+                .toList();
+
+        if (agentToolList.contains("code")) {
+            CodeInterpreterTool codeInterpreterTool = new CodeInterpreterTool();
+            codeInterpreterTool.setAgentContext(agentContext);
+            toolCollection.addTool(codeInterpreterTool);
+        }
+        if (agentToolList.contains("report")) {
             ReportTool reportTool = new ReportTool();
             reportTool.setAgentContext(agentContext);
             toolCollection.addTool(reportTool);
-
-            DataAnalysisTool dataAnalysisTool = new DataAnalysisTool();
-            dataAnalysisTool.setAgentContext(agentContext);
-            toolCollection.addTool(dataAnalysisTool);
-        } else {
-            FileTool fileTool = new FileTool();
-            fileTool.setAgentContext(agentContext);
-            toolCollection.addTool(fileTool);
-            if (request.getSessionFiles() != null && !request.getSessionFiles().isEmpty()) {
-                AnalyzeFileTool analyzeFileTool = new AnalyzeFileTool();
-                analyzeFileTool.setAgentContext(agentContext);
-                toolCollection.addTool(analyzeFileTool);
-            }
-
-            List<String> agentToolList = Arrays.stream(reactorConfig.getMultiAgentToolListMap()
-                            .getOrDefault("default", "search,web_fetch,code,report")
-                            .split(","))
-                    .map(String::trim)
-                    .filter(item -> !item.isEmpty())
-                    .toList();
-
-            if (agentToolList.contains("code")) {
-                CodeInterpreterTool codeInterpreterTool = new CodeInterpreterTool();
-                codeInterpreterTool.setAgentContext(agentContext);
-                toolCollection.addTool(codeInterpreterTool);
-            }
-            if (agentToolList.contains("report")) {
-                ReportTool reportTool = new ReportTool();
-                reportTool.setAgentContext(agentContext);
-                toolCollection.addTool(reportTool);
-            }
-            if (online && agentToolList.contains("search")) {
-                DeepSearchTool deepSearchTool = new DeepSearchTool();
-                deepSearchTool.setAgentContext(agentContext);
-                toolCollection.addTool(deepSearchTool);
-            }
-            if (online && agentToolList.contains("web_fetch")) {
-                WebFetchTool webFetchTool = new WebFetchTool();
-                webFetchTool.setAgentContext(agentContext);
-                toolCollection.addTool(webFetchTool);
-            }
-            if (agentToolList.contains("image_generation")) {
-                ImageGenerationTool imageGenerationTool = new ImageGenerationTool();
-                imageGenerationTool.setAgentContext(agentContext);
-                toolCollection.addTool(imageGenerationTool);
-            }
-            if (agentToolList.contains("data_analysis")) {
-                DataAnalysisTool dataAnalysisTool = new DataAnalysisTool();
-                dataAnalysisTool.setAgentContext(agentContext);
-                toolCollection.addTool(dataAnalysisTool);
-            }
-            if (skillRegistry.isEnabled()
-                    && !skillRegistry.listSkills().isEmpty()
-                    && skillRuntimeOptions.isAgentLoopEnabled()) {
-                registerSkillTools(toolCollection, agentContext);
-            }
-            if (!userSkillExtensionService.listEnabled(request.getOwnerId()).isEmpty()) {
-                UserSkillTool userSkillTool = new UserSkillTool(userSkillExtensionService);
-                userSkillTool.setAgentContext(agentContext);
-                toolCollection.addTool(userSkillTool);
-            }
+        }
+        if (online && agentToolList.contains("search")) {
+            DeepSearchTool deepSearchTool = new DeepSearchTool();
+            deepSearchTool.setAgentContext(agentContext);
+            toolCollection.addTool(deepSearchTool);
+        }
+        if (online && agentToolList.contains("web_fetch")) {
+            WebFetchTool webFetchTool = new WebFetchTool();
+            webFetchTool.setAgentContext(agentContext);
+            toolCollection.addTool(webFetchTool);
+        }
+        if (agentToolList.contains("image_generation")) {
+            ImageGenerationTool imageGenerationTool = new ImageGenerationTool();
+            imageGenerationTool.setAgentContext(agentContext);
+            toolCollection.addTool(imageGenerationTool);
+        }
+        if (skillRegistry.isEnabled()
+                && !skillRegistry.listSkills().isEmpty()
+                && skillRuntimeOptions.isAgentLoopEnabled()) {
+            registerSkillTools(toolCollection, agentContext);
+        }
+        if (!userSkillExtensionService.listEnabled(request.getOwnerId()).isEmpty()) {
+            UserSkillTool userSkillTool = new UserSkillTool(userSkillExtensionService);
+            userSkillTool.setAgentContext(agentContext);
+            toolCollection.addTool(userSkillTool);
         }
 
         try {

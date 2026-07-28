@@ -5,7 +5,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 /**
  * 任务调度器配置属性
  */
-@ConfigurationProperties(prefix = "xfg.wrench.task.job", ignoreInvalidFields = true)
+@ConfigurationProperties(prefix = "agent.task.job", ignoreInvalidFields = true)
 public class TaskJobAutoProperties {
 
     /** 是否启用任务调度器 */
@@ -15,7 +15,7 @@ public class TaskJobAutoProperties {
     private int poolSize = 10;
 
     /** 线程名称前缀 */
-    private String threadNamePrefix = "xfg-task-scheduler-";
+    private String threadNamePrefix = "agent-task-scheduler-";
 
     /** 关闭时等待任务完成 */
     private boolean waitForTasksToCompleteOnShutdown = true;

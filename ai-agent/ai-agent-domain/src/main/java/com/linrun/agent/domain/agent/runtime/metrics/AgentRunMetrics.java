@@ -57,11 +57,15 @@ public final class AgentRunMetrics {
         String modelName = fallbackModelName;
         Long durationMs = null;
         if (context != null) {
+            if (StringUtils.isNotBlank(context.getSelectedModelName())) {
+                modelName = context.getSelectedModelName();
+            }
             if (context.getRunStartedAtMillis() != null) {
                 durationMs = Math.max(0L, System.currentTimeMillis() - context.getRunStartedAtMillis());
             }
             try {
-                if (context.getRuntimeDependencies() != null) {
+                if (StringUtils.isBlank(context.getSelectedModelName())
+                        && context.getRuntimeDependencies() != null) {
                     LLMSettings settings = context.getRuntimeDependencies()
                             .resolveEffectiveLlmSettings(context.getModelIdOverride(), fallbackModelName);
                     if (settings != null && StringUtils.isNotBlank(settings.getModel())) {

@@ -1,12 +1,8 @@
 package com.linrun.agent.domain.agent.rag;
 
-import com.linrun.agent.domain.agent.adapter.port.AgentMessageStream;
 import com.linrun.agent.domain.agent.reactor.data.QueryResult;
-import com.linrun.agent.domain.agent.reactor.data.dto.ChatQueryData;
 import com.linrun.agent.domain.agent.reactor.data.dto.ColumnEsRecallReq;
 import com.linrun.agent.domain.agent.reactor.data.dto.ColumnVectorRecallReq;
-import com.linrun.agent.domain.agent.reactor.data.dto.NL2SQLReq;
-import com.linrun.agent.domain.agent.reactor.model.req.DataAgentChatReq;
 
 import java.io.IOException;
 import java.util.List;
@@ -18,19 +14,9 @@ import java.util.Map;
  */
 public interface DataAgentQueryService {
 
-    NL2SQLReq queryAllSchemaNl2SqlReq();
-
     List<Map<String, Object>> vectorRecall(ColumnVectorRecallReq req);
 
     List<Map<String, Object>> esRecall(ColumnEsRecallReq req) throws IOException;
-
-    void chatQuery(DataAgentChatReq req, AgentMessageStream stream) throws Exception;
-
-    List<ChatQueryData> apiChatQuery(DataAgentChatReq req);
-
-    Object testQuery(DataAgentChatReq req) throws Exception;
-
-    NL2SQLReq getNl2SqlReq(String query) throws Exception;
 
     List<?> queryAllModelsWithSchema();
 

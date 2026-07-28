@@ -93,7 +93,7 @@ public class AgentExecutorConfigurationTest {
 
             ITaskJobService taskJobService = context.getBean(ITaskJobService.class);
             TaskScheduler heartbeatScheduler = context.getBean(AgentExecutorNames.HEARTBEAT_SCHEDULER, TaskScheduler.class);
-            TaskScheduler taskJobScheduler = context.getBean("xfgWrenchTaskScheduler", TaskScheduler.class);
+            TaskScheduler taskJobScheduler = context.getBean("agentTaskScheduler", TaskScheduler.class);
             TaskScheduler scheduledAnnotationScheduler = context.getBean("taskScheduler", TaskScheduler.class);
             TaskScheduler injectedScheduler = (TaskScheduler) ReflectionTestUtils.getField(taskJobService, "taskScheduler");
 

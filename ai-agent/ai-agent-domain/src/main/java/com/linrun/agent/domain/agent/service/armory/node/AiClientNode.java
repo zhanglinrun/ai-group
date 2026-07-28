@@ -9,7 +9,7 @@ import com.linrun.agent.domain.agent.model.valobj.AiClientVO;
 import com.linrun.agent.domain.agent.runtime.tool.mcp.runtime.McpRegistry;
 import com.linrun.agent.domain.agent.service.runtime.AiClientRuntimeRegistry;
 import com.linrun.agent.domain.agent.service.armory.node.factory.DefaultArmoryStrategyFactory;
-import cn.bugstack.wrench.design.framework.tree.StrategyHandler;
+import com.linrun.agent.types.design.tree.StrategyHandler;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.api.Advisor;
@@ -17,7 +17,7 @@ import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.stereotype.Service;
 
-import javax.annotation.Resource;
+import jakarta.annotation.Resource;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;

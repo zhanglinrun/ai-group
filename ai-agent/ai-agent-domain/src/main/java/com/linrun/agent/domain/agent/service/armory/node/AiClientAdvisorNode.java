@@ -5,12 +5,13 @@ import com.linrun.agent.domain.agent.model.valobj.enums.AiAgentEnumVO;
 import com.linrun.agent.domain.agent.model.valobj.enums.AiClientAdvisorTypeEnumVO;
 import com.linrun.agent.domain.agent.model.valobj.AiClientAdvisorVO;
 import com.linrun.agent.domain.agent.service.armory.node.factory.DefaultArmoryStrategyFactory;
-import cn.bugstack.wrench.design.framework.tree.StrategyHandler;
+import com.linrun.agent.types.design.tree.StrategyHandler;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.advisor.api.Advisor;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
-import com.linrun.agent.domain.agent.reactor.service.VectorService;
+import com.linrun.agent.domain.agent.rag.retrieval.HybridRetriever;
 
 import java.util.List;
 
@@ -21,8 +22,11 @@ import java.util.List;
 @Service
 public class AiClientAdvisorNode extends AbstractArmorySupport {
 
-    @Resource
-    private VectorService vectorService;
+    private final HybridRetriever hybridRetriever;
+
+    public AiClientAdvisorNode(ObjectProvider<HybridRetriever> hybridRetriever) {
+        this.hybridRetriever = hybridRetriever.getIfAvailable();
+    }
 
     @Resource
     private AiClientNode aiClientNode;
@@ -68,7 +72,7 @@ public class AiClientAdvisorNode extends AbstractArmorySupport {
     private Advisor createAdvisor(AiClientAdvisorVO aiClientAdvisorVO) {
         String advisorType = aiClientAdvisorVO.getAdvisorType();
         AiClientAdvisorTypeEnumVO advisorTypeEnum = AiClientAdvisorTypeEnumVO.getByCode(advisorType);
-        return advisorTypeEnum.createAdvisor(aiClientAdvisorVO, vectorService);
+        return advisorTypeEnum.createAdvisor(aiClientAdvisorVO, hybridRetriever);
     }
 
 }

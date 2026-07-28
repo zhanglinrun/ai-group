@@ -1,6 +1,5 @@
 package com.linrun.agent.domain.agent.ledger.replay;
 
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
@@ -14,6 +13,10 @@ import com.linrun.agent.domain.agent.reactor.model.constant.Constants;
 import com.linrun.agent.domain.agent.reactor.model.response.GptProcessResult;
 import com.linrun.agent.domain.agent.runtime.printer.Printer;
 import com.linrun.agent.domain.agent.runtime.printer.ReplayFrameSink;
+import com.linrun.agent.domain.agent.runtime.stream.AgentStreamEvent;
+import com.linrun.agent.domain.agent.ledger.AgentStreamEventStore;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -26,11 +29,31 @@ import java.util.Objects;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class DialogueRunReplayService {
 
     private final ExecutionLedgerQueryService executionLedgerQueryService;
     private final ReplayProjector replayProjector;
+    private final AgentStreamEventStore streamEventStore;
+
+    public DialogueRunReplayService(ExecutionLedgerQueryService executionLedgerQueryService,
+                                    ReplayProjector replayProjector) {
+        this(executionLedgerQueryService, replayProjector, (AgentStreamEventStore) null);
+    }
+
+    @Autowired
+    public DialogueRunReplayService(ExecutionLedgerQueryService executionLedgerQueryService,
+                                    ReplayProjector replayProjector,
+                                    ObjectProvider<AgentStreamEventStore> streamEventStore) {
+        this(executionLedgerQueryService, replayProjector, streamEventStore.getIfAvailable());
+    }
+
+    public DialogueRunReplayService(ExecutionLedgerQueryService executionLedgerQueryService,
+                                    ReplayProjector replayProjector,
+                                    AgentStreamEventStore streamEventStore) {
+        this.executionLedgerQueryService = executionLedgerQueryService;
+        this.replayProjector = replayProjector;
+        this.streamEventStore = streamEventStore;
+    }
 
     /**
      * ReplayProjector remains the single projection model. This adapter only changes live
@@ -38,6 +61,15 @@ public class DialogueRunReplayService {
      */
     public String replay(Printer printer, DialogueRunClaim claim) {
         String fallbackSummary = StringUtils.defaultString(claim.getFinalSummaryText());
+        if (printer instanceof ReplayFrameSink replayFrameSink && streamEventStore != null) {
+            List<AgentStreamEventStore.StoredStreamEvent> stored =
+                    streamEventStore.findByRequestId(claim.getRequestId());
+            if (!stored.isEmpty()) {
+                stored.forEach(event -> replayFrameSink.sendCanonicalReplay(
+                        event.eventType(), event.eventJson()));
+                return fallbackSummary;
+            }
+        }
         if (!(printer instanceof ReplayFrameSink replayFrameSink)
                 || executionLedgerQueryService == null
                 || replayProjector == null) {
@@ -165,14 +197,14 @@ public class DialogueRunReplayService {
                               String summary,
                               String errorCode,
                               String errorMessage) {
-        Map<String, Object> terminal = terminalMetadata(runStatus, errorCode, errorMessage);
-        printer.send("run_finished", terminal);
-        Map<String, Object> result = new LinkedHashMap<>(terminal);
-        result.put("taskSummary", StringUtils.defaultString(summary));
-        if (StringUtils.isNotBlank(errorMessage)) {
-            result.put("errorMessage", errorMessage);
+        if (runStatus != null && runStatus == ExecutionLedgerConstants.STATUS_SUCCESS) {
+            printer.send(new AgentStreamEvent.Complete(null, StringUtils.defaultString(summary), 0L, 0L));
+            return;
         }
-        printer.send("result", result);
+        printer.send(new AgentStreamEvent.Error(
+                null,
+                StringUtils.defaultIfBlank(errorCode, "RUN_REPLAY_FAILED"),
+                StringUtils.defaultIfBlank(errorMessage, "The completed run failed.")));
     }
 
     private Map<String, Object> terminalMetadata(Integer runStatus,

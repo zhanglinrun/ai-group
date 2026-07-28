@@ -21,8 +21,8 @@ spring:
       chat:
         default-role-id: dev_role_001
     openai:
-      base-url: ${AGENT_GROUP_LLM_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}
-      api-key: ${AGENT_GROUP_LLM_API_KEY:${DASHSCOPE_API_KEY:not-configured}}
+      base-url: ${AGENT_GROUP_LLM_BASE_URL:${OPENAI_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}}
+      api-key: ${AGENT_GROUP_LLM_API_KEY:${DASHSCOPE_API_KEY:${OPENAI_API_KEY:not-configured}}}
       chat:
         completions-path: /chat/completions
         options:
@@ -30,6 +30,8 @@ spring:
           temperature: 0.2
           stream-usage: true
       embedding:
+        api-key: ${AGENT_GROUP_EMBEDDING_API_KEY:${DASHSCOPE_API_KEY:${AGENT_GROUP_LLM_API_KEY:${OPENAI_API_KEY:not-configured}}}}
+        base-url: ${AGENT_GROUP_EMBEDDING_BASE_URL:${DASHSCOPE_API_BASE:https://dashscope.aliyuncs.com/compatible-mode/v1}}
         embeddings-path: /embeddings
         metadata-mode: EMBED
         options:
@@ -41,19 +43,24 @@ spring:
       driver-class-name: com.mysql.cj.jdbc.Driver
       url: jdbc:mysql://${MYSQL_HOST:127.0.0.1}:${MYSQL_PORT:13306}/agent_db?useUnicode=true&characterEncoding=utf8&autoReconnect=true&zeroDateTimeBehavior=convertToNull&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
       username: ${MYSQL_USER:root}
-      password: ${MYSQL_ROOT_PASSWORD:123456}
+      password: ${MYSQL_ROOT_PASSWORD:}
       hikari:
         maximum-pool-size: 20
         minimum-idle: 5
+    # PostgreSQL + pgvector：承载 AI 记忆与向量检索，与 MySQL 业务数据职责分离
+    postgres:
+      driver-class-name: org.postgresql.Driver
+      url: jdbc:postgresql://${POSTGRES_HOST:127.0.0.1}:${POSTGRES_PORT:15432}/${POSTGRES_DB:agent_memory}?reWriteBatchedInserts=true
+      username: ${POSTGRES_USER:agent}
+      password: ${POSTGRES_PASSWORD:}
+      hikari:
+        maximum-pool-size: 10
+        minimum-idle: 2
   data:
     redis:
       host: ${REDIS_HOST:127.0.0.1}
       port: ${REDIS_PORT:16379}
-  rabbitmq:
-    host: ${RABBITMQ_HOST:127.0.0.1}
-    port: ${RABBITMQ_PORT:5672}
-    username: ${RABBITMQ_USER:admin}
-    password: ${RABBITMQ_PASSWORD:admin}
+      password: ${REDIS_PASSWORD:}
 
 ai-group:
   billing:
@@ -70,10 +77,10 @@ llm:
     model: ${AGENT_GROUP_LLM_CHAT_MODEL:qwen-plus}
     max_tokens: ${AGENT_GROUP_LLM_MAX_TOKENS:16384}
     temperature: ${AGENT_GROUP_LLM_TEMPERATURE:0.2}
-    base_url: ${AGENT_GROUP_LLM_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}
+    base_url: ${AGENT_GROUP_LLM_BASE_URL:${OPENAI_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}}
     interface_url: /chat/completions
     function_call_type: function_call
-    apikey: ${AGENT_GROUP_LLM_API_KEY:${DASHSCOPE_API_KEY:not-configured}}
+    apikey: ${AGENT_GROUP_LLM_API_KEY:${DASHSCOPE_API_KEY:${OPENAI_API_KEY:not-configured}}}
     max_input_tokens: ${AGENT_GROUP_LLM_MAX_INPUT_TOKENS:100000}
 
 autobots:
@@ -96,7 +103,7 @@ autobots:
       max-turns: ${AGENT_LOOP_MAX_TURNS:40}
       max-tool-calls: ${AGENT_LOOP_MAX_TOOL_CALLS:64}
       max-completion-attempts: ${AGENT_LOOP_MAX_COMPLETION_ATTEMPTS:3}
-      max-duration-seconds: ${AGENT_LOOP_MAX_DURATION_SECONDS:900}
+      max-duration-seconds: ${AGENT_LOOP_MAX_DURATION_SECONDS:1800}
       max-total-tokens: ${AGENT_LOOP_MAX_TOTAL_TOKENS:200000}
       max-microcredits: ${AGENT_LOOP_MAX_MICROCREDITS:10000000}
     # 单用户并发对话上限（超过即拒绝，控制成本与公平性）
@@ -119,9 +126,7 @@ autobots:
         # 仅在历史超预算时触发 LLM 摘要压缩，控制成本
         enabled: ${AGENT_MEMORY_COMPRESS_ENABLED:true}
       longterm:
-        # 长期记忆使用下方 Qdrant 连接，但与 DataAgent/问数的 enable 开关相互独立
         enabled: ${AGENT_MEMORY_LONGTERM_ENABLED:false}
-        collection: ${AGENT_MEMORY_LONGTERM_COLLECTION:agent_conversation_memory}
         top-k: ${AGENT_MEMORY_LONGTERM_TOP_K:5}
         score-threshold: ${AGENT_MEMORY_LONGTERM_SCORE_THRESHOLD:0.6}
         # 召回时间衰减半衰期（天），越久的记忆得分权重越低（遗忘机制）
@@ -137,25 +142,18 @@ autobots:
       max-grep-matches: ${AGENT_SKILLS_MAX_GREP_MATCHES:100}
       default-script-timeout-seconds: ${AGENT_SKILLS_SCRIPT_TIMEOUT_SECONDS:120}
     code_interpreter_url: ${AGENT_GROUP_REACTOR_TOOL_BASE_URL:http://127.0.0.1:1601}
-    reactor_tool_token: ${AGENT_GROUP_REACTOR_TOOL_TOKEN:${AI_GROUP_INTERNAL_TOKEN:${ai-group.internal.token:}}}
     deep_search_url: ${AGENT_GROUP_REACTOR_TOOL_BASE_URL:http://127.0.0.1:1601}
     web_fetch_url: ${AGENT_GROUP_REACTOR_TOOL_BASE_URL:http://127.0.0.1:1601}
     image_generation_url: ${AGENT_GROUP_REACTOR_TOOL_BASE_URL:http://127.0.0.1:1601}
     data_analysis_url: ${AGENT_GROUP_REACTOR_TOOL_BASE_URL:http://127.0.0.1:1601}
   data-agent:
+    # 裸 SQL 执行入口默认关闭；本地排障可设 AGENT_GROUP_DATA_TEST_QUERY_ENABLED=true
+    test-query:
+      enabled: ${AGENT_GROUP_DATA_TEST_QUERY_ENABLED:false}
     agent-url: ${AGENT_GROUP_REACTOR_TOOL_BASE_URL:http://127.0.0.1:1601}
-    qdrant-config:
-      enable: ${AGENT_GROUP_QDRANT_ENABLED:false}
-      url: ${QDRANT_URL:http://127.0.0.1:6333}
-      port: ${QDRANT_PORT:6334}
-      api-key: ${QDRANT_API_KEY:}
-      embedding-url: ${AGENT_GROUP_EMBEDDING_URL:}
-      prefer-grpc: ${QDRANT_PREFER_GRPC:false}
 
 agent:
   group:
-    rabbit:
-      enabled: ${AGENT_GROUP_RABBIT_ENABLED:false}
     tools:
       enabled: ${AGENT_GROUP_REACTOR_TOOL_ENABLED:true}
       base-url: ${AGENT_GROUP_REACTOR_TOOL_BASE_URL:http://127.0.0.1:1601}

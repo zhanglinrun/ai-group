@@ -57,7 +57,7 @@
             #{runCount}, #{finishedRunCount}, #{failedRunCount}, #{startedAt}, #{lastActiveAt}, NOW(), NOW(), 0
         )
         ON DUPLICATE KEY UPDATE
-            owner_id = VALUES(owner_id),
+            owner_id = COALESCE(owner_id, VALUES(owner_id)),
             title = VALUES(title),
             status = VALUES(status),
             latest_request_id = VALUES(latest_request_id),

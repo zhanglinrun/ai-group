@@ -1,10 +1,11 @@
 package com.linrun.agent.domain.agent.runtime;
 
 import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
+import com.linrun.agent.domain.agent.adapter.port.QuotaInsufficientException;
 import com.linrun.agent.domain.agent.ledger.AgentExecutionRecorder;
 import com.linrun.agent.domain.agent.ledger.ExecutionLedgerRunSupport;
 import com.linrun.agent.domain.agent.ledger.model.DialogueRunClaim;
@@ -17,12 +18,16 @@ import com.linrun.agent.domain.agent.runtime.agent.AgentLoop;
 import com.linrun.agent.domain.agent.runtime.agent.ExplicitToolChoicePolicy;
 import com.linrun.agent.domain.agent.runtime.agent.ToolInvocationContract;
 import com.linrun.agent.domain.agent.runtime.dto.File;
+import com.linrun.agent.domain.agent.runtime.deepresearch.DeepResearchGraphRunner;
+import com.linrun.agent.domain.agent.runtime.deepresearch.DeepResearchResult;
 import com.linrun.agent.domain.agent.runtime.enums.AgentState;
 import com.linrun.agent.domain.agent.runtime.enums.AgentStopReason;
 import com.linrun.agent.domain.agent.runtime.metrics.AgentRunMetrics;
+import com.linrun.agent.domain.agent.runtime.llm.LLMSettings;
 import com.linrun.agent.domain.agent.runtime.printer.Printer;
 import com.linrun.agent.domain.agent.runtime.profile.AgentProfileResolver;
 import com.linrun.agent.domain.agent.runtime.profile.ResolvedAgentProfile;
+import com.linrun.agent.domain.agent.runtime.stream.AgentStreamEvent;
 import com.linrun.agent.domain.agent.runtime.tool.factory.AgentToolCollectionFactory;
 import com.linrun.agent.domain.agent.runtime.tool.ToolCollection;
 import com.linrun.agent.domain.agent.runtime.util.DateUtil;
@@ -48,13 +53,15 @@ public class AgentRuntime {
     private final AgentLoopFactory agentLoopFactory;
     private final AgentProfileResolver agentProfileResolver;
     private final DialogueRunReplayService dialogueRunReplayService;
+    private final DeepResearchGraphRunner deepResearchGraphRunner;
 
     /** Direct-call compatibility for existing domain tests and non-Spring consumers. */
     public AgentRuntime(AgentToolCollectionFactory toolCollectionFactory,
                         AgentExecutionRecorder executionRecorder,
                         ReactorRuntimeDependencies runtimeDependencies) {
         this(toolCollectionFactory, executionRecorder, runtimeDependencies,
-                AgentLoopFactory.defaults(), null, new DialogueRunReplayService(null, null));
+                AgentLoopFactory.defaults(), null, new DialogueRunReplayService(null, null),
+                (DeepResearchGraphRunner) null);
     }
 
     /** Direct-call compatibility for tests and embedded consumers. */
@@ -63,7 +70,29 @@ public class AgentRuntime {
                         ReactorRuntimeDependencies runtimeDependencies,
                         AgentLoopFactory agentLoopFactory) {
         this(toolCollectionFactory, executionRecorder, runtimeDependencies,
-                agentLoopFactory, null, new DialogueRunReplayService(null, null));
+                agentLoopFactory, null, new DialogueRunReplayService(null, null),
+                (DeepResearchGraphRunner) null);
+    }
+
+    /** Direct-call compatibility for focused deep-research routing tests. */
+    public AgentRuntime(AgentToolCollectionFactory toolCollectionFactory,
+                        AgentExecutionRecorder executionRecorder,
+                        ReactorRuntimeDependencies runtimeDependencies,
+                        AgentLoopFactory agentLoopFactory,
+                        DeepResearchGraphRunner deepResearchGraphRunner) {
+        this(toolCollectionFactory, executionRecorder, runtimeDependencies,
+                agentLoopFactory, null, new DialogueRunReplayService(null, null), deepResearchGraphRunner);
+    }
+
+    /** Direct-call compatibility for tests that inject profile/replay collaborators. */
+    public AgentRuntime(AgentToolCollectionFactory toolCollectionFactory,
+                        AgentExecutionRecorder executionRecorder,
+                        ReactorRuntimeDependencies runtimeDependencies,
+                        AgentLoopFactory agentLoopFactory,
+                        AgentProfileResolver agentProfileResolver,
+                        DialogueRunReplayService dialogueRunReplayService) {
+        this(toolCollectionFactory, executionRecorder, runtimeDependencies, agentLoopFactory,
+                agentProfileResolver, dialogueRunReplayService, (DeepResearchGraphRunner) null);
     }
 
     @Autowired
@@ -72,7 +101,20 @@ public class AgentRuntime {
                         ReactorRuntimeDependencies runtimeDependencies,
                         AgentLoopFactory agentLoopFactory,
                         AgentProfileResolver agentProfileResolver,
-                        DialogueRunReplayService dialogueRunReplayService) {
+                        DialogueRunReplayService dialogueRunReplayService,
+                        ObjectProvider<DeepResearchGraphRunner> deepResearchGraphRunner) {
+        this(toolCollectionFactory, executionRecorder, runtimeDependencies, agentLoopFactory,
+                agentProfileResolver, dialogueRunReplayService,
+                deepResearchGraphRunner == null ? null : deepResearchGraphRunner.getIfAvailable());
+    }
+
+    private AgentRuntime(AgentToolCollectionFactory toolCollectionFactory,
+                         AgentExecutionRecorder executionRecorder,
+                         ReactorRuntimeDependencies runtimeDependencies,
+                         AgentLoopFactory agentLoopFactory,
+                         AgentProfileResolver agentProfileResolver,
+                         DialogueRunReplayService dialogueRunReplayService,
+                         DeepResearchGraphRunner deepResearchGraphRunner) {
         this.toolCollectionFactory = toolCollectionFactory;
         this.executionRecorder = executionRecorder;
         this.runtimeDependencies = runtimeDependencies;
@@ -80,6 +122,7 @@ public class AgentRuntime {
         this.agentProfileResolver = agentProfileResolver;
         this.dialogueRunReplayService = Objects.requireNonNull(
                 dialogueRunReplayService, "DialogueRunReplayService must not be null");
+        this.deepResearchGraphRunner = deepResearchGraphRunner;
     }
 
     public String run(AgentRequest request, Printer printer) {
@@ -93,6 +136,7 @@ public class AgentRuntime {
         String finalAnswer = "";
         ScheduledFuture<?> heartbeatFuture = null;
         try {
+            normalizeExecutionMode(request);
             applyResolvedProfile(request);
             context = createContext(request, printer);
             DialogueRunClaim runClaim = ExecutionLedgerRunSupport.initializeRun(
@@ -124,12 +168,12 @@ public class AgentRuntime {
                     ownsRunSideEffects = true;
                 }
             }
+            LLMSettings selectedSettings = runtimeDependencies.resolveAgentLlmSettings(context);
+            context.setSelectedModelName(selectedSettings.getModel());
             heartbeatFuture = startRunHeartbeat(context);
-            Map<String, Object> started = new LinkedHashMap<>();
-            started.put("runId", context.getAgentRunState().getRunUid());
-            started.put("phase", "ANALYZING");
-            started.put("executionMode", request.getExecutionMode());
-            printer.send("run_started", started);
+            printer.send(new AgentStreamEvent.AgentStart(
+                    context.getRequestId(), request.getOwnerId(), request.getSessionId(),
+                    runtimeAgentName(request), context.getSelectedModelName()));
 
             ToolCollection toolCollection = toolCollectionFactory.buildForUnified(context, request);
             context.setToolCollection(toolCollection);
@@ -183,6 +227,23 @@ public class AgentRuntime {
                 );
                 return AgentRuntimeOutcome.executed("");
             }
+            if (isDeepResearch(request) && deepResearchGraphRunner != null) {
+                DeepResearchResult result = deepResearchGraphRunner.run(context, request);
+                finalAnswer = StringUtils.defaultString(result.summary());
+                boolean completed = result.completed();
+                AgentStopReason stopReason = completed ? AgentStopReason.COMPLETED : AgentStopReason.EXECUTION_ERROR;
+                boolean failed = !"SUCCESS".equals(resolveProtocolStatus(stopReason, completed));
+                ExecutionLedgerRunSupport.finishRun(
+                        context,
+                        resolveLedgerStatus(stopReason, completed),
+                        finalAnswer,
+                        failed ? stopReason.name() : null,
+                        failed ? "Deep research graph stopped before successful completion" : null
+                );
+                terminalPersisted = true;
+                emitDeepResearchFinalResult(request, context, result, completed);
+                return AgentRuntimeOutcome.executed(finalAnswer);
+            }
             AgentLoop agentLoop = agentLoopFactory.create(context);
             finalAnswer = agentLoop.run(request.getQuery());
             boolean completed = agentLoop.getState() == AgentState.FINISHED && !context.isRunFailed();
@@ -210,9 +271,15 @@ public class AgentRuntime {
                 context.cancel(AgentStopReason.EXECUTION_ERROR);
                 context.markRunFailed();
             }
-            String terminalErrorCode = ownsRunSideEffects && StringUtils.isNotBlank(finalAnswer)
+            QuotaInsufficientException quotaFailure = quotaFailure(error);
+            String terminalErrorCode = quotaFailure != null
+                    ? "QUOTA_INSUFFICIENT"
+                    : ownsRunSideEffects && StringUtils.isNotBlank(finalAnswer)
                     ? "RUN_FINALIZATION_FAILED"
                     : AgentStopReason.EXECUTION_ERROR.name();
+            String terminalErrorMessage = quotaFailure == null
+                    ? "Agent Loop execution failed."
+                    : StringUtils.defaultIfBlank(quotaFailure.getMessage(), "额度不足，无法执行本次 Agent 请求。");
             Exception terminalPersistenceError = null;
             if (context != null && ownsRunSideEffects) {
                 try {
@@ -221,7 +288,7 @@ public class AgentRuntime {
                             ExecutionLedgerConstants.STATUS_FAILED,
                             StringUtils.defaultIfBlank(finalAnswer, null),
                             terminalErrorCode,
-                            "Agent Loop execution or durable finalization failed"
+                            terminalErrorMessage
                     );
                     terminalPersisted = true;
                 } catch (Exception persistenceError) {
@@ -243,7 +310,7 @@ public class AgentRuntime {
                         context,
                         printer,
                         AgentStopReason.EXECUTION_ERROR,
-                        "Agent Loop execution failed.",
+                        terminalErrorMessage,
                         failureDetails
                 );
             } catch (Exception terminalError) {
@@ -258,6 +325,10 @@ public class AgentRuntime {
                     : AgentRuntimeOutcome.notExecuted("");
         } finally {
             cancelRunHeartbeat(heartbeatFuture);
+            if (context != null && runtimeDependencies != null
+                    && runtimeDependencies.getApprovalGate() != null) {
+                runtimeDependencies.getApprovalGate().clearRunCache(context.getRequestId());
+            }
         }
     }
 
@@ -296,36 +367,13 @@ public class AgentRuntime {
     }
 
     private void emitDuplicateRunningTerminal(Printer printer, DialogueRunClaim claim) {
-        Map<String, Object> terminal = new LinkedHashMap<>();
-        terminal.put("status", "STOPPED");
-        terminal.put("runStatus", "STOPPED");
-        terminal.put("completionGatePassed", false);
-        terminal.put("stopReason", "RUN_ALREADY_IN_PROGRESS");
-        terminal.put("retryable", true);
-        terminal.put("retryAfterMillis", 1000);
-        terminal.put("existingRunId", StringUtils.defaultIfBlank(claim.getRunUid(), claim.getRequestId()));
-        printer.send("run_finished", terminal);
-
-        Map<String, Object> result = new LinkedHashMap<>(terminal);
-        result.put("taskSummary", "");
-        result.put("errorMessage", "This request is already running. Retry after the active run reaches a terminal state.");
-        printer.send("result", result);
+        printer.send(new AgentStreamEvent.Error(
+                claim.getRequestId(), "RUN_ALREADY_IN_PROGRESS",
+                "This request is already running. Retry after the active run reaches a terminal state."));
     }
 
     private void emitRunClaimRejected(Printer printer, String stopReason, String errorMessage) {
-        Map<String, Object> terminal = new LinkedHashMap<>();
-        terminal.put("status", "FAILED");
-        terminal.put("runStatus", "FAILED");
-        terminal.put("completionGatePassed", false);
-        terminal.put("stopReason", stopReason);
-        terminal.put("errorCode", stopReason);
-        terminal.put("retryable", false);
-        printer.send("run_finished", terminal);
-
-        Map<String, Object> result = new LinkedHashMap<>(terminal);
-        result.put("taskSummary", "");
-        result.put("errorMessage", errorMessage);
-        printer.send("result", result);
+        printer.send(new AgentStreamEvent.Error(null, stopReason, errorMessage));
     }
 
     private void applyResolvedProfile(AgentRequest request) {
@@ -336,6 +384,12 @@ public class AgentRuntime {
         request.setProfileClientIds(profile.clientIds());
         String base = StringUtils.defaultString(request.getBasePrompt()).stripTrailing();
         request.setBasePrompt(base + profile.trustedPrompt());
+    }
+
+    private void normalizeExecutionMode(AgentRequest request) {
+        if (request != null && StringUtils.equalsIgnoreCase(request.getExecutionMode(), "AUTO")) {
+            request.setExecutionMode("STANDARD");
+        }
     }
 
     private AgentContext createContext(AgentRequest request, Printer printer) {
@@ -356,7 +410,7 @@ public class AgentRuntime {
                 .outputStyle(request.getOutputStyle())
                 .isStream(Objects.requireNonNullElse(request.getIsStream(), false))
                 .online(request.getOnline())
-                .templateType("dataAgent".equals(request.getOutputStyle()) ? "fix" : "empty")
+                .templateType("empty")
                 .modelIdOverride(request.getModelId())
                 .runStartedAtMillis(System.currentTimeMillis())
                 .executionRecorder(executionRecorder)
@@ -378,6 +432,17 @@ public class AgentRuntime {
         emitTerminalFailure(context, printer, stopReason, errorMessage, Map.of());
     }
 
+    private QuotaInsufficientException quotaFailure(Throwable error) {
+        Throwable current = error;
+        while (current != null) {
+            if (current instanceof QuotaInsufficientException quotaInsufficient) {
+                return quotaInsufficient;
+            }
+            current = current.getCause();
+        }
+        return null;
+    }
+
     private void emitTerminalFailure(AgentContext context,
                                      Printer printer,
                                      AgentStopReason stopReason,
@@ -389,24 +454,17 @@ public class AgentRuntime {
         AgentStopReason effectiveReason = stopReason == null
                 ? AgentStopReason.EXECUTION_ERROR
                 : stopReason;
-        Map<String, Object> finished = new LinkedHashMap<>();
-        finished.put("status", "FAILED");
-        finished.put("runStatus", "FAILED");
-        finished.put("completionGatePassed", false);
-        finished.put("stopReason", effectiveReason.name());
         if (details != null && !details.isEmpty()) {
-            finished.putAll(details);
+            printer.send(new AgentStreamEvent.StageOutput(
+                    context == null ? null : context.getRequestId(), null, "failure_details",
+                    details, List.of(), true));
         }
-        printer.send("run_finished", finished);
-
-        Map<String, Object> result = new LinkedHashMap<>(finished);
-        result.put("taskSummary", "");
-        result.put("errorMessage", StringUtils.defaultIfBlank(errorMessage, "Agent Loop execution failed."));
-        List<File> files = context == null ? List.of() : context.getReversedVisibleArtifactFiles();
-        if (CollectionUtils.isNotEmpty(files)) {
-            result.put("fileList", files);
-        }
-        printer.send("result", result);
+        String errorCode = details == null || details.get("errorCode") == null
+                ? effectiveReason.name()
+                : String.valueOf(details.get("errorCode"));
+        printer.send(new AgentStreamEvent.Error(
+                context == null ? null : context.getRequestId(), errorCode,
+                StringUtils.defaultIfBlank(errorMessage, "Agent Loop execution failed.")));
     }
 
     private boolean hasNetworkLookupTool(ToolCollection toolCollection) {
@@ -436,33 +494,52 @@ public class AgentRuntime {
         AgentStopReason stopReason = effectiveStopReason(agentLoop.getStopReason());
         String terminalStatus = resolveProtocolStatus(stopReason, completed);
 
-        Map<String, Object> result = new LinkedHashMap<>();
-        result.put("taskSummary", finalAnswer);
-        result.put("status", terminalStatus);
-        result.put("runStatus", terminalStatus);
-        result.put("completionGatePassed", completed);
-        result.put("stopReason", stopReason.name());
-
-        List<File> files = context.getReversedVisibleArtifactFiles();
-        if (CollectionUtils.isNotEmpty(files)) {
-            result.put("fileList", files);
-        }
         Map<String, Object> metrics = AgentRunMetrics.fromContext(
                 context,
                 runtimeDependencies.requireReactorConfig().getAgentLoopModelName());
-        if (!metrics.isEmpty()) {
-            result.put(AgentRunMetrics.KEY, metrics);
-        }
 
-        Map<String, Object> finished = new LinkedHashMap<>();
-        finished.put("status", terminalStatus);
-        finished.put("runStatus", terminalStatus);
-        finished.put("completionGatePassed", completed);
-        finished.put("stopReason", stopReason.name());
-        context.getPrinter().send("run_finished", finished);
-        context.getPrinter().send("result", result);
+        if (completed) {
+            context.getPrinter().send(new AgentStreamEvent.Complete(
+                    context.getRequestId(), finalAnswer,
+                    numberValue(metrics.get(AgentRunMetrics.DURATION_MS)),
+                    numberValue(metrics.get(AgentRunMetrics.CHARGED_MICROCREDITS))));
+        } else {
+            context.getPrinter().send(new AgentStreamEvent.Error(
+                    context.getRequestId(), stopReason.name(),
+                    StringUtils.defaultIfBlank(finalAnswer, "Agent Loop execution failed.")));
+        }
         log.info("{} Agent Loop finished status={} resultChars={}",
                 request.getRequestId(), terminalStatus, finalAnswer.length());
+    }
+
+    private void emitDeepResearchFinalResult(AgentRequest request,
+                                             AgentContext context,
+                                             DeepResearchResult result,
+                                             boolean completed) {
+        String finalAnswer = StringUtils.defaultString(result.summary());
+        Map<String, Object> metrics = AgentRunMetrics.fromContext(
+                context,
+                runtimeDependencies.requireReactorConfig().getAgentLoopModelName());
+        if (completed) {
+            context.getPrinter().send(new AgentStreamEvent.Complete(
+                    context.getRequestId(), finalAnswer,
+                    numberValue(metrics.get(AgentRunMetrics.DURATION_MS)),
+                    numberValue(metrics.get(AgentRunMetrics.CHARGED_MICROCREDITS))));
+        } else {
+            context.getPrinter().send(new AgentStreamEvent.Error(
+                    context.getRequestId(), AgentStopReason.EXECUTION_ERROR.name(),
+                    StringUtils.defaultIfBlank(finalAnswer, "Deep research graph execution failed.")));
+        }
+        log.info("{} Deep research graph finished status={} quality={} sourceCount={} chars={}",
+                request.getRequestId(),
+                completed ? "SUCCESS" : "FAILED",
+                result.qualityStatus(),
+                result.sourceCount(),
+                result.charCount());
+    }
+
+    private long numberValue(Object value) {
+        return value instanceof Number number ? number.longValue() : 0L;
     }
 
     private AgentStopReason effectiveStopReason(AgentStopReason stopReason) {
@@ -498,10 +575,19 @@ public class AgentRuntime {
                 .trim()
                 .toLowerCase();
         return switch (mode) {
-            case "auto" -> ExecutionLedgerConstants.ENTRY_AGENT_LOOP_AUTO;
             case "deep" -> ExecutionLedgerConstants.ENTRY_AGENT_LOOP_DEEP;
             default -> ExecutionLedgerConstants.ENTRY_AGENT_LOOP_STANDARD;
         };
+    }
+
+    private boolean isDeepResearch(AgentRequest request) {
+        return request != null && StringUtils.equalsIgnoreCase(request.getExecutionMode(), "DEEP");
+    }
+
+    private String runtimeAgentName(AgentRequest request) {
+        return isDeepResearch(request) && deepResearchGraphRunner != null
+                ? ExecutionLedgerConstants.AGENT_NAME_DEEP_RESEARCH_GRAPH
+                : ExecutionLedgerConstants.AGENT_NAME_AGENT_LOOP;
     }
 
     private List<File> convertFiles(List<FileInformation> sessionFiles) {

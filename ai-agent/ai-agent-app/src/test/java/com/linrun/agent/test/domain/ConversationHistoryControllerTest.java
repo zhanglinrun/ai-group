@@ -210,6 +210,46 @@ public class ConversationHistoryControllerTest {
     }
 
     @Test
+    public void shouldReplayCanonicalDeepResearchReportFramesFromHistoryDetail() {
+        ExecutionLedgerFixtureFactory.LedgerTestContext ctx = ExecutionLedgerFixtureFactory.newLedgerTestContext();
+        Long runId = ctx.recorder.createRun(DialogueRunStartRecord.builder()
+                .runUid("req-history-deep-report-001")
+                .requestId("req-history-deep-report-001")
+                .sessionId("session-history-deep-report-001")
+                .ownerId(TEST_OWNER_ID)
+                .entryAgent(ExecutionLedgerConstants.ENTRY_AGENT_LOOP_DEEP)
+                .queryText("deep research replay")
+                .startedAt(LocalDateTime.of(2026, 5, 2, 11, 35, 0))
+                .build());
+        ctx.streamEventStore.append(
+                "req-history-deep-report-001",
+                "stage_output",
+                """
+                {"type":"stage_output","runId":"req-history-deep-report-001","toolCallId":null,"outputType":"deep_research_report","payload":{"qualityStatus":"PASSED","sourceCount":20,"charCount":15000,"previewMarkdown":"# report","reportArtifactId":"artifact-md"},"artifactRefs":[{"resourceKey":"artifact-md","displayName":"report.md","downloadUrl":"https://file.example.com/report.md","previewUrl":"https://file.example.com/report.md"}],"isFinal":true}
+                """);
+        ctx.recorder.finishRun(DialogueRunFinishRecord.builder()
+                .runId(runId)
+                .requestId("req-history-deep-report-001")
+                .status(ExecutionLedgerConstants.STATUS_SUCCESS)
+                .finalSummaryText("deep report ready")
+                .finishedAt(LocalDateTime.of(2026, 5, 2, 11, 36, 0))
+                .build());
+
+        Response<ConversationHistoryDetailRespVO> response = asOwnerReturn(() ->
+                wiredController(ctx).detail("session-history-deep-report-001"));
+
+        Assert.assertEquals(ResponseCode.SUCCESS.getCode(), response.getCode());
+        Assert.assertNotNull(response.getData());
+        Assert.assertEquals("DEEP", response.getData().getExecutionMode());
+        Assert.assertEquals("docs", response.getData().getOutputStyle());
+        List<GptProcessResult> frames = response.getData().getRuns().get(0).getReplayFrames();
+        Assert.assertTrue(frames.stream()
+                .map(this::eventData)
+                .anyMatch(eventData -> "deep_research_report".equals(
+                        ((Map<?, ?>) eventData.get("resultMap")).get("messageType"))));
+    }
+
+    @Test
     public void shouldKeepRetiredRuntimeLedgerRowsReadableAfterAgentLoopMigration() {
         ExecutionLedgerFixtureFactory.LedgerTestContext ctx = ExecutionLedgerFixtureFactory.newLedgerTestContext();
         String legacyReport = "legacy-plan-report.md";

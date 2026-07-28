@@ -154,7 +154,7 @@ public class PlatformContextTool implements BaseTool {
     private String toJson(PlatformContextToolOutput output) {
         try {
             // Platform BFF DTOs are Java records. Jackson serializes record accessors,
-            // while the legacy Fastjson 1.x bean path silently emitted data={}.
+            // while the former bean conversion path silently emitted data={}.
             return OBJECT_MAPPER.writeValueAsString(output);
         } catch (JsonProcessingException e) {
             throw new IllegalStateException("platform_context 结构化结果序列化失败。", e);

@@ -5,9 +5,9 @@ import org.junit.Test;
 import com.linrun.agent.trigger.stream.AgentSessionPrinter;
 import com.linrun.agent.domain.agent.adapter.port.AgentMessageStream;
 import com.linrun.agent.domain.agent.reactor.model.req.AgentRequest;
-import com.linrun.agent.domain.agent.reactor.model.response.AgentResponse;
+import com.linrun.agent.domain.agent.runtime.stream.AgentStreamEvent;
 
-import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -15,53 +15,43 @@ public class AgentSessionPrinterControlEventTest {
 
     @Test
     public void shouldPreserveRunStartedFieldsInStreamFrame() {
-        AgentResponse response = capture("run_started", Map.of(
-                "runId", "run-001",
-                "executionMode", "DEEP",
-                "phase", "RUNNING"
-        ));
+        AgentStreamEvent.AgentStart response = (AgentStreamEvent.AgentStart) capture(
+                new AgentStreamEvent.AgentStart("run-001", "owner-1", "conversation-1",
+                        "AgentLoop", "qwen-plus"));
 
-        Assert.assertEquals("run_started", response.getMessageType());
-        Assert.assertEquals("run-001", response.getResultMap().get("runId"));
-        Assert.assertEquals("DEEP", response.getResultMap().get("executionMode"));
-        Assert.assertEquals("RUNNING", response.getResultMap().get("phase"));
-        Assert.assertFalse(response.getResultMap().containsKey("agentType"));
+        Assert.assertEquals("agent_start", response.type());
+        Assert.assertEquals("run-001", response.runId());
+        Assert.assertEquals("qwen-plus", response.modelId());
     }
 
     @Test
     public void shouldPreserveRunFinishedFieldsInStreamFrame() {
-        AgentResponse response = capture("run_finished", Map.of(
-                "status", "FAILED",
-                "stopReason", "MAX_STEPS",
-                "completionGatePassed", false
-        ));
+        AgentStreamEvent.StageOutput response = (AgentStreamEvent.StageOutput) capture(
+                new AgentStreamEvent.StageOutput("run-001", null, "run_finished", Map.of(
+                        "status", "FAILED",
+                        "stopReason", "MAX_STEPS",
+                        "completionGatePassed", false), List.of(), true));
 
-        Assert.assertEquals("run_finished", response.getMessageType());
-        Assert.assertEquals("FAILED", response.getResultMap().get("status"));
-        Assert.assertEquals("MAX_STEPS", response.getResultMap().get("stopReason"));
-        Assert.assertEquals(Boolean.FALSE, response.getResultMap().get("completionGatePassed"));
-        Assert.assertEquals(Boolean.FALSE, response.getFinish());
+        Assert.assertEquals("stage_output", response.type());
+        Assert.assertEquals("run_finished", response.outputType());
+        @SuppressWarnings("unchecked")
+        Map<String, Object> payload = (Map<String, Object>) response.payload();
+        Assert.assertEquals("FAILED", payload.get("status"));
+        Assert.assertEquals("MAX_STEPS", payload.get("stopReason"));
+        Assert.assertEquals(Boolean.FALSE, payload.get("completionGatePassed"));
     }
 
     @Test
     public void shouldApplyAuthoritativeTerminalStatusToResultFrame() {
-        AgentResponse response = capture("result", new HashMap<>(Map.of(
-                "taskSummary", "未能在预算内完成",
-                "status", "FAILED",
-                "runStatus", "FAILED",
-                "errorCode", "MAX_STEPS",
-                "errorMessage", "达到最大执行步数"
-        )));
+        AgentStreamEvent.Error response = (AgentStreamEvent.Error) capture(
+                new AgentStreamEvent.Error("run-001", "MAX_STEPS", "达到最大执行步数"));
 
-        Assert.assertEquals("result", response.getMessageType());
-        Assert.assertEquals("未能在预算内完成", response.getResult());
-        Assert.assertEquals("FAILED", response.getStatus());
-        Assert.assertEquals("MAX_STEPS", response.getErrorCode());
-        Assert.assertEquals("达到最大执行步数", response.getErrorMessage());
-        Assert.assertEquals(Boolean.TRUE, response.getFinish());
+        Assert.assertEquals("error", response.type());
+        Assert.assertEquals("MAX_STEPS", response.code());
+        Assert.assertEquals("达到最大执行步数", response.message());
     }
 
-    private AgentResponse capture(String messageType, Map<String, Object> message) {
+    private Object capture(AgentStreamEvent event) {
         AtomicReference<Object> payload = new AtomicReference<>();
         AgentMessageStream stream = new AgentMessageStream() {
             @Override
@@ -82,8 +72,8 @@ public class AgentSessionPrinterControlEventTest {
                 AgentRequest.builder().requestId("req-control-stream-001").build()
         );
 
-        printer.send(messageType, message);
+        printer.send(event);
 
-        return (AgentResponse) payload.get();
+        return payload.get();
     }
 }

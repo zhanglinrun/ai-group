@@ -1,7 +1,8 @@
 package com.linrun.agent.infrastructure.adapter.repository;
 
-import com.alibaba.fastjson.JSON;
-import com.alibaba.fastjson.TypeReference;
+import com.linrun.agent.types.common.JsonUtils;
+import com.fasterxml.jackson.core.type.TypeReference;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.JdbcTemplate;
 import jakarta.annotation.PostConstruct;
 import org.springframework.stereotype.Repository;
@@ -23,7 +24,7 @@ import java.util.Optional;
 public class JdbcWorkStateRepository implements WorkStateRepository {
     private final JdbcTemplate jdbc;
 
-    public JdbcWorkStateRepository(JdbcTemplate jdbc) {
+    public JdbcWorkStateRepository(@Qualifier("mysqlJdbcTemplate") JdbcTemplate jdbc) {
         this.jdbc = jdbc;
     }
 
@@ -39,10 +40,10 @@ public class JdbcWorkStateRepository implements WorkStateRepository {
     @Override
     public Workspace saveWorkspace(Workspace workspace) {
         int changed = jdbc.update("update agent_workspace set name=?, instructions=?, tool_policy_json=?, updated_at=? where workspace_uid=? and owner_id=?",
-                workspace.name(), workspace.instructions(), JSON.toJSONString(workspace.toolPolicy()), Timestamp.from(workspace.updatedAt()), workspace.id(), workspace.ownerId());
+                workspace.name(), workspace.instructions(), JsonUtils.toJson(workspace.toolPolicy()), Timestamp.from(workspace.updatedAt()), workspace.id(), workspace.ownerId());
         if (changed == 0) {
             jdbc.update("insert into agent_workspace(workspace_uid,owner_id,name,instructions,tool_policy_json,created_at,updated_at) values (?,?,?,?,?,?,?)",
-                    workspace.id(), workspace.ownerId(), workspace.name(), workspace.instructions(), JSON.toJSONString(workspace.toolPolicy()),
+                    workspace.id(), workspace.ownerId(), workspace.name(), workspace.instructions(), JsonUtils.toJson(workspace.toolPolicy()),
                     Timestamp.from(workspace.createdAt()), Timestamp.from(workspace.updatedAt()));
         }
         return workspace;
@@ -74,7 +75,7 @@ public class JdbcWorkStateRepository implements WorkStateRepository {
     public WorkTask createTask(WorkTask task) {
         jdbc.update("insert into agent_task_node(task_uid,workspace_uid,owner_id,subject,description,active_form,status,assignee,metadata_json,version,created_at,updated_at,completed_at) values (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 task.id(), task.workspaceId(), task.ownerId(), task.subject(), task.description(), task.activeForm(), task.status().name(),
-                task.taskOwner(), JSON.toJSONString(task.metadata()), task.version(), Timestamp.from(task.createdAt()), Timestamp.from(task.updatedAt()),
+                task.taskOwner(), JsonUtils.toJson(task.metadata()), task.version(), Timestamp.from(task.createdAt()), Timestamp.from(task.updatedAt()),
                 task.completedAt() == null ? null : Timestamp.from(task.completedAt()));
         for (String blocker : task.blockedBy()) {
             jdbc.update("insert ignore into agent_task_dependency(blocker_task_uid,blocked_task_uid) values (?,?)", blocker, task.id());
@@ -98,7 +99,7 @@ public class JdbcWorkStateRepository implements WorkStateRepository {
     @Override
     public WorkTask saveTask(WorkTask task, long expectedVersion) {
         int changed = jdbc.update("update agent_task_node set status=?,assignee=?,metadata_json=?,version=version+1,updated_at=?,completed_at=? where task_uid=? and owner_id=? and workspace_uid=? and version=?",
-                task.status().name(), task.taskOwner(), JSON.toJSONString(task.metadata()), Timestamp.from(Instant.now()),
+                task.status().name(), task.taskOwner(), JsonUtils.toJson(task.metadata()), Timestamp.from(Instant.now()),
                 task.completedAt() == null ? null : Timestamp.from(task.completedAt()), task.id(), task.ownerId(), task.workspaceId(), expectedVersion);
         if (changed != 1) throw new IllegalStateException("任务版本冲突，请刷新后重试");
         if (!task.blockedBy().isEmpty()) {
@@ -113,7 +114,7 @@ public class JdbcWorkStateRepository implements WorkStateRepository {
     @Override
     public void appendEvent(TaskGraphEvent event) {
         jdbc.update("insert into agent_task_event(event_uid,workspace_uid,task_uid,event_type,actor_id,payload_json,created_at) values (?,?,?,?,?,?,?)",
-                event.eventUid(), event.workspaceId(), event.taskId(), event.eventType(), event.actorId(), JSON.toJSONString(event.payload()), Timestamp.from(event.createdAt()));
+                event.eventUid(), event.workspaceId(), event.taskId(), event.eventType(), event.actorId(), JsonUtils.toJson(event.payload()), Timestamp.from(event.createdAt()));
     }
 
     @Override
@@ -143,7 +144,7 @@ public class JdbcWorkStateRepository implements WorkStateRepository {
 
     private static Map<String, Object> parseMap(String value) {
         if (value == null || value.isBlank()) return Map.of();
-        try { return JSON.parseObject(value, new TypeReference<Map<String, Object>>() {}); }
+        try { return JsonUtils.parseObject(value, new TypeReference<Map<String, Object>>() {}); }
         catch (RuntimeException ignored) { return Map.of(); }
     }
 }

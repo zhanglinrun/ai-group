@@ -1,6 +1,6 @@
 package com.linrun.agent.domain.agent.runtime.llm;
 
-import com.alibaba.fastjson.JSON;
+import com.linrun.agent.types.common.JsonUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.ai.chat.messages.AssistantMessage;
@@ -11,12 +11,13 @@ import org.springframework.ai.chat.model.Generation;
 import org.springframework.stereotype.Component;
 import com.linrun.agent.domain.agent.runtime.agent.AgentContext;
 import com.linrun.agent.domain.agent.runtime.dto.tool.ToolCall;
+import com.linrun.agent.domain.agent.runtime.stream.AgentStreamEvent;
 import com.linrun.agent.domain.agent.runtime.util.StringUtil;
 import com.linrun.agent.domain.agent.reactor.config.ReactorConfig;
 import reactor.core.publisher.BaseSubscriber;
 import reactor.core.publisher.Flux;
 
-import javax.annotation.Resource;
+import jakarta.annotation.Resource;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -118,8 +119,7 @@ public class StreamResponseHandler {
                             streamBuffer.append(visibleContent, emittedLength[0], visibleContent.length());
                             emittedLength[0] = visibleContent.length();
                             if (shouldFlush(tokenIndex[0], intervals[0], intervals[1])) {
-                                context.getPrinter().send(
-                                        messageId, context.getStreamMessageType(), streamBuffer.toString(), false);
+                                emitText(context, streamBuffer.toString());
                                 streamBuffer.setLength(0);
                             }
                             tokenIndex[0]++;
@@ -141,16 +141,14 @@ public class StreamResponseHandler {
                     return;
                 }
                 try {
-                    if (pushToClient && messageId != null && streamBuffer.length() > 0) {
-                        context.getPrinter().send(
-                                messageId, context.getStreamMessageType(), streamBuffer.toString(), false);
-                    }
-                    if (pushToClient && messageId != null && emitFinalSnapshot) {
-                        String visibleFinalContent = extractVisibleContent(
-                                allContent.toString(), hiddenStartMarker).trim();
-                        if (StringUtils.isNotBlank(visibleFinalContent)) {
-                            context.getPrinter().send(
-                                    messageId, context.getStreamMessageType(), visibleFinalContent, true);
+                    if (pushToClient && messageId != null) {
+                        String content = allContent.toString();
+                        if ((StringUtils.isBlank(hiddenStartMarker) || !content.contains(hiddenStartMarker))
+                                && content.length() > emittedLength[0]) {
+                            streamBuffer.append(content, emittedLength[0], content.length());
+                        }
+                        if (streamBuffer.length() > 0) {
+                            emitText(context, streamBuffer.toString());
                         }
                     }
                     String finalContent = allContent.toString().trim();
@@ -238,8 +236,7 @@ public class StreamResponseHandler {
                             streamBuffer.append(chunkContent);
                             if (shouldFlush(tokenIndex[0], intervals[0], intervals[1])) {
                                 // 发送缓冲区内容(非结束)
-                                context.getPrinter().send(messageId, context.getStreamMessageType(),
-                                    streamBuffer.toString(), false);
+                                emitText(context, streamBuffer.toString());
                                 streamBuffer.setLength(0);  // 清空缓冲
                             }
                             tokenIndex[0]++;
@@ -252,7 +249,7 @@ public class StreamResponseHandler {
                     }
                     if (allContent.length() > 0 || !toolCallAccumulators.isEmpty()) {
                         partialOutputObserver.accept(
-                                allContent + JSON.toJSONString(buildToolCalls(toolCallAccumulators)));
+                                allContent + JsonUtils.toJson(buildToolCalls(toolCallAccumulators)));
                     }
 
                     // 提取结束原因
@@ -283,19 +280,12 @@ public class StreamResponseHandler {
                 try {
                     // 发送剩余缓冲内容
                     if (pushToClient && messageId != null && streamBuffer.length() > 0) {
-                        context.getPrinter().send(messageId, context.getStreamMessageType(),
-                            streamBuffer.toString(), false);
+                        emitText(context, streamBuffer.toString());
                     }
 
                     // 构建最终工具调用列表
                     List<ToolCall> toolCalls = buildToolCalls(toolCallAccumulators);
                     String content = allContent.toString();
-
-                    // 发送结束标记(带完整内容)
-                    if (pushToClient && messageId != null && StringUtils.isNotBlank(content)) {
-                        context.getPrinter().send(messageId, context.getStreamMessageType(),
-                            content, true);  // true=结束
-                    }
 
                     // 空响应校验
                     if (StringUtils.isBlank(content) && toolCalls.isEmpty()) {
@@ -324,6 +314,12 @@ public class StreamResponseHandler {
         subscribeWithFutureLifecycle(flux, subscriber, future);
 
         return future;
+    }
+
+    private void emitText(AgentContext context, String delta) {
+        if (context != null && context.getPrinter() != null && StringUtils.isNotEmpty(delta)) {
+            context.getPrinter().send(new AgentStreamEvent.Text(context.getRequestId(), delta));
+        }
     }
 
     private void subscribeWithFutureLifecycle(Flux<ChatResponse> flux,
@@ -444,7 +440,16 @@ public class StreamResponseHandler {
             return allContent;
         }
         int markerIndex = allContent.indexOf(hiddenStartMarker);
-        return markerIndex >= 0 ? allContent.substring(0, markerIndex) : allContent;
+        if (markerIndex >= 0) {
+            return allContent.substring(0, markerIndex);
+        }
+        int suffixLength = Math.min(allContent.length(), hiddenStartMarker.length() - 1);
+        while (suffixLength > 0
+                && !allContent.regionMatches(allContent.length() - suffixLength,
+                hiddenStartMarker, 0, suffixLength)) {
+            suffixLength--;
+        }
+        return allContent.substring(0, allContent.length() - suffixLength);
     }
 
     private void mergeToolCalls(List<AssistantMessage.ToolCall> toolCalls,

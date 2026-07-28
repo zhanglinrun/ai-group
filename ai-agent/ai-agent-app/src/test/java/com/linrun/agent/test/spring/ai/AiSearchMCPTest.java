@@ -1,6 +1,6 @@
 package com.linrun.agent.test.spring.ai;
 
-import com.alibaba.fastjson.JSON;
+import com.linrun.agent.types.common.JsonUtils;
 import io.modelcontextprotocol.client.McpClient;
 import io.modelcontextprotocol.client.McpSyncClient;
 import io.modelcontextprotocol.client.transport.HttpClientSseClientTransport;
@@ -51,7 +51,7 @@ public class AiSearchMCPTest {
                 .build();
 
         ChatResponse call = chatModel.call(Prompt.builder().messages(new UserMessage("搜索小傅哥技术博客有哪些项目")).build());
-        log.info("测试结果:{}", JSON.toJSONString(call.getResult()));
+        log.info("测试结果:{}", JsonUtils.toJson(call.getResult()));
     }
 
     public McpSyncClient sseMcpClient() {

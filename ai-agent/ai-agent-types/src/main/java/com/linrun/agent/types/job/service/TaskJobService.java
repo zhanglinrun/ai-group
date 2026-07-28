@@ -129,6 +129,7 @@ public class TaskJobService implements ITaskJobService, DisposableBean {
             log.info("任务调度成功（函数式），ID: {}", task.getId());
         } catch (Exception e) {
             log.error("调度任务时发生错误，ID: {}", task.getId(), e);
+            throw e instanceof RuntimeException runtime ? runtime : new IllegalStateException(e);
         }
     }
 
@@ -152,6 +153,7 @@ public class TaskJobService implements ITaskJobService, DisposableBean {
             log.info("任务执行完成（函数式），ID: {}", task.getId());
         } catch (Exception e) {
             log.error("执行任务时发生错误（函数式），ID: {}", task.getId(), e);
+            throw e instanceof RuntimeException runtime ? runtime : new IllegalStateException(e);
         }
     }
 
@@ -201,6 +203,7 @@ public class TaskJobService implements ITaskJobService, DisposableBean {
             log.info("任务调度配置刷新完成，当前活跃任务数: {}", scheduledTasks.size());
         } catch (Exception e) {
             log.error("刷新任务调度配置时发生错误", e);
+            throw e instanceof RuntimeException runtime ? runtime : new IllegalStateException(e);
         }
     }
 
@@ -236,6 +239,7 @@ public class TaskJobService implements ITaskJobService, DisposableBean {
             log.info("无效任务清理完成，当前活跃任务数: {}", scheduledTasks.size());
         } catch (Exception e) {
             log.error("清理无效任务时发生错误", e);
+            throw e instanceof RuntimeException runtime ? runtime : new IllegalStateException(e);
         }
     }
 

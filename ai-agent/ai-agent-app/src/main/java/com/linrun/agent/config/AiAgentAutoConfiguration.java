@@ -9,7 +9,7 @@ import org.springframework.context.annotation.Configuration;
 import com.linrun.agent.domain.agent.service.armory.IArmoryService;
 import com.linrun.agent.domain.agent.model.valobj.AiAgentVO;
 
-import javax.annotation.Resource;
+import jakarta.annotation.Resource;
 import java.util.List;
 
 /**

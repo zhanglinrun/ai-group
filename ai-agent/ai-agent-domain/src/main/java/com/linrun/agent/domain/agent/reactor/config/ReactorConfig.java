@@ -1,8 +1,8 @@
 package com.linrun.agent.domain.agent.reactor.config;
 
 
-import com.alibaba.fastjson.JSON;
-import com.alibaba.fastjson.TypeReference;
+import com.linrun.agent.types.common.JsonUtils;
+import com.fasterxml.jackson.core.type.TypeReference;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -59,9 +59,6 @@ public class ReactorConfig {
     @Value("${autobots.autoagent.tool.web_fetch_tool.desc:}")
     private String webFetchToolDesc;
 
-    @Value("${autobots.autoagent.tool.multimodalagent_tool.desc:}")
-    private String multiModalAgentDesc;
-
     @Value("${autobots.autoagent.tool.image_generation_tool.desc:}")
     private String imageGenerationToolDesc;
 
@@ -111,15 +108,6 @@ public class ReactorConfig {
     @Value("${autobots.autoagent.tool.web_fetch.params:{}}")
     public void setWebFetchToolParams(String jsonStr) {
         this.webFetchToolParams = parseObjectMap(jsonStr);
-    }
-
-    /**
-     * MultiModalAgentTool 配置
-     */
-    private Map<String, Object> multiModalAgentParams = new HashMap<>();
-    @Value("${autobots.autoagent.tool.multimodalagent_tool.params:{}}")
-    public void setMultiModalAgentParams(String jsonStr) {
-        this.multiModalAgentParams = parseObjectMap(jsonStr);
     }
 
     /**
@@ -186,7 +174,7 @@ public class ReactorConfig {
     private Map<String, LLMSettings> llmSettingsMap;
     @Value("${llm.settings:{}}")
     public void setLLMSettingsMap(String jsonStr) {
-        Map<String, LLMSettings> rawSettings = JSON.parseObject(jsonStr, new TypeReference<Map<String, LLMSettings>>() {
+        Map<String, LLMSettings> rawSettings = JsonUtils.parseObject(jsonStr, new TypeReference<Map<String, LLMSettings>>() {
         });
         this.llmSettingsMap = normalizeLlmSettingsMap(rawSettings);
     }
@@ -224,9 +212,6 @@ public class ReactorConfig {
     @Value("${autobots.autoagent.web_fetch_url:}")
     private String webFetchUrl;
 
-    @Value("${autobots.autoagent.multimodalagent_url:}")
-    private String multiModalAgentUrl;
-
     @Value("${autobots.autoagent.image_generation_url:}")
     private String imageGenerationUrl;
 
@@ -253,13 +238,9 @@ public class ReactorConfig {
     @Value("${autobots.autoagent.memory.enabled:true}")
     private Boolean memoryEnabled;
 
-    /** 长期跨会话向量记忆开关（依赖 Qdrant，默认关闭） */
+    /** 长期跨会话语义记忆开关。 */
     @Value("${autobots.autoagent.memory.longterm.enabled:false}")
     private Boolean longTermMemoryEnabled;
-
-    /** 长期记忆 Qdrant 集合名 */
-    @Value("${autobots.autoagent.memory.longterm.collection:agent_conversation_memory}")
-    private String longTermMemoryCollection;
 
     /** 长期记忆召回条数 */
     @Value("${autobots.autoagent.memory.longterm.top-k:5}")
@@ -319,14 +300,14 @@ public class ReactorConfig {
         if (!StringUtils.hasText(json) || "{}".equals(json.trim())) {
             return new HashMap<>();
         }
-        return JSON.parseObject(json, new TypeReference<Map<String, String>>() {});
+        return JsonUtils.parseObject(json, new TypeReference<Map<String, String>>() {});
     }
 
     private static Map<String, Object> parseObjectMap(String json) {
         if (!StringUtils.hasText(json) || "{}".equals(json.trim())) {
             return new HashMap<>();
         }
-        return JSON.parseObject(json, new TypeReference<Map<String, Object>>() {});
+        return JsonUtils.parseObject(json, new TypeReference<Map<String, Object>>() {});
     }
 
     /**

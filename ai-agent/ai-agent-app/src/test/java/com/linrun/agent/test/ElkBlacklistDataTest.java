@@ -1,6 +1,6 @@
 package com.linrun.agent.test;
 
-import com.alibaba.fastjson.JSON;
+import com.linrun.agent.types.common.JsonUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -191,7 +191,7 @@ public class ElkBlacklistDataTest {
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
 
-            String jsonData = JSON.toJSONString(logData);
+            String jsonData = JsonUtils.toJson(logData);
             HttpEntity<String> request = new HttpEntity<>(jsonData, headers);
 
             ResponseEntity<String> response = restTemplate.postForEntity(url, request, String.class);

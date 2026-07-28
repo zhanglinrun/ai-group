@@ -9,6 +9,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import com.linrun.agent.domain.agent.runtime.agent.AgentContext;
 import com.linrun.agent.domain.agent.runtime.artifact.ToolArtifactSource;
 import com.linrun.agent.domain.agent.runtime.printer.Printer;
+import com.linrun.agent.domain.agent.runtime.stream.AgentStreamEvent;
 import com.linrun.agent.domain.agent.runtime.tool.ToolCollection;
 import com.linrun.agent.domain.agent.runtime.tool.ToolResultPayload;
 import com.linrun.agent.domain.agent.runtime.tool.common.WebFetchTool;
@@ -120,38 +121,9 @@ public class WebFetchToolTest {
         private final List<String> messageTypes = new ArrayList<>();
 
         @Override
-        public void send(String messageId, String messageType, Object message, String digitalEmployee, Boolean isFinal) {
-            messageTypes.add(messageType);
-        }
-
-        @Override
-        public void send(String messageId, String messageType, Object message, Map<String, Object> extraResultMap, String digitalEmployee, Boolean isFinal) {
-            messageTypes.add(messageType);
-        }
-
-        @Override
-        public void send(String messageType, Object message) {
-            messageTypes.add(messageType);
-        }
-
-        @Override
-        public void send(String messageType, Object message, String digitalEmployee) {
-            messageTypes.add(messageType);
-        }
-
-        @Override
-        public void send(String messageId, String messageType, Object message, Boolean isFinal) {
-            messageTypes.add(messageType);
-        }
-
-        @Override
-        public void sendWithResultMap(String messageId, String messageType, Object message, Map<String, Object> extraResultMap, Boolean isFinal) {
-            messageTypes.add(messageType);
-        }
-
-        @Override
-        public void sendWithResultMap(String messageType, Object message, Map<String, Object> extraResultMap) {
-            messageTypes.add(messageType);
+        public void send(AgentStreamEvent event) {
+            AgentStreamEvent.StageOutput output = (AgentStreamEvent.StageOutput) event;
+            messageTypes.add(output.outputType());
         }
 
         @Override

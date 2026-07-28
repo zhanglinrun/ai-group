@@ -5,12 +5,15 @@ import com.fasterxml.jackson.databind.SerializationFeature;
 import org.junit.Assert;
 import org.junit.Test;
 import org.mockito.Mockito;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.test.util.ReflectionTestUtils;
 import com.linrun.agent.domain.agent.memory.LongTermMemoryEntry;
 import com.linrun.agent.domain.agent.memory.LongTermMemoryServiceImpl;
 import com.linrun.agent.domain.agent.reactor.config.ReactorConfig;
-import com.linrun.agent.domain.agent.reactor.data.dto.VectorRecallReq;
-import com.linrun.agent.domain.agent.reactor.service.VectorService;
+import com.linrun.agent.domain.agent.rag.retrieval.HybridRetrievalHit;
+import com.linrun.agent.domain.agent.rag.retrieval.HybridRetrievalRequest;
+import com.linrun.agent.domain.agent.rag.retrieval.HybridRetriever;
+import com.linrun.agent.domain.agent.rag.storage.PgVectorMemoryRepository;
 import com.linrun.agent.domain.agent.runtime.context.ContextBudget;
 import com.linrun.agent.domain.agent.runtime.context.ContextManager;
 import com.linrun.agent.domain.agent.runtime.context.ContextTrustBoundary;
@@ -20,9 +23,11 @@ import com.linrun.agent.domain.agent.runtime.completion.CompletionRequest;
 import com.linrun.agent.domain.agent.runtime.completion.DefaultCompletionGate;
 import com.linrun.agent.domain.agent.runtime.completion.ToolExecutionEvidence;
 import com.linrun.agent.domain.agent.runtime.dto.Message;
+import com.linrun.agent.domain.agent.runtime.dto.TodoList;
 import com.linrun.agent.domain.agent.runtime.dto.tool.ToolCall;
 import com.linrun.agent.domain.agent.runtime.enums.AgentExecutionProfile;
 import com.linrun.agent.domain.agent.runtime.enums.RoleType;
+import com.linrun.agent.domain.agent.runtime.enums.TodoEvidencePolicy;
 import com.linrun.agent.domain.agent.runtime.llm.TokenCounter;
 
 import java.nio.file.Files;
@@ -62,6 +67,7 @@ public class AgentHarnessOfflineEvalTest {
             samples.add(runIrrelevantMemory(trial, metrics));
             samples.add(runPromptInjection(trial, metrics));
             samples.add(runToolFailure(trial, metrics));
+            samples.add(runIndustryReport(trial, metrics));
         }
 
         Map<String, Object> report = buildReport(metrics, samples);
@@ -220,6 +226,80 @@ public class AgentHarnessOfflineEvalTest {
         ));
     }
 
+    private Map<String, Object> runIndustryReport(int trial, EvalMetrics metrics) {
+        long searchActivation = 100L + trial * 2L;
+        long reportActivation = searchActivation + 1L;
+        String searchCallId = "call-industry-search-" + trial;
+        String reportCallId = "call-industry-report-" + trial;
+        TodoList todo = TodoList.builder()
+                .title("AI Agent 行业分析报告")
+                .steps(List.of("检索可核验行业资料", "生成 Markdown 行业报告"))
+                .stepStatus(List.of("completed", "completed"))
+                .notes(List.of("已检索", "已生成"))
+                .evidenceRefs(List.of(List.of(searchCallId), List.of(reportCallId)))
+                .evidencePolicies(List.of(TodoEvidencePolicy.TOOL, TodoEvidencePolicy.TOOL))
+                .stepActivationIds(List.of(searchActivation, reportActivation))
+                .build();
+        List<ToolExecutionEvidence> timeline = List.of(
+                ToolExecutionEvidence.builder()
+                        .toolCallId(searchCallId)
+                        .toolName("deep_search")
+                        .operationKey("industry-retrieval-" + trial)
+                        .success(true)
+                        .todoStepIndex(0)
+                        .todoStepActivationId(searchActivation)
+                        .build(),
+                ToolExecutionEvidence.builder()
+                        .toolCallId(reportCallId)
+                        .toolName("report_tool")
+                        .operationKey("industry-report-" + trial)
+                        .success(true)
+                        .todoStepIndex(1)
+                        .todoStepActivationId(reportActivation)
+                        .build());
+        Map<String, Object> artifact = Map.of(
+                "artifactType", "markdown",
+                "fileName", "ai-agent-industry-report.md",
+                "toolCallId", reportCallId);
+        String answer = "行业分析已完成，报告产物: ai-agent-industry-report.md";
+        CompletionDecision decision = new DefaultCompletionGate(null).evaluate(
+                CompletionRequest.builder()
+                        .goal("检索最新资料并生成 AI Agent 行业分析报告")
+                        .draftAnswer(answer)
+                        .executionProfile(AgentExecutionProfile.DEEP)
+                        .todoList(todo)
+                        .toolEvidence(timeline)
+                        .networkLookupRequired(true)
+                        .reportArtifactRequired(true)
+                        .reportArtifactPresent(!artifact.isEmpty())
+                        .build());
+
+        boolean todoPresent = todo.getSteps().size() == 2
+                && todo.getStepStatus().stream().allMatch("completed"::equals);
+        boolean retrievalCompleted = timeline.stream().anyMatch(item ->
+                item.isSuccess() && "deep_search".equals(item.getToolName()));
+        boolean timelineComplete = timeline.size() == 2
+                && "deep_search".equals(timeline.get(0).getToolName())
+                && "report_tool".equals(timeline.get(1).getToolName());
+        boolean reportArtifactPresent = "markdown".equals(artifact.get("artifactType"));
+        boolean completionGatePassed = decision.isCanStop();
+        Assert.assertTrue("DEEP industry report must create and complete Todo", todoPresent);
+        Assert.assertTrue("DEEP industry report must contain successful retrieval", retrievalCompleted);
+        Assert.assertTrue("DEEP industry report must preserve the tool timeline", timelineComplete);
+        Assert.assertTrue("DEEP industry report must produce a report artifact", reportArtifactPresent);
+        Assert.assertTrue("DEEP industry report must pass CompletionGate", completionGatePassed);
+        boolean passed = todoPresent && retrievalCompleted && timelineComplete
+                && reportArtifactPresent && completionGatePassed;
+        metrics.totalEstimatedTokens += tokenCounter.countText(answer);
+        metrics.recordPass("industry_report", passed);
+        return sample("industry_report", trial, passed, Map.of(
+                "todoPresent", todoPresent,
+                "retrievalCompleted", retrievalCompleted,
+                "toolTimeline", timeline.stream().map(ToolExecutionEvidence::getToolName).toList(),
+                "reportArtifact", artifact,
+                "completionGatePassed", completionGatePassed));
+    }
+
     private Map<String, Object> memorySample(String scenario,
                                              int trial,
                                              List<LongTermMemoryEntry> selected,
@@ -255,24 +335,50 @@ public class AgentHarnessOfflineEvalTest {
                                              int topK,
                                              String currentSession,
                                              String query) {
-        VectorService vectorService = Mockito.mock(VectorService.class);
-        Mockito.when(vectorService.vectorRecall(Mockito.any())).thenAnswer(invocation -> {
-            VectorRecallReq request = invocation.getArgument(0, VectorRecallReq.class);
-            double threshold = request.getScoreThreshold() == null ? 0d : request.getScoreThreshold();
+        PgVectorMemoryRepository repository = Mockito.mock(PgVectorMemoryRepository.class);
+        Mockito.when(repository.getUserProfile("offline-owner")).thenReturn(List.of());
+        HybridRetriever retriever = Mockito.mock(HybridRetriever.class);
+        Mockito.when(retriever.retrieve(Mockito.any())).thenAnswer(invocation -> {
+            HybridRetrievalRequest request = invocation.getArgument(0, HybridRetrievalRequest.class);
             return candidates.stream()
-                    .filter(hit -> ((Number) hit.getOrDefault("score", 0d)).doubleValue() >= threshold)
-                    .limit(request.getLimit() == null ? candidates.size() : request.getLimit())
+                    .filter(hit -> ((Number) hit.getOrDefault("score", 0d)).doubleValue()
+                            >= request.getScoreThreshold())
+                    .limit(request.getTopK())
+                    .map(this::toRetrievalHit)
                     .toList();
         });
-        return new LongTermMemoryServiceImpl(vectorService, enabledMemoryConfig(topK))
+        return new LongTermMemoryServiceImpl(provider(repository), provider(retriever), enabledMemoryConfig(topK))
                 .recallEntries("offline-owner", currentSession, query);
+    }
+
+    private HybridRetrievalHit toRetrievalHit(Map<String, Object> candidate) {
+        Map<String, Object> metadata = new LinkedHashMap<>(candidate);
+        metadata.remove("memoryId");
+        metadata.remove("text");
+        metadata.remove("sessionId");
+        metadata.remove("score");
+        return HybridRetrievalHit.builder()
+                .memoryId(String.valueOf(candidate.get("memoryId")))
+                .content(String.valueOf(candidate.get("text")))
+                .docType("qa_pair")
+                .conversationId(String.valueOf(candidate.get("sessionId")))
+                .metadata(metadata)
+                .fusedScore(((Number) candidate.getOrDefault("score", 0d)).doubleValue())
+                .source("BOTH")
+                .build();
+    }
+
+    @SuppressWarnings("unchecked")
+    private <T> ObjectProvider<T> provider(T value) {
+        ObjectProvider<T> provider = Mockito.mock(ObjectProvider.class);
+        Mockito.when(provider.getIfAvailable()).thenReturn(value);
+        return provider;
     }
 
     private ReactorConfig enabledMemoryConfig(int topK) {
         ReactorConfig config = new ReactorConfig();
         ReflectionTestUtils.setField(config, "memoryEnabled", Boolean.TRUE);
         ReflectionTestUtils.setField(config, "longTermMemoryEnabled", Boolean.TRUE);
-        ReflectionTestUtils.setField(config, "longTermMemoryCollection", "offline_agent_memory");
         ReflectionTestUtils.setField(config, "longTermMemoryTopK", topK);
         ReflectionTestUtils.setField(config, "longTermMemoryScoreThreshold", 0.6f);
         ReflectionTestUtils.setField(config, "longTermMemoryDecayHalfLifeDays", 30);

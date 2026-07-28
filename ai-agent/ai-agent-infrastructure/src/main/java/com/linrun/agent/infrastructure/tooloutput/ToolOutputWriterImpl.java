@@ -1,6 +1,6 @@
 package com.linrun.agent.infrastructure.tooloutput;
 
-import com.alibaba.fastjson.JSON;
+import com.linrun.agent.types.common.JsonUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -223,7 +223,7 @@ public class ToolOutputWriterImpl implements ToolOutputWriter {
     }
 
     private String toJson(Object value) {
-        return JSON.toJSONString(value);
+        return JsonUtils.toJson(value);
     }
 
     private <T extends ToolStructuredOutput> T cast(ToolOutputPersistCommand command, Class<T> type) {

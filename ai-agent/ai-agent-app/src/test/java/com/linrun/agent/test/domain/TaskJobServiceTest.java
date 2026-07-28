@@ -8,6 +8,7 @@ import com.linrun.agent.types.job.provider.ITaskDataProvider;
 import com.linrun.agent.types.job.service.TaskJobService;
 
 import java.lang.reflect.Method;
+import java.lang.reflect.InvocationTargetException;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -29,8 +30,12 @@ public class TaskJobServiceTest {
 
             Method method = TaskJobService.class.getDeclaredMethod("executeTaskWithFunction", TaskScheduleVO.class);
             method.setAccessible(true);
-            method.invoke(service, task);
-            // 方法内部吞掉异常并打日志，不应抛出到调用方；关键是不要 NPE 崩进程。
+            try {
+                method.invoke(service, task);
+                Assert.fail("missing executor must fail the scheduled task");
+            } catch (InvocationTargetException expected) {
+                Assert.assertTrue(expected.getCause() instanceof IllegalStateException);
+            }
             Assert.assertNull(task.getTaskExecutor());
         } finally {
             scheduler.shutdown();

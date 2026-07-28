@@ -4,7 +4,9 @@ import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import com.linrun.agent.domain.agent.runtime.dto.File;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -53,6 +55,17 @@ public final class ToolArtifactFormatter {
                 .collect(Collectors.joining("\n"));
     }
 
+    /** Convert run-local visible artifacts to the canonical realtime SSE reference shape. */
+    public static List<Map<String, Object>> toArtifactRefs(List<ToolArtifactBinding> bindings) {
+        if (CollectionUtils.isEmpty(bindings)) {
+            return List.of();
+        }
+        return bindings.stream()
+                .filter(binding -> binding != null && binding.getFile() != null && !binding.isInternalFile())
+                .map(ToolArtifactFormatter::toArtifactRef)
+                .toList();
+    }
+
     public static String buildArtifactKey(ToolArtifactBinding binding) {
         if (binding == null) {
             return "";
@@ -81,6 +94,33 @@ public final class ToolArtifactFormatter {
             return file.getOssUrl();
         }
         return StringUtils.defaultString(file.getDomainUrl());
+    }
+
+    private static Map<String, Object> toArtifactRef(ToolArtifactBinding binding) {
+        File file = binding.getFile();
+        ToolArtifactSource source = binding.getSource();
+        String fileName = StringUtils.defaultString(file.getFileName());
+        String storageKey = StringUtils.defaultIfBlank(resolveFileUrl(file), fileName);
+        String downloadUrl = StringUtils.firstNonBlank(
+                file.getOriginOssUrl(), file.getOssUrl(), file.getOriginDomainUrl(), file.getDomainUrl());
+        String previewUrl = StringUtils.firstNonBlank(
+                file.getOriginDomainUrl(), file.getDomainUrl(), file.getOriginOssUrl(), file.getOssUrl());
+
+        Map<String, Object> ref = new LinkedHashMap<>();
+        ref.put("resourceKey", buildArtifactKey(binding));
+        ref.put("storageKey", storageKey);
+        ref.put("displayName", fileName);
+        ref.put("name", fileName);
+        ref.put("fileName", fileName);
+        ref.put("fileSize", file.getFileSize());
+        ref.put("size", file.getFileSize());
+        ref.put("description", StringUtils.defaultString(file.getDescription()));
+        ref.put("toolCallId", source == null ? "" : StringUtils.defaultString(source.getToolCallId()));
+        ref.put("toolName", source == null ? "" : StringUtils.defaultString(source.getToolName()));
+        ref.put("downloadUrl", downloadUrl);
+        ref.put("previewUrl", previewUrl);
+        ref.put("missing", StringUtils.isAllBlank(downloadUrl, previewUrl));
+        return ref;
     }
 
     private static String formatToolArtifactLine(ToolArtifactBinding binding) {

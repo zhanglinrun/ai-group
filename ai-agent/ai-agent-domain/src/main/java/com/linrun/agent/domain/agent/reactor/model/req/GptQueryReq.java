@@ -16,7 +16,7 @@ public class GptQueryReq {
     private String query;
     private String sessionId;
     private String requestId;
-    /** AUTO / STANDARD / DEEP。仅控制统一 AgentLoop 的规划与验证强度。 */
+    /** AUTO 兼容归一化为 STANDARD；DEEP 选择独立的 Deep Research 执行图。 */
     private String executionMode;
     /** 是否允许本轮注入联网搜索工具。 */
     private Boolean online;

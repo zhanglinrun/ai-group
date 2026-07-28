@@ -1,7 +1,7 @@
 package com.linrun.agent.infrastructure.gateway;
 
-import com.alibaba.fastjson.JSON;
-import com.alibaba.fastjson.JSONObject;
+import com.linrun.agent.types.common.JsonUtils;
+import com.fasterxml.jackson.databind.JsonNode;
 import lombok.extern.slf4j.Slf4j;
 import okhttp3.*;
 import org.springframework.stereotype.Component;
@@ -12,7 +12,7 @@ import com.linrun.agent.domain.agent.reactor.config.ReactorToolRequestHeaders;
 import com.linrun.agent.infrastructure.gateway.dto.ConversationUploadFileDTO;
 import okio.BufferedSink;
 
-import javax.annotation.Resource;
+import jakarta.annotation.Resource;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.Locale;
@@ -94,16 +94,18 @@ public class ReactorFileGateway {
                     throw new IllegalStateException("文件服务返回为空");
                 }
 
-                JSONObject result = JSON.parseObject(responseText);
-                String previewUrl = firstText(result.getString("domainUrl"), result.getString("downloadUrl"));
-                String downloadUrl = firstText(result.getString("downloadUrl"), result.getString("domainUrl"));
+                JsonNode result = JsonUtils.mapper().readTree(responseText);
+                String previewUrl = firstText(
+                        result.path("domainUrl").asText(null), result.path("downloadUrl").asText(null));
+                String downloadUrl = firstText(
+                        result.path("downloadUrl").asText(null), result.path("domainUrl").asText(null));
                 String resourceKey = buildStableResourceKey(sessionId, originalFileName, file.getSize(), fileBody.getSha256Hex());
 
                 return ConversationUploadFileDTO.builder()
                         .name(originalFileName)
                         .url(previewUrl)
                         .type(resolveFileExtension(originalFileName))
-                        .size(result.getLong("fileSize"))
+                        .size(result.path("fileSize").isNumber() ? result.path("fileSize").longValue() : null)
                         .downloadUrl(downloadUrl)
                         .previewUrl(previewUrl)
                         .resourceKey(resourceKey)

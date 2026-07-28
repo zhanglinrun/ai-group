@@ -14,6 +14,7 @@ import com.linrun.agent.domain.agent.runtime.enums.AgentStopReason;
 import com.linrun.agent.domain.agent.runtime.harness.AgentRunBudget;
 import com.linrun.agent.domain.agent.runtime.harness.StopGate;
 import com.linrun.agent.domain.agent.runtime.printer.Printer;
+import com.linrun.agent.domain.agent.runtime.stream.AgentStreamEvent;
 import com.linrun.agent.domain.agent.runtime.dto.tool.McpToolInfo;
 import com.linrun.agent.domain.agent.runtime.dto.tool.ToolCall;
 import com.linrun.agent.domain.agent.runtime.tool.BaseTool;
@@ -523,18 +524,15 @@ public class AgentLoopGuardTest {
                 ledgerCaptor.getValue().getStatus());
         Assert.assertEquals("permission denied", ledgerCaptor.getValue().getErrorMsg());
 
-        ArgumentCaptor<Object> eventCaptor = ArgumentCaptor.forClass(Object.class);
-        ArgumentCaptor<Boolean> finalCaptor = ArgumentCaptor.forClass(Boolean.class);
-        Mockito.verify(printer, Mockito.times(2)).send(
-                Mockito.eq("call-mcp-failed"),
-                Mockito.eq("tool_call"),
-                eventCaptor.capture(),
-                finalCaptor.capture()
-        );
-        int finalIndex = finalCaptor.getAllValues().indexOf(Boolean.TRUE);
-        Assert.assertTrue(finalIndex >= 0);
+        ArgumentCaptor<AgentStreamEvent> eventCaptor = ArgumentCaptor.forClass(AgentStreamEvent.class);
+        Mockito.verify(printer, Mockito.times(2)).send(eventCaptor.capture());
+        AgentStreamEvent.ToolEnd finished = eventCaptor.getAllValues().stream()
+                .filter(AgentStreamEvent.ToolEnd.class::isInstance)
+                .map(AgentStreamEvent.ToolEnd.class::cast)
+                .findFirst()
+                .orElseThrow();
         @SuppressWarnings("unchecked")
-        Map<String, Object> finalEvent = (Map<String, Object>) eventCaptor.getAllValues().get(finalIndex);
+        Map<String, Object> finalEvent = (Map<String, Object>) finished.resultPreview();
         Assert.assertEquals("failed", finalEvent.get("status"));
         Assert.assertEquals("permission denied", finalEvent.get("errorMsg"));
     }
