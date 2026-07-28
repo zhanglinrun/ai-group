@@ -8,16 +8,17 @@ if (-not (Test-Path ../../.env)) { Copy-Item ../../.env.example ../../.env }
 docker compose --env-file ../../.env -f docker-compose-platform.yml up -d
 ```
 
-| 服务 | 端口 | 默认账号 |
+| 服务 | 端口 | 本地安全边界 |
 |------|------|----------|
-| MySQL | 13306 | root / 123456 |
-| Redis | 16379 | 无密码 |
-| RabbitMQ | 5672 / 15672 | admin / admin |
-| Nacos | 8848 | nacos / nacos |
-| Qdrant | 6333 | 无 Key |
-| MinIO | 9000 / 9001 | minioadmin / minioadmin |
+| MySQL | 13306 | 仅 loopback；密码来自 `.env` |
+| Redis | 16379 | 仅 loopback；`REDIS_PASSWORD` 必填 |
+| Kafka | 9092 | KRaft 模式，无独立 ZooKeeper；`KAFKA_BOOTSTRAP_SERVERS` 指向此端口 |
+| Nacos | 8848 | 仅 loopback；鉴权开启，默认管理账号需尽快修改 |
+| PostgreSQL + pgvector | 15432 | 仅 loopback；密码来自 `.env`，语义记忆/文件块/schema |
+| MinIO | 9000 / 9001 | 仅 loopback；私有桶保存上传文件和产物，`MINIO_ROOT_PASSWORD` 必填 |
+| XXL-JOB admin | 18081 | 仅 loopback；token 来自 `.env` |
 
-根目录 `.env` 同时提供基础设施凭据与各服务配置；不传 `--env-file` 时，Compose 使用表中的本地开发默认值。
+根目录 `.env` 同时提供基础设施凭据与各服务配置；Compose 不再提供弱密码 fallback，复制 `.env.example` 后必须填写必填项。
 
 ## 2. 初始化数据库
 
@@ -28,6 +29,7 @@ Docker 首次启动会自动执行 `docs/dev-ops/mysql/sql/00-init-schemas.sql` 
 各服务 schema：
 
 - `auth_db` — `auth-service/src/main/resources/schema.sql`
+  - 本地演示管理员种子单独位于 `docs/dev-ops/mysql/sql/auth_db/02-local-admin-seed.sql`，只在 `dev/local` 启动脚本中执行；已存在账号不会被提权或重新启用。
 - `member_db` — `member-service/src/main/resources/schema.sql`
 - `agent_db` — `docs/dev-ops/mysql/sql/agent_db/01-agent_db.sql`（或 `ai-agent/docs/dev-ops/mysql/sql/`）；
   `03-agent-loop-migrate.sql` 迁移统一 Agent Loop，`04-task-graph.sql` 创建 ChatGPT Work 工作区、任务图、依赖与事件结构，
@@ -50,7 +52,7 @@ cd docs/dev-ops
 # 仅启动平台层时使用
 ./start-platform.ps1
 
-# 默认 member 使用 18082，避免与 ai-interview 的 8082 重叠；仍可指定其他空闲端口
+# 默认 member 使用 18082；仍可指定其他空闲端口
 ./start-platform.ps1 -MemberPort 19082
 ```
 
@@ -119,7 +121,7 @@ pnpm dev                                                       # :5173（host:tr
 cd docs/dev-ops
 ./start-full-stack.ps1
 
-# 默认 member=:18082，不占用 ai-interview=:8082；需要时可覆盖
+# 默认 member=:18082；需要时可覆盖
 ./start-full-stack.ps1 -MemberPort 19082
 
 # 可选：同时启动 Prometheus/Grafana/ELK 等高资源观测组件
@@ -128,7 +130,7 @@ cd docs/dev-ops
 
 `start-full-stack.ps1` 会自动：
 
-- 默认只启动业务必需的 MySQL、Redis、RabbitMQ、Nacos、Qdrant 和 MinIO；观测栈须显式传 `-IncludeObservability`；
+- 默认只启动业务必需的 MySQL、Redis、Kafka、Nacos、PostgreSQL/pgvector、MinIO 和 XXL-JOB admin；观测栈须显式传 `-IncludeObservability`；
 - 幂等初始化额度包、`agent_db` 的 Agent Loop / `todo_write` / TaskGraph 迁移、拼团和支付演示结构；
 - 从根 `.env` 通过进程环境注入配置，不把模型 Key、内部令牌或数据库密码拼进命令行；
 - 将 `REPORT_MODEL` 默认同步为主聊天模型，避免 report_tool 隐式调用未配置模型；
@@ -175,7 +177,7 @@ dev-only API 验证双用户拼团状态机和双方权益到账；`smoke-benefi
 订单快照到账；`smoke-benefit-revoke.ps1` 验证已发放额度的撤销进入 `REJECTED_GRANTED` 人工审核且余额不被静默扣回。
 `smoke-agent-sse.ps1` 不以 HTTP 200 冒充成功：`SUCCESS` 模式必须观察到真实 Agent 生命周期帧、非空最终结果、
 冻结归零和正数额度结算；`MODEL_FAILURE_NO_CHARGE` 模式必须得到 `MODEL_ERROR`、冻结归零且可用额度不变。
-`smoke-agent-memory.ps1` 使用两个隔离账号验证 Qdrant 落库、同 owner 跨会话召回、不同 owner 不泄漏，并在结束时按 owner 清理测试向量。
+`smoke-agent-memory.ps1` 使用两个隔离账号验证 PostgreSQL 落库、同 owner 跨会话召回、不同 owner 不泄漏，并在结束时清理两张记忆表中的测试数据。
 
 Gateway 统一入口（含 SSE `/web/**`）；本地可用 `application-local.yml` 关闭 Nacos 并使用固定端口。内部服务调用需 `AI_GROUP_INTERNAL_TOKEN`（与 `ai-group.internal.token` 一致）。group 的 `/api/v1/gbm/trade/**` 默认开启内部鉴权（`AI_GROUP_INTERNAL_AUTH_ENABLED=true`），仅接受正式 pay→group 调用；旧静态演示页匿名直连不再受支持。临时回滚可设 `AI_GROUP_INTERNAL_AUTH_ENABLED=false`。
 

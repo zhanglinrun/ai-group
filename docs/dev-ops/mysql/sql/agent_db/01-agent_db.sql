@@ -285,7 +285,7 @@ create table if not exists quota_settlement_command (
   output_rate_snapshot bigint default null comment '输出费率快照',
   prompt_tokens int default null comment '结算输入token',
   completion_tokens int default null comment '结算输出token',
-  usage_source varchar(16) default null comment 'PROVIDER/MIXED/ESTIMATED等',
+  usage_source varchar(32) default null comment 'PROVIDER/MIXED/ESTIMATED等',
   charged_microcredits bigint not null default 0 comment '本次审计实扣额度',
   state varchar(32) not null comment 'durable命令状态',
   retry_count int not null default 0 comment '恢复尝试次数',
@@ -667,4 +667,14 @@ create table if not exists tool_output_todo_write (
   unique key uk_request_tool_call (request_id, tool_call_id),
   key idx_tool_invocation_id (tool_invocation_id)
 ) engine=InnoDB default charset=utf8mb4 comment='todo_write工具产出表';
+
+create table if not exists agent_stream_event (
+  sequence_no bigint not null auto_increment comment '全局递增事件序号',
+  request_id varchar(128) not null comment '请求ID',
+  event_type varchar(64) not null comment 'SSE event名称',
+  event_json longtext not null comment 'canonical事件JSON',
+  created_at datetime not null default current_timestamp comment '创建时间',
+  primary key (sequence_no),
+  key idx_agent_stream_event_request_sequence (request_id, sequence_no)
+) engine=InnoDB default charset=utf8mb4 comment='Agent canonical SSE事件账本';
 

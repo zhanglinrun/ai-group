@@ -1,33 +1,13 @@
 # Benefit event E2E: register -> publish snapshotted quota package -> verify paid quota grant
 param(
     [string]$Gateway = "http://127.0.0.1:8080",
-    [string]$RabbitMgmt = "http://127.0.0.1:15672",
-    [string]$RabbitUser = "admin",
-    [string]$RabbitPass = "admin",
+    [string]$KafkaContainer = "ai-group-kafka",
+    [string]$KafkaTopic = "member.benefit.completed",
     [string]$Username = "benefit_smoke_$(Get-Random -Maximum 99999)",
     [string]$Password = "Smoke@123456"
 )
 
 $ErrorActionPreference = "Stop"
-
-$repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-$envFile = Join-Path $repoRoot ".env"
-if (Test-Path -LiteralPath $envFile) {
-    foreach ($line in Get-Content -LiteralPath $envFile -Encoding UTF8) {
-        if ($line -match '^\s*#' -or $line -notmatch '=') { continue }
-        $key, $value = $line -split '=', 2
-        $key = $key.Trim()
-        if ($key -in @('RABBITMQ_USER', 'RABBITMQ_PASSWORD') -and -not (Test-Path "env:$key")) {
-            Set-Item -Path "env:$key" -Value $value.Trim().Trim('"')
-        }
-    }
-}
-if (-not $PSBoundParameters.ContainsKey('RabbitUser') -and $env:RABBITMQ_USER) {
-    $RabbitUser = $env:RABBITMQ_USER
-}
-if (-not $PSBoundParameters.ContainsKey('RabbitPass') -and $env:RABBITMQ_PASSWORD) {
-    $RabbitPass = $env:RABBITMQ_PASSWORD
-}
 
 function Invoke-Api($Method, $Path, $Body = $null, $Token = $null) {
     $headers = @{ "Content-Type" = "application/json" }
@@ -40,19 +20,9 @@ function Invoke-Api($Method, $Path, $Body = $null, $Token = $null) {
 }
 
 function Publish-BenefitEvent($PayloadJson) {
-    $cred = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("${RabbitUser}:${RabbitPass}"))
-    $body = @{
-        properties       = @{}
-        routing_key      = "member.benefit.completed"
-        payload          = $PayloadJson
-        payload_encoding = "string"
-    } | ConvertTo-Json -Depth 5
-    $uri = "$RabbitMgmt/api/exchanges/%2F/member.benefit.exchange/publish"
-    $resp = Invoke-RestMethod -Method POST -Uri $uri -Headers @{
-        Authorization = "Basic $cred"
-        "Content-Type" = "application/json"
-    } -Body $body
-    if (-not $resp.routed) { throw "RabbitMQ publish not routed" }
+    $PayloadJson | & docker exec -i $KafkaContainer /opt/kafka/bin/kafka-console-producer.sh `
+        --bootstrap-server localhost:9092 --topic $KafkaTopic
+    if ($LASTEXITCODE -ne 0) { throw "kafka publish failed (exit $LASTEXITCODE)" }
 }
 
 function Wait-ForPaidQuota([string]$AccessToken, [long]$ExpectedMinimum, [int]$TimeoutSeconds = 20) {

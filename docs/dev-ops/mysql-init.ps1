@@ -4,7 +4,7 @@ function Get-MysqlRootPassword {
     if ($env:MYSQL_ROOT_PASSWORD) {
         return $env:MYSQL_ROOT_PASSWORD
     }
-    return "123456"
+    throw "MYSQL_ROOT_PASSWORD is required"
 }
 
 function Wait-RedisReady {
@@ -13,7 +13,10 @@ function Wait-RedisReady {
     while ((Get-Date) -lt $deadline) {
         $prev = $ErrorActionPreference
         $ErrorActionPreference = "Continue"
-        $pong = docker exec ai-group-redis redis-cli ping 2>&1
+        if (-not $env:REDIS_PASSWORD) {
+            throw "REDIS_PASSWORD is required"
+        }
+        $pong = docker exec ai-group-redis redis-cli -a $env:REDIS_PASSWORD --no-auth-warning ping 2>&1
         $ErrorActionPreference = $prev
         if ($pong -match "PONG") {
             Write-Host "Redis is ready"
@@ -186,7 +189,7 @@ function Start-DockerInfra {
     if ($IncludeObservability) {
         $composeArgs += @("-f", "docker-compose-observability.yml")
     }
-    $composeArgs += @("up", "-d", "--remove-orphans")
+    $composeArgs += @("up", "-d")
     $prev = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
     & docker @composeArgs 2>&1 | ForEach-Object { Write-Host $_ }

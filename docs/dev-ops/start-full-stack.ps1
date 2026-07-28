@@ -2,6 +2,7 @@
 param(
     [switch]$StopPort8080Conflict,
     [switch]$IncludeObservability,
+    [switch]$EphemeralLlmCredentials,
     [ValidateRange(1, 65535)]
     [int]$MemberPort = 18082
 )
@@ -19,13 +20,30 @@ function Import-DotEnv($path) {
         $k, $v = $_ -split '=', 2
         $k = $k.Trim()
         $v = $v.Trim().Trim('"')
-        if ($k) { Set-Item -Path "env:$k" -Value $v }
+        if ($k -and -not [Environment]::GetEnvironmentVariable($k, "Process")) {
+            Set-Item -Path "env:$k" -Value $v
+        }
     }
 }
 
 Import-DotEnv $envFile
-$env:JWT_SECRET = if ($env:JWT_SECRET) { $env:JWT_SECRET } else { "change-me-to-a-long-random-secret" }
-$env:AI_GROUP_INTERNAL_TOKEN = if ($env:AI_GROUP_INTERNAL_TOKEN) { $env:AI_GROUP_INTERNAL_TOKEN } else { "change-me-to-a-long-random-internal-token" }
+function Require-Secret([string]$name, [int]$minimumLength = 32) {
+    $value = [Environment]::GetEnvironmentVariable($name, "Process")
+    if (-not $value -or $value.Length -lt $minimumLength -or $value -match '(?i)change-me|replace-me|your-') {
+        throw "$name must be set to a random value of at least $minimumLength characters in .env or the process environment"
+    }
+    return $value
+}
+function New-RandomSecret() {
+    $bytes = New-Object byte[] 32
+    [System.Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
+    return [Convert]::ToBase64String($bytes)
+}
+$env:JWT_SECRET = Require-Secret "JWT_SECRET"
+$env:AI_GROUP_INTERNAL_TOKEN = Require-Secret "AI_GROUP_INTERNAL_TOKEN"
+$env:XXL_JOB_ACCESS_TOKEN = Require-Secret "XXL_JOB_ACCESS_TOKEN"
+$env:XXL_JOB_ADMIN_PORT = if ($env:XXL_JOB_ADMIN_PORT) { $env:XXL_JOB_ADMIN_PORT } else { "18081" }
+$env:XXL_JOB_ADMIN_ADDRESSES = if ($env:XXL_JOB_ADMIN_ADDRESSES) { $env:XXL_JOB_ADMIN_ADDRESSES } else { "http://127.0.0.1:$($env:XXL_JOB_ADMIN_PORT)" }
 $env:AI_GROUP_INTERNAL_AUTH_ENABLED = if ($env:AI_GROUP_INTERNAL_AUTH_ENABLED) { $env:AI_GROUP_INTERNAL_AUTH_ENABLED } else { "true" }
 $env:ALIPAY_ENABLED = if ($env:ALIPAY_ENABLED) { $env:ALIPAY_ENABLED } else { "false" }
 $env:AI_GROUP_DEMO_PAYMENT_ENABLED = if ($env:AI_GROUP_DEMO_PAYMENT_ENABLED) { $env:AI_GROUP_DEMO_PAYMENT_ENABLED } else { "false" }
@@ -34,14 +52,30 @@ $canonicalReactorToolToken = if ($env:AGENT_GROUP_REACTOR_TOOL_TOKEN) {
 } elseif ($env:REACTOR_TOOL_TOKEN) {
     $env:REACTOR_TOOL_TOKEN
 } else {
-    $env:AI_GROUP_INTERNAL_TOKEN
+    New-RandomSecret
 }
 $env:AGENT_GROUP_REACTOR_TOOL_TOKEN = $canonicalReactorToolToken
 $env:REACTOR_TOOL_TOKEN = $canonicalReactorToolToken
 $env:AGENT_GROUP_LLM_API_KEY = if ($env:AGENT_GROUP_LLM_API_KEY) { $env:AGENT_GROUP_LLM_API_KEY } else { $env:DASHSCOPE_API_KEY }
 $env:AGENT_GROUP_LLM_BASE_URL = if ($env:AGENT_GROUP_LLM_BASE_URL) { $env:AGENT_GROUP_LLM_BASE_URL } else { "https://dashscope.aliyuncs.com/compatible-mode/v1" }
 $env:AGENT_GROUP_LLM_CHAT_MODEL = if ($env:AGENT_GROUP_LLM_CHAT_MODEL) { $env:AGENT_GROUP_LLM_CHAT_MODEL } else { "qwen-plus" }
+$env:AGENT_GROUP_VISION_MODEL = if ($env:AGENT_GROUP_VISION_MODEL) { $env:AGENT_GROUP_VISION_MODEL } else { $env:AGENT_GROUP_LLM_CHAT_MODEL }
+$env:AGENT_GROUP_MEMORY_SUMMARY_MODEL = if ($env:AGENT_GROUP_MEMORY_SUMMARY_MODEL) { $env:AGENT_GROUP_MEMORY_SUMMARY_MODEL } else { $env:AGENT_GROUP_LLM_CHAT_MODEL }
 $env:REPORT_MODEL = if ($env:REPORT_MODEL) { $env:REPORT_MODEL } else { $env:AGENT_GROUP_LLM_CHAT_MODEL }
+$env:AGENT_GROUP_EMBEDDING_API_KEY = if ($env:AGENT_GROUP_EMBEDDING_API_KEY) {
+    $env:AGENT_GROUP_EMBEDDING_API_KEY
+} elseif ($env:DASHSCOPE_API_KEY) {
+    $env:DASHSCOPE_API_KEY
+} else {
+    $env:AGENT_GROUP_LLM_API_KEY
+}
+$env:AGENT_GROUP_EMBEDDING_BASE_URL = if ($env:AGENT_GROUP_EMBEDDING_BASE_URL) {
+    $env:AGENT_GROUP_EMBEDDING_BASE_URL
+} elseif ($env:DASHSCOPE_API_BASE) {
+    $env:DASHSCOPE_API_BASE
+} else {
+    $env:AGENT_GROUP_LLM_BASE_URL
+}
 $env:AGENT_GROUP_LLM_EMBEDDING_MODEL = if ($env:AGENT_GROUP_LLM_EMBEDDING_MODEL) { $env:AGENT_GROUP_LLM_EMBEDDING_MODEL } else { "text-embedding-v3" }
 $env:AGENT_GROUP_VECTOR_DIMENSION = if ($env:AGENT_GROUP_VECTOR_DIMENSION) { $env:AGENT_GROUP_VECTOR_DIMENSION } else { "1024" }
 $env:AGENT_GROUP_REACTOR_TOOL_BASE_URL = if ($env:AGENT_GROUP_REACTOR_TOOL_BASE_URL) { $env:AGENT_GROUP_REACTOR_TOOL_BASE_URL } else { "http://127.0.0.1:1601" }
@@ -49,22 +83,43 @@ $env:REACTOR_TOOL_ENV = if ($env:REACTOR_TOOL_ENV) { $env:REACTOR_TOOL_ENV } els
 $env:REACTOR_TOOL_HOST = if ($env:REACTOR_TOOL_HOST) { $env:REACTOR_TOOL_HOST } else { "127.0.0.1" }
 $env:REACTOR_TOOL_CORS_ORIGINS = if ($env:REACTOR_TOOL_CORS_ORIGINS) { $env:REACTOR_TOOL_CORS_ORIGINS } else { "http://localhost:5173,http://127.0.0.1:5173" }
 $env:SKILL_ALLOWED_RUNTIMES = if ($env:SKILL_ALLOWED_RUNTIMES) { $env:SKILL_ALLOWED_RUNTIMES } else { "python" }
-$env:MYSQL_ROOT_PASSWORD = if ($env:MYSQL_ROOT_PASSWORD) { $env:MYSQL_ROOT_PASSWORD } else { "123456" }
-$env:RABBITMQ_USER = if ($env:RABBITMQ_USER) { $env:RABBITMQ_USER } else { "admin" }
-$env:RABBITMQ_PASSWORD = if ($env:RABBITMQ_PASSWORD) { $env:RABBITMQ_PASSWORD } else { "admin" }
-$env:MINIO_ROOT_USER = if ($env:MINIO_ROOT_USER) { $env:MINIO_ROOT_USER } else { "minioadmin" }
-$env:MINIO_ROOT_PASSWORD = if ($env:MINIO_ROOT_PASSWORD) { $env:MINIO_ROOT_PASSWORD } else { "minioadmin" }
-$env:MINIO_ENDPOINT = if ($env:MINIO_ENDPOINT) { $env:MINIO_ENDPOINT } else { "http://127.0.0.1:9000" }
-$env:MINIO_ACCESS_KEY = if ($env:MINIO_ACCESS_KEY) { $env:MINIO_ACCESS_KEY } else { $env:MINIO_ROOT_USER }
-$env:MINIO_SECRET_KEY = if ($env:MINIO_SECRET_KEY) { $env:MINIO_SECRET_KEY } else { $env:MINIO_ROOT_PASSWORD }
-$env:MINIO_BUCKET_NAME = if ($env:MINIO_BUCKET_NAME) { $env:MINIO_BUCKET_NAME } else { "ai-group" }
-$env:REACTOR_TOOL_PUBLIC_BASE_URL = if ($env:REACTOR_TOOL_PUBLIC_BASE_URL) { $env:REACTOR_TOOL_PUBLIC_BASE_URL } else { "http://127.0.0.1:1601/v1/storage" }
-$env:VECTOR_STORE_TYPE = if ($env:VECTOR_STORE_TYPE) { $env:VECTOR_STORE_TYPE } else { "qdrant" }
-$env:QDRANT_URL = if ($env:QDRANT_URL) { $env:QDRANT_URL } else { "http://127.0.0.1:6333" }
-$env:QDRANT_PORT = if ($env:QDRANT_PORT) { $env:QDRANT_PORT } else { "6334" }
-$env:QDRANT_PREFER_GRPC = if ($env:QDRANT_PREFER_GRPC) { $env:QDRANT_PREFER_GRPC } else { "false" }
+$env:MYSQL_HOST = if ($env:MYSQL_HOST) { $env:MYSQL_HOST } else { "127.0.0.1" }
+$env:MYSQL_PORT = if ($env:MYSQL_PORT) { $env:MYSQL_PORT } else { "13306" }
+$env:MYSQL_USER = if ($env:MYSQL_USER) { $env:MYSQL_USER } else { "root" }
+$env:MYSQL_ROOT_PASSWORD = Require-Secret "MYSQL_ROOT_PASSWORD"
+$env:REDIS_HOST = if ($env:REDIS_HOST) { $env:REDIS_HOST } else { "127.0.0.1" }
+$env:REDIS_PORT = if ($env:REDIS_PORT) { $env:REDIS_PORT } else { "16379" }
+$env:REDIS_PASSWORD = Require-Secret "REDIS_PASSWORD"
+$env:KAFKA_BOOTSTRAP_SERVERS = if ($env:KAFKA_BOOTSTRAP_SERVERS) { $env:KAFKA_BOOTSTRAP_SERVERS } else { "127.0.0.1:9092" }
+$env:POSTGRES_HOST = if ($env:POSTGRES_HOST) { $env:POSTGRES_HOST } else { "127.0.0.1" }
+$env:POSTGRES_PORT = if ($env:POSTGRES_PORT) { $env:POSTGRES_PORT } else { "15432" }
+$env:POSTGRES_DB = if ($env:POSTGRES_DB) { $env:POSTGRES_DB } else { "agent_memory" }
+$env:POSTGRES_USER = if ($env:POSTGRES_USER) { $env:POSTGRES_USER } else { "agent" }
+$env:POSTGRES_PASSWORD = Require-Secret "POSTGRES_PASSWORD"
+$env:MINIO_PORT = if ($env:MINIO_PORT) { $env:MINIO_PORT } else { "9000" }
+$env:MINIO_CONSOLE_PORT = if ($env:MINIO_CONSOLE_PORT) { $env:MINIO_CONSOLE_PORT } else { "9001" }
+$env:MINIO_ENDPOINT = if ($env:MINIO_ENDPOINT) { $env:MINIO_ENDPOINT } else { "http://127.0.0.1:$($env:MINIO_PORT)" }
+$env:MINIO_ROOT_USER = if ($env:MINIO_ROOT_USER) { $env:MINIO_ROOT_USER } else { "agent" }
+$env:MINIO_ROOT_PASSWORD = Require-Secret "MINIO_ROOT_PASSWORD"
+$env:MINIO_BUCKET_NAME = if ($env:MINIO_BUCKET_NAME) { $env:MINIO_BUCKET_NAME } else { "ai-group-files" }
+if ([bool]$env:MINIO_ACCESS_KEY -xor [bool]$env:MINIO_SECRET_KEY) {
+    throw "MINIO_ACCESS_KEY and MINIO_SECRET_KEY must be configured together"
+}
+$minioAccessKey = if ($env:MINIO_ACCESS_KEY) { $env:MINIO_ACCESS_KEY } else { $env:MINIO_ROOT_USER }
+$minioSecretKey = if ($env:MINIO_SECRET_KEY) { $env:MINIO_SECRET_KEY } else { $env:MINIO_ROOT_PASSWORD }
+$env:NACOS_HOST = if ($env:NACOS_HOST) { $env:NACOS_HOST } else { "127.0.0.1" }
+$env:NACOS_PORT = if ($env:NACOS_PORT) { $env:NACOS_PORT } else { "8848" }
+$env:NACOS_USERNAME = if ($env:NACOS_USERNAME) { $env:NACOS_USERNAME } else { "nacos" }
+$env:NACOS_PASSWORD = if ($env:NACOS_PASSWORD) { $env:NACOS_PASSWORD } else { "nacos" }
+$env:NACOS_AUTH_TOKEN = if ($env:NACOS_AUTH_TOKEN) { $env:NACOS_AUTH_TOKEN } else { New-RandomSecret }
+$env:NACOS_AUTH_IDENTITY_KEY = if ($env:NACOS_AUTH_IDENTITY_KEY) { $env:NACOS_AUTH_IDENTITY_KEY } else { New-RandomSecret }
+$env:NACOS_AUTH_IDENTITY_VALUE = if ($env:NACOS_AUTH_IDENTITY_VALUE) { $env:NACOS_AUTH_IDENTITY_VALUE } else { New-RandomSecret }
+$env:GRAFANA_ADMIN_PASSWORD = if ($IncludeObservability) { Require-Secret "GRAFANA_ADMIN_PASSWORD" } else { $env:GRAFANA_ADMIN_PASSWORD }
+$env:REDIS_ADMIN_PASSWORD = if ($IncludeObservability) { Require-Secret "REDIS_ADMIN_PASSWORD" } else { $env:REDIS_ADMIN_PASSWORD }
+$env:FILE_SAVE_PATH = if ($env:FILE_SAVE_PATH) { $env:FILE_SAVE_PATH } else { "skilloutput" }
+$env:FILE_SERVER_URL = if ($env:FILE_SERVER_URL) { $env:FILE_SERVER_URL } else { "http://127.0.0.1:1601/v1/file_tool" }
+$env:FILE_MAX_SIZE_MB = if ($env:FILE_MAX_SIZE_MB) { $env:FILE_MAX_SIZE_MB } else { "100" }
 $env:AGENT_MEMORY_LONGTERM_ENABLED = if ($env:AGENT_MEMORY_LONGTERM_ENABLED) { $env:AGENT_MEMORY_LONGTERM_ENABLED } else { "true" }
-$env:AGENT_MEMORY_LONGTERM_COLLECTION = if ($env:AGENT_MEMORY_LONGTERM_COLLECTION) { $env:AGENT_MEMORY_LONGTERM_COLLECTION } else { "agent_conversation_memory" }
 $env:SPRING_AI_OPENAI_API_KEY = $env:AGENT_GROUP_LLM_API_KEY
 $env:SPRING_PROFILES_ACTIVE = "dev"
 $env:AI_AGENT_AUTO_CONFIG_ENABLED = if ($env:AI_AGENT_AUTO_CONFIG_ENABLED) { $env:AI_AGENT_AUTO_CONFIG_ENABLED } else { "true" }
@@ -108,6 +163,20 @@ function Start-ServiceWindow($name, $path, $port, $extraEnv = @{}) {
         JWT_SECRET                    = [string]$env:JWT_SECRET
         AI_GROUP_INTERNAL_TOKEN       = [string]$env:AI_GROUP_INTERNAL_TOKEN
         AI_GROUP_INTERNAL_AUTH_ENABLED = [string]$env:AI_GROUP_INTERNAL_AUTH_ENABLED
+        MYSQL_HOST                    = [string]$env:MYSQL_HOST
+        MYSQL_PORT                    = [string]$env:MYSQL_PORT
+        MYSQL_USER                    = [string]$env:MYSQL_USER
+        MYSQL_ROOT_PASSWORD           = [string]$env:MYSQL_ROOT_PASSWORD
+        REDIS_HOST                    = [string]$env:REDIS_HOST
+        REDIS_PORT                    = [string]$env:REDIS_PORT
+        REDIS_PASSWORD                = [string]$env:REDIS_PASSWORD
+        KAFKA_BOOTSTRAP_SERVERS       = [string]$env:KAFKA_BOOTSTRAP_SERVERS
+        NACOS_HOST                    = [string]$env:NACOS_HOST
+        NACOS_PORT                    = [string]$env:NACOS_PORT
+        NACOS_USERNAME                = [string]$env:NACOS_USERNAME
+        NACOS_PASSWORD                = [string]$env:NACOS_PASSWORD
+        XXL_JOB_ADMIN_ADDRESSES       = [string]$env:XXL_JOB_ADMIN_ADDRESSES
+        XXL_JOB_ACCESS_TOKEN          = [string]$env:XXL_JOB_ACCESS_TOKEN
         SPRING_PROFILES_ACTIVE        = "dev"
     }
     foreach ($key in $extraEnv.Keys) {
@@ -122,46 +191,25 @@ function Start-ServiceWindow($name, $path, $port, $extraEnv = @{}) {
     Start-Sleep -Seconds 12
 }
 
-function Patch-AgentApiKey() {
-    if (-not $env:AGENT_GROUP_LLM_API_KEY) { return }
-    $key = $env:AGENT_GROUP_LLM_API_KEY -replace "'", "''"
-    $sql = "UPDATE agent_db.ai_client_api SET api_key='$key' WHERE api_id='dev_api_001';"
-    Invoke-MysqlStatement $sql
-    Write-Host "Patched agent_db dev_api_001 api_key from .env"
-}
-
 function Sync-ReactorToolEnv() {
     $rtEnv = Join-Path $root "ai-agent\runtime\tools\.env"
     $lines = @(
-        "OPENAI_API_KEY=$($env:AGENT_GROUP_LLM_API_KEY)",
         "OPENAI_BASE_URL=$($env:AGENT_GROUP_LLM_BASE_URL)",
         "DEFAULT_MODEL=$($env:AGENT_GROUP_LLM_CHAT_MODEL)",
         "REPORT_MODEL=$($env:REPORT_MODEL)",
         "TEXT_EMBEDDING_TYPE=openai",
-        "TEXT_EMBEDDING_API_KEY=$($env:AGENT_GROUP_LLM_API_KEY)",
-        "TEXT_EMBEDDING_BASE_URL=$($env:AGENT_GROUP_LLM_BASE_URL)",
+        "TEXT_EMBEDDING_BASE_URL=$($env:AGENT_GROUP_EMBEDDING_BASE_URL)",
         "TEXT_EMBEDDING_MODEL_NAME=$($env:AGENT_GROUP_LLM_EMBEDDING_MODEL)",
         "TEXT_EMBEDDING_DIMENSION=$($env:AGENT_GROUP_VECTOR_DIMENSION)",
-        "DASHSCOPE_API_KEY=$($env:DASHSCOPE_API_KEY)",
-        "DASHSCOPE_API_BASE=$($env:AGENT_GROUP_LLM_BASE_URL)",
+        "DASHSCOPE_API_BASE=$($env:DASHSCOPE_API_BASE)",
+        "FILE_SAVE_PATH=$($env:FILE_SAVE_PATH)",
+        "FILE_SERVER_URL=$($env:FILE_SERVER_URL)",
+        "FILE_MAX_SIZE_MB=$($env:FILE_MAX_SIZE_MB)",
         "MINIO_ENDPOINT=$($env:MINIO_ENDPOINT)",
-        "MINIO_ACCESS_KEY=$($env:MINIO_ACCESS_KEY)",
-        "MINIO_SECRET_KEY=$($env:MINIO_SECRET_KEY)",
+        "MINIO_ACCESS_KEY=$minioAccessKey",
         "MINIO_BUCKET_NAME=$($env:MINIO_BUCKET_NAME)",
-        "REACTOR_TOOL_PUBLIC_BASE_URL=$($env:REACTOR_TOOL_PUBLIC_BASE_URL)",
-        "MINIO_PUBLIC_ENDPOINT=$($env:MINIO_PUBLIC_ENDPOINT)",
-        "VECTOR_STORE_TYPE=$($env:VECTOR_STORE_TYPE)",
-        "QDRANT_URL=$($env:QDRANT_URL)",
-        "QDRANT_PORT=$($env:QDRANT_PORT)",
-        "QDRANT_API_KEY=$($env:QDRANT_API_KEY)",
-        "QDRANT_PREFER_GRPC=$($env:QDRANT_PREFER_GRPC)",
-        "TAVILY_API_KEY=$($env:TAVILY_API_KEY)",
-        "MINERU_API_KEY=$($env:MINERU_API_KEY)",
         "IMAGE_GENERATION_BASE_URL=$($env:IMAGE_GENERATION_BASE_URL)",
-        "IMAGE_GENERATION_API_KEY=$($env:IMAGE_GENERATION_API_KEY)",
         "IMAGE_GENERATION_MODEL=$($env:IMAGE_GENERATION_MODEL)",
-        "AI_GROUP_INTERNAL_TOKEN=$($env:AI_GROUP_INTERNAL_TOKEN)",
-        "REACTOR_TOOL_TOKEN=$($env:REACTOR_TOOL_TOKEN)",
         "REACTOR_TOOL_ENV=$($env:REACTOR_TOOL_ENV)",
         "REACTOR_TOOL_HOST=$($env:REACTOR_TOOL_HOST)",
         "REACTOR_TOOL_CORS_ORIGINS=$($env:REACTOR_TOOL_CORS_ORIGINS)",
@@ -175,7 +223,7 @@ function Sync-ReactorToolEnv() {
         "SEARCH_THREAD_NUM=4"
     )
     Set-Content -Path $rtEnv -Value ($lines -join "`n") -Encoding UTF8
-    Write-Host "Synced runtime/tools/.env"
+    Write-Host "Synced non-secret runtime/tools/.env; credentials remain process-only"
 }
 
 if ($StopPort8080Conflict) {
@@ -190,6 +238,9 @@ Wait-RedisReady
 
 Write-Host "==> Init DB (idempotent)"
 Invoke-Mysql "$root/auth-service/src/main/resources/schema.sql"
+if ($env:SPRING_PROFILES_ACTIVE -in @("local", "dev")) {
+    Invoke-Mysql "$root/docs/dev-ops/mysql/sql/auth_db/02-local-admin-seed.sql"
+}
 Invoke-Mysql "$root/member-service/src/main/resources/schema.sql"
 Invoke-Mysql "$root/docs/dev-ops/mysql/sql/member_db/02-platform-schema-migrate.sql"
 # Durable Agent 额度结算依赖请求指纹、真实终态查询与托管冻结标记；老库必须在 member 02 后增量升级。
@@ -205,6 +256,7 @@ Invoke-Mysql "$root/docs/dev-ops/mysql/sql/agent_db/06-dialogue-run-claim-harden
 Invoke-Mysql "$root/docs/dev-ops/mysql/sql/agent_db/07-quota-settlement-command.sql"
 # 工具结果与模型 observation 分离持久化，保证结构化工具的实时展示和历史回放一致。
 Invoke-Mysql "$root/docs/dev-ops/mysql/sql/agent_db/08-tool-result-replay.sql"
+Invoke-Mysql "$root/docs/dev-ops/mysql/sql/agent_db/09-tool-approval.sql"
 Invoke-Mysql "$root/docs/dev-ops/mysql/sql/agent_db/02-dev-seed.sql"
 # group/pay 为全量转储（DROP+重灌）：仅首次初始化执行，已存在则跳过以保留订单/拼团数据
 Invoke-MysqlDumpOnce "$root/group/docs/dev-ops/mysql/sql/2-29-group_buy_market.sql" -Schema "group_buy_market" -MarkerTable "group_buy_order"
@@ -213,6 +265,7 @@ Invoke-Mysql "$root/group/docs/dev-ops/mysql/sql/3-01-per-sku-groupbuy-migrate.s
 # 阶梯拼团：档位表 + activity_type + 档位种子（3-02）；容量=最高档人数(10)（3-03，须在 3-01 之后覆盖 target）
 Invoke-Mysql "$root/group/docs/dev-ops/mysql/sql/3-02-groupbuy-tier-migrate.sql"
 Invoke-Mysql "$root/group/docs/dev-ops/mysql/sql/3-03-groupbuy-tier-settlement-migrate.sql"
+Invoke-Mysql "$root/group/docs/dev-ops/mysql/sql/3-04-identifier-width-migrate.sql"
 Invoke-MysqlDumpOnce "$root/s-pay-mall-ddd-market/docs/dev-ops/mysql/sql/s-pay-mall-ddd-market.sql" -Schema "s_pay_mall_ddd_market" -MarkerTable "pay_order" -PayBase
 Invoke-Mysql "$root/s-pay-mall-ddd-market/docs/dev-ops/mysql/sql/V3_benefit_event.sql"
 Invoke-Mysql "$root/s-pay-mall-ddd-market/docs/dev-ops/mysql/sql/V4_settlement_notified.sql"
@@ -220,11 +273,10 @@ Invoke-Mysql "$root/s-pay-mall-ddd-market/docs/dev-ops/mysql/sql/V4_settlement_n
 Invoke-Mysql "$root/s-pay-mall-ddd-market/docs/dev-ops/mysql/sql/V5_transactional_outbox.sql"
 # 支付下单 durable 幂等键、规范化载荷指纹及拼团路径快照。
 Invoke-Mysql "$root/s-pay-mall-ddd-market/docs/dev-ops/mysql/sql/V6_pay_order_idempotency.sql"
+Invoke-Mysql "$root/s-pay-mall-ddd-market/docs/dev-ops/mysql/sql/V7-order-identifier-width.sql"
 # 阶梯拼团：benefit_event.bonus_quota（加赠额度随权益事件透传给 member）
 Invoke-Mysql "$root/docs/dev-ops/mysql/sql/pay_db/01-benefit-event-bonus-migrate.sql"
 Invoke-Mysql "$root/docs/dev-ops/mysql/sql/xxl_job/01-xxl_job.sql"
-Patch-AgentApiKey
-
 Write-Host "==> Build platform"
 Push-Location $root
 mvn clean install -DskipTests -q
@@ -244,7 +296,12 @@ Pop-Location
 # ai-agent 会在 ApplicationReadyEvent 中预热所有 status=1 的 STDIO MCP。
 # 因此必须先同步 runtime/tools 的锁定依赖，否则干净 checkout 会在 MCP 子进程启动时缺少 Python SDK。
 Write-Host "==> Prepare runtime/tools"
-Sync-ReactorToolEnv
+if (-not $EphemeralLlmCredentials) {
+    Sync-ReactorToolEnv
+} else {
+    Remove-Item -LiteralPath (Join-Path $root "ai-agent\runtime\tools\.env") -Force -ErrorAction SilentlyContinue
+    Write-Host "Removed stale runtime/tools/.env for process-only LLM credentials"
+}
 Push-Location "$root/ai-agent/runtime/tools"
 try {
     uv sync --frozen
@@ -280,21 +337,24 @@ Start-ServiceWindow "ai-agent" "$root/ai-agent/ai-agent-app" 8090 @{
     SPRING_AI_OPENAI_API_KEY      = $env:SPRING_AI_OPENAI_API_KEY
     AGENT_GROUP_LLM_BASE_URL      = $env:AGENT_GROUP_LLM_BASE_URL
     AGENT_GROUP_LLM_CHAT_MODEL    = $env:AGENT_GROUP_LLM_CHAT_MODEL
+    AGENT_GROUP_VISION_MODEL      = $env:AGENT_GROUP_VISION_MODEL
+    AGENT_GROUP_MEMORY_SUMMARY_MODEL = $env:AGENT_GROUP_MEMORY_SUMMARY_MODEL
     AGENT_GROUP_LLM_EMBEDDING_MODEL = $env:AGENT_GROUP_LLM_EMBEDDING_MODEL
+    AGENT_GROUP_EMBEDDING_API_KEY = $env:AGENT_GROUP_EMBEDDING_API_KEY
+    AGENT_GROUP_EMBEDDING_BASE_URL = $env:AGENT_GROUP_EMBEDDING_BASE_URL
     AGENT_GROUP_VECTOR_DIMENSION  = $env:AGENT_GROUP_VECTOR_DIMENSION
     AGENT_GROUP_REACTOR_TOOL_BASE_URL = $env:AGENT_GROUP_REACTOR_TOOL_BASE_URL
     AGENT_GROUP_REACTOR_TOOL_TOKEN = $env:AGENT_GROUP_REACTOR_TOOL_TOKEN
-    AGENT_GROUP_QDRANT_ENABLED    = if ($env:AGENT_GROUP_QDRANT_ENABLED) { $env:AGENT_GROUP_QDRANT_ENABLED } else { "false" }
-    AGENT_GROUP_EMBEDDING_URL     = if ($env:AGENT_GROUP_EMBEDDING_URL) { $env:AGENT_GROUP_EMBEDDING_URL } else { "http://127.0.0.1:1601/v1/tool/embedding/text" }
     MEMBER_SERVICE_BASE_URL       = "http://127.0.0.1:$MemberPort"
     AI_AGENT_AUTO_CONFIG_ENABLED = $env:AI_AGENT_AUTO_CONFIG_ENABLED
     TAVILY_API_KEY                = $env:TAVILY_API_KEY
     MINERU_API_KEY                = $env:MINERU_API_KEY
-    QDRANT_URL                    = $env:QDRANT_URL
-    QDRANT_PORT                   = if ($env:QDRANT_PORT) { $env:QDRANT_PORT } else { "6334" }
-    QDRANT_PREFER_GRPC           = if ($env:QDRANT_PREFER_GRPC) { $env:QDRANT_PREFER_GRPC } else { "false" }
+    POSTGRES_HOST                 = $env:POSTGRES_HOST
+    POSTGRES_PORT                 = $env:POSTGRES_PORT
+    POSTGRES_DB                   = $env:POSTGRES_DB
+    POSTGRES_USER                 = $env:POSTGRES_USER
+    POSTGRES_PASSWORD             = $env:POSTGRES_PASSWORD
     AGENT_MEMORY_LONGTERM_ENABLED = $env:AGENT_MEMORY_LONGTERM_ENABLED
-    AGENT_MEMORY_LONGTERM_COLLECTION = $env:AGENT_MEMORY_LONGTERM_COLLECTION
 }
 Wait-HttpReady "ai-agent" "http://127.0.0.1:8090/web/health" 120
 
@@ -304,7 +364,64 @@ if (-not (Test-PortListening 1601)) {
     Push-Location "$root/ai-agent/runtime/tools"
     try {
         uv run --frozen python -m reactor_tool.db.db_engine
-        & .\start.ps1 -Detached
+        $runtimeEnvironment = @{
+            PATH = [string]$env:PATH
+            SYSTEMROOT = [string]$env:SYSTEMROOT
+            USERPROFILE = [string]$env:USERPROFILE
+            TEMP = [string]$env:TEMP
+            TMP = [string]$env:TMP
+            LOCALAPPDATA = [string]$env:LOCALAPPDATA
+            APPDATA = [string]$env:APPDATA
+            OPENAI_API_KEY = [string]$env:AGENT_GROUP_LLM_API_KEY
+            OPENAI_BASE_URL = [string]$env:AGENT_GROUP_LLM_BASE_URL
+            DEFAULT_MODEL = [string]$env:AGENT_GROUP_LLM_CHAT_MODEL
+            REPORT_MODEL = [string]$env:REPORT_MODEL
+            TEXT_EMBEDDING_TYPE = "openai"
+            TEXT_EMBEDDING_API_KEY = [string]$env:AGENT_GROUP_EMBEDDING_API_KEY
+            TEXT_EMBEDDING_BASE_URL = [string]$env:AGENT_GROUP_EMBEDDING_BASE_URL
+            TEXT_EMBEDDING_MODEL_NAME = [string]$env:AGENT_GROUP_LLM_EMBEDDING_MODEL
+            TEXT_EMBEDDING_DIMENSION = [string]$env:AGENT_GROUP_VECTOR_DIMENSION
+            DASHSCOPE_API_KEY = [string]$env:DASHSCOPE_API_KEY
+            DASHSCOPE_API_BASE = [string]$env:DASHSCOPE_API_BASE
+            FILE_SAVE_PATH = [string]$env:FILE_SAVE_PATH
+            FILE_SERVER_URL = [string]$env:FILE_SERVER_URL
+            FILE_MAX_SIZE_MB = [string]$env:FILE_MAX_SIZE_MB
+            MINIO_ENDPOINT = [string]$env:MINIO_ENDPOINT
+            MINIO_ACCESS_KEY = [string]$minioAccessKey
+            MINIO_SECRET_KEY = [string]$minioSecretKey
+            MINIO_BUCKET_NAME = [string]$env:MINIO_BUCKET_NAME
+            TAVILY_API_KEY = [string]$env:TAVILY_API_KEY
+            MINERU_API_KEY = [string]$env:MINERU_API_KEY
+            IMAGE_GENERATION_BASE_URL = [string]$env:IMAGE_GENERATION_BASE_URL
+            IMAGE_GENERATION_API_KEY = [string]$env:IMAGE_GENERATION_API_KEY
+            IMAGE_GENERATION_MODEL = [string]$env:IMAGE_GENERATION_MODEL
+            GRSAI_NANOBANANA_API_KEY = [string]$env:GRSAI_NANOBANANA_API_KEY
+            REACTOR_TOOL_TOKEN = [string]$env:REACTOR_TOOL_TOKEN
+            REACTOR_TOOL_ENV = [string]$env:REACTOR_TOOL_ENV
+            REACTOR_TOOL_HOST = [string]$env:REACTOR_TOOL_HOST
+            REACTOR_TOOL_CORS_ORIGINS = [string]$env:REACTOR_TOOL_CORS_ORIGINS
+            SKILL_ALLOWED_RUNTIMES = [string]$env:SKILL_ALLOWED_RUNTIMES
+            SKILL_MAX_CONCURRENT_PROCESSES = "2"
+            SEARCH_TIMEOUT = "20"
+            SEARCH_PARSER_TIMEOUT = "10"
+            DEEPSEARCH_TOTAL_TIMEOUT_SECONDS = "150"
+            SEARCH_THREAD_NUM = "4"
+            JWT_SECRET = ""
+            AI_GROUP_INTERNAL_TOKEN = ""
+            MYSQL_ROOT_PASSWORD = ""
+            REDIS_PASSWORD = ""
+            KAFKA_BOOTSTRAP_SERVERS = "127.0.0.1:9092"
+            NACOS_AUTH_TOKEN = ""
+            NACOS_AUTH_IDENTITY_KEY = ""
+            NACOS_AUTH_IDENTITY_VALUE = ""
+            ALIPAY_MERCHANT_PRIVATE_KEY = ""
+            ALIPAY_PUBLIC_KEY = ""
+        }
+        Start-Process pwsh `
+            -ArgumentList "-NoProfile", "-File", (Join-Path (Get-Location) "start.ps1"), "-Detached" `
+            -WorkingDirectory (Get-Location) `
+            -Environment $runtimeEnvironment `
+            -WindowStyle Hidden | Out-Null
     } finally {
         Pop-Location
     }
@@ -316,16 +433,45 @@ if (-not (Test-PortListening 5173)) {
     # 干净 checkout 没有 node_modules，必须先 pnpm install 再 pnpm dev，否则窗口会因缺 vite 直接退出。
     Push-Location "$root/web"
     try {
-        pnpm install
+        pnpm install --frozen-lockfile
         $nodeExecutable = (Get-Command node -ErrorAction Stop).Source
         $viteEntry = Join-Path (Get-Location) "node_modules\vite\bin\vite.js"
         if (-not (Test-Path -LiteralPath $viteEntry)) {
             throw "Vite entry not found after pnpm install: $viteEntry"
         }
+        # Vite plugins are third-party code: give the dev server only the values
+        # it needs instead of inheriting database, JWT, payment and LLM secrets.
+        $frontendEnvironment = @{
+            PATH = [string]$env:PATH
+            VITE_API_BASE_URL = [string]$env:VITE_API_BASE_URL
+            VITE_API_TARGET = [string]$env:VITE_API_TARGET
+            SERVICE_BASE_URL = [string]$env:SERVICE_BASE_URL
+            REACTOR_TOOL_BASE_URL = [string]$env:REACTOR_TOOL_BASE_URL
+            AGENT_GROUP_REACTOR_TOOL_TOKEN = [string]$env:AGENT_GROUP_REACTOR_TOOL_TOKEN
+            NODE_ENV = "development"
+            JWT_SECRET = ""
+            AI_GROUP_INTERNAL_TOKEN = ""
+            MYSQL_ROOT_PASSWORD = ""
+            REDIS_PASSWORD = ""
+            KAFKA_BOOTSTRAP_SERVERS = "127.0.0.1:9092"
+            NACOS_AUTH_TOKEN = ""
+            NACOS_AUTH_IDENTITY_KEY = ""
+            NACOS_AUTH_IDENTITY_VALUE = ""
+            AGENT_GROUP_LLM_API_KEY = ""
+            AGENT_GROUP_EMBEDDING_API_KEY = ""
+            DASHSCOPE_API_KEY = ""
+            OPENAI_API_KEY = ""
+            IMAGE_GENERATION_API_KEY = ""
+            TAVILY_API_KEY = ""
+            MINERU_API_KEY = ""
+            ALIPAY_MERCHANT_PRIVATE_KEY = ""
+            ALIPAY_PUBLIC_KEY = ""
+        }
         Start-Process `
             -FilePath $nodeExecutable `
             -ArgumentList $viteEntry `
             -WorkingDirectory (Get-Location) `
+            -Environment $frontendEnvironment `
             -WindowStyle Hidden | Out-Null
     } finally {
         Pop-Location

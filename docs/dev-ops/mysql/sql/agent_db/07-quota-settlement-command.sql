@@ -21,7 +21,7 @@ create table if not exists quota_settlement_command (
   output_rate_snapshot bigint default null comment '输出费率快照',
   prompt_tokens int default null comment '结算输入token',
   completion_tokens int default null comment '结算输出token',
-  usage_source varchar(16) default null comment 'PROVIDER/MIXED/ESTIMATED等',
+  usage_source varchar(32) default null comment 'PROVIDER/MIXED/ESTIMATED等',
   charged_microcredits bigint not null default 0 comment '本次审计实扣额度',
   state varchar(32) not null comment 'durable命令状态',
   retry_count int not null default 0 comment '恢复尝试次数',
@@ -39,3 +39,10 @@ create table if not exists quota_settlement_command (
   key idx_quota_recovery (state, next_retry_at, lease_until),
   key idx_quota_llm_invocation (llm_invocation_id)
 ) engine=InnoDB default charset=utf8mb4 comment='Agent durable额度结算命令';
+
+set @ddl = if((select character_maximum_length from information_schema.columns
+               where table_schema = database() and table_name = 'quota_settlement_command'
+                 and column_name = 'usage_source') < 32,
+  'alter table quota_settlement_command modify column usage_source varchar(32) default null comment ''PROVIDER/MIXED/ESTIMATED等''',
+  'select 1');
+prepare stmt from @ddl; execute stmt; deallocate prepare stmt;

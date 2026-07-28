@@ -1,12 +1,12 @@
 #Requires -Version 7.2
 # Real cross-session memory smoke:
-# isolated users -> explicit memory -> Qdrant persistence -> cross-session recall -> owner isolation -> cleanup.
+# isolated users -> explicit memory -> PostgreSQL persistence -> cross-session recall -> owner isolation -> cleanup.
 [CmdletBinding()]
 param(
     [string]$Gateway = "http://127.0.0.1:8080",
-    [string]$QdrantUrl = "",
-    [string]$QdrantApiKey = $env:QDRANT_API_KEY,
-    [string]$Collection = "",
+    [string]$PostgresContainer = "ai-group-postgres",
+    [string]$PostgresDatabase = $(if ($env:POSTGRES_DB) { $env:POSTGRES_DB } else { "agent_memory" }),
+    [string]$PostgresUser = $(if ($env:POSTGRES_USER) { $env:POSTGRES_USER } else { "agent" }),
     [ValidateRange(30, 600)]
     [int]$SseTimeoutSeconds = 180,
     [ValidateRange(5, 180)]
@@ -17,22 +17,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-if ([string]::IsNullOrWhiteSpace($QdrantUrl)) {
-    $QdrantUrl = if ([string]::IsNullOrWhiteSpace($env:QDRANT_URL)) {
-        "http://127.0.0.1:6333"
-    } else {
-        $env:QDRANT_URL
-    }
-}
-if ([string]::IsNullOrWhiteSpace($Collection)) {
-    $Collection = if ([string]::IsNullOrWhiteSpace($env:AGENT_MEMORY_LONGTERM_COLLECTION)) {
-        "agent_conversation_memory"
-    } else {
-        $env:AGENT_MEMORY_LONGTERM_COLLECTION
-    }
-}
 $Gateway = $Gateway.TrimEnd('/')
-$QdrantUrl = $QdrantUrl.TrimEnd('/')
 
 function Invoke-JsonApi {
     param(
@@ -142,6 +127,8 @@ function Invoke-AgentSse {
     $response = $null
     $frameCount = 0
     $terminalResult = $null
+    $textResult = [System.Text.StringBuilder]::new()
+    $eventName = $null
     $eventTypes = [System.Collections.Generic.HashSet[string]]::new(
         [System.StringComparer]::OrdinalIgnoreCase
     )
@@ -169,6 +156,10 @@ function Invoke-AgentSse {
                     $cancellation.Token
                 ).GetAwaiter().GetResult()
                 if ($null -eq $line) { break }
+                if ($line.StartsWith('event:')) {
+                    $eventName = $line.Substring(6).Trim()
+                    continue
+                }
                 if (-not $line.StartsWith('data:')) { continue }
 
                 $data = $line.Substring(5).Trim()
@@ -177,23 +168,23 @@ function Invoke-AgentSse {
 
                 $frame = $data | ConvertFrom-Json -Depth 50
                 $frameCount++
-                $eventPayload = $frame.resultMap.eventData.resultMap
-                if ($null -eq $eventPayload -and $frame.messageType) {
-                    $eventPayload = $frame
+                $eventType = [string]$frame.type
+                if ([string]::IsNullOrWhiteSpace($eventType)) {
+                    throw 'Agent SSE data is missing canonical type'
                 }
-                if ($null -eq $eventPayload) { continue }
-
-                $messageType = [string]$eventPayload.messageType
-                $eventResult = [string]$eventPayload.result
-                if (-not [string]::IsNullOrWhiteSpace($messageType)) {
-                    $eventTypes.Add($messageType) | Out-Null
+                if (-not [string]::IsNullOrWhiteSpace($eventName) -and $eventName -ne $eventType) {
+                    throw "Agent SSE event name '$eventName' does not match data type '$eventType'"
                 }
-                if ($messageType -eq 'result' -and
-                    ($frame.finished -eq $true -or $eventPayload.finish -eq $true)) {
-                    $terminalResult = if (-not [string]::IsNullOrWhiteSpace($eventResult)) {
-                        $eventResult
+                $eventTypes.Add($eventType) | Out-Null
+                if ($eventType -eq 'text') {
+                    $textResult.Append([string]$frame.delta) | Out-Null
+                } elseif ($eventType -eq 'error') {
+                    throw "Agent SSE failed: $([string]$frame.code) $([string]$frame.message)"
+                } elseif ($eventType -eq 'complete') {
+                    $terminalResult = if ($textResult.Length -gt 0) {
+                        $textResult.ToString()
                     } else {
-                        [string]$frame.response
+                        [string]$frame.summary
                     }
                     break
                 }
@@ -211,6 +202,9 @@ function Invoke-AgentSse {
     if ([string]::IsNullOrWhiteSpace($terminalResult)) {
         throw "Agent SSE did not produce a non-empty terminal result"
     }
+    if (-not $eventTypes.Contains('agent_start') -or -not $eventTypes.Contains('complete')) {
+        throw "Agent SSE did not contain the required agent_start/complete lifecycle"
+    }
     return [pscustomobject]@{
         Result     = $terminalResult
         FrameCount = $frameCount
@@ -218,69 +212,22 @@ function Invoke-AgentSse {
     }
 }
 
-function Invoke-QdrantJson {
-    param(
-        [Parameter(Mandatory)]
-        [ValidateSet('GET', 'POST')]
-        [string]$Method,
-        [Parameter(Mandatory)]
-        [string]$Path,
-        [object]$Body = $null
-    )
-
-    $headers = @{ 'Content-Type' = 'application/json' }
-    if (-not [string]::IsNullOrWhiteSpace($QdrantApiKey)) {
-        $headers['api-key'] = $QdrantApiKey
+function Assert-SqlLiteral {
+    param([Parameter(Mandatory)][string]$Value)
+    if ($Value -notmatch '^[A-Za-z0-9_-]+$') {
+        throw 'unexpected character in generated smoke-test identifier'
     }
-    $parameters = @{
-        Method     = $Method
-        Uri        = "$QdrantUrl$Path"
-        Headers    = $headers
-        TimeoutSec = 20
-    }
-    if ($null -ne $Body) {
-        $parameters.Body = $Body | ConvertTo-Json -Compress -Depth 20
-    }
-    return Invoke-RestMethod @parameters
+    return $Value
 }
 
-function Test-IsNotFoundResponse {
-    param([Parameter(Mandatory)]$ErrorRecord)
-
-    return $null -ne $ErrorRecord.Exception.Response -and
-        [int]$ErrorRecord.Exception.Response.StatusCode -eq 404
-}
-
-function Get-QdrantOwnerPoints {
-    param([Parameter(Mandatory)][string]$OwnerId)
-
-    $encodedCollection = [Uri]::EscapeDataString($Collection)
-    try {
-        $scrollParameters = @{
-            Method = 'POST'
-            Path   = "/collections/$encodedCollection/points/scroll"
-            Body   = @{
-                filter       = @{
-                    must = @(
-                        @{
-                            key   = 'ownerId'
-                            match = @{ value = $OwnerId }
-                        }
-                    )
-                }
-                limit        = 100
-                with_payload = $true
-                with_vector  = $false
-            }
-        }
-        $response = Invoke-QdrantJson @scrollParameters
-    } catch {
-        if (Test-IsNotFoundResponse -ErrorRecord $_) {
-            return @()
-        }
-        throw
+function Invoke-Postgres {
+    param([Parameter(Mandatory)][string]$Sql)
+    $output = & docker exec $PostgresContainer psql -v ON_ERROR_STOP=1 `
+        -U $PostgresUser -d $PostgresDatabase -At -c $Sql
+    if ($LASTEXITCODE -ne 0) {
+        throw "PostgreSQL command failed in container '$PostgresContainer'"
     }
-    return @($response.result.points)
+    return @($output)
 }
 
 function Test-ContainsOrdinalIgnoreCase {
@@ -295,7 +242,7 @@ function Test-ContainsOrdinalIgnoreCase {
         $Text.IndexOf($Expected, [StringComparison]::OrdinalIgnoreCase) -ge 0
 }
 
-function Wait-QdrantMemory {
+function Wait-PostgresMemory {
     param(
         [Parameter(Mandatory)]
         [string]$OwnerId,
@@ -303,17 +250,19 @@ function Wait-QdrantMemory {
         [string]$ExpectedText
     )
 
+    $safeOwnerId = Assert-SqlLiteral $OwnerId
+    $safeExpectedText = Assert-SqlLiteral $ExpectedText
     $deadline = [DateTime]::UtcNow.AddSeconds($PersistenceTimeoutSeconds)
     do {
-        foreach ($point in @(Get-QdrantOwnerPoints -OwnerId $OwnerId)) {
-            if (Test-ContainsOrdinalIgnoreCase -Text ([string]$point.payload.text) -Expected $ExpectedText) {
-                return $point
-            }
+        $sql = "SELECT content FROM (SELECT content FROM agent_user_profile WHERE owner_id = '$safeOwnerId' UNION ALL SELECT content FROM agent_semantic_memory WHERE owner_id = '$safeOwnerId') memory WHERE content ILIKE '%$safeExpectedText%' LIMIT 1;"
+        $match = @(Invoke-Postgres -Sql $sql) | Select-Object -First 1
+        if (-not [string]::IsNullOrWhiteSpace([string]$match)) {
+            return [string]$match
         }
         Start-Sleep -Milliseconds $PollIntervalMilliseconds
     } while ([DateTime]::UtcNow -lt $deadline)
 
-    throw "long-term memory was not persisted to Qdrant before timeout; verify AGENT_MEMORY_LONGTERM_ENABLED=true"
+    throw "long-term memory was not persisted to PostgreSQL before timeout; verify AGENT_MEMORY_LONGTERM_ENABLED=true"
 }
 
 function Get-MemoryInspection {
@@ -340,44 +289,10 @@ function Get-MemoryInspection {
     return [string]$inspection.data.memoryBlock
 }
 
-function Remove-QdrantOwnerPoints {
+function Remove-PostgresOwnerMemory {
     param([Parameter(Mandatory)][string]$OwnerId)
-
-    $encodedCollection = [Uri]::EscapeDataString($Collection)
-    try {
-        $deleteParameters = @{
-            Method = 'POST'
-            Path   = "/collections/$encodedCollection/points/delete?wait=true"
-            Body   = @{
-                filter = @{
-                    must = @(
-                        @{
-                            key   = 'ownerId'
-                            match = @{ value = $OwnerId }
-                        }
-                    )
-                }
-            }
-        }
-        $deleteResponse = Invoke-QdrantJson @deleteParameters
-    } catch {
-        if (Test-IsNotFoundResponse -ErrorRecord $_) {
-            return
-        }
-        throw
-    }
-    if ([string]$deleteResponse.status -ne 'ok') {
-        throw "Qdrant owner-scoped cleanup was not acknowledged"
-    }
-
-    $deadline = [DateTime]::UtcNow.AddSeconds(10)
-    do {
-        if (@(Get-QdrantOwnerPoints -OwnerId $OwnerId).Count -eq 0) {
-            return
-        }
-        Start-Sleep -Milliseconds 250
-    } while ([DateTime]::UtcNow -lt $deadline)
-    throw "Qdrant owner-scoped cleanup did not remove all test points"
+    $safeOwnerId = Assert-SqlLiteral $OwnerId
+    Invoke-Postgres -Sql "DELETE FROM agent_semantic_memory WHERE owner_id = '$safeOwnerId'; DELETE FROM agent_user_profile WHERE owner_id = '$safeOwnerId';" | Out-Null
 }
 
 $suffix = [Guid]::NewGuid().ToString('N').Substring(0, 12)
@@ -399,6 +314,12 @@ $cleanupFailures = [System.Collections.Generic.List[string]]::new()
 $totalFrames = 0
 
 try {
+    Write-Host '==> Verify PostgreSQL memory schema and extensions'
+    $schemaCount = Invoke-Postgres -Sql "SELECT COUNT(*) FROM pg_extension WHERE extname IN ('vector', 'pg_trgm');"
+    if ([int]($schemaCount | Select-Object -First 1) -ne 2) {
+        throw 'PostgreSQL vector/pg_trgm extensions are not initialized'
+    }
+
     Write-Host '==> Register isolated users A and B'
     $identityA = Register-IsolatedUser -Username $usernameA -Password $password
     $identityB = Register-IsolatedUser -Username $usernameB -Password $password
@@ -418,8 +339,8 @@ try {
     $storeResult = Invoke-AgentSse @storeParameters
     $totalFrames += [int]$storeResult.FrameCount
 
-    Write-Host '==> Poll Qdrant until the owner-scoped point is durable'
-    Wait-QdrantMemory -OwnerId $ownerA -ExpectedText $passphrase | Out-Null
+    Write-Host '==> Poll PostgreSQL until the owner-scoped memory is durable'
+    Wait-PostgresMemory -OwnerId $ownerA -ExpectedText $passphrase | Out-Null
 
     Write-Host '==> User A session 2 recalls the fact and exposes the long-term memory layer'
     $recallAParameters = @{
@@ -474,11 +395,11 @@ try {
 } catch {
     $testFailure = $_
 } finally {
-    Write-Host '==> Clean Qdrant test vectors with owner-scoped filters'
+    Write-Host '==> Clean PostgreSQL test memory with owner-scoped filters'
     foreach ($ownerId in @($ownerA, $ownerB)) {
         if ([string]::IsNullOrWhiteSpace([string]$ownerId)) { continue }
         try {
-            Remove-QdrantOwnerPoints -OwnerId ([string]$ownerId)
+            Remove-PostgresOwnerMemory -OwnerId ([string]$ownerId)
         } catch {
             $cleanupFailures.Add("owner-scoped cleanup failed for one isolated test user: $($_.Exception.Message)") | Out-Null
         }
@@ -497,4 +418,4 @@ if ($cleanupFailures.Count -gt 0) {
     throw ($cleanupFailures -join '; ')
 }
 
-Write-Host "AGENT CROSS-SESSION MEMORY SMOKE OK (frames=$totalFrames, ownerIsolation=true, qdrantCleanup=true)"
+Write-Host "AGENT CROSS-SESSION MEMORY SMOKE OK (frames=$totalFrames, ownerIsolation=true, postgresCleanup=true)"

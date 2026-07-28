@@ -6,8 +6,16 @@ param(
     [string]$OutputStyle = "chat",
     [ValidateSet("AUTO", "STANDARD", "DEEP")]
     [string]$ExecutionMode = "STANDARD",
-    [ValidateSet("SUCCESS", "MODEL_FAILURE_NO_CHARGE")]
+    [ValidateSet("SUCCESS", "MODEL_FAILURE_NO_CHARGE", "QUOTA_FAILURE")]
     [string]$ExpectedOutcome = "SUCCESS",
+    [ValidateSet("", "PASSED", "DEGRADED")]
+    [string]$ExpectedQualityStatus = "",
+    [int]$MinSourceCount = 0,
+    [int]$MinCharCount = 0,
+    [switch]$RequireDeepArtifact,
+    [switch]$RequireHistoryReplay,
+    [string]$UploadFile = "",
+    [long]$OverrideFreeQuotaBalance = -1,
     [ValidateRange(30, 600)]
     [int]$TimeoutSeconds = 180
 )
@@ -33,6 +41,45 @@ function Invoke-JsonApi($Method, $Path, $Body = $null, $Token = $null) {
     return Invoke-RestMethod @params
 }
 
+function Assert-SuccessResponse($Response, [string]$Operation) {
+    if ([string]$Response.code -notin @("0000", "200")) {
+        throw "$Operation failed: code=$($Response.code) info=$($Response.info)"
+    }
+}
+
+function Invoke-MemberMysql($Sql) {
+    $container = (docker ps --format "{{.Names}}" | Where-Object { $_ -match "mysql|mariadb" } | Select-Object -First 1)
+    if ([string]::IsNullOrWhiteSpace($container)) { throw "mysql container not found for quota override" }
+    $password = $env:MYSQL_ROOT_PASSWORD
+    if ([string]::IsNullOrWhiteSpace($password)) {
+        $password = (docker inspect $container --format '{{range .Config.Env}}{{println .}}{{end}}' |
+            Where-Object { $_ -like "MYSQL_ROOT_PASSWORD=*" } |
+            Select-Object -First 1) -replace "^MYSQL_ROOT_PASSWORD=", ""
+    }
+    if ([string]::IsNullOrWhiteSpace($password)) { throw "MYSQL_ROOT_PASSWORD unavailable for quota override" }
+    $Sql | docker exec -i $container mysql -uroot "-p$password" member_db | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "member_db quota override failed" }
+}
+
+function Upload-SessionFile([string]$SessionId, [string]$Path, [string]$Token) {
+    if (-not (Test-Path -LiteralPath $Path)) { throw "upload file not found: $Path" }
+    $response = Invoke-RestMethod -Method POST -Uri "$Gateway/api/agent/file/upload" `
+        -Headers @{ Authorization = "Bearer $Token" } `
+        -Form @{ sessionId = $SessionId; file = Get-Item -LiteralPath $Path } `
+        -TimeoutSec 300
+    Assert-SuccessResponse $response "upload $(Split-Path -Leaf $Path)"
+    return @{
+        fileName = [string]$response.data.name
+        ossUrl = [string]$response.data.downloadUrl
+        domainUrl = [string]$response.data.previewUrl
+        fileSize = [long]$response.data.size
+        fileType = [string]$response.data.type
+        resourceKey = [string]$response.data.resourceKey
+        mimeType = $response.data.mimeType
+        originFileName = [string]$response.data.originFileName
+    }
+}
+
 Write-Host "==> Register isolated Agent smoke user"
 $register = Invoke-JsonApi POST "/api/auth/register" @{
     username = $username
@@ -43,23 +90,40 @@ if ([int]$register.code -ne 200) { throw "register failed: code=$($register.code
 
 $login = Invoke-JsonApi POST "/api/auth/login" @{ username = $username; password = $password }
 $accessToken = [string]$login.data.accessToken
+$ownerId = [string]$login.data.user.id
 if ([int]$login.code -ne 200 -or [string]::IsNullOrWhiteSpace($accessToken)) {
     throw "login failed or accessToken missing"
 }
+if ($OverrideFreeQuotaBalance -ge 0) {
+    if ($ownerId -notmatch "^\d+$") { throw "unsafe owner id for quota override: $ownerId" }
+    Invoke-MemberMysql "UPDATE quota_account SET free_quota_balance=$OverrideFreeQuotaBalance, paid_quota_balance=0, frozen_balance=0 WHERE user_id=$ownerId;"
+}
 
 $before = Invoke-JsonApi GET "/api/member/summary" $null $accessToken
-if ([int]$before.code -ne 200 -or [long]$before.data.freeQuotaBalance -ne 5000000L) {
+$expectedFreeQuota = if ($OverrideFreeQuotaBalance -ge 0) { $OverrideFreeQuotaBalance } else { 5000000L }
+if ([int]$before.code -ne 200 -or [long]$before.data.freeQuotaBalance -ne $expectedFreeQuota) {
     throw "free quota init failed: $($before.data.freeQuotaBalance)"
 }
 $beforeAvailable = [long]$before.data.availableQuota
 
-$requestBody = @{
-    sessionId = "s-$suffix"
-    requestId = "r-$suffix"
+$sessionId = "s-$suffix"
+$requestId = "r-$suffix"
+$sessionFiles = @()
+if (-not [string]::IsNullOrWhiteSpace($UploadFile)) {
+    $sessionFiles += Upload-SessionFile $sessionId $UploadFile $accessToken
+}
+
+$bodyObject = @{
+    sessionId = $sessionId
+    requestId = $requestId
     query = $Query
     executionMode = $ExecutionMode
     outputStyle = $OutputStyle
-} | ConvertTo-Json -Compress
+}
+if ($sessionFiles.Count -gt 0) {
+    $bodyObject.sessionFiles = $sessionFiles
+}
+$requestBody = $bodyObject | ConvertTo-Json -Compress -Depth 20
 
 Write-Host "==> Call authenticated Agent SSE through Gateway"
 $client = [System.Net.Http.HttpClient]::new()
@@ -79,10 +143,13 @@ $request.Content = [System.Net.Http.StringContent]::new(
 $cts = [System.Threading.CancellationTokenSource]::new([TimeSpan]::FromSeconds($TimeoutSeconds))
 $response = $null
 $terminalResult = $null
-$sawRunFinished = $false
-$runFinishedEvent = $null
+$terminalEvent = $null
+$errorEvent = $null
 $frameCount = 0
+$eventName = $null
+$textResult = [System.Text.StringBuilder]::new()
 $eventTypes = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+$deepReportEvent = $null
 
 try {
     $response = $client.SendAsync(
@@ -103,38 +170,44 @@ try {
             $remaining = $deadline - [DateTime]::UtcNow
             $line = $reader.ReadLineAsync().WaitAsync($remaining, $cts.Token).GetAwaiter().GetResult()
             if ($null -eq $line) { break }
+            if ($line.StartsWith("event:")) {
+                $eventName = $line.Substring(6).Trim()
+                continue
+            }
             if (-not $line.StartsWith("data:")) { continue }
             $data = $line.Substring(5).Trim()
             if ([string]::IsNullOrWhiteSpace($data) -or $data -eq "[DONE]") { continue }
-            if (-not $data.StartsWith("{") -and -not $data.StartsWith("[")) { continue }
+            if (-not $data.StartsWith("{")) { continue }
 
             $frame = $data | ConvertFrom-Json -Depth 50
             $frameCount++
-            $eventPayload = $frame.resultMap.eventData.resultMap
-            if ($null -eq $eventPayload -and $frame.messageType) { $eventPayload = $frame }
-            if ($null -eq $eventPayload) { continue }
-
-            $messageType = [string]$eventPayload.messageType
-            $eventResult = [string]$eventPayload.result
-            if ([string]::IsNullOrWhiteSpace($eventResult)) {
-                $eventResult = [string]$eventPayload.taskSummary
+            $eventType = [string]$frame.type
+            if ([string]::IsNullOrWhiteSpace($eventType)) {
+                throw "SSE data is missing canonical type"
             }
-            if (-not [string]::IsNullOrWhiteSpace($messageType)) {
-                $null = $eventTypes.Add($messageType)
+            if (-not [string]::IsNullOrWhiteSpace($eventName) -and $eventName -ne $eventType) {
+                throw "SSE event name '$eventName' does not match data type '$eventType'"
             }
-            if ($messageType -eq "run_finished") {
-                $sawRunFinished = $true
-                $runFinishedEvent = if ($null -ne $eventPayload.resultMap) {
-                    $eventPayload.resultMap
+            $eventName = $null
+            $null = $eventTypes.Add($eventType)
+            if ($eventType -eq "text") {
+                $textResult.Append([string]$frame.delta) | Out-Null
+                continue
+            }
+            if ($eventType -eq "stage_output" -and [string]$frame.outputType -eq "deep_research_report") {
+                $deepReportEvent = $frame
+            }
+            if ($eventType -eq "error") {
+                $errorEvent = $frame
+                $terminalResult = [string]$frame.message
+                break
+            }
+            if ($eventType -eq "complete") {
+                $terminalEvent = $frame
+                $terminalResult = if ($textResult.Length -gt 0) {
+                    $textResult.ToString()
                 } else {
-                    $eventPayload
-                }
-            }
-            if ($messageType -eq "result" -and ($frame.finished -eq $true -or $eventPayload.finish -eq $true)) {
-                $terminalResult = if (-not [string]::IsNullOrWhiteSpace($eventResult)) {
-                    $eventResult
-                } else {
-                    [string]$frame.response
+                    [string]$frame.summary
                 }
                 break
             }
@@ -149,14 +222,12 @@ try {
     $cts.Dispose()
 }
 
-foreach ($requiredType in @("run_started", "run_finished", "result")) {
+foreach ($requiredType in @("agent_start")) {
     if (-not $eventTypes.Contains($requiredType)) {
-        throw "missing canonical Agent Loop event '$requiredType' (types=$($eventTypes -join ','))"
+        throw "missing canonical Agent event '$requiredType' (types=$($eventTypes -join ','))"
     }
 }
-if (-not $sawRunFinished) { throw "terminal result arrived before run_finished" }
 if ([string]::IsNullOrWhiteSpace($terminalResult)) { throw "no non-empty terminal result frame" }
-if ($null -eq $runFinishedEvent) { throw "run_finished payload is missing" }
 
 $after = Invoke-JsonApi GET "/api/member/summary" $null $accessToken
 if ([int]$after.code -ne 200 -or $null -eq $after.data) {
@@ -170,31 +241,79 @@ foreach ($field in @("availableQuota", "frozenBalance")) {
 $afterAvailable = [long]$after.data.availableQuota
 $afterFrozen = [long]$after.data.frozenBalance
 if ($afterFrozen -ne 0L) { throw "quota reservation was not settled: frozen=$afterFrozen" }
-$runStatus = [string]$runFinishedEvent.runStatus
-if ([string]::IsNullOrWhiteSpace($runStatus)) {
-    $runStatus = [string]$runFinishedEvent.status
-}
-$stopReason = [string]$runFinishedEvent.stopReason
-
-if ($ExpectedOutcome -eq "SUCCESS") {
-    foreach ($requiredType in @("verification_started", "verification_result")) {
-        if (-not $eventTypes.Contains($requiredType)) {
-            throw "successful Agent Loop is missing '$requiredType' (types=$($eventTypes -join ','), status=$runStatus, stopReason=$stopReason)"
-        }
+if ($ExpectedOutcome -eq "QUOTA_FAILURE") {
+    if ($null -eq $errorEvent) {
+        throw "expected quota failure, got canonical events=$($eventTypes -join ',')"
     }
-    if ($runStatus -ne "SUCCESS" -or $runFinishedEvent.completionGatePassed -ne $true) {
-        throw "Agent Loop did not finish successfully: status=$runStatus stopReason=$stopReason"
+    $quotaErrorText = "$([string]$errorEvent.code) $([string]$errorEvent.message)"
+    if ($quotaErrorText -notmatch "QUOTA|quota|额度|余额|insufficient|不足") {
+        throw "expected quota-related failure, got: $quotaErrorText"
+    }
+    if ($afterAvailable -ne $beforeAvailable) {
+        throw "quota failure changed quota: before=$beforeAvailable after=$afterAvailable"
+    }
+
+    Write-Host "AGENT SSE SMOKE OK (outcome=QUOTA_FAILURE, mode=$ExecutionMode, frames=$frameCount, types=$($eventTypes -join ','), quota=$beforeAvailable->$afterAvailable)"
+    exit 0
+}
+if ($ExpectedOutcome -eq "SUCCESS") {
+    if ($null -ne $errorEvent -or $null -eq $terminalEvent -or -not $eventTypes.Contains("complete")) {
+        throw "Agent Loop did not complete successfully (types=$($eventTypes -join ','), errorCode=$([string]$errorEvent.code))"
     }
     if ($afterAvailable -ge $beforeAvailable) {
         throw "successful LLM run did not consume quota: before=$beforeAvailable after=$afterAvailable"
+    }
+    if ($ExpectedQualityStatus -or $MinSourceCount -gt 0 -or $MinCharCount -gt 0 -or $RequireDeepArtifact) {
+        if ($null -eq $deepReportEvent) { throw "DEEP run did not emit deep_research_report stage output" }
+        $payload = $deepReportEvent.payload
+        if ($ExpectedQualityStatus -and [string]$payload.qualityStatus -ne $ExpectedQualityStatus) {
+            throw "unexpected DEEP quality: expected=$ExpectedQualityStatus actual=$($payload.qualityStatus)"
+        }
+        if ($MinSourceCount -gt 0 -and [int]$payload.sourceCount -lt $MinSourceCount) {
+            throw "DEEP source count too low: expected>=$MinSourceCount actual=$($payload.sourceCount)"
+        }
+        if ($MinCharCount -gt 0 -and [int]$payload.charCount -lt $MinCharCount) {
+            throw "DEEP char count too low: expected>=$MinCharCount actual=$($payload.charCount)"
+        }
+        if ($RequireDeepArtifact -and @($deepReportEvent.artifactRefs).Count -lt 1) {
+            throw "DEEP report emitted no artifact refs"
+        }
+    }
+    if ($RequireHistoryReplay) {
+        $history = Invoke-JsonApi GET "/api/agent/conversation/sessions/$sessionId" $null $accessToken
+        Assert-SuccessResponse $history "conversation history replay"
+        $expectedHistoryMode = if ($ExecutionMode -eq "AUTO") { "STANDARD" } else { $ExecutionMode }
+        if ([string]$history.data.executionMode -ne $expectedHistoryMode) {
+            throw "history replay executionMode mismatch: $($history.data.executionMode)"
+        }
+        $canonicalRequestId = "${sessionId}:$requestId"
+        $matchingRun = @($history.data.runs) | Where-Object {
+            $historyRequestId = [string]$_.requestId
+            $historyRequestId -eq $requestId -or
+                $historyRequestId -eq $canonicalRequestId -or
+                $historyRequestId.EndsWith(":$requestId", [System.StringComparison]::Ordinal)
+        } | Select-Object -First 1
+        if ($null -eq $matchingRun) {
+            throw "history replay did not include run for request $requestId"
+        }
+        if (@($matchingRun.replayFrames).Count -lt 1) {
+            throw "history replay run $requestId has no replay frames"
+        }
+        $replayJson = $matchingRun.replayFrames | ConvertTo-Json -Compress -Depth 80
+        if ($replayJson -notlike "*deep_research_report*") {
+            throw "history replay did not include DEEP report frames for request $requestId"
+        }
+        if ($RequireDeepArtifact -and $replayJson -notlike "*artifactRefs*" -and $replayJson -notlike "*reportArtifactId*") {
+            throw "history replay did not include DEEP report artifact metadata for request $requestId"
+        }
     }
 
     Write-Host "AGENT SSE SMOKE OK (outcome=SUCCESS, mode=$ExecutionMode, frames=$frameCount, types=$($eventTypes -join ','), resultChars=$($terminalResult.Length), quota=$beforeAvailable->$afterAvailable)"
     exit 0
 }
 
-if ($runStatus -ne "FAILED" -or $stopReason -ne "MODEL_ERROR") {
-    throw "expected MODEL_ERROR failure, got status=$runStatus stopReason=$stopReason"
+if ($null -eq $errorEvent -or [string]$errorEvent.code -ne "MODEL_ERROR") {
+    throw "expected MODEL_ERROR failure, got canonical events=$($eventTypes -join ',') errorCode=$([string]$errorEvent.code)"
 }
 if ($afterAvailable -ne $beforeAvailable) {
     throw "failed provider call changed quota: before=$beforeAvailable after=$afterAvailable"

@@ -1,5 +1,5 @@
 -- Dev seed: minimal Fix role + client/model/api/flow chain for local chat.
--- API key is patched at startup from root .env (see start-full-stack.ps1).
+-- The API key remains a placeholder in MySQL and is resolved from process env at runtime.
 
 USE agent_db;
 

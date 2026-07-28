@@ -18,13 +18,53 @@ function Import-DotEnv($path) {
         $k, $v = $_ -split '=', 2
         $k = $k.Trim()
         $v = $v.Trim().Trim('"')
-        if ($k) { Set-Item -Path "env:$k" -Value $v }
+        if ($k -and -not [Environment]::GetEnvironmentVariable($k, "Process")) {
+            Set-Item -Path "env:$k" -Value $v
+        }
     }
 }
 
 Import-DotEnv $envFile
-$env:JWT_SECRET = if ($env:JWT_SECRET) { $env:JWT_SECRET } else { "change-me-to-a-long-random-secret" }
-$env:AI_GROUP_INTERNAL_TOKEN = if ($env:AI_GROUP_INTERNAL_TOKEN) { $env:AI_GROUP_INTERNAL_TOKEN } else { "change-me-to-a-long-random-internal-token" }
+function Require-Secret([string]$name, [int]$minimumLength = 32) {
+    $value = [Environment]::GetEnvironmentVariable($name, "Process")
+    if (-not $value -or $value.Length -lt $minimumLength -or $value -match '(?i)change-me|replace-me|your-') {
+        throw "$name must be set to a random value of at least $minimumLength characters in .env or the process environment"
+    }
+    return $value
+}
+function New-RandomSecret() {
+    $bytes = New-Object byte[] 32
+    [System.Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
+    return [Convert]::ToBase64String($bytes)
+}
+$env:JWT_SECRET = Require-Secret "JWT_SECRET"
+$env:AI_GROUP_INTERNAL_TOKEN = Require-Secret "AI_GROUP_INTERNAL_TOKEN"
+$env:XXL_JOB_ACCESS_TOKEN = Require-Secret "XXL_JOB_ACCESS_TOKEN"
+$env:XXL_JOB_ADMIN_PORT = if ($env:XXL_JOB_ADMIN_PORT) { $env:XXL_JOB_ADMIN_PORT } else { "18081" }
+$env:XXL_JOB_ADMIN_ADDRESSES = if ($env:XXL_JOB_ADMIN_ADDRESSES) { $env:XXL_JOB_ADMIN_ADDRESSES } else { "http://127.0.0.1:$($env:XXL_JOB_ADMIN_PORT)" }
+$env:AGENT_GROUP_REACTOR_TOOL_TOKEN = if ($env:AGENT_GROUP_REACTOR_TOOL_TOKEN) { $env:AGENT_GROUP_REACTOR_TOOL_TOKEN } else { New-RandomSecret }
+$env:REACTOR_TOOL_TOKEN = $env:AGENT_GROUP_REACTOR_TOOL_TOKEN
+$env:MYSQL_HOST = if ($env:MYSQL_HOST) { $env:MYSQL_HOST } else { "127.0.0.1" }
+$env:MYSQL_PORT = if ($env:MYSQL_PORT) { $env:MYSQL_PORT } else { "13306" }
+$env:MYSQL_USER = if ($env:MYSQL_USER) { $env:MYSQL_USER } else { "root" }
+$env:MYSQL_ROOT_PASSWORD = Require-Secret "MYSQL_ROOT_PASSWORD"
+$env:REDIS_HOST = if ($env:REDIS_HOST) { $env:REDIS_HOST } else { "127.0.0.1" }
+$env:REDIS_PORT = if ($env:REDIS_PORT) { $env:REDIS_PORT } else { "16379" }
+$env:REDIS_PASSWORD = Require-Secret "REDIS_PASSWORD"
+$env:POSTGRES_PASSWORD = Require-Secret "POSTGRES_PASSWORD"
+$env:MINIO_PORT = if ($env:MINIO_PORT) { $env:MINIO_PORT } else { "9000" }
+$env:MINIO_CONSOLE_PORT = if ($env:MINIO_CONSOLE_PORT) { $env:MINIO_CONSOLE_PORT } else { "9001" }
+$env:MINIO_ROOT_USER = if ($env:MINIO_ROOT_USER) { $env:MINIO_ROOT_USER } else { "agent" }
+$env:MINIO_ROOT_PASSWORD = Require-Secret "MINIO_ROOT_PASSWORD"
+$env:KAFKA_BOOTSTRAP_SERVERS = if ($env:KAFKA_BOOTSTRAP_SERVERS) { $env:KAFKA_BOOTSTRAP_SERVERS } else { "127.0.0.1:9092" }
+$env:NACOS_HOST = if ($env:NACOS_HOST) { $env:NACOS_HOST } else { "127.0.0.1" }
+$env:NACOS_PORT = if ($env:NACOS_PORT) { $env:NACOS_PORT } else { "8848" }
+$env:NACOS_USERNAME = if ($env:NACOS_USERNAME) { $env:NACOS_USERNAME } else { "nacos" }
+$env:NACOS_PASSWORD = if ($env:NACOS_PASSWORD) { $env:NACOS_PASSWORD } else { "nacos" }
+$env:NACOS_AUTH_TOKEN = if ($env:NACOS_AUTH_TOKEN) { $env:NACOS_AUTH_TOKEN } else { New-RandomSecret }
+$env:NACOS_AUTH_IDENTITY_KEY = if ($env:NACOS_AUTH_IDENTITY_KEY) { $env:NACOS_AUTH_IDENTITY_KEY } else { New-RandomSecret }
+$env:NACOS_AUTH_IDENTITY_VALUE = if ($env:NACOS_AUTH_IDENTITY_VALUE) { $env:NACOS_AUTH_IDENTITY_VALUE } else { New-RandomSecret }
+$env:SPRING_PROFILES_ACTIVE = if ($env:SPRING_PROFILES_ACTIVE) { $env:SPRING_PROFILES_ACTIVE } else { "dev" }
 
 function Test-PortListening($port) {
     return [bool](netstat -ano | Select-String "LISTENING" | Select-String ":$port ")
@@ -52,6 +92,9 @@ Wait-RedisReady
 
 Write-Host "==> Init DB (idempotent)"
 Invoke-Mysql "$root/auth-service/src/main/resources/schema.sql"
+if ($env:SPRING_PROFILES_ACTIVE -in @("local", "dev")) {
+    Invoke-Mysql "$root/docs/dev-ops/mysql/sql/auth_db/02-local-admin-seed.sql"
+}
 Invoke-Mysql "$root/member-service/src/main/resources/schema.sql"
 Invoke-Mysql "$root/docs/dev-ops/mysql/sql/member_db/02-platform-schema-migrate.sql"
 # CREATE TABLE IF NOT EXISTS 不会升级既有 quota_freeze，必须显式执行 durable settlement 增量迁移。
@@ -82,6 +125,21 @@ foreach ($svc in $services) {
         SERVER_PORT             = [string]$svc.Port
         JWT_SECRET              = [string]$env:JWT_SECRET
         AI_GROUP_INTERNAL_TOKEN = [string]$env:AI_GROUP_INTERNAL_TOKEN
+        MYSQL_HOST              = [string]$env:MYSQL_HOST
+        MYSQL_PORT              = [string]$env:MYSQL_PORT
+        MYSQL_USER              = [string]$env:MYSQL_USER
+        MYSQL_ROOT_PASSWORD     = [string]$env:MYSQL_ROOT_PASSWORD
+        REDIS_HOST              = [string]$env:REDIS_HOST
+        REDIS_PORT              = [string]$env:REDIS_PORT
+        REDIS_PASSWORD          = [string]$env:REDIS_PASSWORD
+        KAFKA_BOOTSTRAP_SERVERS  = [string]$env:KAFKA_BOOTSTRAP_SERVERS
+        NACOS_HOST              = [string]$env:NACOS_HOST
+        NACOS_PORT              = [string]$env:NACOS_PORT
+        NACOS_USERNAME          = [string]$env:NACOS_USERNAME
+        NACOS_PASSWORD          = [string]$env:NACOS_PASSWORD
+        XXL_JOB_ADMIN_ADDRESSES = [string]$env:XXL_JOB_ADMIN_ADDRESSES
+        XXL_JOB_ACCESS_TOKEN    = [string]$env:XXL_JOB_ACCESS_TOKEN
+        SPRING_PROFILES_ACTIVE  = [string]$env:SPRING_PROFILES_ACTIVE
     }
     Start-Process pwsh `
         -ArgumentList "-NoProfile", "-Command", "`$ErrorActionPreference = 'Stop'; mvn spring-boot:run -q" `

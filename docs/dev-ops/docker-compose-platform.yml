@@ -4,9 +4,9 @@ services:
     container_name: ai-group-mysql
     restart: unless-stopped
     ports:
-      - "${MYSQL_PORT:-13306}:3306"
+      - "127.0.0.1:${MYSQL_PORT:-13306}:3306"
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-123456}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?set MYSQL_ROOT_PASSWORD}
       TZ: Asia/Shanghai
     volumes:
       - mysql_data:/var/lib/mysql
@@ -26,44 +26,106 @@ services:
     container_name: ai-group-redis
     restart: unless-stopped
     ports:
-      - "${REDIS_PORT:-16379}:6379"
+      - "127.0.0.1:${REDIS_PORT:-16379}:6379"
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:?set REDIS_PASSWORD}"]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD}
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" --no-auth-warning ping | grep PONG"]
       interval: 10s
       timeout: 3s
       retries: 5
 
-  rabbitmq:
-    image: rabbitmq:3.12-management-alpine
-    container_name: ai-group-rabbitmq
+  # Private object storage for uploaded files and generated artifacts.
+  minio:
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    container_name: ai-group-minio
+    restart: unless-stopped
+    command: ["server", "/data", "--console-address", ":9001"]
+    ports:
+      - "127.0.0.1:${MINIO_PORT:-9000}:9000"
+      - "127.0.0.1:${MINIO_CONSOLE_PORT:-9001}:9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-agent}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:9000/minio/health/live"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  kafka:
+    image: apache/kafka:3.7.2
+    container_name: ai-group-kafka
     restart: unless-stopped
     ports:
-      - "${RABBITMQ_PORT:-5672}:5672"
-      - "${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
+      - "127.0.0.1:${KAFKA_PORT:-9092}:9092"
+      - "127.0.0.1:${KAFKA_CONTROLLER_PORT:-9093}:9093"
     environment:
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-admin}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-admin}
+      # KRaft mode (no Zookeeper)
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: controller,broker
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_LISTENERS: INTERNAL://:29092,EXTERNAL://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:29092,EXTERNAL://127.0.0.1:${KAFKA_PORT:-9092}
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_NUM_PARTITIONS: 3
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 1
+      KAFKA_MIN_INSYNC_REPLICAS: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
     volumes:
-      - rabbitmq_data:/var/lib/rabbitmq
+      - kafka_data:/var/lib/kafka/data
     healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      test: ["CMD", "/opt/kafka/bin/kafka-topics.sh", "--bootstrap-server", "localhost:29092", "--list"]
       interval: 15s
       timeout: 10s
       retries: 10
+
+  kafka-init:
+    image: apache/kafka:3.7.2
+    container_name: ai-group-kafka-init
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -eu
+        for topic in \
+          group.team_success group.team_success.dlt \
+          group.team_refund group.team_refund.dlt \
+          pay.order_pay_success pay.order_pay_success.dlt \
+          member.benefit.completed member.benefit.completed.dlt; do
+          /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --create --if-not-exists \
+            --topic "$$topic" --partitions 3 --replication-factor 1
+        done
+    restart: "no"
 
   nacos:
     image: nacos/nacos-server:v2.3.2
     container_name: ai-group-nacos
     restart: unless-stopped
     ports:
-      - "${NACOS_PORT:-8848}:8848"
-      - "${NACOS_GRPC_PORT:-9848}:9848"
+      - "127.0.0.1:${NACOS_PORT:-8848}:8848"
+      - "127.0.0.1:${NACOS_GRPC_PORT:-9848}:9848"
     environment:
       MODE: standalone
       PREFER_HOST_MODE: hostname
-      NACOS_AUTH_ENABLE: "false"
+      NACOS_AUTH_ENABLE: "true"
+      NACOS_AUTH_TOKEN: ${NACOS_AUTH_TOKEN:?set NACOS_AUTH_TOKEN}
+      NACOS_AUTH_IDENTITY_KEY: ${NACOS_AUTH_IDENTITY_KEY:?set NACOS_AUTH_IDENTITY_KEY}
+      NACOS_AUTH_IDENTITY_VALUE: ${NACOS_AUTH_IDENTITY_VALUE:?set NACOS_AUTH_IDENTITY_VALUE}
       JVM_XMS: 256m
       JVM_XMX: 512m
     volumes:
@@ -75,72 +137,82 @@ services:
       timeout: 10s
       retries: 15
 
-  qdrant:
-    image: qdrant/qdrant:v1.13.4
-    container_name: ai-group-qdrant
+  # PostgreSQL + pgvector：承载 AI 记忆与向量检索，与 MySQL 业务数据职责分离。
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: ai-group-postgres
     restart: unless-stopped
     ports:
-      - "${QDRANT_HTTP_PORT:-6333}:6333"
-      - "${QDRANT_PORT:-6334}:6334"
-    volumes:
-      - qdrant_data:/qdrant/storage
-
-  minio:
-    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
-    container_name: ai-group-minio
-    restart: unless-stopped
-    ports:
-      - "${MINIO_API_PORT:-9000}:9000"
-      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+      - "127.0.0.1:${POSTGRES_PORT:-15432}:5432"
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
-    command: server /data --console-address ":9001"
+      POSTGRES_DB: ${POSTGRES_DB:-agent_memory}
+      POSTGRES_USER: ${POSTGRES_USER:-agent}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      TZ: Asia/Shanghai
     volumes:
-      - minio_data:/data
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/sql:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://127.0.0.1:9000/minio/health/live"]
-      interval: 15s
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 10s
       timeout: 5s
       retries: 10
 
-  minio-init:
-    image: minio/mc:RELEASE.2025-04-16T18-13-26Z
-    container_name: ai-group-minio-init
+  postgres-schema-init:
+    image: pgvector/pgvector:pg16
+    container_name: ai-group-postgres-schema-init
     depends_on:
-      minio:
+      postgres:
         condition: service_healthy
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
-      MINIO_BUCKET_NAME: ${MINIO_BUCKET_NAME:-ai-group}
-      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
-      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
-    entrypoint: >
-      /bin/sh -c "
-      mc alias set local http://minio:9000 \"$${MINIO_ROOT_USER}\" \"$${MINIO_ROOT_PASSWORD}\" &&
-      if [ \"$${MINIO_ACCESS_KEY}\" != \"$${MINIO_ROOT_USER}\" ]; then
-        mc admin user add local \"$${MINIO_ACCESS_KEY}\" \"$${MINIO_SECRET_KEY}\" || true;
-        mc admin policy attach local readwrite --user \"$${MINIO_ACCESS_KEY}\";
-      fi &&
-      mc mb --ignore-existing \"local/$${MINIO_BUCKET_NAME}\" &&
-      mc alias set app http://minio:9000 \"$${MINIO_ACCESS_KEY}\" \"$${MINIO_SECRET_KEY}\" &&
-      mc stat \"app/$${MINIO_BUCKET_NAME}\" >/dev/null &&
-      if mc ls local/mrag >/dev/null 2>&1; then
-        mc mirror --overwrite local/mrag \"local/$${MINIO_BUCKET_NAME}\" || true;
-        echo 'mirrored legacy mrag bucket into $${MINIO_BUCKET_NAME} (legacy bucket retained)';
-      else
-        echo 'legacy mrag bucket not present; skip mirror';
-      fi &&
-      exit 0
-      "
+      PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    volumes:
+      - ./postgres/sql:/schema:ro
+    entrypoint:
+      - /bin/sh
+      - -c
+      - >-
+        psql -v ON_ERROR_STOP=1 -h postgres -U ${POSTGRES_USER:-agent}
+        -d ${POSTGRES_DB:-agent_memory} -f /schema/01-agent-memory.sql
+    restart: "no"
+
+  xxl-job-admin:
+    image: xuxueli/xxl-job-admin:3.4.2
+    container_name: ai-group-xxl-job-admin
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${XXL_JOB_ADMIN_PORT:-18081}:8080"
+    environment:
+      PARAMS: >-
+        --spring.datasource.url=jdbc:mysql://mysql:3306/xxl_job?useUnicode=true&characterEncoding=UTF-8&autoReconnect=true&serverTimezone=Asia/Shanghai
+        --spring.datasource.username=${MYSQL_USER:-root}
+        --spring.datasource.password=${MYSQL_ROOT_PASSWORD:?set MYSQL_ROOT_PASSWORD}
+        --xxl.job.accessToken=${XXL_JOB_ACCESS_TOKEN:?set XXL_JOB_ACCESS_TOKEN}
+    depends_on:
+      xxl-job-schema-init:
+        condition: service_completed_successfully
+
+  xxl-job-schema-init:
+    image: mysql:8.0.32
+    container_name: ai-group-xxl-job-schema-init
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      MYSQL_PWD: ${MYSQL_ROOT_PASSWORD:?set MYSQL_ROOT_PASSWORD}
+    volumes:
+      - ./mysql/sql/xxl_job:/schema:ro
+    entrypoint:
+      - /bin/sh
+      - -c
+      - mysql -h mysql -uroot < /schema/01-xxl_job.sql
     restart: "no"
 
 volumes:
   mysql_data:
   redis_data:
-  rabbitmq_data:
+  kafka_data:
   nacos_data:
   nacos_logs:
-  qdrant_data:
+  postgres_data:
   minio_data:
