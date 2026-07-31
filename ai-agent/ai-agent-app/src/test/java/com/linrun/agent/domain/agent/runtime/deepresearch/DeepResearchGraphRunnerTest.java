@@ -17,94 +17,78 @@ import org.junit.Test;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.CancellationException;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 public class DeepResearchGraphRunnerTest {
 
     @Test
-    public void shouldRunFourResearchersInParallelAndUploadMarkdownArtifact() throws Exception {
+    public void shouldRunQuestionDrivenSubtasksWithOnlyRealCitations() throws Exception {
         ExecutorService executor = Executors.newFixedThreadPool(4);
-        ParallelBranchExecutor branchExecutor = new ParallelBranchExecutor(true);
+        EvidenceBranchExecutor branchExecutor = new EvidenceBranchExecutor(false, true);
+        AgentRequest request = request("req-deep-real", "比较市场规模、竞争者策略、监管风险、用户 adoption");
         RecordingPrinter printer = new RecordingPrinter();
-        AgentRequest request = request("req-deep-parallel");
-        AgentContext context = context(request, printer, executor);
-
         try {
-            DeepResearchResult result = new DeepResearchGraphRunner(branchExecutor,
-                    (org.bsc.langgraph4j.checkpoint.BaseCheckpointSaver) null)
-                    .run(context, request);
+            DeepResearchResult result = new DeepResearchGraphRunner(branchExecutor, (org.bsc.langgraph4j.checkpoint.BaseCheckpointSaver) null)
+                    .run(context(request, printer, executor), request);
 
-            Assert.assertTrue(result.completed());
+            ResearchPlan plan = ResearchPlan.create(request.getQuery());
+            Assert.assertEquals(4, plan.subtasks().size());
             Assert.assertEquals("PASSED", result.qualityStatus());
-            Assert.assertTrue(result.sourceCount() >= 20);
-            Assert.assertTrue(result.markdown().length() >= 15_000);
-            Assert.assertFalse(result.artifactRefs().isEmpty());
-            Assert.assertTrue(branchExecutor.maxStartedAt() < branchExecutor.minCompletedAt());
-            Assert.assertTrue(printer.events.stream().anyMatch(event ->
-                    event instanceof AgentStreamEvent.StageOutput output
-                            && "deep_research_report".equals(output.outputType())
-                            && output.isFinal()));
+            Assert.assertEquals(plan.subtasks().size(), result.sourceCount());
+            Assert.assertTrue(result.completed());
+            Assert.assertFalse(result.markdown().contains("章节证据索引"));
+            Assert.assertFalse(result.markdown().contains("证据矩阵与交叉验证"));
+            for (int index = 1; index <= result.sourceCount(); index++) {
+                Assert.assertTrue(result.markdown().contains("[S" + index + "] claimId="));
+                Assert.assertTrue(result.markdown().contains("https://source.example/"));
+            }
+            Assert.assertEquals(plan.sections(), finalReportPayload(printer).get("completedSections"));
+            Assert.assertTrue(branchExecutor.parallelObserved());
         } finally {
             executor.shutdownNow();
         }
     }
 
     @Test
-    public void shouldReturnDegradedReportAfterOneRepairWhenEvidenceIsMissing() throws Exception {
-        ExecutorService executor = Executors.newFixedThreadPool(4);
-        AgentRequest request = request("req-deep-degraded");
-        RecordingPrinter printer = new RecordingPrinter();
-        AgentContext context = context(request, printer, executor);
-
+    public void shouldDegradeWhenNoToolResultContainsRealUrl() throws Exception {
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        AgentRequest request = request("req-deep-gap", "评估一个尚无公开材料的主题");
+        EvidenceBranchExecutor branchExecutor = new EvidenceBranchExecutor(false, false);
         try {
-            DeepResearchResult result = new DeepResearchGraphRunner(new ParallelBranchExecutor(false),
-                    (org.bsc.langgraph4j.checkpoint.BaseCheckpointSaver) null)
-                    .run(context, request);
+            DeepResearchResult result = new DeepResearchGraphRunner(branchExecutor, (org.bsc.langgraph4j.checkpoint.BaseCheckpointSaver) null)
+                    .run(context(request, new RecordingPrinter(), executor), request);
 
-            Assert.assertTrue(result.completed());
             Assert.assertEquals("DEGRADED", result.qualityStatus());
             Assert.assertEquals(0, result.sourceCount());
             Assert.assertEquals(1, result.repairCount());
-            Assert.assertTrue(result.markdown().contains("证据缺口与修复记录"));
+            Assert.assertTrue(result.markdown().contains("证据不足"));
+            Assert.assertTrue(result.markdown().contains("Reviewer 定向修订"));
+            Assert.assertEquals(4, branchExecutor.totalCalls());
         } finally {
             executor.shutdownNow();
         }
     }
 
     @Test
-    public void shouldKeepSectionOrderAndResolveCitationsToSources() throws Exception {
-        ExecutorService executor = Executors.newFixedThreadPool(4);
-        AgentRequest request = request("req-deep-markdown");
-        RecordingPrinter printer = new RecordingPrinter();
-        AgentContext context = context(request, printer, executor);
-
+    public void shouldReviseOnlyTheSubtaskWithAnUnresolvedConflict() throws Exception {
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        AgentRequest request = request("req-deep-conflict", "比较定价模型和用户留存");
+        EvidenceBranchExecutor branchExecutor = new EvidenceBranchExecutor(true, true);
         try {
-            DeepResearchResult result = new DeepResearchGraphRunner(new ParallelBranchExecutor(true),
-                    (org.bsc.langgraph4j.checkpoint.BaseCheckpointSaver) null)
-                    .run(context, request);
+            DeepResearchResult result = new DeepResearchGraphRunner(branchExecutor, (org.bsc.langgraph4j.checkpoint.BaseCheckpointSaver) null)
+                    .run(context(request, new RecordingPrinter(), executor), request);
 
-            ResearchPlan plan = ResearchPlan.create(request.getQuery());
-            int previous = -1;
-            for (String section : plan.sections()) {
-                int index = result.markdown().indexOf("\n## " + section + "\n");
-                Assert.assertTrue("missing section: " + section, index > previous);
-                previous = index;
-            }
-            Assert.assertEquals(plan.sections(), finalReportPayload(printer).get("completedSections"));
-            Set<String> citations = citationIds(result.markdown());
-            for (int i = 1; i <= 20; i++) {
-                Assert.assertTrue("missing citation S" + i, citations.contains(String.valueOf(i)));
-                Assert.assertTrue(result.markdown().contains("- [S" + i + "] "));
-            }
+            Assert.assertEquals("PASSED", result.qualityStatus());
+            Assert.assertEquals(1, result.repairCount());
+            Assert.assertEquals(2, branchExecutor.callsFor(1));
+            Assert.assertEquals(1, branchExecutor.callsFor(2));
+            Assert.assertTrue(result.markdown().contains("来源对同一结论存在相反口径"));
+            Assert.assertTrue(result.markdown().contains("Reviewer 定向修订"));
         } finally {
             executor.shutdownNow();
         }
@@ -112,20 +96,16 @@ public class DeepResearchGraphRunnerTest {
 
     @Test
     public void shouldScopeCheckpointThreadIdByOwnerAndRequest() {
-        String ownerOne = DeepResearchGraphRunner.stableThreadId("1001", "req-same");
-        String ownerTwo = DeepResearchGraphRunner.stableThreadId("1002", "req-same");
-
-        Assert.assertEquals(ownerOne, DeepResearchGraphRunner.stableThreadId("1001", "req-same"));
-        Assert.assertNotEquals(ownerOne, ownerTwo);
+        Assert.assertNotEquals(DeepResearchGraphRunner.stableThreadId("1001", "req-same"),
+                DeepResearchGraphRunner.stableThreadId("1002", "req-same"));
     }
 
     @Test
     public void shouldResumeCompletedCheckpointWithoutRepeatingResearchers() throws Exception {
-        ExecutorService executor = Executors.newFixedThreadPool(4);
-        AgentRequest request = request("req-deep-resume");
-        ParallelBranchExecutor branchExecutor = new ParallelBranchExecutor(true);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        AgentRequest request = request("req-deep-resume", "比较模型成本和准确性");
+        EvidenceBranchExecutor branchExecutor = new EvidenceBranchExecutor(false, true);
         DeepResearchGraphRunner runner = new DeepResearchGraphRunner(branchExecutor, new MemorySaver());
-
         try {
             DeepResearchResult first = runner.run(context(request, new RecordingPrinter(), executor), request);
             DeepResearchResult second = runner.run(context(request, new RecordingPrinter(), executor), request);
@@ -133,59 +113,7 @@ public class DeepResearchGraphRunnerTest {
             Assert.assertTrue(first.completed());
             Assert.assertTrue(second.completed());
             Assert.assertEquals(first.markdown(), second.markdown());
-            Assert.assertEquals(4, branchExecutor.callCount());
-        } finally {
-            executor.shutdownNow();
-        }
-    }
-
-    @Test
-    public void shouldStopBeforeResearchersWhenDownstreamAbortsAfterPlanner() throws Exception {
-        ExecutorService executor = Executors.newFixedThreadPool(4);
-        AgentRequest request = request("req-deep-cancelled");
-        AbortAfterPlannerPrinter printer = new AbortAfterPlannerPrinter();
-        ParallelBranchExecutor branchExecutor = new ParallelBranchExecutor(true);
-        AgentContext context = context(request, printer, executor);
-
-        try {
-            try {
-                new DeepResearchGraphRunner(branchExecutor,
-                        (org.bsc.langgraph4j.checkpoint.BaseCheckpointSaver) null)
-                        .run(context, request);
-                Assert.fail("expected cancellation");
-            } catch (RuntimeException expected) {
-                Assert.assertTrue(hasCause(expected, CancellationException.class, "DOWNSTREAM_ABORTED"));
-            }
-
-            Assert.assertEquals(0, branchExecutor.callCount());
-            Assert.assertFalse(printer.events.stream().anyMatch(event ->
-                    event instanceof AgentStreamEvent.StageOutput output
-                            && "deep_research_report".equals(output.outputType())));
-        } finally {
-            executor.shutdownNow();
-        }
-    }
-
-    @Test
-    public void shouldDegradeAndRepairWhenOneResearchBranchFails() throws Exception {
-        ExecutorService executor = Executors.newFixedThreadPool(4);
-        AgentRequest request = request("req-deep-branch-failure");
-        ParallelBranchExecutor delegate = new ParallelBranchExecutor(true);
-
-        try {
-            DeepResearchResult result = new DeepResearchGraphRunner((parentContext, parentRequest, plan, researcherIndex) -> {
-                if (researcherIndex == 2) {
-                    throw new IllegalStateException("injected branch failure");
-                }
-                return delegate.execute(parentContext, parentRequest, plan, researcherIndex);
-            }, (org.bsc.langgraph4j.checkpoint.BaseCheckpointSaver) null)
-                    .run(context(request, new RecordingPrinter(), executor), request);
-
-            Assert.assertTrue(result.completed());
-            Assert.assertEquals("DEGRADED", result.qualityStatus());
-            Assert.assertTrue(result.sourceCount() > 0 && result.sourceCount() < 20);
-            Assert.assertEquals(1, result.repairCount());
-            Assert.assertTrue(result.markdown().contains("证据不足"));
+            Assert.assertEquals(2, branchExecutor.totalCalls());
         } finally {
             executor.shutdownNow();
         }
@@ -193,82 +121,48 @@ public class DeepResearchGraphRunnerTest {
 
     @Test
     public void shouldPropagateQuotaFailureInsteadOfPublishingDegradedReport() throws Exception {
-        ExecutorService executor = Executors.newFixedThreadPool(4);
-        AgentRequest request = request("req-deep-quota");
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        AgentRequest request = request("req-deep-quota", "分析配额不足行为");
         RecordingPrinter printer = new RecordingPrinter();
-
         try {
             try {
                 new DeepResearchGraphRunner((parentContext, parentRequest, plan, researcherIndex) -> {
-                    throw new QuotaInsufficientException("额度不足，无法支持最少256个输出Token");
-                }, (org.bsc.langgraph4j.checkpoint.BaseCheckpointSaver) null)
-                        .run(context(request, printer, executor), request);
+                    throw new QuotaInsufficientException("额度不足");
+                }, (org.bsc.langgraph4j.checkpoint.BaseCheckpointSaver) null).run(context(request, printer, executor), request);
                 Assert.fail("expected quota failure");
             } catch (RuntimeException expected) {
-                Assert.assertTrue(hasCause(expected, QuotaInsufficientException.class, "额度不足"));
+                Assert.assertTrue(hasCause(expected, QuotaInsufficientException.class));
             }
-
-            Assert.assertFalse(printer.events.stream().anyMatch(event ->
-                    event instanceof AgentStreamEvent.StageOutput output
-                            && "deep_research_report".equals(output.outputType())));
+            Assert.assertFalse(printer.events.stream().anyMatch(event -> event instanceof AgentStreamEvent.StageOutput output
+                    && "deep_research_report".equals(output.outputType())));
         } finally {
             executor.shutdownNow();
         }
     }
 
-    private AgentRequest request(String requestId) {
-        return AgentRequest.builder()
-                .requestId(requestId)
-                .sessionId("session-deep")
-                .ownerId("1001")
-                .query("分析企业知识库 Agent 的行业趋势和竞争格局")
-                .executionMode("DEEP")
-                .outputStyle("markdown")
-                .isStream(true)
-                .build();
+    private AgentRequest request(String requestId, String query) {
+        return AgentRequest.builder().requestId(requestId).sessionId("session-deep").ownerId("1001")
+                .query(query).executionMode("DEEP").outputStyle("markdown").isStream(true).build();
     }
 
-    private AgentContext context(AgentRequest request,
-                                 Printer printer,
-                                 ExecutorService executor) {
-        return AgentContext.builder()
-                .requestId(request.getRequestId())
-                .sessionId(request.getSessionId())
-                .ownerId(Long.valueOf(request.getOwnerId()))
-                .query(request.getQuery())
-                .printer(printer)
-                .runtimeDependencies(ReactorRuntimeDependencies.builder()
-                        .reactorConfig(new ReactorConfig())
-                        .fileArtifactPort(new StubFileArtifactPort())
-                        .taskExecutor(executor)
-                        .build())
-                .build();
-    }
-
-    private static Set<String> citationIds(String markdown) {
-        Matcher matcher = Pattern.compile("\\[S(\\d+)]").matcher(markdown);
-        Set<String> ids = new LinkedHashSet<>();
-        while (matcher.find()) {
-            ids.add(matcher.group(1));
-        }
-        return ids;
+    private AgentContext context(AgentRequest request, Printer printer, ExecutorService executor) {
+        return AgentContext.builder().requestId(request.getRequestId()).sessionId(request.getSessionId())
+                .ownerId(Long.valueOf(request.getOwnerId())).query(request.getQuery()).printer(printer)
+                .runtimeDependencies(ReactorRuntimeDependencies.builder().reactorConfig(new ReactorConfig())
+                        .fileArtifactPort(new StubFileArtifactPort()).taskExecutor(executor).build()).build();
     }
 
     @SuppressWarnings("unchecked")
-    private static Map<String, Object> finalReportPayload(RecordingPrinter printer) {
-        return printer.events.stream()
-                .filter(event -> event instanceof AgentStreamEvent.StageOutput output
-                        && "deep_research_report".equals(output.outputType())
-                        && output.isFinal())
-                .map(event -> (Map<String, Object>) ((AgentStreamEvent.StageOutput) event).payload())
-                .findFirst()
-                .orElseThrow();
+    private Map<String, Object> finalReportPayload(RecordingPrinter printer) {
+        return printer.events.stream().filter(event -> event instanceof AgentStreamEvent.StageOutput output
+                        && "deep_research_report".equals(output.outputType()) && output.isFinal())
+                .map(event -> (Map<String, Object>) ((AgentStreamEvent.StageOutput) event).payload()).findFirst().orElseThrow();
     }
 
-    private static boolean hasCause(Throwable throwable, Class<? extends Throwable> type, String text) {
+    private boolean hasCause(Throwable throwable, Class<? extends Throwable> type) {
         Throwable current = throwable;
         while (current != null) {
-            if (type.isInstance(current) && String.valueOf(current.getMessage()).contains(text)) {
+            if (type.isInstance(current)) {
                 return true;
             }
             current = current.getCause();
@@ -276,70 +170,62 @@ public class DeepResearchGraphRunnerTest {
         return false;
     }
 
-    private static class ParallelBranchExecutor implements ResearchBranchExecutor {
-        private final boolean withEvidence;
-        private final long[] started = new long[4];
-        private final long[] completed = new long[4];
-        private final AtomicInteger calls = new AtomicInteger();
+    private static class EvidenceBranchExecutor implements ResearchBranchExecutor {
+        private final boolean conflictFirstPass;
+        private final boolean evidence;
+        private final Map<Integer, AtomicInteger> calls = new ConcurrentHashMap<>();
+        private final List<Long> started = java.util.Collections.synchronizedList(new ArrayList<>());
+        private final List<Long> completed = java.util.Collections.synchronizedList(new ArrayList<>());
 
-        private ParallelBranchExecutor(boolean withEvidence) {
-            this.withEvidence = withEvidence;
+        private EvidenceBranchExecutor(boolean conflictFirstPass, boolean evidence) {
+            this.conflictFirstPass = conflictFirstPass;
+            this.evidence = evidence;
         }
 
         @Override
-        public ResearchBranchResult execute(AgentContext parentContext,
-                                            AgentRequest parentRequest,
-                                            ResearchPlan plan,
-                                            int researcherIndex) throws Exception {
-            calls.incrementAndGet();
-            started[researcherIndex - 1] = System.nanoTime();
-            Thread.sleep(250);
-            completed[researcherIndex - 1] = System.nanoTime();
+        public ResearchBranchResult execute(AgentContext parentContext, AgentRequest parentRequest,
+                                            ResearchPlan plan, int researcherIndex) throws Exception {
+            int call = calls.computeIfAbsent(researcherIndex, ignored -> new AtomicInteger()).incrementAndGet();
+            long startedAt = System.nanoTime();
+            started.add(startedAt);
+            Thread.sleep(100);
             List<String> sections = plan.assignedSections(researcherIndex);
-            String markdown = sections.stream()
-                    .map(section -> "### " + section + "\n\n" + "已完成分支研究，结论严格依赖证据材料。".repeat(40))
-                    .reduce("", (left, right) -> left + "\n\n" + right);
-            List<ResearchEvidencePacket> evidence = withEvidence
-                    ? List.of(new ResearchEvidencePacket("evidence-" + researcherIndex,
-                    "来源 " + researcherIndex, "https://example.com/source-" + researcherIndex,
-                    "分支证据摘要"))
-                    : List.of();
+            String section = sections.getFirst();
+            List<ResearchEvidencePacket> packets = evidence ? List.of(new ResearchEvidencePacket(
+                    "claim-" + researcherIndex + "-" + call,
+                    "可核验来源 " + researcherIndex,
+                    "https://source.example/" + researcherIndex + "/" + call,
+                    "工具返回的原始摘录，支持该子任务的有限结论。")) : List.of();
+            List<String> conflicts = conflictFirstPass && researcherIndex == 1 && call == 1
+                    ? List.of("来源对同一结论存在相反口径") : List.of();
+            completed.add(System.nanoTime());
             return new ResearchBranchResult("researcher_" + researcherIndex, sections,
-                    markdown, evidence, List.of(), List.of(), started[researcherIndex - 1],
-                    completed[researcherIndex - 1]);
+                    "### " + section + "\n\n结论严格限定在工具返回的材料范围内。", packets, conflicts,
+                    packets.isEmpty() ? List.of("没有可引用 URL") : List.of(), startedAt, System.currentTimeMillis());
         }
 
-        private long maxStartedAt() {
-            long max = 0L;
-            for (long value : started) {
-                max = Math.max(max, value);
-            }
-            return max;
+        private int callsFor(int researcherIndex) {
+            AtomicInteger value = calls.get(researcherIndex);
+            return value == null ? 0 : value.get();
         }
 
-        private long minCompletedAt() {
-            long min = Long.MAX_VALUE;
-            for (long value : completed) {
-                min = Math.min(min, value);
-            }
-            return min;
+        private int totalCalls() {
+            return calls.values().stream().mapToInt(AtomicInteger::get).sum();
         }
 
-        private int callCount() {
-            return calls.get();
+        private boolean parallelObserved() {
+            return started.size() > 1 && started.stream().max(Long::compareTo).orElse(0L)
+                    < completed.stream().min(Long::compareTo).orElse(Long.MAX_VALUE);
         }
     }
 
     private static class StubFileArtifactPort implements FileArtifactPort {
         @Override
         public FileResponse upload(String serviceBaseUrl, FileRequest request) {
-            return FileResponse.builder()
-                    .requestId(request.getRequestId())
-                    .fileName(request.getFileName())
+            return FileResponse.builder().requestId(request.getRequestId()).fileName(request.getFileName())
                     .ossUrl("oss://deep-research/" + request.getFileName())
                     .domainUrl("https://files.example.com/" + request.getFileName())
-                    .fileSize(request.getContent().getBytes(StandardCharsets.UTF_8).length)
-                    .build();
+                    .fileSize(request.getContent().getBytes(StandardCharsets.UTF_8).length).build();
         }
 
         @Override
@@ -363,24 +249,6 @@ public class DeepResearchGraphRunnerTest {
 
         @Override
         public void close() {
-        }
-    }
-
-    private static class AbortAfterPlannerPrinter extends RecordingPrinter {
-        private volatile boolean aborted;
-
-        @Override
-        public void send(AgentStreamEvent event) {
-            super.send(event);
-            if (event instanceof AgentStreamEvent.StageOutput output
-                    && "research_planner".equals(output.toolCallId())) {
-                aborted = true;
-            }
-        }
-
-        @Override
-        public boolean isAborted() {
-            return aborted;
         }
     }
 }

@@ -15,11 +15,11 @@ if ([string]::IsNullOrWhiteSpace($EvidencePath)) {
 }
 
 function New-Scenario($Id, $Name, $Mode, $Query, $Runnable = $true, $Notes = "",
-                      $UploadFile = "", $RequireDeepArtifact = $false,
-                      $RequireHistoryReplay = $false, $ExpectedOutcome = "SUCCESS",
-                      $ExpectedQualityStatus = "", $MinSourceCount = 0,
-                      $MinCharCount = 0, $OverrideFreeQuotaBalance = -1,
-                      $DeterministicTest = "") {
+                       $UploadFile = "", $RequireDeepArtifact = $false,
+                       $RequireHistoryReplay = $false, $ExpectedOutcome = "SUCCESS",
+                       $ExpectedQualityStatus = "", $MinSourceCount = 0,
+                       $MinCharCount = 0, $OverrideFreeQuotaBalance = -1,
+                       $DeterministicTest = "", $RequireSseCursorReplay = $false) {
     [pscustomobject]@{
         id = $Id
         name = $Name
@@ -31,6 +31,7 @@ function New-Scenario($Id, $Name, $Mode, $Query, $Runnable = $true, $Notes = "",
         uploadFile = $UploadFile
         requireDeepArtifact = $RequireDeepArtifact
         requireHistoryReplay = $RequireHistoryReplay
+        requireSseCursorReplay = $RequireSseCursorReplay
         expectedOutcome = $ExpectedOutcome
         expectedQualityStatus = $ExpectedQualityStatus
         minSourceCount = $MinSourceCount
@@ -55,7 +56,8 @@ $scenarios = @(
     New-Scenario "pdf-synthesis" "PDF synthesis" "DEEP" "Synthesize the uploaded PDF with current public sources." $pdfRunnable $pdfNotes $pdfFixture $true $false "SUCCESS" "PASSED" 20 15000
     New-Scenario "csv-web-research" "CSV plus web research" "DEEP" "Analyze the uploaded CSV and enrich the findings with current web sources." $csvRunnable $csvNotes $csvFixture $true $false "SUCCESS" "PASSED" 20 15000
     New-Scenario "cancel" "Cancellation" "DEEP" "Start a long deep research run, cancel after researcher progress, and verify no final success." $false "Validated by deterministic downstream-abort graph test." "" $false $false "SUCCESS" "" 0 0 -1 "com.linrun.agent.domain.agent.runtime.deepresearch.DeepResearchGraphRunnerTest#shouldStopBeforeResearchersWhenDownstreamAbortsAfterPlanner"
-    New-Scenario "reconnect" "SSE reconnect" "DEEP" "Start deep research, then verify stage and artifact replay from conversation history." $true "" "" $true $true "SUCCESS" "PASSED" 20 15000
+    # P160 proves delivery/replay durability. P120 owns the stricter report-quality gate.
+    New-Scenario "reconnect" "SSE reconnect" "DEEP" "Start deep research, then verify stage, artifact and Last-Event-ID replay." $true "" "" $true $true "SUCCESS" "" 0 0 -1 "" $true
     New-Scenario "resume" "Checkpoint resume" "DEEP" "Restart the agent service mid-run and verify checkpoint resume without duplicate branches." $false "Validated by deterministic checkpoint resume test." "" $false $false "SUCCESS" "" 0 0 -1 "com.linrun.agent.domain.agent.runtime.deepresearch.DeepResearchGraphRunnerTest#shouldResumeCompletedCheckpointWithoutRepeatingResearchers"
     New-Scenario "branch-failure" "Branch failure" "DEEP" "Force one researcher branch to fail and verify degraded/repair behavior." $false "Validated by deterministic injected branch failure test." "" $false $false "SUCCESS" "" 0 0 -1 "com.linrun.agent.domain.agent.runtime.deepresearch.DeepResearchGraphRunnerTest#shouldDegradeAndRepairWhenOneResearchBranchFails"
     New-Scenario "low-evidence" "Insufficient evidence" "DEEP" "Research a deliberately obscure private topic and verify DEGRADED output." $true "" "" $true $false "SUCCESS" "DEGRADED"
@@ -155,6 +157,7 @@ foreach ($scenario in $scenarios) {
         if ([int]$scenario.minCharCount -gt 0) { $smokeArgs.MinCharCount = [int]$scenario.minCharCount }
         if ($scenario.requireDeepArtifact) { $smokeArgs.RequireDeepArtifact = $true }
         if ($scenario.requireHistoryReplay) { $smokeArgs.RequireHistoryReplay = $true }
+        if ($scenario.requireSseCursorReplay) { $smokeArgs.RequireSseCursorReplay = $true }
         if (-not [string]::IsNullOrWhiteSpace([string]$scenario.uploadFile)) {
             $smokeArgs.UploadFile = $scenario.uploadFile
         }

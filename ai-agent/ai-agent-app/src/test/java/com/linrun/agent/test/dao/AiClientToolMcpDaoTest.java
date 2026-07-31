@@ -6,7 +6,12 @@ import lombok.extern.slf4j.Slf4j;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.junit4.SpringRunner;
+import org.springframework.test.context.jdbc.Sql;
+import org.mybatis.spring.annotation.MapperScan;
 
 import jakarta.annotation.Resource;
 import java.time.LocalDateTime;
@@ -19,7 +24,42 @@ import java.util.List;
  */
 @Slf4j
 @RunWith(SpringRunner.class)
-@SpringBootTest
+@SpringBootTest(
+        classes = AiClientToolMcpDaoTest.McpDaoTestConfiguration.class,
+        webEnvironment = SpringBootTest.WebEnvironment.NONE
+)
+@TestPropertySource(properties = {
+        "spring.datasource.url=jdbc:h2:mem:mcp_dao;MODE=MySQL;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE",
+        "spring.datasource.driver-class-name=org.h2.Driver",
+        "spring.datasource.username=sa",
+        "spring.datasource.password=",
+        "mybatis.mapper-locations=classpath*:/mybatis/mapper/*.xml",
+        "mybatis-plus.mapper-locations=classpath*:/mybatis/mapper/*.xml"
+})
+@Sql(
+        statements = {
+                "DROP TABLE IF EXISTS ai_client_tool_mcp",
+                "CREATE TABLE ai_client_tool_mcp ("
+                        + "id BIGINT AUTO_INCREMENT PRIMARY KEY, "
+                        + "mcp_id VARCHAR(128) NOT NULL UNIQUE, "
+                        + "mcp_name VARCHAR(255) NOT NULL, "
+                        + "transport_type VARCHAR(64) NOT NULL, "
+                        + "transport_config CLOB NOT NULL, "
+                        + "request_timeout INTEGER NOT NULL, "
+                        + "protocol_version VARCHAR(64), "
+                        + "oauth_audience VARCHAR(255), "
+                        + "oauth_scopes_json CLOB, "
+                        + "allowed_domains_json CLOB, "
+                        + "tool_allowlist_json CLOB, "
+                        + "credential_ref VARCHAR(255), "
+                        + "version VARCHAR(64), "
+                        + "config_hash VARCHAR(128), "
+                        + "status INTEGER NOT NULL, "
+                        + "create_time TIMESTAMP NOT NULL, "
+                        + "update_time TIMESTAMP NOT NULL)"
+        },
+        executionPhase = Sql.ExecutionPhase.BEFORE_TEST_METHOD
+)
 public class AiClientToolMcpDaoTest {
 
     @Resource
@@ -172,6 +212,17 @@ public class AiClientToolMcpDaoTest {
         List<AiClientToolMcp> aiClientToolMcpList = aiClientToolMcpDao.queryEnabledMcps();
         log.info("查询启用的MCP工具配置数量: {}", aiClientToolMcpList.size());
         aiClientToolMcpList.forEach(mcp -> log.info("启用的MCP工具配置: {}", mcp));
+    }
+
+    /**
+     * The legacy DAO tests historically depended on a developer MySQL instance.
+     * Keep them runnable in the P60 contract suite with an isolated H2/MyBatis
+     * slice, rather than starting the full Agent runtime or mutating a local DB.
+     */
+    @Configuration(proxyBeanMethods = false)
+    @EnableAutoConfiguration
+    @MapperScan("com.linrun.agent.infrastructure.dao")
+    static class McpDaoTestConfiguration {
     }
 
 }

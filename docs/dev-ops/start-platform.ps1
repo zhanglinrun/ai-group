@@ -37,8 +37,40 @@ function New-RandomSecret() {
     [System.Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
     return [Convert]::ToBase64String($bytes)
 }
-$env:JWT_SECRET = Require-Secret "JWT_SECRET"
+function Ensure-RsaKeyPair([string]$privateName, [string]$publicName) {
+    $privateKey = [Environment]::GetEnvironmentVariable($privateName, "Process")
+    $publicKey = [Environment]::GetEnvironmentVariable($publicName, "Process")
+    if ($privateKey -or $publicKey) {
+        if (-not $privateKey -or -not $publicKey) {
+            throw "$privateName and $publicName must be configured together"
+        }
+        return
+    }
+    $rsa = [System.Security.Cryptography.RSA]::Create(2048)
+    try {
+        Set-Item -Path "env:$privateName" -Value ([Convert]::ToBase64String($rsa.ExportPkcs8PrivateKey()))
+        Set-Item -Path "env:$publicName" -Value ([Convert]::ToBase64String($rsa.ExportSubjectPublicKeyInfo()))
+    } finally {
+        $rsa.Dispose()
+    }
+}
+Ensure-RsaKeyPair "AUTH_JWT_PRIVATE_KEY_BASE64" "AUTH_JWT_PUBLIC_KEY_BASE64"
+Ensure-RsaKeyPair "GATEWAY_IDENTITY_PRIVATE_KEY_BASE64" "GATEWAY_IDENTITY_PUBLIC_KEY_BASE64"
+$env:JWT_ISSUER = if ($env:JWT_ISSUER) { $env:JWT_ISSUER } else { "ai-group-auth" }
+$env:JWT_AUDIENCE = if ($env:JWT_AUDIENCE) { $env:JWT_AUDIENCE } else { "ai-group-api" }
+$env:AUTH_JWT_KEY_ID = if ($env:AUTH_JWT_KEY_ID) { $env:AUTH_JWT_KEY_ID } else { "auth-rsa-current" }
+$env:GATEWAY_IDENTITY_ISSUER = if ($env:GATEWAY_IDENTITY_ISSUER) { $env:GATEWAY_IDENTITY_ISSUER } else { "ai-group-gateway" }
+$env:GATEWAY_IDENTITY_AUDIENCE = if ($env:GATEWAY_IDENTITY_AUDIENCE) { $env:GATEWAY_IDENTITY_AUDIENCE } else { "ai-group-downstream" }
+$env:GATEWAY_IDENTITY_KEY_ID = if ($env:GATEWAY_IDENTITY_KEY_ID) { $env:GATEWAY_IDENTITY_KEY_ID } else { "gateway-rsa-current" }
+$env:GATEWAY_IDENTITY_TTL_SECONDS = if ($env:GATEWAY_IDENTITY_TTL_SECONDS) { $env:GATEWAY_IDENTITY_TTL_SECONDS } else { "60" }
+$env:BFF_SERVICE_CLIENT_ID = if ($env:BFF_SERVICE_CLIENT_ID) { $env:BFF_SERVICE_CLIENT_ID } else { "bff-service" }
+$env:AGENT_SERVICE_CLIENT_ID = if ($env:AGENT_SERVICE_CLIENT_ID) { $env:AGENT_SERVICE_CLIENT_ID } else { "ai-agent" }
 $env:AI_GROUP_INTERNAL_TOKEN = Require-Secret "AI_GROUP_INTERNAL_TOKEN"
+$env:AI_GROUP_LEGACY_INTERNAL_TOKEN_ENABLED = if ($env:AI_GROUP_LEGACY_INTERNAL_TOKEN_ENABLED) { $env:AI_GROUP_LEGACY_INTERNAL_TOKEN_ENABLED } else { "true" }
+$env:JWT_JWK_SET_URI = if ($env:JWT_JWK_SET_URI) { $env:JWT_JWK_SET_URI } else { "http://127.0.0.1:8081/.well-known/jwks.json" }
+$env:AI_GROUP_AUTH_SERVICE_TOKEN_ENDPOINT = if ($env:AI_GROUP_AUTH_SERVICE_TOKEN_ENDPOINT) { $env:AI_GROUP_AUTH_SERVICE_TOKEN_ENDPOINT } else { "http://127.0.0.1:8081/api/auth/service-token" }
+$env:BFF_SERVICE_CLIENT_SECRET = if ($env:BFF_SERVICE_CLIENT_SECRET) { Require-Secret "BFF_SERVICE_CLIENT_SECRET" } else { New-RandomSecret }
+$env:AGENT_SERVICE_CLIENT_SECRET = if ($env:AGENT_SERVICE_CLIENT_SECRET) { Require-Secret "AGENT_SERVICE_CLIENT_SECRET" } else { New-RandomSecret }
 $env:XXL_JOB_ACCESS_TOKEN = Require-Secret "XXL_JOB_ACCESS_TOKEN"
 $env:XXL_JOB_ADMIN_PORT = if ($env:XXL_JOB_ADMIN_PORT) { $env:XXL_JOB_ADMIN_PORT } else { "18081" }
 $env:XXL_JOB_ADMIN_ADDRESSES = if ($env:XXL_JOB_ADMIN_ADDRESSES) { $env:XXL_JOB_ADMIN_ADDRESSES } else { "http://127.0.0.1:$($env:XXL_JOB_ADMIN_PORT)" }
@@ -123,8 +155,15 @@ foreach ($svc in $services) {
     Write-Host "Start $($svc.Name) on :$($svc.Port)"
     $serviceEnvironment = @{
         SERVER_PORT             = [string]$svc.Port
-        JWT_SECRET              = [string]$env:JWT_SECRET
-        AI_GROUP_INTERNAL_TOKEN = [string]$env:AI_GROUP_INTERNAL_TOKEN
+        JWT_ISSUER              = [string]$env:JWT_ISSUER
+        JWT_AUDIENCE            = [string]$env:JWT_AUDIENCE
+        JWT_JWK_SET_URI         = [string]$env:JWT_JWK_SET_URI
+        AUTH_JWT_KEY_ID         = [string]$env:AUTH_JWT_KEY_ID
+        GATEWAY_IDENTITY_ISSUER = [string]$env:GATEWAY_IDENTITY_ISSUER
+        GATEWAY_IDENTITY_AUDIENCE = [string]$env:GATEWAY_IDENTITY_AUDIENCE
+        GATEWAY_IDENTITY_KEY_ID = [string]$env:GATEWAY_IDENTITY_KEY_ID
+        GATEWAY_IDENTITY_TTL_SECONDS = [string]$env:GATEWAY_IDENTITY_TTL_SECONDS
+        AI_GROUP_AUTH_SERVICE_TOKEN_ENDPOINT = [string]$env:AI_GROUP_AUTH_SERVICE_TOKEN_ENDPOINT
         MYSQL_HOST              = [string]$env:MYSQL_HOST
         MYSQL_PORT              = [string]$env:MYSQL_PORT
         MYSQL_USER              = [string]$env:MYSQL_USER
@@ -140,6 +179,28 @@ foreach ($svc in $services) {
         XXL_JOB_ADMIN_ADDRESSES = [string]$env:XXL_JOB_ADMIN_ADDRESSES
         XXL_JOB_ACCESS_TOKEN    = [string]$env:XXL_JOB_ACCESS_TOKEN
         SPRING_PROFILES_ACTIVE  = [string]$env:SPRING_PROFILES_ACTIVE
+    }
+    if ($svc.Name -eq "auth-service") {
+        $serviceEnvironment["AUTH_JWT_PRIVATE_KEY_BASE64"] = [string]$env:AUTH_JWT_PRIVATE_KEY_BASE64
+        $serviceEnvironment["AUTH_JWT_PUBLIC_KEY_BASE64"] = [string]$env:AUTH_JWT_PUBLIC_KEY_BASE64
+        $serviceEnvironment["GATEWAY_IDENTITY_PUBLIC_KEY_BASE64"] = [string]$env:GATEWAY_IDENTITY_PUBLIC_KEY_BASE64
+        $serviceEnvironment["BFF_SERVICE_CLIENT_ID"] = [string]$env:BFF_SERVICE_CLIENT_ID
+        $serviceEnvironment["BFF_SERVICE_CLIENT_SECRET"] = [string]$env:BFF_SERVICE_CLIENT_SECRET
+        $serviceEnvironment["AGENT_SERVICE_CLIENT_ID"] = [string]$env:AGENT_SERVICE_CLIENT_ID
+        $serviceEnvironment["AGENT_SERVICE_CLIENT_SECRET"] = [string]$env:AGENT_SERVICE_CLIENT_SECRET
+    } elseif ($svc.Name -eq "gateway-service") {
+        $serviceEnvironment["AI_GROUP_INTERNAL_TOKEN"] = [string]$env:AI_GROUP_INTERNAL_TOKEN
+        $serviceEnvironment["AI_GROUP_LEGACY_INTERNAL_TOKEN_ENABLED"] = [string]$env:AI_GROUP_LEGACY_INTERNAL_TOKEN_ENABLED
+        $serviceEnvironment["AUTH_JWT_PUBLIC_KEY_BASE64"] = [string]$env:AUTH_JWT_PUBLIC_KEY_BASE64
+        $serviceEnvironment["GATEWAY_IDENTITY_PRIVATE_KEY_BASE64"] = [string]$env:GATEWAY_IDENTITY_PRIVATE_KEY_BASE64
+        $serviceEnvironment["GATEWAY_IDENTITY_PUBLIC_KEY_BASE64"] = [string]$env:GATEWAY_IDENTITY_PUBLIC_KEY_BASE64
+    } elseif ($svc.Name -in @("member-service", "bff-service")) {
+        $serviceEnvironment["AUTH_JWT_PUBLIC_KEY_BASE64"] = [string]$env:AUTH_JWT_PUBLIC_KEY_BASE64
+        $serviceEnvironment["GATEWAY_IDENTITY_PUBLIC_KEY_BASE64"] = [string]$env:GATEWAY_IDENTITY_PUBLIC_KEY_BASE64
+        if ($svc.Name -eq "bff-service") {
+            $serviceEnvironment["BFF_SERVICE_CLIENT_ID"] = [string]$env:BFF_SERVICE_CLIENT_ID
+            $serviceEnvironment["BFF_SERVICE_CLIENT_SECRET"] = [string]$env:BFF_SERVICE_CLIENT_SECRET
+        }
     }
     Start-Process pwsh `
         -ArgumentList "-NoProfile", "-Command", "`$ErrorActionPreference = 'Stop'; mvn spring-boot:run -q" `

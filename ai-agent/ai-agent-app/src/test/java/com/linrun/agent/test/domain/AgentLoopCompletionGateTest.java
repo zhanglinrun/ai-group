@@ -4,6 +4,7 @@ import org.junit.Assert;
 import org.junit.Test;
 import org.mockito.Mockito;
 import org.springframework.test.util.ReflectionTestUtils;
+import com.linrun.agent.domain.agent.adapter.port.QuotaInsufficientException;
 import com.linrun.agent.domain.agent.reactor.config.ReactorConfig;
 import com.linrun.agent.domain.agent.runtime.agent.AgentContext;
 import com.linrun.agent.domain.agent.runtime.agent.AgentLoop;
@@ -19,6 +20,7 @@ import com.linrun.agent.test.domain.support.ReactorRuntimeTestSupport;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
 
 public class AgentLoopCompletionGateTest {
 
@@ -65,6 +67,41 @@ public class AgentLoopCompletionGateTest {
         Assert.assertTrue(Boolean.TRUE.equals(completed));
         Assert.assertEquals("gateway answer", agent.getMemory().getLastMessage().getContent());
         Mockito.verify(gateway).complete(Mockito.any());
+    }
+
+    @Test
+    public void shouldPropagateQuotaFailureInsteadOfConvertingItToModelError() throws Exception {
+        AgentLoop agent = newAgent();
+        ModelGateway gateway = Mockito.mock(ModelGateway.class);
+        Mockito.when(gateway.functionCallType()).thenReturn("function");
+        Mockito.when(gateway.complete(Mockito.any()))
+                .thenThrow(new QuotaInsufficientException("额度不足，无法支持最少256个输出Token"));
+        agent.setModelGateway(gateway);
+
+        try {
+            agent.run("需要模型调用的任务");
+            Assert.fail("expected quota insufficiency");
+        } catch (QuotaInsufficientException expected) {
+            Assert.assertTrue(expected.getMessage().contains("额度不足"));
+        }
+    }
+
+    @Test
+    public void shouldPropagateQuotaFailureWrappedByAsyncModelGateway() throws Exception {
+        AgentLoop agent = newAgent();
+        ModelGateway gateway = Mockito.mock(ModelGateway.class);
+        Mockito.when(gateway.functionCallType()).thenReturn("function");
+        Mockito.when(gateway.complete(Mockito.any()))
+                .thenThrow(new ExecutionException(
+                        new QuotaInsufficientException("额度不足，无法支持最少256个输出Token")));
+        agent.setModelGateway(gateway);
+
+        try {
+            agent.run("需要模型调用的任务");
+            Assert.fail("expected quota insufficiency");
+        } catch (QuotaInsufficientException expected) {
+            Assert.assertTrue(expected.getMessage().contains("额度不足"));
+        }
     }
 
     @Test

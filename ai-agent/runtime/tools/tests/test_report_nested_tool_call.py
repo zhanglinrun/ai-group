@@ -92,6 +92,38 @@ class ReportNestedToolCallTest(unittest.IsolatedAsyncioTestCase):
         report_mock.assert_not_called()
         upload.assert_not_awaited()
 
+    async def test_report_spec_bypasses_legacy_generation_and_uploads_deterministic_artifact(self):
+        body = ReportRequest.model_validate({
+            "requestId": "report-spec-render",
+            "task": "ignored by deterministic renderer",
+            "fileName": "report-spec",
+            "fileType": "html",
+            "stream": False,
+            "reportSpec": {
+                "title": "Verified report",
+                "executiveSummary": "Only verified evidence.",
+                "methodology": "Fetched then extracted.",
+                "sections": [],
+                "claims": [{"id": "claim-1", "statement": "Verified claim", "evidenceIds": ["evidence-1"], "uncertainty": "NONE"}],
+                "citations": [{"evidenceId": "evidence-1", "claimId": "claim-1", "sourceUrl": "https://source.example",
+                               "contentHash": "sha256-evidence", "exactQuote": "Verified quote", "startOffset": 0,
+                               "endOffset": 14, "fetchedAtEpochMillis": 1, "offlineFixture": False}],
+                "conflicts": [],
+                "limitations": ["Current-run evidence only."],
+                "generatedAt": "2026-07-31T00:00:00Z",
+                "rendererVersion": "researchpilot-deterministic-v1",
+            },
+        })
+        with patch("reactor_tool.tool.report.report") as report_mock, \
+                patch.object(tool_api, "upload_file", new=AsyncMock(return_value={"fileName": "report-spec.html"})) as upload:
+            response = await tool_api.post_report(body)
+
+        report_mock.assert_not_called()
+        self.assertIn("Verified claim", response["data"])
+        self.assertIn("https://source.example", response["data"])
+        upload.assert_awaited_once()
+        self.assertEqual("html", upload.await_args.kwargs["file_type"])
+
     async def test_non_stream_report_rejects_second_nested_tool_call(self):
         async def fake_report(**kwargs):
             yield 'report_tool(fileType="markdown")'

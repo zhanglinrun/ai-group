@@ -2,6 +2,7 @@ package com.aigroup.member.config;
 
 import com.aigroup.common.filter.GatewayUserContextFilter;
 import com.aigroup.common.filter.InternalApiAuthFilter;
+import com.aigroup.common.filter.OperationalAuditFilter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -29,7 +30,8 @@ public class MemberConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth.anyRequest().permitAll())
                 .addFilterBefore(internalApiAuthFilter, UsernamePasswordAuthenticationFilter.class)
-                .addFilterBefore(gatewayUserContextFilter, UsernamePasswordAuthenticationFilter.class);
+                .addFilterBefore(gatewayUserContextFilter, UsernamePasswordAuthenticationFilter.class)
+                .addFilterAfter(new OperationalAuditFilter(), GatewayUserContextFilter.class);
         return http.build();
     }
 }

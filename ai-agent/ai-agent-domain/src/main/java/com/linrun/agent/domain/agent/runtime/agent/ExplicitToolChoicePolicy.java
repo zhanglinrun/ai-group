@@ -4,6 +4,8 @@ import org.apache.commons.lang3.StringUtils;
 import com.linrun.agent.domain.agent.runtime.dto.tool.ToolChoice;
 
 import java.util.Collection;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Locale;
 
 /**
@@ -122,6 +124,30 @@ public final class ExplicitToolChoicePolicy {
         }
         // Ignore output-style instructions appended after the user's single-use constraint.
         return resolveRequiredToolName(normalized.substring(0, constraintEnd), 1, availableToolNames);
+    }
+
+    /**
+     * Resolves every explicitly named, unambiguous tool in a positive user
+     * directive. Callers that require exactly one target should keep using
+     * {@link #inspectRequiredTool(String, int, Collection)}; graph adapters
+     * can use this method to retain one safe capability from a request that
+     * also names independent local output tools.
+     */
+    public static List<String> resolveExplicitToolNames(String query,
+                                                        int currentStep,
+                                                        Collection<String> availableToolNames) {
+        if (resolve(query, currentStep) != ToolChoice.REQUIRED) {
+            return List.of();
+        }
+        LinkedHashSet<String> resolved = new LinkedHashSet<>();
+        for (String requestedName : ToolDirectiveParser.extractExplicitToolIdentifiers(query, false)) {
+            String canonicalName = ToolRequirementResolver.resolveCanonicalToolName(
+                    requestedName, availableToolNames);
+            if (canonicalName != null) {
+                resolved.add(canonicalName);
+            }
+        }
+        return List.copyOf(resolved);
     }
 
     public enum RequirementResolution {

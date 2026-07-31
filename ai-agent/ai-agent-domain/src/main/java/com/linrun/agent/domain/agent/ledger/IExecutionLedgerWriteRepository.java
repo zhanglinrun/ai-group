@@ -7,6 +7,8 @@ import com.linrun.agent.domain.agent.ledger.entity.LlmInvocation;
 import com.linrun.agent.domain.agent.ledger.entity.ToolInvocation;
 import com.linrun.agent.domain.agent.ledger.model.DialogueSessionUpsertRecord;
 import com.linrun.agent.domain.agent.ledger.model.DialogueRunRecoveryCommand;
+import com.linrun.agent.domain.agent.ledger.model.DialogueRunLeaseRenewalCommand;
+import com.linrun.agent.domain.agent.ledger.model.DialogueRunCancelCommand;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -27,6 +29,10 @@ public interface IExecutionLedgerWriteRepository {
 
     DialogueRun queryRunByRequestId(String requestId);
 
+    default DialogueRun queryRunById(Long runId) {
+        return null;
+    }
+
     List<LlmInvocation> queryLlmInvocationsByRunId(Long runId);
 
     List<ToolInvocation> queryToolInvocationsByRunId(Long runId);
@@ -36,6 +42,14 @@ public interface IExecutionLedgerWriteRepository {
     int updateRunFinish(DialogueRun run);
 
     int updateRunHeartbeat(Long runId, String requestId, LocalDateTime heartbeatAt);
+
+    default int renewRunLease(DialogueRunLeaseRenewalCommand command) {
+        return 0;
+    }
+
+    default int requestRunCancellation(DialogueRunCancelCommand command) {
+        return 0;
+    }
 
     int failWorkerLostRuns(DialogueRunRecoveryCommand command);
 

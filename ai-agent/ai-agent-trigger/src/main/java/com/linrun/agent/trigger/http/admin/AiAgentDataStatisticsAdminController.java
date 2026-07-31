@@ -16,7 +16,6 @@ import jakarta.annotation.Resource;
 @Slf4j
 @RestController
 @RequestMapping("/api/v1/admin/data/statistics")
-@CrossOrigin(origins = "*", allowedHeaders = "*", methods = {RequestMethod.GET, RequestMethod.POST, RequestMethod.PUT, RequestMethod.DELETE, RequestMethod.OPTIONS})
 public class AiAgentDataStatisticsAdminController implements IAiAgentDataStatisticsAdminService {
 
     @Resource

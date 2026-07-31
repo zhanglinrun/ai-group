@@ -20,9 +20,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
-/**
- * JWT utility (generate / parse / validate). Secret is loaded from {@link JwtProperties}.
- */
+/** HMAC JWT helper shared by the resume-project services. */
 @Component
 public class JwtUtils {
 
@@ -48,15 +46,7 @@ public class JwtUtils {
                 || secret.contains("change-in-prod")) {
             throw new IllegalStateException("JWT secret must be a random value of at least 32 bytes");
         }
-        this.signingKey = Keys.hmacShaKeyFor(secretBytes);
-    }
-
-    public String generateToken(Long userId, String username) {
-        Map<String, Object> claims = new HashMap<>();
-        claims.put(CommonConstant.TOKEN_CLAIM_USER_ID, userId);
-        claims.put(CommonConstant.TOKEN_CLAIM_USERNAME, username);
-        claims.put(CommonConstant.TOKEN_CLAIM_TYPE, CommonConstant.TOKEN_TYPE_ACCESS);
-        return generateToken(claims, jwtProperties.getAccessExpirationMs());
+        signingKey = Keys.hmacShaKeyFor(secretBytes);
     }
 
     public String generateToken(Long userId, String username, String role) {
@@ -65,7 +55,7 @@ public class JwtUtils {
         claims.put(CommonConstant.TOKEN_CLAIM_USERNAME, username);
         claims.put(CommonConstant.TOKEN_CLAIM_ROLE, role);
         claims.put(CommonConstant.TOKEN_CLAIM_TYPE, CommonConstant.TOKEN_TYPE_ACCESS);
-        return generateToken(claims, jwtProperties.getAccessExpirationMs());
+        return generate(claims, jwtProperties.getAccessExpirationMs());
     }
 
     public String generateRefreshToken(Long userId) {
@@ -77,16 +67,15 @@ public class JwtUtils {
         claims.put(CommonConstant.TOKEN_CLAIM_USER_ID, userId);
         claims.put(CommonConstant.TOKEN_CLAIM_JTI, jti);
         claims.put(CommonConstant.TOKEN_CLAIM_TYPE, CommonConstant.TOKEN_TYPE_REFRESH);
-        return generateToken(claims, jwtProperties.getRefreshExpirationMs());
+        return generate(claims, jwtProperties.getRefreshExpirationMs());
     }
 
-    private String generateToken(Map<String, Object> claims, long expiration) {
+    private String generate(Map<String, Object> claims, long expiration) {
         Date now = new Date();
-        Date expiryDate = new Date(now.getTime() + expiration);
         return Jwts.builder()
                 .setClaims(claims)
                 .setIssuedAt(now)
-                .setExpiration(expiryDate)
+                .setExpiration(new Date(now.getTime() + expiration))
                 .signWith(signingKey)
                 .compact();
     }
@@ -96,12 +85,8 @@ public class JwtUtils {
             if (!StringUtils.hasText(token) || token.length() > MAX_TOKEN_LENGTH) {
                 throw new IllegalArgumentException("invalid token length");
             }
-            return Jwts.parserBuilder()
-                    .setSigningKey(signingKey)
-                    .build()
-                    .parseClaimsJws(token)
-                    .getBody();
-        } catch (Exception e) {
+            return Jwts.parserBuilder().setSigningKey(signingKey).build().parseClaimsJws(token).getBody();
+        } catch (Exception ex) {
             throw new TokenException(ErrorCodeEnum.TOKEN_ERROR);
         }
     }
@@ -110,40 +95,37 @@ public class JwtUtils {
         try {
             parseToken(token);
             return true;
-        } catch (Exception e) {
+        } catch (Exception ex) {
             return false;
         }
     }
 
-    /** Parse a signed, unexpired access token in one operation. */
     public Claims parseAccessToken(String token) {
         Claims claims = parseToken(token);
-        if (!CommonConstant.TOKEN_TYPE_ACCESS.equals(
-                claims.get(CommonConstant.TOKEN_CLAIM_TYPE, String.class))) {
-            throw new TokenException(ErrorCodeEnum.TOKEN_ERROR);
-        }
-        if (claims.getExpiration() == null || !claims.getExpiration().after(new Date())) {
+        if (!CommonConstant.TOKEN_TYPE_ACCESS.equals(claims.get(CommonConstant.TOKEN_CLAIM_TYPE, String.class))
+                || claims.getExpiration() == null || !claims.getExpiration().after(new Date())) {
             throw new TokenException(ErrorCodeEnum.TOKEN_ERROR);
         }
         return claims;
     }
 
-    /** Use a bounded digest as the Redis blacklist key; never persist a bearer token. */
+    public Claims parseRefreshToken(String token) {
+        Claims claims = parseToken(token);
+        if (!CommonConstant.TOKEN_TYPE_REFRESH.equals(claims.get(CommonConstant.TOKEN_CLAIM_TYPE, String.class))) {
+            throw new TokenException(ErrorCodeEnum.TOKEN_ERROR);
+        }
+        return claims;
+    }
+
     public String blacklistKey(String token) {
         if (!StringUtils.hasText(token) || token.length() > MAX_TOKEN_LENGTH) {
             throw new TokenException(ErrorCodeEnum.TOKEN_ERROR);
         }
         try {
-            byte[] digest = MessageDigest.getInstance("SHA-256")
-                    .digest(token.getBytes(StandardCharsets.UTF_8));
-            StringBuilder hex = new StringBuilder(digest.length * 2);
-            for (byte value : digest) {
-                hex.append(Character.forDigit((value >>> 4) & 0x0f, 16));
-                hex.append(Character.forDigit(value & 0x0f, 16));
-            }
-            return hex.toString();
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException("SHA-256 is unavailable", e);
+            return java.util.HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                    .digest(token.getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException ex) {
+            throw new IllegalStateException("SHA-256 is unavailable", ex);
         }
     }
 
@@ -153,42 +135,16 @@ public class JwtUtils {
         return Math.max(1_000L, Math.min(remaining, upperBound));
     }
 
+    public Long getUserId(Claims claims) {
+        return claims == null ? null : claims.get(CommonConstant.TOKEN_CLAIM_USER_ID, Long.class);
+    }
+
     public Long getUserId(String token) {
-        Claims claims = parseToken(token);
-        return claims.get(CommonConstant.TOKEN_CLAIM_USER_ID, Long.class);
+        return getUserId(parseToken(token));
     }
 
-    public String getUsername(String token) {
-        Claims claims = parseToken(token);
-        return claims.get(CommonConstant.TOKEN_CLAIM_USERNAME, String.class);
-    }
-
-    public String getRole(String token) {
-        Claims claims = parseToken(token);
-        return claims.get(CommonConstant.TOKEN_CLAIM_ROLE, String.class);
-    }
-
-    public String getJti(String token) {
-        Claims claims = parseToken(token);
-        return claims.get(CommonConstant.TOKEN_CLAIM_JTI, String.class);
-    }
-
-    /**
-     * Token type ("access" / "refresh"). Legacy tokens issued before this claim
-     * existed return {@code null}; the gateway treats only "access" as valid for API calls.
-     */
-    public String getTokenType(String token) {
-        Claims claims = parseToken(token);
-        return claims.get(CommonConstant.TOKEN_CLAIM_TYPE, String.class);
-    }
-
-    public boolean isTokenExpired(String token) {
-        try {
-            Claims claims = parseToken(token);
-            return claims.getExpiration().before(new Date());
-        } catch (Exception e) {
-            return true;
-        }
+    public String getJti(Claims claims) {
+        return claims == null ? null : claims.get(CommonConstant.TOKEN_CLAIM_JTI, String.class);
     }
 
     public String extractToken(String authHeader) {

@@ -67,6 +67,20 @@ public class CompletionOutputContractTest {
     }
 
     @Test
+    public void shouldExtractExactFileNameReplyOnlyWhenExplicitlyRequested() {
+        Assert.assertEquals("golden_eval_note.md", parser.parseExactFinalAnswer(
+                "必须创建 golden_eval_note.md；最后只报告文件名。"));
+        Assert.assertNull(parser.parseExactFinalAnswer(
+                "创建 golden_eval_note.md 后说明生成结果。"));
+        Assert.assertNull(parser.parseExactFinalAnswer(
+                "不要最后只报告文件名，需给出链接。"));
+        Assert.assertTrue(parser.requiresNumericOnlyFinalAnswer(
+                "计算平均值；最后只报告数值。"));
+        Assert.assertFalse(parser.requiresNumericOnlyFinalAnswer(
+                "不要最后只报告数值，说明计算过程。"));
+    }
+
+    @Test
     public void outputContractShouldListMissingOutputFields() {
         List<String> missing = parser.parse(MCP_GOAL).missingFrom(
                 "requested_microcredits = 4800\nactual_microcredits = 4200");
@@ -101,6 +115,45 @@ public class CompletionOutputContractTest {
 
         Assert.assertTrue(decision.isCanStop());
         Assert.assertTrue(decision.isVerifierExecuted());
+    }
+
+    @Test
+    public void completionGateShouldRejectGenericReplyWhenOnlyTheArtifactNameWasRequested() {
+        CompletionDecision decision = new DefaultCompletionGate(null).evaluate(CompletionRequest.builder()
+                .goal("必须创建 golden_eval_note.md；最后只报告文件名。")
+                .draftAnswer("当前任务已完成。")
+                .executionProfile(AgentExecutionProfile.STANDARD)
+                .requiredExactFinalAnswer("golden_eval_note.md")
+                .build());
+
+        Assert.assertFalse(decision.isCanStop());
+        Assert.assertTrue(decision.getReasons().contains(
+                "The final answer must be exactly: golden_eval_note.md"));
+        Assert.assertTrue(new DefaultCompletionGate(null).evaluate(CompletionRequest.builder()
+                .goal("必须创建 golden_eval_note.md；最后只报告文件名。")
+                .draftAnswer(" golden_eval_note.md ")
+                .executionProfile(AgentExecutionProfile.STANDARD)
+                .requiredExactFinalAnswer("golden_eval_note.md")
+                .build()).isCanStop());
+    }
+
+    @Test
+    public void completionGateShouldRequireOnlyTheNumericValueWhenExplicitlyRequested() {
+        DefaultCompletionGate gate = new DefaultCompletionGate(null);
+        CompletionRequest genericReply = CompletionRequest.builder()
+                .goal("计算平均值；最后只报告数值。")
+                .draftAnswer("当前任务已完成。")
+                .executionProfile(AgentExecutionProfile.STANDARD)
+                .numericOnlyFinalAnswer(true)
+                .build();
+
+        Assert.assertFalse(gate.evaluate(genericReply).isCanStop());
+        Assert.assertTrue(gate.evaluate(CompletionRequest.builder()
+                .goal("计算平均值；最后只报告数值。")
+                .draftAnswer("25")
+                .executionProfile(AgentExecutionProfile.STANDARD)
+                .numericOnlyFinalAnswer(true)
+                .build()).isCanStop());
     }
 
     private CompletionRequest request(String draftAnswer) {

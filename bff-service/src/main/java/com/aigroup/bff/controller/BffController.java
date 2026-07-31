@@ -3,6 +3,7 @@ package com.aigroup.bff.controller;
 import com.aigroup.bff.client.GroupFeignClient;
 import com.aigroup.bff.client.MemberFeignClient;
 import com.aigroup.bff.client.PayFeignClient;
+import com.aigroup.bff.support.GroupMarketQueryCoordinator;
 import com.aigroup.common.context.RequestUserContext;
 import com.aigroup.common.exception.BusinessException;
 import com.aigroup.common.model.Result;
@@ -29,6 +30,7 @@ public class BffController {
     private final MemberFeignClient memberFeignClient;
     private final GroupFeignClient groupFeignClient;
     private final PayFeignClient payFeignClient;
+    private final GroupMarketQueryCoordinator groupMarketQueryCoordinator;
 
     @Value("${ai-group.group.default-source:s01}")
     private String groupSource;
@@ -41,6 +43,7 @@ public class BffController {
 
     @GetMapping("/pricing")
     public Result<Map<String, Object>> pricing() {
+        requireUserId();
         Map<String, Object> data = new HashMap<>();
         DegradeContext degrade = new DegradeContext();
         List<Map<String, Object>> skus = listSkusSafe(degrade);
@@ -55,6 +58,7 @@ public class BffController {
 
     @GetMapping("/group-buy/{activityId}")
     public Result<Map<String, Object>> groupBuy(@PathVariable Long activityId) {
+        requireUserId();
         Map<String, Object> data = new HashMap<>();
         DegradeContext degrade = new DegradeContext();
         List<Map<String, Object>> skus = listSkusSafe(degrade);
@@ -71,6 +75,7 @@ public class BffController {
 
     @GetMapping("/account/summary")
     public Result<Map<String, Object>> accountSummary() {
+        requireUserId();
         DegradeContext degrade = new DegradeContext();
         Result<Map<String, Object>> memberResult = memberFeignClient.summary();
         if (memberResult == null || memberResult.getCode() == null || memberResult.getCode() != 200) {
@@ -91,6 +96,7 @@ public class BffController {
 
     @GetMapping("/orders")
     public Result<Map<String, Object>> orders() {
+        requireUserId();
         DegradeContext degrade = new DegradeContext();
         Map<String, Object> data = new HashMap<>();
         data.put("items", listUserOrdersSafe(degrade));
@@ -100,15 +106,16 @@ public class BffController {
 
     private Map<String, Object> queryGroupMarketSafe(String goodsId, DegradeContext degrade) {
         try {
-            return normalizeGroupMarket(groupFeignClient.queryGroupBuyMarketConfig(buildGroupMarketRequest(goodsId)));
+            Long userId = requireUserId();
+            return normalizeGroupMarket(groupMarketQueryCoordinator.query(userId, goodsId,
+                    () -> groupFeignClient.queryGroupBuyMarketConfig(buildGroupMarketRequest(userId, goodsId))));
         } catch (Exception ex) {
             degrade.add("group", "GROUP_MARKET_UNAVAILABLE", ex.getMessage());
             return Map.of("unavailable", true);
         }
     }
 
-    private Map<String, Object> buildGroupMarketRequest(String goodsId) {
-        Long userId = requireUserId();
+    private Map<String, Object> buildGroupMarketRequest(Long userId, String goodsId) {
         Map<String, Object> request = new HashMap<>();
         request.put("userId", String.valueOf(userId));
         request.put("source", groupSource);
@@ -446,11 +453,7 @@ public class BffController {
     }
 
     private Long requireUserId() {
-        Long userId = RequestUserContext.getUserId();
-        if (userId == null) {
-            throw new BusinessException("未登录");
-        }
-        return userId;
+        return RequestUserContext.requireUserId();
     }
 
     private String stringValue(Object value) {

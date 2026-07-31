@@ -34,8 +34,11 @@ public class DataAgentInitRunner implements CommandLineRunner {
 
     @Override
     public void run(String... args) throws Exception {
-        log.info("dataAgent config:{}", dataAgentConfig);
         boolean forceRefresh = Boolean.TRUE.equals(dataAgentConfig.getForceRefresh());
+        log.info("dataAgent initialization forceRefresh={} dbConfigured={} esEnabled={}",
+                forceRefresh,
+                dataAgentConfig.getDbConfig() != null,
+                dataAgentConfig.getEsConfig() != null && Boolean.TRUE.equals(dataAgentConfig.getEsConfig().getEnable()));
 
         // H2数据库初始化：如果配置为H2且存在初始化脚本，则执行初始化
         DbConfig dbConfig = dataAgentConfig.getDbConfig();
@@ -46,11 +49,12 @@ public class DataAgentInitRunner implements CommandLineRunner {
                 try {
                     ScriptUtils.executeSqlScript(connection, new ClassPathResource("db/data.sql"));
                 } catch (Exception e) {
-                   log.warn("Execute data.sql failed or file not found, skipping data init: {}", e.getMessage());
+                   log.warn("Execute data.sql failed or file not found, skipping data init errorType={}",
+                           e.getClass().getSimpleName());
                 }
                 log.info("H2 database initialized with schema.sql");
             } catch (Exception e) {
-                log.error("Failed to initialize H2 database", e);
+                log.error("Failed to initialize H2 database errorType={}", e.getClass().getSimpleName());
                 // 不抛出异常，避免影响主流程，但可能会导致后续查询失败
             }
         }
@@ -65,10 +69,10 @@ public class DataAgentInitRunner implements CommandLineRunner {
             }
         } catch (Exception e) {
             if (forceRefresh) {
-                log.error("强制刷新失败，终止启动流程", e);
+                log.error("强制刷新失败，终止启动流程 errorType={}", e.getClass().getSimpleName());
                 throw e;
             }
-            log.error("Failed to init model info", e);
+            log.error("Failed to init model info errorType={}", e.getClass().getSimpleName());
         }
 
         if (skillRegistry != null) {
@@ -76,7 +80,7 @@ public class DataAgentInitRunner implements CommandLineRunner {
                 skillRegistry.refresh();
                 log.info("skill registry init success, loaded skills={}", skillRegistry.listSkills().size());
             } catch (Exception e) {
-                log.error("Failed to init skill registry", e);
+                log.error("Failed to init skill registry errorType={}", e.getClass().getSimpleName());
             }
         }
     }
@@ -104,9 +108,9 @@ public class DataAgentInitRunner implements CommandLineRunner {
 
     private void handleCapabilityFailure(String capability, boolean forceRefresh, Exception e) {
         if (forceRefresh) {
-            log.error("{} capability force-refresh failed", capability, e);
+            log.error("{} capability force-refresh failed errorType={}", capability, e.getClass().getSimpleName());
             return;
         }
-        log.warn("{} capability degraded and disabled: {}", capability, e.getMessage(), e);
+        log.warn("{} capability degraded and disabled errorType={}", capability, e.getClass().getSimpleName());
     }
 }

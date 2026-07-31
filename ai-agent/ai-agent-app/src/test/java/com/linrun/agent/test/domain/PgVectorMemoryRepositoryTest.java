@@ -45,6 +45,7 @@ class PgVectorMemoryRepositoryTest {
         jdbcTemplate = new JdbcTemplate(dataSource);
         try (Connection connection = dataSource.getConnection()) {
             ScriptUtils.executeSqlScript(connection, new FileSystemResource(findDdl()));
+            ScriptUtils.executeSqlScript(connection, new FileSystemResource(findMemoryControlsMigration()));
         }
         EmbeddingService embeddingService = Mockito.mock(EmbeddingService.class);
         Mockito.when(embeddingService.getVector(Mockito.anyString()))
@@ -93,5 +94,17 @@ class PgVectorMemoryRepositoryTest {
             current = current.getParent();
         }
         throw new IllegalStateException("pgvector DDL not found");
+    }
+
+    private static Path findMemoryControlsMigration() {
+        Path current = Path.of("").toAbsolutePath();
+        while (current != null) {
+            Path candidate = current.resolve("docs/dev-ops/postgres/sql/02-agent-long-term-memory-controls.sql");
+            if (Files.isRegularFile(candidate)) {
+                return candidate;
+            }
+            current = current.getParent();
+        }
+        throw new IllegalStateException("long-term memory controls migration not found");
     }
 }

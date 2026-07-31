@@ -17,6 +17,7 @@ import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.util.CollectionUtils;
 import com.linrun.agent.domain.agent.adapter.port.QuotaBillingPort;
+import com.linrun.agent.domain.agent.adapter.port.QuotaInsufficientException;
 import com.linrun.agent.domain.agent.quota.QuotaProviderAlreadyStartedException;
 import com.linrun.agent.domain.agent.runtime.agent.AgentContext;
 import com.linrun.agent.domain.agent.runtime.agent.ExplicitToolChoicePolicy;
@@ -40,6 +41,9 @@ import com.linrun.agent.domain.agent.ledger.model.LlmInvocationFinishRecord;
 import com.linrun.agent.domain.agent.ledger.model.LlmInvocationStartRecord;
 import com.linrun.agent.domain.agent.runtime.ReactorLlmDependencies;
 import com.linrun.agent.domain.agent.runtime.ReactorRuntimeDependencies;
+import com.linrun.agent.domain.agent.runtime.observability.AgentTraceMapper;
+import com.linrun.agent.domain.agent.runtime.observability.AgentTraceRecorder;
+import com.linrun.agent.domain.agent.runtime.observability.AgentTraceScope;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -302,7 +306,9 @@ public class LLM {
             LlmInvocationHandle invocationHandle = startLlmInvocation(
                     context,
                     callKind,
-                    stream
+                    stream,
+                    requestMessages,
+                    null
             );
             reserveLlmCall(context, invocationHandle, requestMessages, null);
             Prompt prompt = buildPrompt(
@@ -389,7 +395,7 @@ public class LLM {
             return mapWithCancellation(
                     finalizedStreamFuture, StreamResponseHandler.StreamedTextResponse::content);
         } catch (Exception e) {
-            log.error("{} Unexpected error in ask: {}", context.getRequestId(), e.getMessage(), e);
+            log.error("{} Unexpected error in ask errorType={}", context.getRequestId(), e.getClass().getSimpleName());
             return failedFuture(e);
         }
     }
@@ -431,19 +437,25 @@ public class LLM {
             }
             String requiredToolName = resolveRequiredToolName(context, tools, toolChoice);
 
+            long startTime = System.currentTimeMillis();
+            Message effectiveSystemMessage = isStructParseMode()
+                    ? buildStructParseSystemMessage(systemMsgs, tools)
+                    : systemMsgs;
+            List<Message> requestMessages = prepareRequestMessages(
+                    context, mergeMessages(effectiveSystemMessage, messages),
+                    isStructParseMode() ? null : tools);
             LlmInvocationHandle invocationHandle = startLlmInvocation(
                     context,
                     ExecutionLedgerConstants.CALL_KIND_ASK_TOOL,
-                    stream
+                    stream,
+                    requestMessages,
+                    tools
             );
-            long startTime = System.currentTimeMillis();
             if (isStructParseMode()) {
                 return askToolWithStructParse(
-                        context, messages, systemMsgs, tools, temperature, stream, timeout, startTime, invocationHandle);
+                        context, requestMessages, tools, temperature, stream, timeout, startTime, invocationHandle);
             }
 
-            List<Message> requestMessages = prepareRequestMessages(
-                    context, mergeMessages(systemMsgs, messages), tools);
             reserveLlmCall(context, invocationHandle, requestMessages, tools);
             Prompt prompt = buildPrompt(
                     requestMessages,
@@ -492,7 +504,7 @@ public class LLM {
                 finishLlmInvocation(context, invocationHandle, null, throwable);
             });
         } catch (Exception e) {
-            log.error("{} Unexpected error in askTool: {}", context.getRequestId(), e.getMessage(), e);
+            log.error("{} Unexpected error in askTool errorType={}", context.getRequestId(), e.getClass().getSimpleName());
             return failedFuture(e);
         }
     }
@@ -503,8 +515,7 @@ public class LLM {
      */
     private CompletableFuture<ToolCallResponse> askToolWithStructParse(
             AgentContext context,
-            List<Message> messages,
-            Message systemMsg,
+            List<Message> requestMessages,
             ToolCollection tools,
             Double temperature,
             boolean stream,
@@ -512,9 +523,6 @@ public class LLM {
             long startTime,
             LlmInvocationHandle invocationHandle
     ) {
-        Message mergedSystemMessage = buildStructParseSystemMessage(systemMsg, tools);
-        List<Message> requestMessages = prepareRequestMessages(
-                context, mergeMessages(mergedSystemMessage, messages), null);
         reserveLlmCall(context, invocationHandle, requestMessages, null);
         Prompt prompt = buildPrompt(
                 requestMessages,
@@ -801,7 +809,11 @@ public class LLM {
         return usage != null ? usage.getCompletionTokens() : null;
     }
 
-    private LlmInvocationHandle startLlmInvocation(AgentContext context, String callKind, boolean stream) {
+    private LlmInvocationHandle startLlmInvocation(AgentContext context,
+                                                    String callKind,
+                                                    boolean stream,
+                                                    List<Message> requestMessages,
+                                                    ToolCollection tools) {
         long inputRate = positiveRate(llmSettings.getInputCreditsPerMillion(), 5L);
         long outputRate = positiveRate(llmSettings.getOutputCreditsPerMillion(), 30L);
         if (context == null || !context.hasActiveLedgerRun() || context.getAgentRunState() == null) {
@@ -813,6 +825,8 @@ public class LLM {
         }
         LocalDateTime startedAt = LocalDateTime.now();
         int invocationSeq = context.getAgentRunState().nextInvocationSeq();
+        InvocationSnapshotFactory.InvocationSnapshot snapshot = InvocationSnapshotFactory.forAgentCall(
+                requestMessages, llmSettings, tools);
         Long invocationId = context.getExecutionRecorder().createLlmInvocation(LlmInvocationStartRecord.builder()
                 .runId(context.getAgentRunState().getRunId())
                 .requestId(context.getRequestId())
@@ -822,6 +836,12 @@ public class LLM {
                 .callKind(callKind)
                 .streaming(stream)
                 .modelName(model)
+                .costOwner(ModelInvocationPolicy.CostOwner.USER_QUOTA.name())
+                .promptHash(snapshot.promptHash())
+                .modelParametersJson(snapshot.modelParametersJson())
+                .toolSnapshotJson(snapshot.toolSnapshotJson())
+                .skillSnapshotJson(snapshot.skillSnapshotJson())
+                .configHash(snapshot.configHash())
                 .inputRateSnapshot(inputRate)
                 .outputRateSnapshot(outputRate)
                 .startedAt(startedAt)
@@ -830,8 +850,10 @@ public class LLM {
             throw new IllegalStateException(
                     "authenticated LLM invocation ledger insert failed before quota reservation");
         }
+        AgentTraceScope traceScope = startModelTrace(context, invocationId);
         context.getAgentRunState().bindCurrentLlmInvocationId(invocationId);
-        return new LlmInvocationHandle(invocationId, inputRate, outputRate, maxTokens);
+        context.getAgentRunState().bindLlmTraceScope(invocationId, traceScope);
+        return new LlmInvocationHandle(invocationId, inputRate, outputRate, maxTokens, traceScope);
     }
 
     private void reserveLlmCall(AgentContext context,
@@ -851,24 +873,34 @@ public class LLM {
             throw new IllegalStateException(
                     "authenticated LLM calls require a persisted invocation ledger ID");
         }
-
-        LlmQuotaCalculator.ReservationAmounts amounts = LlmQuotaCalculator.reservation(
-                estimatedInputTokens, maxTokens, handle.inputRateSnapshot, handle.outputRateSnapshot);
-        String billingRequestId = context.getRequestId() + ":llm:" + handle.invocationId;
+        AgentTraceRecorder traceRecorder = traceRecorder(context);
+        AgentTraceScope quotaTraceScope = traceRecorder.start("quota.reserve", handle.traceScope,
+                new AgentTraceMapper().quota(context, "reserve", handle.invocationId));
+        RuntimeException quotaTraceError = null;
         try {
-            handle.reservation = billingPort.reserve(context.getOwnerId(), amounts.requestedMicrocredits(),
-                    amounts.minimumMicrocredits(), billingRequestId);
+            LlmQuotaCalculator.ReservationAmounts amounts = LlmQuotaCalculator.reservation(
+                    estimatedInputTokens, maxTokens, handle.inputRateSnapshot, handle.outputRateSnapshot);
+            String billingRequestId = context.getRequestId() + ":llm:" + handle.invocationId;
+            String traceId = context.getAgentRunState() == null ? null : context.getAgentRunState().getTraceId();
+            handle.reservation = StringUtils.isBlank(traceId)
+                    ? billingPort.reserve(context.getOwnerId(), amounts.requestedMicrocredits(),
+                    amounts.minimumMicrocredits(), billingRequestId)
+                    : billingPort.reserve(context.getOwnerId(), amounts.requestedMicrocredits(),
+                    amounts.minimumMicrocredits(), "llm_call", billingRequestId, traceId);
             handle.maxOutputTokens = LlmQuotaCalculator.affordableOutputTokens(
                     handle.reservation.reservedMicrocredits(), estimatedInputTokens, maxTokens,
                     handle.inputRateSnapshot, handle.outputRateSnapshot);
             if (handle.maxOutputTokens < LlmQuotaCalculator.MIN_OUTPUT_TOKENS) {
                 billingPort.release(handle.reservation.freezeId());
                 handle.reservation = null;
-                throw new IllegalStateException("额度不足，无法支持最少256个输出Token");
+                throw new QuotaInsufficientException("额度不足，无法支持最少256个输出Token");
             }
         } catch (RuntimeException e) {
+            quotaTraceError = e;
             recordReservationFailure(context, handle, e);
             throw e;
+        } finally {
+            traceRecorder.end(quotaTraceScope, quotaTraceError);
         }
     }
 
@@ -878,6 +910,7 @@ public class LLM {
         }
         try {
             runtimeDependencies.getQuotaBillingPort().markProviderStarted(handle.reservation.freezeId());
+            handle.markProviderStarted();
         } catch (QuotaProviderAlreadyStartedException duplicateAdmission) {
             handle.reservation = null;
             recordReservationFailure(context, handle, duplicateAdmission);
@@ -941,9 +974,13 @@ public class LLM {
                 .totalTokens(handle.estimatedInputTokens)
                 .usageSource("ESTIMATED")
                 .chargedMicrocredits(0L)
+                .durationMs(handle.durationMs())
+                .providerLatencyMs(handle.providerLatencyMs())
                 .errorMsg(error.getMessage())
                 .finishedAt(LocalDateTime.now())
                 .build());
+        finishLlmTrace(context, handle, handle.estimatedInputTokens, 0,
+                ExecutionLedgerConstants.STATUS_FAILED, error);
         handle.ledgerFinished = true;
     }
 
@@ -1024,10 +1061,17 @@ public class LLM {
                     .chargedMicrocredits(billing.chargedMicrocredits())
                     .finishReason(finishReason)
                     .errorMsg(settlementFailure == null ? errorMsg : settlementFailure.getMessage())
+                    .durationMs(handle.durationMs())
+                    .providerLatencyMs(handle.providerLatencyMs())
                     .finishedAt(LocalDateTime.now())
                     .build());
             handle.ledgerFinished = true;
         }
+        finishLlmTrace(context, handle, promptTokens, completionTokens,
+                settlementFailure == null ? status : ExecutionLedgerConstants.STATUS_FAILED,
+                settlementFailure == null && !Objects.equals(ExecutionLedgerConstants.STATUS_SUCCESS, status)
+                        ? new IllegalStateException("model_invocation_failed")
+                        : settlementFailure);
         if (settlementFailure != null) {
             throw settlementFailure;
         }
@@ -1100,6 +1144,38 @@ public class LLM {
         // Tool names/arguments are part of responseText only on struct_parse. Native tool calls are
         // represented separately, so retain a small format allowance when their details are unavailable.
         return Math.addExact(tokens, Math.max(0, toolCallCount == null ? 0 : toolCallCount) * 4);
+    }
+
+    private AgentTraceScope startModelTrace(AgentContext context, Long invocationId) {
+        if (context == null || context.getAgentRunState() == null) {
+            return null;
+        }
+        AgentTraceRecorder recorder = traceRecorder(context);
+        return recorder.start("model", context.getAgentRunState().getRunTraceScope(),
+                new AgentTraceMapper().model(context, model, invocationId));
+    }
+
+    private void finishLlmTrace(AgentContext context,
+                                LlmInvocationHandle handle,
+                                Integer inputTokens,
+                                Integer outputTokens,
+                                Integer status,
+                                Throwable error) {
+        if (handle == null || handle.traceEnded) {
+            return;
+        }
+        AgentTraceRecorder recorder = traceRecorder(context);
+        recorder.annotate(handle.traceScope, new AgentTraceMapper().modelCompletion(
+                inputTokens, outputTokens,
+                Objects.equals(ExecutionLedgerConstants.STATUS_SUCCESS, status) ? "SUCCESS" : "FAILED"));
+        recorder.end(handle.traceScope, error);
+        handle.traceEnded = true;
+    }
+
+    private AgentTraceRecorder traceRecorder(AgentContext context) {
+        return context == null || context.getAgentTraceRecorder() == null
+                ? AgentTraceRecorder.noop()
+                : context.getAgentTraceRecorder();
     }
 
     private void observePartialOutput(LlmInvocationHandle handle, String partialOutput) {
@@ -1246,7 +1322,8 @@ public class LLM {
                             .build())
                     .build();
         } catch (Exception e) {
-            log.error("{} parse tool call error {}", context.getRequestId(), jsonContent, e);
+            log.error("{} parse tool call error payloadChars={} errorType={}", context.getRequestId(),
+                    jsonContent == null ? 0 : jsonContent.length(), e.getClass().getSimpleName());
             return null;
         }
     }
@@ -1270,6 +1347,8 @@ public class LLM {
         private final Long invocationId;
         private final long inputRateSnapshot;
         private final long outputRateSnapshot;
+        private final long invocationStartedNanos;
+        private long providerStartedNanos = -1L;
         private int estimatedInputTokens;
         private int estimatedOutputTokens = -1;
         private int maxOutputTokens;
@@ -1280,22 +1359,27 @@ public class LLM {
         private boolean settled;
         private boolean ledgerFinished;
         private boolean usageRecorded;
+        private final AgentTraceScope traceScope;
+        private boolean traceEnded;
         private BillingSettlement settlement;
 
         private LlmInvocationHandle(Long invocationId,
                                     long inputRateSnapshot,
                                     long outputRateSnapshot,
-                                    int maxOutputTokens) {
+                                    int maxOutputTokens,
+                                    AgentTraceScope traceScope) {
             this.invocationId = invocationId;
             this.inputRateSnapshot = inputRateSnapshot;
             this.outputRateSnapshot = outputRateSnapshot;
             this.maxOutputTokens = maxOutputTokens;
+            this.traceScope = traceScope;
+            this.invocationStartedNanos = System.nanoTime();
         }
 
         private static LlmInvocationHandle disabled(long inputRateSnapshot,
                                                     long outputRateSnapshot,
                                                     int maxOutputTokens) {
-            return new LlmInvocationHandle(null, inputRateSnapshot, outputRateSnapshot, maxOutputTokens);
+            return new LlmInvocationHandle(null, inputRateSnapshot, outputRateSnapshot, maxOutputTokens, null);
         }
 
         private boolean enabled() {
@@ -1304,6 +1388,22 @@ public class LLM {
 
         private int maxOutputTokens() {
             return maxOutputTokens;
+        }
+
+        private void markProviderStarted() {
+            providerStartedNanos = System.nanoTime();
+        }
+
+        private long durationMs() {
+            return elapsedMillis(invocationStartedNanos);
+        }
+
+        private Long providerLatencyMs() {
+            return providerStartedNanos < 0L ? null : elapsedMillis(providerStartedNanos);
+        }
+
+        private long elapsedMillis(long startedNanos) {
+            return Math.max(0L, (System.nanoTime() - startedNanos) / 1_000_000L);
         }
     }
 

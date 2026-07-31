@@ -66,7 +66,7 @@ public class TraePromptTest {
                 .build();
 
         var mcpClient = McpClient.sync(new StdioClientTransport(stdioParams,
-                        new io.modelcontextprotocol.json.jackson2.JacksonMcpJsonMapper(new com.fasterxml.jackson.databind.ObjectMapper())))
+                        new io.modelcontextprotocol.json.jackson.JacksonMcpJsonMapper(new com.fasterxml.jackson.databind.ObjectMapper())))
                 .requestTimeout(Duration.ofMinutes(180)).build();
 
         var init = mcpClient.initialize();

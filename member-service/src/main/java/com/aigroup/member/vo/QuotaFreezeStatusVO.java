@@ -21,6 +21,7 @@ public class QuotaFreezeStatusVO {
     private String abilityCode;
     private String status;
     private String requestId;
+    private String traceId;
     private String requestFingerprint;
     private String ownerService;
 }

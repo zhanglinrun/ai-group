@@ -27,6 +27,7 @@ public class SystemSkillAdminService {
     private static final long MAX_ENTRY_BYTES = 10L * 1024 * 1024;
     private static final int MAX_ENTRIES = 500;
     private static final String DISABLED_MARKER = ".disabled";
+    private static final String PENDING_REVIEW_MARKER = ".pending_review";
     private static final Pattern SAFE_NAME = Pattern.compile("[A-Za-z0-9][A-Za-z0-9_-]{0,63}");
 
     private final SkillRuntimeOptions options;
@@ -69,6 +70,10 @@ public class SystemSkillAdminService {
             } catch (AtomicMoveNotSupportedException e) {
                 Files.move(source, target);
             }
+            // Uploading is a reviewable administrative action, never an
+            // activation. Publication happens only through setEnabled(true).
+            Files.createFile(target.resolve(DISABLED_MARKER));
+            Files.createFile(target.resolve(PENDING_REVIEW_MARKER));
             registry.refresh();
             return getRequired(name);
         } catch (IOException e) {
@@ -83,6 +88,7 @@ public class SystemSkillAdminService {
         try {
             Path marker = directory.resolve(DISABLED_MARKER);
             if (enabled) {
+                Files.deleteIfExists(directory.resolve(PENDING_REVIEW_MARKER));
                 Files.deleteIfExists(marker);
             } else if (!Files.exists(marker)) {
                 Files.createFile(marker);

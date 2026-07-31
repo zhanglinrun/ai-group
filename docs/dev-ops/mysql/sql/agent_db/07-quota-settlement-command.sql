@@ -7,6 +7,7 @@ create table if not exists quota_settlement_command (
   id bigint not null auto_increment comment '主键',
   user_id bigint not null comment '额度账户用户',
   billing_request_id varchar(64) not null comment 'member侧稳定幂等键',
+  trace_id varchar(64) default null comment '来源Run的分布式Trace标识',
   request_fingerprint varchar(64) not null comment '预扣不可变载荷指纹',
   ability_code varchar(64) not null comment '计费能力',
   requested_microcredits bigint not null comment '请求预扣上限',
@@ -44,5 +45,12 @@ set @ddl = if((select character_maximum_length from information_schema.columns
                where table_schema = database() and table_name = 'quota_settlement_command'
                  and column_name = 'usage_source') < 32,
   'alter table quota_settlement_command modify column usage_source varchar(32) default null comment ''PROVIDER/MIXED/ESTIMATED等''',
+  'select 1');
+prepare stmt from @ddl; execute stmt; deallocate prepare stmt;
+
+set @ddl = if((select count(*) from information_schema.columns
+               where table_schema = database() and table_name = 'quota_settlement_command'
+                 and column_name = 'trace_id') = 0,
+  'alter table quota_settlement_command add column trace_id varchar(64) default null comment ''来源Run的分布式Trace标识'' after billing_request_id',
   'select 1');
 prepare stmt from @ddl; execute stmt; deallocate prepare stmt;

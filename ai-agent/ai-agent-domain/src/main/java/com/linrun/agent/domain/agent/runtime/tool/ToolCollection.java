@@ -14,6 +14,7 @@ import org.apache.commons.lang3.StringUtils;
 import com.linrun.agent.domain.agent.runtime.agent.AgentContext;
 import com.linrun.agent.domain.agent.runtime.dto.tool.McpToolInfo;
 import com.linrun.agent.domain.agent.runtime.tool.mcp.runtime.McpToolExecutor;
+import com.linrun.agent.domain.agent.runtime.tool.registry.ToolRegistry;
 
 import java.util.LinkedHashMap;
 import java.util.Collection;
@@ -108,8 +109,8 @@ public class ToolCollection {
      */
     public void addMcpTool(McpToolInfo toolInfo) {
         if (toolInfo == null || StringUtils.isBlank(toolInfo.getName())) {
-            log.warn("requestId:{} addMcpTool skipped, invalid toolInfo: {}",
-                    agentContext != null ? agentContext.getRequestId() : "unknown", toolInfo);
+            log.warn("requestId:{} addMcpTool skipped because tool metadata has no name",
+                    agentContext != null ? agentContext.getRequestId() : "unknown");
             return;
         }
         String exposedName = toolInfo.resolveExposedName();
@@ -199,6 +200,11 @@ public class ToolCollection {
                     + safeLength(tool.getParameters());
         }
         return chars;
+    }
+
+    /** Return immutable policy metadata for the currently authorized catalog. */
+    public ToolRegistry registry() {
+        return ToolRegistry.from(this);
     }
 
     private int safeLength(String value) {

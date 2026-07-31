@@ -14,7 +14,10 @@ const GroupBuy = React.lazy(() => import('@/pages/GroupBuy'));
 const Orders = React.lazy(() => import('@/pages/Orders'));
 const Account = React.lazy(() => import('@/pages/Account'));
 const WorkspaceImageGeneration = React.lazy(() => import('@/pages/WorkspaceImageGeneration'));
-const WorkspaceTasks = React.lazy(() => import('@/pages/WorkspaceTasks'));
+const ResearchWorkspace = React.lazy(() => import('@/pages/ResearchWorkspace'));
+const ResearchRun = React.lazy(() => import('@/pages/ResearchWorkspace/Run'));
+const ResearchEvidence = React.lazy(() => import('@/pages/ResearchWorkspace/Evidence'));
+const ResearchReport = React.lazy(() => import('@/pages/ResearchWorkspace/Report'));
 const Admin = React.lazy(() => import('@/pages/Admin'));
 const NotFound = React.lazy(() => import('@/components/NotFound'));
 
@@ -72,11 +75,29 @@ const router = createBrowserRouter([
       },
       {
         path: ROUTES.WORKSPACE.slice(1),
-        element: <Navigate to={ROUTES.WORKSPACE_TASKS} replace />,
+        element: <Navigate to={ROUTES.WORKSPACE_RESEARCH} replace />,
+      },
+      {
+        path: ROUTES.WORKSPACE_RESEARCH.slice(1),
+        element: withAuth(<ResearchWorkspace />),
+      },
+      {
+        path: ROUTES.WORKSPACE_RESEARCH_RUN.slice(1),
+        element: withAuth(<ResearchRun />),
+      },
+      {
+        path: ROUTES.WORKSPACE_RESEARCH_EVIDENCE.slice(1),
+        element: withAuth(<ResearchEvidence />),
+      },
+      {
+        path: ROUTES.WORKSPACE_RESEARCH_REPORT.slice(1),
+        element: withAuth(<ResearchReport />),
       },
       {
         path: ROUTES.WORKSPACE_TASKS.slice(1),
-        element: withAuth(<WorkspaceTasks />),
+        // Keep the legacy URL/data intact, but make the Research Workspace the only
+        // supported browser entry for new research runs.
+        element: <Navigate to={ROUTES.WORKSPACE_RESEARCH} replace />,
       },
       {
         path: ROUTES.WORKSPACE_IMAGE_GENERATION.slice(1),

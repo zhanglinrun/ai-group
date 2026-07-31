@@ -42,6 +42,21 @@ public class ToolInvocation {
     /** local / mcp */
     private String toolProvider;
 
+    /** Stable canonical input hash used to de-duplicate durable work within a run. */
+    private String operationKey;
+
+    /** EXECUTED or REUSED. */
+    private String executionMode;
+
+    /** Original successful invocation reused by this row, if any. */
+    private Long sourceInvocationId;
+
+    /** Durable worker lifecycle projection. */
+    private String durableStatus;
+
+    /** Run fence copied to the worker and checked by callbacks. */
+    private Long durableFencingToken;
+
     /** 入参 JSON */
     private String inputJson;
 
@@ -65,6 +80,9 @@ public class ToolInvocation {
 
     /** 耗时 */
     private Long durationMs;
+
+    /** Durable worker lease deadline, used only by recovery/reconcile. */
+    private LocalDateTime durableLeaseExpiresAt;
 
     private LocalDateTime createTime;
 

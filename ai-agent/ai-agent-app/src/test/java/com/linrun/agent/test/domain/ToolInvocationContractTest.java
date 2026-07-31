@@ -88,6 +88,16 @@ public class ToolInvocationContractTest {
         Assert.assertTrue(todo.allowed());
     }
 
+    @Test
+    public void modelOnlyContractShouldRejectEveryToolIncludingHarnessControl() {
+        ToolInvocationContract contract = ToolInvocationContract.modelOnly();
+
+        Assert.assertTrue(contract.constrained());
+        Assert.assertTrue(contract.isModelOnly());
+        Assert.assertFalse(contract.allows("deep_search"));
+        Assert.assertFalse(contract.allows(TodoWriteTool.NAME));
+    }
+
     private record StubTool(String name) implements BaseTool {
 
         @Override

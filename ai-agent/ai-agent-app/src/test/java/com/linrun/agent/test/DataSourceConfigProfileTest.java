@@ -1,11 +1,11 @@
 package com.linrun.agent.test;
 
 import org.junit.Test;
-import org.springframework.boot.SpringBootConfiguration;
 import org.springframework.boot.WebApplicationType;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.context.ConfigurableApplicationContext;
+import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
 import org.springframework.util.Assert;
 import com.linrun.agent.config.DataSourceConfig;
@@ -41,7 +41,12 @@ public class DataSourceConfigProfileTest {
         }
     }
 
-    @SpringBootConfiguration
+    // This probe is passed explicitly to SpringApplicationBuilder.  It must not
+    // be a global @SpringBootConfiguration: Spring's test bootstrapper would
+    // otherwise discover it as the default application for unrelated tests in
+    // the com.linrun.agent.test.* packages and skip the real Application class
+    // (including MyBatis mapper scanning).
+    @Configuration
     @EnableAutoConfiguration
     @Import(DataSourceConfig.class)
     static class DataSourceProfileProbeApplication {

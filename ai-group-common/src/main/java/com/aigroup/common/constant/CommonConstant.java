@@ -32,7 +32,6 @@ public final class CommonConstant {
     public static final String HEADER_GATEWAY_REQUEST = "X-Gateway-Request";
     /** Service-to-service internal API token. */
     public static final String HEADER_INTERNAL_TOKEN = "X-Internal-Token";
-
     public static final String EVENT_GROUP_BUY_COMPLETED = "GROUP_BUY_COMPLETED";
     public static final String EVENT_GROUP_BUY_REVOKED = "GROUP_BUY_REVOKED";
 

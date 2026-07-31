@@ -32,6 +32,18 @@ public class LlmInvocationStartRecord {
 
     private String modelName;
 
+    private String costOwner;
+
+    private String promptHash;
+
+    private String modelParametersJson;
+
+    private String toolSnapshotJson;
+
+    private String skillSnapshotJson;
+
+    private String configHash;
+
     private Long inputRateSnapshot;
 
     private Long outputRateSnapshot;

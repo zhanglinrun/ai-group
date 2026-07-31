@@ -8,3 +8,5 @@ spring:
 ai-group:
   member:
     url: http://127.0.0.1:18082
+  internal:
+    legacy-token-enabled: ${AI_GROUP_LEGACY_INTERNAL_TOKEN_ENABLED:true}

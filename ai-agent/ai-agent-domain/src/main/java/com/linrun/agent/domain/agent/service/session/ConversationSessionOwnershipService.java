@@ -66,7 +66,7 @@ public class ConversationSessionOwnershipService {
                     .startedAt(now)
                     .lastActiveAt(now)
                     .build());
-            return executionLedgerWriteRepository.querySessionBySessionId(sessionId);
+            return requireBoundOwner(executionLedgerWriteRepository.querySessionBySessionId(sessionId), ownerId);
         }
         if (StringUtils.isBlank(existing.getOwnerId())) {
             executionLedgerWriteRepository.upsertSession(DialogueSessionUpsertRecord.builder()
@@ -83,12 +83,19 @@ public class ConversationSessionOwnershipService {
                     .startedAt(existing.getStartedAt())
                     .lastActiveAt(existing.getLastActiveAt())
                     .build());
-            return executionLedgerWriteRepository.querySessionBySessionId(sessionId);
+            return requireBoundOwner(executionLedgerWriteRepository.querySessionBySessionId(sessionId), ownerId);
         }
         if (!StringUtils.equals(existing.getOwnerId(), ownerId)) {
             throw new SessionOwnershipDeniedException("当前用户无权访问该会话");
         }
         return existing;
+    }
+
+    private DialogueSession requireBoundOwner(DialogueSession session, String ownerId) {
+        if (session == null || !StringUtils.equals(session.getOwnerId(), ownerId)) {
+            throw new SessionOwnershipDeniedException("当前用户无权访问该会话");
+        }
+        return session;
     }
 
     /**

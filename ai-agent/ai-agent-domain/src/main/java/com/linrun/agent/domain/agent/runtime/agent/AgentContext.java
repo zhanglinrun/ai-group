@@ -17,11 +17,13 @@ import com.linrun.agent.domain.agent.runtime.printer.Printer;
 import com.linrun.agent.domain.agent.runtime.tool.ToolCollection;
 import com.linrun.agent.domain.agent.runtime.ReactorRuntimeDependencies;
 import com.linrun.agent.domain.agent.ledger.AgentExecutionRecorder;
+import com.linrun.agent.domain.agent.runtime.observability.AgentTraceRecorder;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.time.Duration;
+import java.time.Instant;
 
 /**
  * 智能体（Agent）上下文类
@@ -63,6 +65,21 @@ public class AgentContext {
 
     /** Authenticated user id used by the per-call quota adapter. */
     Long ownerId;
+
+    /** Tenant identity is explicit even when the current platform uses the default tenant. */
+    @Builder.Default
+    String tenantId = "default";
+
+    /** P20 carries the token; P30 replaces the provisional value with the durable lease fence. */
+    @Builder.Default
+    Long fencingToken = 0L;
+
+    /** Durable worker identity paired with the fence for P30 lease CAS. */
+    String runOwnerWorkerId;
+
+    /** Absolute deadline captured when the Harness admits the run. */
+    Instant runDeadlineAt;
+
 
     /**
      * 用户原始查询语句
@@ -211,6 +228,12 @@ public class AgentContext {
     @JsonIgnore
     AgentExecutionRecorder executionRecorder;
 
+    /** Runtime-only OTLP projection. Ledger remains canonical when tracing is disabled or unavailable. */
+    @Builder.Default
+    @ToString.Exclude
+    @JsonIgnore
+    AgentTraceRecorder agentTraceRecorder = AgentTraceRecorder.noop();
+
     /**
      * 当前请求的 run 级运行态。
      * 统一保存 runId、LLM 顺序号和 toolCallId 映射，并兼容并发 executor 的线程内视图。
@@ -262,6 +285,7 @@ public class AgentContext {
 
     /** 在每次 Agent Loop run 开始时重置本次运行的绝对截止点。 */
     public void activateRunDeadline(long maxDurationMillis) {
+        runDeadlineAt = Instant.now().plusMillis(Math.max(1L, maxDurationMillis));
         cancellation().activateDeadline(maxDurationMillis);
     }
 
@@ -400,7 +424,9 @@ public class AgentContext {
 
     public void recordToolExecutionEvidence(ToolExecutionEvidence evidence) {
         if (evidence != null) {
-            ensureToolExecutionEvidence().add(evidence);
+            List<ToolExecutionEvidence> values = ensureToolExecutionEvidence();
+            values.add(evidence);
+            ensureAgentRunState().recordEvidenceCount(values.size());
         }
     }
 
@@ -417,6 +443,10 @@ public class AgentContext {
                 .requestId(requestId)
                 .sessionId(sessionId)
                 .ownerId(ownerId)
+                .tenantId(tenantId)
+                .runOwnerWorkerId(runOwnerWorkerId)
+                .fencingToken(fencingToken)
+                .runDeadlineAt(runDeadlineAt)
                 .query(query)
                 .task(parallelTask)
                 .printer(printer)
@@ -436,6 +466,7 @@ public class AgentContext {
                 .toolArtifactRegistry(toolArtifactRegistry)
                 .currentToolArtifactSourceHolder(new ThreadLocal<>())
                 .executionRecorder(executionRecorder)
+                .agentTraceRecorder(agentTraceRecorder)
                 .agentRunState(agentRunState)
                 .taskProductFiles(copyFiles(taskProductFiles))
                 .templateType(templateType)

@@ -27,7 +27,6 @@ import java.util.stream.Collectors;
 @Slf4j
 @RestController
 @RequestMapping("/api/v1/admin/admin-user")
-@CrossOrigin(origins = "*", allowedHeaders = "*", methods = {RequestMethod.GET, RequestMethod.POST, RequestMethod.PUT, RequestMethod.DELETE, RequestMethod.OPTIONS})
 public class AdminUserAdminController implements IAdminUserAdminService {
 
     /**
@@ -44,7 +43,7 @@ public class AdminUserAdminController implements IAdminUserAdminService {
     @PostMapping("/create")
     public Response<Boolean> createAdminUser(@RequestBody AdminUserRequestDTO request) {
         try {
-            log.info("创建管理员用户请求，username：{}", request.getUsername());
+            log.info("创建管理员用户请求");
 
             // DTO转PO
             AdminUser adminUser = convertToAdminUser(request);
@@ -59,7 +58,7 @@ public class AdminUserAdminController implements IAdminUserAdminService {
                     .data(result > 0)
                     .build();
         } catch (Exception e) {
-            log.error("创建管理员用户失败", e);
+            log.error("创建管理员用户失败，errorType={}", e.getClass().getSimpleName());
             return Response.<Boolean>builder()
                     .code(ResponseCode.UN_ERROR.getCode())
                     .info(ResponseCode.UN_ERROR.getInfo())
@@ -72,7 +71,7 @@ public class AdminUserAdminController implements IAdminUserAdminService {
     @PutMapping("/update-by-id")
     public Response<Boolean> updateAdminUserById(@RequestBody AdminUserRequestDTO request) {
         try {
-            log.info("根据ID更新管理员用户请求，id：{}，username：{}", request.getId(), request.getUsername());
+            log.info("根据ID更新管理员用户请求");
 
             if (request.getId() == null) {
                 return Response.<Boolean>builder()
@@ -94,7 +93,7 @@ public class AdminUserAdminController implements IAdminUserAdminService {
                     .data(result > 0)
                     .build();
         } catch (Exception e) {
-            log.error("根据ID更新管理员用户失败", e);
+            log.error("根据ID更新管理员用户失败，errorType={}", e.getClass().getSimpleName());
             return Response.<Boolean>builder()
                     .code(ResponseCode.UN_ERROR.getCode())
                     .info(ResponseCode.UN_ERROR.getInfo())
@@ -107,7 +106,7 @@ public class AdminUserAdminController implements IAdminUserAdminService {
     @PutMapping("/update-by-user-id")
     public Response<Boolean> updateAdminUserByUserId(@RequestBody AdminUserRequestDTO request) {
         try {
-            log.info("根据用户ID更新管理员用户请求，userId：{}，username：{}", request.getUserId(), request.getUsername());
+            log.info("根据用户ID更新管理员用户请求");
 
             if (!StringUtils.hasText(request.getUserId())) {
                 return Response.<Boolean>builder()
@@ -129,7 +128,7 @@ public class AdminUserAdminController implements IAdminUserAdminService {
                     .data(result > 0)
                     .build();
         } catch (Exception e) {
-            log.error("根据用户ID更新管理员用户失败", e);
+            log.error("根据用户ID更新管理员用户失败，errorType={}", e.getClass().getSimpleName());
             return Response.<Boolean>builder()
                     .code(ResponseCode.UN_ERROR.getCode())
                     .info(ResponseCode.UN_ERROR.getInfo())
@@ -142,7 +141,7 @@ public class AdminUserAdminController implements IAdminUserAdminService {
     @DeleteMapping("/delete-by-id/{id}")
     public Response<Boolean> deleteAdminUserById(@PathVariable("id") Long id) {
         try {
-            log.info("根据ID删除管理员用户请求：{}", id);
+            log.info("根据ID删除管理员用户请求");
 
             int result = adminUserDao.deleteById(id);
 
@@ -152,7 +151,7 @@ public class AdminUserAdminController implements IAdminUserAdminService {
                     .data(result > 0)
                     .build();
         } catch (Exception e) {
-            log.error("根据ID删除管理员用户失败", e);
+            log.error("根据ID删除管理员用户失败，errorType={}", e.getClass().getSimpleName());
             return Response.<Boolean>builder()
                     .code(ResponseCode.UN_ERROR.getCode())
                     .info(ResponseCode.UN_ERROR.getInfo())
@@ -165,7 +164,7 @@ public class AdminUserAdminController implements IAdminUserAdminService {
     @DeleteMapping("/delete-by-user-id/{userId}")
     public Response<Boolean> deleteAdminUserByUserId(@PathVariable("userId") String userId) {
         try {
-            log.info("根据用户ID删除管理员用户请求：{}", userId);
+            log.info("根据用户ID删除管理员用户请求");
 
             int result = adminUserDao.deleteByUserId(userId);
 
@@ -175,7 +174,7 @@ public class AdminUserAdminController implements IAdminUserAdminService {
                     .data(result > 0)
                     .build();
         } catch (Exception e) {
-            log.error("根据用户ID删除管理员用户失败", e);
+            log.error("根据用户ID删除管理员用户失败，errorType={}", e.getClass().getSimpleName());
             return Response.<Boolean>builder()
                     .code(ResponseCode.UN_ERROR.getCode())
                     .info(ResponseCode.UN_ERROR.getInfo())
@@ -188,7 +187,7 @@ public class AdminUserAdminController implements IAdminUserAdminService {
     @GetMapping("/query-by-id/{id}")
     public Response<AdminUserResponseDTO> queryAdminUserById(@PathVariable("id") Long id) {
         try {
-            log.info("根据ID查询管理员用户请求：{}", id);
+            log.info("根据ID查询管理员用户请求");
 
             AdminUser adminUser = adminUserDao.queryById(id);
             if (adminUser == null) {
@@ -207,7 +206,7 @@ public class AdminUserAdminController implements IAdminUserAdminService {
                     .data(responseDTO)
                     .build();
         } catch (Exception e) {
-            log.error("根据ID查询管理员用户失败", e);
+            log.error("根据ID查询管理员用户失败，errorType={}", e.getClass().getSimpleName());
             return Response.<AdminUserResponseDTO>builder()
                     .code(ResponseCode.UN_ERROR.getCode())
                     .info(ResponseCode.UN_ERROR.getInfo())
@@ -220,7 +219,7 @@ public class AdminUserAdminController implements IAdminUserAdminService {
     @GetMapping("/query-by-user-id/{userId}")
     public Response<AdminUserResponseDTO> queryAdminUserByUserId(@PathVariable("userId") String userId) {
         try {
-            log.info("根据用户ID查询管理员用户请求：{}", userId);
+            log.info("根据用户ID查询管理员用户请求");
 
             AdminUser adminUser = adminUserDao.queryByUserId(userId);
             if (adminUser == null) {
@@ -239,7 +238,7 @@ public class AdminUserAdminController implements IAdminUserAdminService {
                     .data(responseDTO)
                     .build();
         } catch (Exception e) {
-            log.error("根据用户ID查询管理员用户失败", e);
+            log.error("根据用户ID查询管理员用户失败，errorType={}", e.getClass().getSimpleName());
             return Response.<AdminUserResponseDTO>builder()
                     .code(ResponseCode.UN_ERROR.getCode())
                     .info(ResponseCode.UN_ERROR.getInfo())
@@ -252,7 +251,7 @@ public class AdminUserAdminController implements IAdminUserAdminService {
     @GetMapping("/query-by-username/{username}")
     public Response<AdminUserResponseDTO> queryAdminUserByUsername(@PathVariable("username") String username) {
         try {
-            log.info("根据用户名查询管理员用户请求：{}", username);
+            log.info("根据用户名查询管理员用户请求");
 
             AdminUser adminUser = adminUserDao.queryByUsername(username);
             if (adminUser == null) {
@@ -271,7 +270,7 @@ public class AdminUserAdminController implements IAdminUserAdminService {
                     .data(responseDTO)
                     .build();
         } catch (Exception e) {
-            log.error("根据用户名查询管理员用户失败", e);
+            log.error("根据用户名查询管理员用户失败，errorType={}", e.getClass().getSimpleName());
             return Response.<AdminUserResponseDTO>builder()
                     .code(ResponseCode.UN_ERROR.getCode())
                     .info(ResponseCode.UN_ERROR.getInfo())
@@ -297,7 +296,7 @@ public class AdminUserAdminController implements IAdminUserAdminService {
                     .data(responseDTOs)
                     .build();
         } catch (Exception e) {
-            log.error("查询启用状态的管理员用户列表失败", e);
+            log.error("查询启用状态的管理员用户列表失败，errorType={}", e.getClass().getSimpleName());
             return Response.<List<AdminUserResponseDTO>>builder()
                     .code(ResponseCode.UN_ERROR.getCode())
                     .info(ResponseCode.UN_ERROR.getInfo())
@@ -323,7 +322,7 @@ public class AdminUserAdminController implements IAdminUserAdminService {
                     .data(responseDTOs)
                     .build();
         } catch (Exception e) {
-            log.error("根据状态查询管理员用户列表失败", e);
+            log.error("根据状态查询管理员用户列表失败，errorType={}", e.getClass().getSimpleName());
             return Response.<List<AdminUserResponseDTO>>builder()
                     .code(ResponseCode.UN_ERROR.getCode())
                     .info(ResponseCode.UN_ERROR.getInfo())
@@ -336,7 +335,7 @@ public class AdminUserAdminController implements IAdminUserAdminService {
     @PostMapping("/query-list")
     public Response<List<AdminUserResponseDTO>> queryAdminUserList(@RequestBody AdminUserQueryRequestDTO request) {
         try {
-            log.info("根据条件查询管理员用户列表请求：{}", request);
+            log.info("管理员用户列表查询请求");
 
             // 这里可以根据查询条件进行过滤，暂时先查询所有
             List<AdminUser> adminUsers = adminUserDao.queryAll();
@@ -375,7 +374,7 @@ public class AdminUserAdminController implements IAdminUserAdminService {
                     .data(responseDTOs)
                     .build();
         } catch (Exception e) {
-            log.error("根据条件查询管理员用户列表失败", e);
+            log.error("根据条件查询管理员用户列表失败，errorType={}", e.getClass().getSimpleName());
             return Response.<List<AdminUserResponseDTO>>builder()
                     .code(ResponseCode.UN_ERROR.getCode())
                     .info(ResponseCode.UN_ERROR.getInfo())
@@ -401,7 +400,7 @@ public class AdminUserAdminController implements IAdminUserAdminService {
                     .data(responseDTOs)
                     .build();
         } catch (Exception e) {
-            log.error("查询所有管理员用户失败", e);
+            log.error("查询所有管理员用户失败，errorType={}", e.getClass().getSimpleName());
             return Response.<List<AdminUserResponseDTO>>builder()
                     .code(ResponseCode.UN_ERROR.getCode())
                     .info(ResponseCode.UN_ERROR.getInfo())
@@ -414,7 +413,7 @@ public class AdminUserAdminController implements IAdminUserAdminService {
     @PostMapping("/login")
     public Response<AdminUserResponseDTO> loginAdminUser(@RequestBody AdminUserLoginRequestDTO request) {
         try {
-            log.info("管理员用户登录请求：{}", request.getUsername());
+            log.info("管理员用户登录请求");
 
             AdminUser adminUser = authenticate(request.getUsername(), request.getPassword());
             if (adminUser == null) {
@@ -450,7 +449,7 @@ public class AdminUserAdminController implements IAdminUserAdminService {
                     .data(responseDTO)
                     .build();
         } catch (Exception e) {
-            log.error("管理员用户登录失败", e);
+            log.error("管理员用户登录失败，errorType={}", e.getClass().getSimpleName());
             return Response.<AdminUserResponseDTO>builder()
                     .code(ResponseCode.UN_ERROR.getCode())
                     .info(ResponseCode.UN_ERROR.getInfo())
@@ -463,7 +462,7 @@ public class AdminUserAdminController implements IAdminUserAdminService {
     @PostMapping("/validate-login")
     public Response<Boolean> validateAdminUserLogin(@RequestBody AdminUserLoginRequestDTO request) {
         try {
-            log.info("管理员用户登录校验请求：{}", request.getUsername());
+            log.info("管理员用户登录校验请求");
 
             // 参数校验
             if (!StringUtils.hasText(request.getUsername()) || !StringUtils.hasText(request.getPassword())) {
@@ -508,7 +507,7 @@ public class AdminUserAdminController implements IAdminUserAdminService {
                     .data(true)
                     .build();
         } catch (Exception e) {
-            log.error("管理员用户登录校验失败", e);
+            log.error("管理员用户登录校验失败，errorType={}", e.getClass().getSimpleName());
             return Response.<Boolean>builder()
                     .code(ResponseCode.UN_ERROR.getCode())
                     .info(ResponseCode.UN_ERROR.getInfo())
@@ -544,10 +543,10 @@ public class AdminUserAdminController implements IAdminUserAdminService {
             adminUser.setPassword(passwordEncoder.encode(rawPassword));
             adminUser.setUpdateTime(LocalDateTime.now());
             adminUserDao.updateById(adminUser);
-            log.info("管理员用户存量明文密码已升级为 BCrypt，username：{}", username);
+            log.info("管理员用户存量明文密码已升级为 BCrypt");
         } catch (Exception e) {
             // 升级失败不影响本次登录，下次登录重试
-            log.warn("管理员用户明文密码升级 BCrypt 失败，username：{}", username, e);
+            log.warn("管理员用户明文密码升级 BCrypt 失败，errorType={}", e.getClass().getSimpleName());
         }
         return adminUser;
     }

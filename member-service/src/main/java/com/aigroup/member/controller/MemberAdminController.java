@@ -1,6 +1,7 @@
 package com.aigroup.member.controller;
 
 import com.aigroup.common.context.RequestUserContext;
+import com.aigroup.common.constant.CommonConstant;
 import com.aigroup.common.exception.BusinessException;
 import com.aigroup.common.model.Result;
 import com.aigroup.member.entity.BenefitGrantEvent;

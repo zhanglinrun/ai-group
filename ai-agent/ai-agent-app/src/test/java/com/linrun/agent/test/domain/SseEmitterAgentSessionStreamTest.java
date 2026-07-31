@@ -25,15 +25,16 @@ public class SseEmitterAgentSessionStreamTest {
     }
 
     @Test
-    public void shouldMarkStreamAbortedWhenClientDisconnectsDuringSend() throws Exception {
+    public void shouldDetachBrowserWithoutAbortingDurableRunWhenClientDisconnectsDuringSend() throws Exception {
         AtomicBoolean abortTriggered = new AtomicBoolean(false);
         SseEmitterAgentSessionStream stream = new SseEmitterAgentSessionStream(new DisconnectingSseEmitter());
         stream.onAbort(() -> abortTriggered.set(true));
 
         stream.send("payload");
 
-        Assert.assertTrue("客户端断开后应标记为 aborted", stream.isAborted());
-        Assert.assertTrue("客户端断开后应触发上游取消回调", abortTriggered.get());
+        Assert.assertTrue("客户端断开后应标记为 detached", stream.isDetached());
+        Assert.assertFalse("浏览器断线不能取消 durable run", stream.isAborted());
+        Assert.assertFalse("浏览器断线不能触发上游取消回调", abortTriggered.get());
     }
 
     private static class DisconnectingSseEmitter extends SseEmitter {

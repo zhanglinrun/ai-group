@@ -6,6 +6,26 @@ management:
   health:
     elasticsearch:
       enabled: false
+  tracing:
+    # Set to 1.0 for an interview/demo run; production may lower the normal-path rate.
+    sampling:
+      probability: ${AI_GROUP_TRACE_SAMPLING_PROBABILITY:1.0}
+  otlp:
+    tracing:
+      export:
+        enabled: ${AI_GROUP_OTLP_TRACING_ENABLED:false}
+      endpoint: ${AI_GROUP_OTLP_TRACING_ENDPOINT:http://127.0.0.1:14318/v1/traces}
+    metrics:
+      export:
+        enabled: false
+    logging:
+      export:
+        enabled: false
+  opentelemetry:
+    resource-attributes:
+      service:
+        name: ai-group-agent
+        version: ${AI_GROUP_BUILD_VERSION:local}
 
 spring:
   autoconfigure:
@@ -15,6 +35,10 @@ spring:
       - org.springframework.ai.mcp.client.webflux.autoconfigure.SseWebFluxTransportAutoConfiguration
       - org.springframework.ai.mcp.client.webflux.autoconfigure.StreamableHttpWebFluxTransportAutoConfiguration
   ai:
+    chat:
+      observations:
+        log-prompt: false
+        log-completion: false
     agent:
       auto-config:
         enabled: true
@@ -47,6 +71,9 @@ spring:
       hikari:
         maximum-pool-size: 20
         minimum-idle: 5
+        # MysqlSaver reloads large Deep Research checkpoint states with an ORDER BY.
+        # Keep the memory limit session-scoped to the Agent pool.
+        connection-init-sql: ${AGENT_MYSQL_CONNECTION_INIT_SQL:SET SESSION sort_buffer_size = 4194304}
     # PostgreSQL + pgvector：承载 AI 记忆与向量检索，与 MySQL 业务数据职责分离
     postgres:
       driver-class-name: org.postgresql.Driver
@@ -63,6 +90,8 @@ spring:
       password: ${REDIS_PASSWORD:}
 
 ai-group:
+  internal:
+    token: ${AI_GROUP_INTERNAL_TOKEN:local-dev-agent-internal-token-7d2e8c1a4f0b9e6d3c5a8f2b}
   billing:
     tools:
       image-generation-microcredits: ${IMAGE_GENERATION_MICROCREDITS:1000000}
@@ -126,7 +155,7 @@ autobots:
         # 仅在历史超预算时触发 LLM 摘要压缩，控制成本
         enabled: ${AGENT_MEMORY_COMPRESS_ENABLED:true}
       longterm:
-        enabled: ${AGENT_MEMORY_LONGTERM_ENABLED:false}
+        enabled: ${AGENT_MEMORY_LONGTERM_ENABLED:true}
         top-k: ${AGENT_MEMORY_LONGTERM_TOP_K:5}
         score-threshold: ${AGENT_MEMORY_LONGTERM_SCORE_THRESHOLD:0.6}
         # 召回时间衰减半衰期（天），越久的记忆得分权重越低（遗忘机制）

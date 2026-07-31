@@ -18,8 +18,13 @@ import com.linrun.agent.domain.agent.runtime.agent.AgentLoop;
 import com.linrun.agent.domain.agent.runtime.agent.ExplicitToolChoicePolicy;
 import com.linrun.agent.domain.agent.runtime.agent.ToolInvocationContract;
 import com.linrun.agent.domain.agent.runtime.dto.File;
-import com.linrun.agent.domain.agent.runtime.deepresearch.DeepResearchGraphRunner;
 import com.linrun.agent.domain.agent.runtime.deepresearch.DeepResearchResult;
+import com.linrun.agent.domain.agent.runtime.deepresearch.graph.GraphPort;
+import com.linrun.agent.domain.agent.runtime.deepresearch.graph.GraphRunRequest;
+import com.linrun.agent.domain.agent.runtime.harness.AgentHarnessFacade;
+import com.linrun.agent.domain.agent.runtime.harness.DefaultAgentHarnessFacade;
+import com.linrun.agent.domain.agent.runtime.harness.HarnessErrorCode;
+import com.linrun.agent.domain.agent.ledger.model.DialogueRunLeaseRenewalResult;
 import com.linrun.agent.domain.agent.runtime.enums.AgentState;
 import com.linrun.agent.domain.agent.runtime.enums.AgentStopReason;
 import com.linrun.agent.domain.agent.runtime.metrics.AgentRunMetrics;
@@ -31,6 +36,9 @@ import com.linrun.agent.domain.agent.runtime.stream.AgentStreamEvent;
 import com.linrun.agent.domain.agent.runtime.tool.factory.AgentToolCollectionFactory;
 import com.linrun.agent.domain.agent.runtime.tool.ToolCollection;
 import com.linrun.agent.domain.agent.runtime.util.DateUtil;
+import com.linrun.agent.domain.agent.runtime.observability.AgentTraceMapper;
+import com.linrun.agent.domain.agent.runtime.observability.AgentTraceRecorder;
+import com.linrun.agent.domain.agent.runtime.observability.AgentTraceScope;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -53,7 +61,9 @@ public class AgentRuntime {
     private final AgentLoopFactory agentLoopFactory;
     private final AgentProfileResolver agentProfileResolver;
     private final DialogueRunReplayService dialogueRunReplayService;
-    private final DeepResearchGraphRunner deepResearchGraphRunner;
+    private final GraphPort deepResearchGraphPort;
+    private final AgentHarnessFacade agentHarnessFacade;
+    private final AgentTraceRecorder agentTraceRecorder;
 
     /** Direct-call compatibility for existing domain tests and non-Spring consumers. */
     public AgentRuntime(AgentToolCollectionFactory toolCollectionFactory,
@@ -61,7 +71,7 @@ public class AgentRuntime {
                         ReactorRuntimeDependencies runtimeDependencies) {
         this(toolCollectionFactory, executionRecorder, runtimeDependencies,
                 AgentLoopFactory.defaults(), null, new DialogueRunReplayService(null, null),
-                (DeepResearchGraphRunner) null);
+                (GraphPort) null, null, AgentTraceRecorder.noop());
     }
 
     /** Direct-call compatibility for tests and embedded consumers. */
@@ -71,7 +81,7 @@ public class AgentRuntime {
                         AgentLoopFactory agentLoopFactory) {
         this(toolCollectionFactory, executionRecorder, runtimeDependencies,
                 agentLoopFactory, null, new DialogueRunReplayService(null, null),
-                (DeepResearchGraphRunner) null);
+                (GraphPort) null, null, AgentTraceRecorder.noop());
     }
 
     /** Direct-call compatibility for focused deep-research routing tests. */
@@ -79,9 +89,10 @@ public class AgentRuntime {
                         AgentExecutionRecorder executionRecorder,
                         ReactorRuntimeDependencies runtimeDependencies,
                         AgentLoopFactory agentLoopFactory,
-                        DeepResearchGraphRunner deepResearchGraphRunner) {
+                        GraphPort deepResearchGraphPort) {
         this(toolCollectionFactory, executionRecorder, runtimeDependencies,
-                agentLoopFactory, null, new DialogueRunReplayService(null, null), deepResearchGraphRunner);
+                agentLoopFactory, null, new DialogueRunReplayService(null, null), deepResearchGraphPort, null,
+                AgentTraceRecorder.noop());
     }
 
     /** Direct-call compatibility for tests that inject profile/replay collaborators. */
@@ -92,7 +103,7 @@ public class AgentRuntime {
                         AgentProfileResolver agentProfileResolver,
                         DialogueRunReplayService dialogueRunReplayService) {
         this(toolCollectionFactory, executionRecorder, runtimeDependencies, agentLoopFactory,
-                agentProfileResolver, dialogueRunReplayService, (DeepResearchGraphRunner) null);
+                agentProfileResolver, dialogueRunReplayService, (GraphPort) null, null, AgentTraceRecorder.noop());
     }
 
     @Autowired
@@ -102,10 +113,14 @@ public class AgentRuntime {
                         AgentLoopFactory agentLoopFactory,
                         AgentProfileResolver agentProfileResolver,
                         DialogueRunReplayService dialogueRunReplayService,
-                        ObjectProvider<DeepResearchGraphRunner> deepResearchGraphRunner) {
+                        ObjectProvider<GraphPort> deepResearchGraphPort,
+                        ObjectProvider<AgentHarnessFacade> agentHarnessFacade,
+                        ObjectProvider<AgentTraceRecorder> agentTraceRecorder) {
         this(toolCollectionFactory, executionRecorder, runtimeDependencies, agentLoopFactory,
                 agentProfileResolver, dialogueRunReplayService,
-                deepResearchGraphRunner == null ? null : deepResearchGraphRunner.getIfAvailable());
+                deepResearchGraphPort == null ? null : deepResearchGraphPort.getIfAvailable(),
+                agentHarnessFacade == null ? null : agentHarnessFacade.getIfAvailable(),
+                agentTraceRecorder == null ? null : agentTraceRecorder.getIfAvailable());
     }
 
     private AgentRuntime(AgentToolCollectionFactory toolCollectionFactory,
@@ -114,7 +129,9 @@ public class AgentRuntime {
                          AgentLoopFactory agentLoopFactory,
                          AgentProfileResolver agentProfileResolver,
                          DialogueRunReplayService dialogueRunReplayService,
-                         DeepResearchGraphRunner deepResearchGraphRunner) {
+                         GraphPort deepResearchGraphPort,
+                         AgentHarnessFacade agentHarnessFacade,
+                         AgentTraceRecorder agentTraceRecorder) {
         this.toolCollectionFactory = toolCollectionFactory;
         this.executionRecorder = executionRecorder;
         this.runtimeDependencies = runtimeDependencies;
@@ -122,7 +139,11 @@ public class AgentRuntime {
         this.agentProfileResolver = agentProfileResolver;
         this.dialogueRunReplayService = Objects.requireNonNull(
                 dialogueRunReplayService, "DialogueRunReplayService must not be null");
-        this.deepResearchGraphRunner = deepResearchGraphRunner;
+        this.deepResearchGraphPort = deepResearchGraphPort;
+        this.agentHarnessFacade = agentHarnessFacade == null
+                ? new DefaultAgentHarnessFacade(this.agentLoopFactory)
+                : agentHarnessFacade;
+        this.agentTraceRecorder = agentTraceRecorder == null ? AgentTraceRecorder.noop() : agentTraceRecorder;
     }
 
     public String run(AgentRequest request, Printer printer) {
@@ -135,6 +156,9 @@ public class AgentRuntime {
         boolean terminalPersisted = false;
         String finalAnswer = "";
         ScheduledFuture<?> heartbeatFuture = null;
+        AgentTraceScope sessionTraceScope = null;
+        AgentTraceScope runTraceScope = null;
+        Throwable traceError = null;
         try {
             normalizeExecutionMode(request);
             applyResolvedProfile(request);
@@ -166,6 +190,11 @@ public class AgentRuntime {
                 case NEW -> {
                     // The durable claim is active in context; only this branch may reach tools/models.
                     ownsRunSideEffects = true;
+                    context.setAgentTraceRecorder(agentTraceRecorder);
+                    AgentTraceMapper traceMapper = new AgentTraceMapper();
+                    sessionTraceScope = agentTraceRecorder.start("session", null, traceMapper.session(context));
+                    runTraceScope = agentTraceRecorder.start("run", sessionTraceScope, traceMapper.run(context));
+                    context.getAgentRunState().activateTrace(sessionTraceScope, runTraceScope);
                 }
             }
             LLMSettings selectedSettings = runtimeDependencies.resolveAgentLlmSettings(context);
@@ -174,6 +203,7 @@ public class AgentRuntime {
             printer.send(new AgentStreamEvent.AgentStart(
                     context.getRequestId(), request.getOwnerId(), request.getSessionId(),
                     runtimeAgentName(request), context.getSelectedModelName()));
+            emitUploadedAttachmentEvents(request, context, printer);
 
             ToolCollection toolCollection = toolCollectionFactory.buildForUnified(context, request);
             context.setToolCollection(toolCollection);
@@ -227,25 +257,37 @@ public class AgentRuntime {
                 );
                 return AgentRuntimeOutcome.executed("");
             }
-            if (isDeepResearch(request) && deepResearchGraphRunner != null) {
-                DeepResearchResult result = deepResearchGraphRunner.run(context, request);
-                finalAnswer = StringUtils.defaultString(result.summary());
-                boolean completed = result.completed();
-                AgentStopReason stopReason = completed ? AgentStopReason.COMPLETED : AgentStopReason.EXECUTION_ERROR;
-                boolean failed = !"SUCCESS".equals(resolveProtocolStatus(stopReason, completed));
-                ExecutionLedgerRunSupport.finishRun(
-                        context,
-                        resolveLedgerStatus(stopReason, completed),
-                        finalAnswer,
-                        failed ? stopReason.name() : null,
-                        failed ? "Deep research graph stopped before successful completion" : null
-                );
-                terminalPersisted = true;
-                emitDeepResearchFinalResult(request, context, result, completed);
-                return AgentRuntimeOutcome.executed(finalAnswer);
+            if (isDeepResearch(request) && deepResearchGraphPort != null) {
+                AgentTraceScope graphTraceScope = agentTraceRecorder.start("graph", runTraceScope,
+                        new AgentTraceMapper().graph(context));
+                Throwable graphTraceError = null;
+                try {
+                    DeepResearchResult result = deepResearchGraphPort.start(GraphRunRequest.from(context, request)).result();
+                    finalAnswer = StringUtils.defaultString(result.summary());
+                    boolean completed = result.completed();
+                    AgentStopReason stopReason = completed ? AgentStopReason.COMPLETED : AgentStopReason.EXECUTION_ERROR;
+                    boolean failed = !"SUCCESS".equals(resolveProtocolStatus(stopReason, completed));
+                    ExecutionLedgerRunSupport.finishRun(
+                            context,
+                            resolveLedgerStatus(stopReason, completed),
+                            finalAnswer,
+                            failed ? stopReason.name() : null,
+                            failed ? "Deep research graph stopped before successful completion" : null
+                    );
+                    terminalPersisted = true;
+                    emitDeepResearchFinalResult(request, context, result, completed);
+                    return AgentRuntimeOutcome.executed(finalAnswer);
+                } catch (RuntimeException graphError) {
+                    graphTraceError = graphError;
+                    throw graphError;
+                } finally {
+                    agentTraceRecorder.end(graphTraceScope, graphTraceError);
+                }
             }
-            AgentLoop agentLoop = agentLoopFactory.create(context);
-            finalAnswer = agentLoop.run(request.getQuery());
+            AgentHarnessFacade.ToolLoopResult loopResult = agentHarnessFacade.runToolLoop(
+                    context, AgentHarnessFacade.ToolLoopRequest.standard(request.getQuery()));
+            AgentLoop agentLoop = loopResult.agentLoop();
+            finalAnswer = loopResult.answer();
             boolean completed = agentLoop.getState() == AgentState.FINISHED && !context.isRunFailed();
             AgentStopReason stopReason = effectiveStopReason(agentLoop.getStopReason());
             boolean failed = !"SUCCESS".equals(resolveProtocolStatus(stopReason, completed));
@@ -260,6 +302,7 @@ public class AgentRuntime {
             emitFinalResult(request, context, agentLoop, finalAnswer);
             return AgentRuntimeOutcome.executed(finalAnswer);
         } catch (Exception error) {
+            traceError = error;
             if (terminalPersisted) {
                 log.warn("{} Agent Loop terminal delivery failed after durable finalization errorType={}",
                         request == null ? null : request.getRequestId(), error.getClass().getSimpleName());
@@ -272,11 +315,13 @@ public class AgentRuntime {
                 context.markRunFailed();
             }
             QuotaInsufficientException quotaFailure = quotaFailure(error);
+            HarnessErrorCode harnessErrorCode = HarnessErrorCode.from(error,
+                    context == null ? AgentStopReason.NONE : context.cancellationReason());
             String terminalErrorCode = quotaFailure != null
                     ? "QUOTA_INSUFFICIENT"
                     : ownsRunSideEffects && StringUtils.isNotBlank(finalAnswer)
                     ? "RUN_FINALIZATION_FAILED"
-                    : AgentStopReason.EXECUTION_ERROR.name();
+                    : harnessErrorCode.name();
             String terminalErrorMessage = quotaFailure == null
                     ? "Agent Loop execution failed."
                     : StringUtils.defaultIfBlank(quotaFailure.getMessage(), "额度不足，无法执行本次 Agent 请求。");
@@ -325,6 +370,12 @@ public class AgentRuntime {
                     : AgentRuntimeOutcome.notExecuted("");
         } finally {
             cancelRunHeartbeat(heartbeatFuture);
+            Throwable terminalTraceError = traceError;
+            if (terminalTraceError == null && context != null && context.isRunFailed()) {
+                terminalTraceError = new IllegalStateException("agent_run_failed");
+            }
+            agentTraceRecorder.end(runTraceScope, terminalTraceError);
+            agentTraceRecorder.end(sessionTraceScope, terminalTraceError);
             if (context != null && runtimeDependencies != null
                     && runtimeDependencies.getApprovalGate() != null) {
                 runtimeDependencies.getApprovalGate().clearRunCache(context.getRequestId());
@@ -344,9 +395,21 @@ public class AgentRuntime {
         try {
             return runtimeDependencies.getHeartbeatScheduler().scheduleAtFixedRate(() -> {
                 try {
-                    boolean active = executionRecorder.heartbeatRun(runId, requestId, LocalDateTime.now());
-                    if (!active) {
-                        log.debug("{} durable run heartbeat stopped updating because the run is terminal", requestId);
+                    LocalDateTime heartbeatAt = LocalDateTime.now();
+                    DialogueRunLeaseRenewalResult lease = executionRecorder.renewRunLease(
+                            runId,
+                            requestId,
+                            context.getRunOwnerWorkerId(),
+                            context.getFencingToken() == null ? 0L : context.getFencingToken(),
+                            heartbeatAt,
+                            heartbeatAt.plus(Duration.ofMillis(Math.max(30_000L, intervalMillis * 3L)))
+                    );
+                    if (!lease.isActive()) {
+                        AgentStopReason reason = lease.status() == DialogueRunLeaseRenewalResult.Status.CANCEL_REQUESTED
+                                ? AgentStopReason.RUN_CANCELLED
+                                : AgentStopReason.RUN_OWNERSHIP_LOST;
+                        context.cancel(reason);
+                        log.warn("{} durable run lease no longer active status={}", requestId, lease.status());
                     }
                 } catch (Exception heartbeatError) {
                     log.warn("{} durable run heartbeat failed errorType={}",
@@ -374,6 +437,34 @@ public class AgentRuntime {
 
     private void emitRunClaimRejected(Printer printer, String stopReason, String errorMessage) {
         printer.send(new AgentStreamEvent.Error(null, stopReason, errorMessage));
+    }
+
+    /**
+     * Replays the server-authorized attachment list into the durable Run stream.  The payload
+     * deliberately contains only metadata and a stable artifact reference — never a storage URL
+     * or file content — so reconnecting clients can render upload progress without widening file
+     * access.
+     */
+    private void emitUploadedAttachmentEvents(AgentRequest request, AgentContext context, Printer printer) {
+        if (request == null || context == null || printer == null
+                || request.getSessionFiles() == null || request.getSessionFiles().isEmpty()) {
+            return;
+        }
+        for (FileInformation file : request.getSessionFiles()) {
+            if (file == null || StringUtils.isBlank(file.getFileName())) {
+                continue;
+            }
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("event", "FILE_UPLOADED");
+            payload.put("fileName", file.getFileName());
+            payload.put("mimeType", StringUtils.defaultString(file.getMimeType()));
+            payload.put("fileSize", file.getFileSize() == null ? 0 : file.getFileSize());
+            payload.put("artifactHash", StringUtils.defaultString(file.getArtifactHash()));
+            String artifactReference = StringUtils.defaultIfBlank(file.getResourceKey(), file.getFileName());
+            printer.send(new AgentStreamEvent.StageOutput(
+                    context.getRequestId(), null, "file_upload", payload,
+                    List.of(Map.of("artifactReference", artifactReference)), true));
+        }
     }
 
     private void applyResolvedProfile(AgentRequest request) {
@@ -414,6 +505,7 @@ public class AgentRuntime {
                 .modelIdOverride(request.getModelId())
                 .runStartedAtMillis(System.currentTimeMillis())
                 .executionRecorder(executionRecorder)
+                .agentTraceRecorder(agentTraceRecorder)
                 .runtimeDependencies(runtimeDependencies)
                 .build();
     }
@@ -553,7 +645,7 @@ public class AgentRuntime {
         AgentStopReason effective = stopReason == null ? AgentStopReason.EXECUTION_ERROR : stopReason;
         return switch (effective) {
             case TIME_BUDGET -> "TIMEOUT";
-            case DOWNSTREAM_ABORTED -> "STOPPED";
+            case DOWNSTREAM_ABORTED, RUN_CANCELLED -> "STOPPED";
             default -> "FAILED";
         };
     }
@@ -565,7 +657,7 @@ public class AgentRuntime {
         AgentStopReason effective = stopReason == null ? AgentStopReason.EXECUTION_ERROR : stopReason;
         return switch (effective) {
             case TIME_BUDGET -> ExecutionLedgerConstants.STATUS_TIMEOUT;
-            case DOWNSTREAM_ABORTED -> ExecutionLedgerConstants.STATUS_STOPPED;
+            case DOWNSTREAM_ABORTED, RUN_CANCELLED -> ExecutionLedgerConstants.STATUS_STOPPED;
             default -> ExecutionLedgerConstants.STATUS_FAILED;
         };
     }
@@ -585,7 +677,7 @@ public class AgentRuntime {
     }
 
     private String runtimeAgentName(AgentRequest request) {
-        return isDeepResearch(request) && deepResearchGraphRunner != null
+        return isDeepResearch(request) && deepResearchGraphPort != null
                 ? ExecutionLedgerConstants.AGENT_NAME_DEEP_RESEARCH_GRAPH
                 : ExecutionLedgerConstants.AGENT_NAME_AGENT_LOOP;
     }

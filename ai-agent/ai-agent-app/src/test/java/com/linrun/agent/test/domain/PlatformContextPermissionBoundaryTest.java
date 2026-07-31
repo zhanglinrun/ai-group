@@ -24,7 +24,7 @@ public class PlatformContextPermissionBoundaryTest {
                 AgentContext.builder().build());
 
         Assert.assertFalse(decision.allowed());
-        Assert.assertTrue(decision.reason().contains("authenticated AgentContext owner"));
+        Assert.assertTrue(decision.reason().contains("authenticated AgentContext identity"));
     }
 
     @Test

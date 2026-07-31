@@ -12,6 +12,7 @@ import com.linrun.agent.domain.agent.runtime.dto.FileRequest;
 import com.linrun.agent.domain.agent.runtime.dto.FileResponse;
 
 import java.io.IOException;
+import java.net.URI;
 import java.util.Map;
 import java.util.Objects;
 import jakarta.annotation.Resource;
@@ -68,11 +69,46 @@ public class ReactorToolFileArtifactAdapter implements FileArtifactPort {
         return remoteHttpPort.execute(RemoteHttpRequest.builder()
                 .method("GET")
                 .url(url)
+                .headers(isRuntimeToolDownloadUrl(url)
+                        ? ReactorToolRequestHeaders.withToken(reactorConfig == null
+                        ? null : reactorConfig.getReactorToolToken(), Map.of())
+                        : Map.of())
                 .connectTimeoutSeconds(timeoutSeconds)
                 .readTimeoutSeconds(timeoutSeconds)
                 .writeTimeoutSeconds(timeoutSeconds)
                 .callTimeoutSeconds(timeoutSeconds)
                 .build());
+    }
+
+    /** Only the configured runtime/tools origin may receive its internal tool token. */
+    private boolean isRuntimeToolDownloadUrl(String url) {
+        URI configuredOrigin = parseUri(reactorConfig == null ? null : reactorConfig.getCodeInterpreterUrl());
+        URI downloadUrl = parseUri(url);
+        if (configuredOrigin == null || downloadUrl == null) {
+            return false;
+        }
+        return StringUtils.equalsIgnoreCase(configuredOrigin.getScheme(), downloadUrl.getScheme())
+                && StringUtils.equalsIgnoreCase(configuredOrigin.getHost(), downloadUrl.getHost())
+                && effectivePort(configuredOrigin) == effectivePort(downloadUrl);
+    }
+
+    private URI parseUri(String value) {
+        String normalized = StringUtils.trimToNull(value);
+        if (normalized == null) {
+            return null;
+        }
+        try {
+            return URI.create(normalized);
+        } catch (IllegalArgumentException ignored) {
+            return null;
+        }
+    }
+
+    private int effectivePort(URI uri) {
+        if (uri.getPort() >= 0) {
+            return uri.getPort();
+        }
+        return "https".equalsIgnoreCase(uri.getScheme()) ? 443 : 80;
     }
 
     private FileRequest normalizeRequest(FileRequest request) {

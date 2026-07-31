@@ -46,6 +46,22 @@ public class AiClientToolMcp {
      */
     private Integer requestTimeout;
 
+    private String protocolVersion;
+
+    private String oauthAudience;
+
+    private String oauthScopesJson;
+
+    private String allowedDomainsJson;
+
+    private String toolAllowlistJson;
+
+    private String credentialRef;
+
+    private String version;
+
+    private String configHash;
+
     /**
      * 状态(0:禁用,1:启用)
      */

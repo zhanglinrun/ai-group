@@ -25,7 +25,6 @@ import java.util.stream.Collectors;
 @Slf4j
 @RestController
 @RequestMapping("/api/v1/admin/ai-client-system-prompt")
-@CrossOrigin(origins = "*", allowedHeaders = "*", methods = {RequestMethod.GET, RequestMethod.POST, RequestMethod.PUT, RequestMethod.DELETE, RequestMethod.OPTIONS})
 public class AiClientSystemPromptAdminController implements IAiClientSystemPromptAdminService {
 
     @Resource
@@ -299,7 +298,7 @@ public class AiClientSystemPromptAdminController implements IAiClientSystemPromp
     @GetMapping("/query-by-prompt-name/{promptName}")
     public Response<List<AiClientSystemPromptResponseDTO>> queryAiClientSystemPromptsByPromptName(@PathVariable("promptName") String promptName) {
         try {
-            log.info("根据提示词名称查询系统提示词配置：{}", promptName);
+            log.info("根据提示词名称查询系统提示词配置");
 
             List<AiClientSystemPrompt> aiClientSystemPrompts = aiClientSystemPromptDao.queryByPromptName(promptName);
 

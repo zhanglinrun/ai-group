@@ -42,6 +42,32 @@ public class AiClientToolMcpVO {
      */
     private Integer requestTimeout;
 
+    /** Admin-controlled MCP governance metadata; never model-facing. */
+    @Builder.Default
+    private String protocolVersion = "2025-03-26";
+
+    private String oauthAudience;
+
+    @Builder.Default
+    private List<String> oauthScopes = List.of();
+
+    @Builder.Default
+    private List<String> allowedDomains = List.of();
+
+    @Builder.Default
+    private List<String> toolAllowlist = List.of();
+
+    /** Reference to a server-side secret, never the credential value itself. */
+    private String credentialRef;
+
+    @Builder.Default
+    private String version = "v1";
+
+    private String configHash;
+
+    @Builder.Default
+    private Boolean enabled = true;
+
     /**
      * 传输配置 - sse
      */

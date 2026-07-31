@@ -17,6 +17,7 @@ import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.Mockito.when;
@@ -43,24 +44,19 @@ class AuthGlobalFilterTest {
 
     @Test
     void groupBuyNotify_withoutInternalToken_isForbidden() {
-        MockServerHttpRequest request = MockServerHttpRequest
-                .post("/api/v1/alipay/group_buy_notify")
-                .build();
-        ServerWebExchange exchange = MockServerWebExchange.from(request);
+        ServerWebExchange exchange = MockServerWebExchange.from(MockServerHttpRequest
+                .post("/api/v1/alipay/group_buy_notify").build());
 
-        StepVerifier.create(filter.filter(exchange, ex -> Mono.empty()))
-                .verifyComplete();
+        StepVerifier.create(filter.filter(exchange, ex -> Mono.empty())).verifyComplete();
 
         assertEquals(HttpStatus.FORBIDDEN, exchange.getResponse().getStatusCode());
     }
 
     @Test
     void groupBuyNotify_withValidInternalToken_forwardsToken() {
-        MockServerHttpRequest request = MockServerHttpRequest
+        ServerWebExchange exchange = MockServerWebExchange.from(MockServerHttpRequest
                 .post("/api/v1/alipay/group_buy_notify")
-                .header(CommonConstant.HEADER_INTERNAL_TOKEN, "secret-internal-token")
-                .build();
-        ServerWebExchange exchange = MockServerWebExchange.from(request);
+                .header(CommonConstant.HEADER_INTERNAL_TOKEN, "secret-internal-token").build());
 
         StepVerifier.create(filter.filter(exchange, ex -> {
             assertEquals("secret-internal-token",
@@ -71,63 +67,72 @@ class AuthGlobalFilterTest {
 
     @Test
     void activePayNotify_withOrdinaryJwtButNoInternalToken_isForbidden() {
-        MockServerHttpRequest request = MockServerHttpRequest
+        ServerWebExchange exchange = MockServerWebExchange.from(MockServerHttpRequest
                 .post("/api/v1/alipay/active_pay_notify?outTradeNo=order-1")
-                .header("Authorization", "Bearer valid-user-token")
-                .build();
-        ServerWebExchange exchange = MockServerWebExchange.from(request);
+                .header("Authorization", "Bearer valid-user-token").build());
 
-        StepVerifier.create(filter.filter(exchange, ex -> Mono.empty()))
-                .verifyComplete();
+        StepVerifier.create(filter.filter(exchange, ex -> Mono.empty())).verifyComplete();
 
         assertEquals(HttpStatus.FORBIDDEN, exchange.getResponse().getStatusCode());
     }
 
     @Test
+    void actuator_withoutInternalToken_isForbidden() {
+        ServerWebExchange exchange = MockServerWebExchange.from(MockServerHttpRequest.get("/actuator/prometheus").build());
+
+        StepVerifier.create(filter.filter(exchange, ex -> Mono.empty())).verifyComplete();
+
+        assertEquals(HttpStatus.FORBIDDEN, exchange.getResponse().getStatusCode());
+    }
+
+    @Test
+    void actuator_withInternalToken_isAllowedAfterStrippingBrowserIdentity() {
+        ServerWebExchange exchange = MockServerWebExchange.from(MockServerHttpRequest
+                .get("/actuator/prometheus")
+                .header(CommonConstant.HEADER_INTERNAL_TOKEN, "secret-internal-token").build());
+
+        StepVerifier.create(filter.filter(exchange, ex -> {
+            assertNull(ex.getRequest().getHeaders().getFirst(CommonConstant.HEADER_USER_ID));
+            return Mono.empty();
+        })).verifyComplete();
+    }
+
+    @Test
     void userApi_withRefreshToken_isUnauthorized() {
         when(jwtUtils.parseAccessToken("refresh-token")).thenThrow(new IllegalArgumentException("not access"));
+        ServerWebExchange exchange = MockServerWebExchange.from(MockServerHttpRequest
+                .get("/api/bff/account/summary").header("Authorization", "Bearer refresh-token").build());
 
-        MockServerHttpRequest request = MockServerHttpRequest
-                .get("/api/bff/account/summary")
-                .header("Authorization", "Bearer refresh-token")
-                .build();
-        ServerWebExchange exchange = MockServerWebExchange.from(request);
-
-        StepVerifier.create(filter.filter(exchange, ex -> Mono.empty()))
-                .verifyComplete();
+        StepVerifier.create(filter.filter(exchange, ex -> Mono.empty())).verifyComplete();
 
         assertEquals(HttpStatus.UNAUTHORIZED, exchange.getResponse().getStatusCode());
     }
 
     @Test
     void userApi_withoutJwt_isUnauthorized() {
-        MockServerHttpRequest request = MockServerHttpRequest
-                .post("/api/bff/orders")
-                .build();
-        ServerWebExchange exchange = MockServerWebExchange.from(request);
+        ServerWebExchange exchange = MockServerWebExchange.from(MockServerHttpRequest
+                .post("/api/bff/orders").build());
 
-        StepVerifier.create(filter.filter(exchange, ex -> Mono.empty()))
-                .verifyComplete();
+        StepVerifier.create(filter.filter(exchange, ex -> Mono.empty())).verifyComplete();
 
         assertEquals(HttpStatus.UNAUTHORIZED, exchange.getResponse().getStatusCode());
     }
 
     @Test
-    void userApi_withValidJwt_injectsGatewayIdentityHeaders() {
+    void userApi_withValidJwt_stripsSpoofedHeadersAndInjectsVerifiedContext() {
         when(jwtUtils.parseAccessToken("valid-token")).thenReturn(claims);
         when(jwtUtils.blacklistKey("valid-token")).thenReturn("digest");
         when(reactiveStringRedisTemplate.hasKey("jwt:blacklist:digest")).thenReturn(Mono.just(false));
-        when(claims.get(CommonConstant.TOKEN_CLAIM_USER_ID, Long.class)).thenReturn(42L);
+        when(jwtUtils.getUserId(claims)).thenReturn(42L);
         when(claims.get(CommonConstant.TOKEN_CLAIM_USERNAME, String.class)).thenReturn("smoke_user");
         when(claims.get(CommonConstant.TOKEN_CLAIM_ROLE, String.class)).thenReturn("USER");
-
-        MockServerHttpRequest request = MockServerHttpRequest
+        ServerWebExchange exchange = MockServerWebExchange.from(MockServerHttpRequest
                 .get("/api/bff/account/summary")
                 .header("Authorization", "Bearer valid-token")
                 .header(CommonConstant.HEADER_USER_ID, "999")
                 .header(CommonConstant.HEADER_GATEWAY_REQUEST, "true")
-                .build();
-        ServerWebExchange exchange = MockServerWebExchange.from(request);
+                .header("X-Service-Identity", "forged-service-token")
+                .build());
 
         StepVerifier.create(filter.filter(exchange, ex -> {
             assertEquals("42", ex.getRequest().getHeaders().getFirst(CommonConstant.HEADER_USER_ID));
@@ -136,9 +141,11 @@ class AuthGlobalFilterTest {
             assertEquals("true", ex.getRequest().getHeaders().getFirst(CommonConstant.HEADER_GATEWAY_REQUEST));
             assertEquals("secret-internal-token",
                     ex.getRequest().getHeaders().getFirst(CommonConstant.HEADER_INTERNAL_TOKEN));
+            assertNull(ex.getRequest().getHeaders().getFirst("X-Service-Identity"));
             return Mono.empty();
         })).verifyComplete();
 
         assertNull(exchange.getResponse().getStatusCode());
     }
+
 }

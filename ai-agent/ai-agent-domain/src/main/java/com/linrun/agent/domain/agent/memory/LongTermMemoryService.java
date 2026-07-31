@@ -42,4 +42,24 @@ public interface LongTermMemoryService {
     default boolean delete(String ownerId, String memoryId) {
         return false;
     }
+
+    /** Returns the owner-scoped consent state. Missing preference means disabled. */
+    default LongTermMemoryPreference preference(String ownerId) {
+        return LongTermMemoryPreference.disabled(ownerId);
+    }
+
+    /** Updates the owner-scoped consent and retention state. */
+    default LongTermMemoryPreference updatePreference(LongTermMemoryPreference preference) {
+        return preference == null ? LongTermMemoryPreference.disabled(null) : preference.normalized();
+    }
+
+    /** Lists owner-visible long-term entries without using them as prompt context. */
+    default List<LongTermMemoryEntry> listEntries(String ownerId, int limit) {
+        return List.of();
+    }
+
+    /** Removes entries whose durable retention timestamp has elapsed. */
+    default int purgeExpired(String ownerId) {
+        return 0;
+    }
 }

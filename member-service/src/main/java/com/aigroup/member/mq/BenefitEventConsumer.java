@@ -23,11 +23,11 @@ public class BenefitEventConsumer {
     public void onTradeCompleted(String payload, Acknowledgment acknowledgment) {
         try {
             TradeCompletedEvent event = objectMapper.readValue(payload, TradeCompletedEvent.class);
-            log.info("Received trade completed event: orderId={}, userId={}", event.getOrderId(), event.getUserId());
+            log.info("Received trade completed event");
             memberService.handleBenefitEvent(event);
             acknowledgment.acknowledge();
         } catch (Exception ex) {
-            log.error("Failed to consume TradeCompletedEvent: {}", payload, ex);
+            log.error("Failed to consume TradeCompletedEvent, errorType={}", ex.getClass().getSimpleName());
             throw new IllegalStateException("TradeCompletedEvent consume failed", ex);
         }
     }

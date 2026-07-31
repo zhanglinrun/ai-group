@@ -2,6 +2,10 @@ package com.linrun.agent.test.domain;
 
 import com.linrun.agent.domain.agent.rag.memory.SemanticMemoryManager;
 import com.linrun.agent.domain.agent.rag.memory.SemanticMemoryType;
+import com.linrun.agent.domain.agent.ledger.ExecutionLedgerQueryService;
+import com.linrun.agent.domain.agent.ledger.model.DialogueRunView;
+import com.linrun.agent.domain.agent.ledger.model.ExecutionRunDetail;
+import com.linrun.agent.domain.agent.runtime.llm.BillableModelInvocationService;
 import com.linrun.agent.domain.agent.rag.retrieval.HybridRetriever;
 import com.linrun.agent.domain.agent.rag.storage.PgVectorMemoryRepository;
 import com.linrun.agent.domain.agent.reactor.service.EmbeddingService;
@@ -14,6 +18,7 @@ import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.sql.Timestamp;
 import java.time.Instant;
@@ -30,15 +35,22 @@ public class SemanticMemoryManagerTest {
         Mockito.when(repository.findByOwnerDocTypeAndConversation(
                         "owner-1", "session_summary", "conversation-b", 1))
                 .thenReturn(List.of(Map.of("content", "old-b")));
-        Mockito.when(chatModel.call(Mockito.any(org.springframework.ai.chat.prompt.Prompt.class)))
+        BillableModelInvocationService modelInvocationService = Mockito.mock(BillableModelInvocationService.class);
+        ExecutionLedgerQueryService ledgerQueryService = Mockito.mock(ExecutionLedgerQueryService.class);
+        Mockito.when(ledgerQueryService.queryRunDetail("req-1")).thenReturn(ExecutionRunDetail.builder()
+                .run(DialogueRunView.builder().id(11L).ownerId("owner-1").build())
+                .build());
+        Mockito.when(modelInvocationService.invoke(Mockito.eq(chatModel), Mockito.any(), Mockito.any()))
                 .thenReturn(new ChatResponse(List.of(new Generation(new AssistantMessage("summary-b")))));
         Mockito.when(repository.saveMemory(Mockito.anyString(), Mockito.anyString(), Mockito.anyString(),
-                Mockito.anyString(), Mockito.anyMap(), Mockito.anyString())).thenReturn(true);
+                Mockito.anyString(), Mockito.anyMap(), Mockito.anyString(), Mockito.any())).thenReturn(true);
         SemanticMemoryManager manager = new SemanticMemoryManager(
                 repository, Mockito.mock(HybridRetriever.class), Mockito.mock(JdbcTemplate.class),
                 chatModel, "summary-model");
+        ReflectionTestUtils.setField(manager, "modelInvocationService", modelInvocationService);
+        ReflectionTestUtils.setField(manager, "executionLedgerQueryService", ledgerQueryService);
 
-        Assert.assertTrue(manager.mergeSessionSummary("owner-1", "conversation-b", "new-b"));
+        Assert.assertTrue(manager.mergeSessionSummary("owner-1", "conversation-b", "req-1", "new-b"));
 
         Mockito.verify(repository).findByOwnerDocTypeAndConversation(
                 "owner-1", "session_summary", "conversation-b", 1);
@@ -46,7 +58,8 @@ public class SemanticMemoryManagerTest {
                 "owner-1", "session_summary", 1);
         Mockito.verify(repository).saveMemory(Mockito.anyString(), Mockito.eq("owner-1"),
                 Mockito.eq(SemanticMemoryType.SESSION_SUMMARY.dbValue()), Mockito.eq("summary-b"),
-                Mockito.anyMap(), Mockito.eq("conversation-b"));
+                Mockito.anyMap(), Mockito.eq("conversation-b"), Mockito.any());
+        Mockito.verify(modelInvocationService).invoke(Mockito.eq(chatModel), Mockito.any(), Mockito.any());
     }
 
     @Test

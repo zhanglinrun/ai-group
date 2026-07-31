@@ -107,9 +107,8 @@ public class JdbcConnectionPools {
         try {
             return jdbcConnectionPoolFactory.createPooledDatasource(config);
         } catch (Exception e) {
-            log.error("创建数据源失败, config: {}", config, e);
+            log.error("创建数据源失败 errorType={}", e.getClass().getSimpleName());
             throw new RuntimeException("创建数据源失败", e);
         }
     }
 }
-

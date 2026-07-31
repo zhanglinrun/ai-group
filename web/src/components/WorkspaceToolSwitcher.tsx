@@ -1,11 +1,11 @@
 import classNames from 'classnames';
-import { ListTodo, WandSparkles } from 'lucide-react';
+import { ListTodo, SearchCheck, WandSparkles } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 
 import { ROUTES } from '@/router/routes';
 
 type WorkspaceToolItem = {
-  key: 'tasks' | 'image-generation';
+  key: 'research' | 'tasks' | 'image-generation';
   label: string;
   description: string;
   icon: typeof WandSparkles;
@@ -13,6 +13,13 @@ type WorkspaceToolItem = {
 };
 
 const workspaceToolItems: WorkspaceToolItem[] = [
+  {
+    key: 'research',
+    label: '深度调研',
+    description: '证据、冲突与正式报告',
+    icon: SearchCheck,
+    to: ROUTES.WORKSPACE_RESEARCH,
+  },
   {
     key: 'tasks',
     label: '项目任务',

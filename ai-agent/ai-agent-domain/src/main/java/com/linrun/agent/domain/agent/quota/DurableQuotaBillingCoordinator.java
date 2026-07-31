@@ -18,6 +18,7 @@ public class DurableQuotaBillingCoordinator implements QuotaBillingPort {
     private static final String OWNER_SERVICE = "ai-agent";
     private static final int ERROR_MAX_LENGTH = 1000;
     private static final int MAX_RECOVERY_RETRIES = 10;
+    private static final int TERMINAL_PERSIST_ATTEMPTS = 2;
     private static final long PROVIDER_OUTCOME_REVIEW_MINUTES = 30L;
 
     private final IQuotaSettlementCommandRepository repository;
@@ -37,14 +38,26 @@ public class DurableQuotaBillingCoordinator implements QuotaBillingPort {
                                long minimumMicrocredits,
                                String abilityCode,
                                String requestId) {
+        return reserve(userId, requestedMicrocredits, minimumMicrocredits, abilityCode, requestId, null);
+    }
+
+    @Override
+    public Reservation reserve(Long userId,
+                               long requestedMicrocredits,
+                               long minimumMicrocredits,
+                               String abilityCode,
+                               String requestId,
+                               String traceId) {
         validateReserve(userId, requestedMicrocredits, minimumMicrocredits, abilityCode);
         String billingRequestId = QuotaBillingRequestId.normalize(requestId);
+        String normalizedTraceId = normalizeTraceId(traceId);
         String normalizedAbility = abilityCode.trim().toLowerCase(Locale.ROOT);
         String fingerprint = QuotaBillingRequestId.fingerprint(
                 userId, normalizedAbility, requestedMicrocredits, minimumMicrocredits);
         QuotaSettlementCommand proposed = QuotaSettlementCommand.builder()
                 .userId(userId)
                 .billingRequestId(billingRequestId)
+                .traceId(normalizedTraceId)
                 .requestFingerprint(fingerprint)
                 .abilityCode(normalizedAbility)
                 .requestedMicrocredits(requestedMicrocredits)
@@ -192,7 +205,8 @@ public class DurableQuotaBillingCoordinator implements QuotaBillingPort {
                     value(command.getRequestedMicrocredits()),
                     value(command.getMinimumMicrocredits()),
                     command.getAbilityCode(),
-                    command.getBillingRequestId());
+                    command.getBillingRequestId(),
+                    command.getTraceId());
             validateRemoteSnapshot(command, status, false);
             if (status.state() != ReservationState.PENDING) {
                 throw conflict("member reserve returned terminal state " + status.state(), command, null);
@@ -209,7 +223,7 @@ public class DurableQuotaBillingCoordinator implements QuotaBillingPort {
                                                  RuntimeException originalFailure) {
         try {
             RemoteReservationStatus status = remotePort.findByRequestRemote(
-                    command.getUserId(), command.getBillingRequestId());
+                    command.getUserId(), command.getBillingRequestId(), command.getTraceId());
             validateRemoteSnapshot(command, status, true);
             if (status.state() == ReservationState.PENDING) {
                 return persistReserved(command, status);
@@ -314,15 +328,18 @@ public class DurableQuotaBillingCoordinator implements QuotaBillingPort {
     private SettlementResult invokeTerminalApply(QuotaSettlementCommand command) {
         try {
             RemoteReservationStatus status = command.getIntendedAction() == QuotaSettlementIntent.CONFIRM
-                    ? remotePort.confirmRemote(command.getFreezeId(), value(command.getIntendedMicrocredits()))
-                    : remotePort.releaseRemote(command.getFreezeId());
+                    ? remotePort.confirmRemote(command.getFreezeId(), value(command.getIntendedMicrocredits()),
+                    command.getBillingRequestId(), command.getTraceId())
+                    : remotePort.releaseRemote(command.getFreezeId(), command.getBillingRequestId(),
+                    command.getTraceId());
             validateRemoteSnapshot(command, status, false);
             return convergeRemoteStatus(command, status, null);
         } catch (QuotaSettlementConflictException | QuotaSettlementPersistenceException decisiveFailure) {
             throw decisiveFailure;
         } catch (RuntimeException remoteFailure) {
             try {
-                RemoteReservationStatus status = remotePort.findByFreezeIdRemote(command.getFreezeId());
+                RemoteReservationStatus status = remotePort.findByFreezeIdRemote(command.getFreezeId(),
+                        command.getBillingRequestId(), command.getTraceId());
                 validateRemoteSnapshot(command, status, true);
                 return convergeRemoteStatus(command, status, remoteFailure);
             } catch (QuotaSettlementConflictException | QuotaSettlementPersistenceException decisiveFailure) {
@@ -361,21 +378,42 @@ public class DurableQuotaBillingCoordinator implements QuotaBillingPort {
                                               long settledMicrocredits) {
         QuotaSettlementState terminalState = remoteState == ReservationState.CONFIRMED
                 ? QuotaSettlementState.CONFIRMED : QuotaSettlementState.RELEASED;
-        if (repository.markTerminal(command.getId(), version(command), terminalState, settledMicrocredits)) {
-            return new SettlementResult(command.getFreezeId(), remoteState, settledMicrocredits);
-        }
-        QuotaSettlementCommand current = requireByFreezeId(command.getFreezeId());
-        if (current.getState() == terminalState
-                && (terminalState == QuotaSettlementState.RELEASED
-                || Objects.equals(current.getSettledMicrocredits(), settledMicrocredits))) {
-            return toSettlementResult(current);
-        }
-        if (current.getState().terminal()) {
-            throw conflict("concurrent quota terminal state conflict", current, null);
+        for (int attempt = 0; attempt < TERMINAL_PERSIST_ATTEMPTS; attempt++) {
+            if (repository.markTerminal(command.getId(), version(command), terminalState, settledMicrocredits)) {
+                return new SettlementResult(command.getFreezeId(), remoteState, settledMicrocredits);
+            }
+            QuotaSettlementCommand current = requireByFreezeId(command.getFreezeId());
+            if (current.getState() == terminalState
+                    && (terminalState == QuotaSettlementState.RELEASED
+                    || Objects.equals(current.getSettledMicrocredits(), settledMicrocredits))) {
+                return toSettlementResult(current);
+            }
+            if (current.getState().terminal()) {
+                throw conflict("concurrent quota terminal state conflict", current, null);
+            }
+            if (current.getState() == QuotaSettlementState.APPLY_PENDING
+                    && sameTerminalIntent(current, terminalState, settledMicrocredits)) {
+                // A recovery lease can advance only the local version while the remote terminal effect completes.
+                command = current;
+                continue;
+            }
+            throw new QuotaSettlementPersistenceException(
+                    "member terminal state was applied but local command could not be finalized, freezeId="
+                            + command.getFreezeId());
         }
         throw new QuotaSettlementPersistenceException(
                 "member terminal state was applied but local command could not be finalized, freezeId="
                         + command.getFreezeId());
+    }
+
+    private boolean sameTerminalIntent(QuotaSettlementCommand command,
+                                       QuotaSettlementState terminalState,
+                                       long settledMicrocredits) {
+        return (terminalState == QuotaSettlementState.CONFIRMED
+                && command.getIntendedAction() == QuotaSettlementIntent.CONFIRM
+                && Objects.equals(command.getIntendedMicrocredits(), settledMicrocredits))
+                || (terminalState == QuotaSettlementState.RELEASED
+                && command.getIntendedAction() == QuotaSettlementIntent.RELEASE);
     }
 
     /** A transient remote failure is a durable acceptance once APPLY_PENDING exists. */
@@ -393,7 +431,7 @@ public class DurableQuotaBillingCoordinator implements QuotaBillingPort {
         RemoteReservationStatus status;
         try {
             status = remotePort.findByRequestRemote(
-                    command.getUserId(), command.getBillingRequestId());
+                    command.getUserId(), command.getBillingRequestId(), command.getTraceId());
             validateRemoteSnapshot(command, status, true);
         } catch (QuotaSettlementConflictException | QuotaSettlementPersistenceException decisiveFailure) {
             throw decisiveFailure;
@@ -426,7 +464,8 @@ public class DurableQuotaBillingCoordinator implements QuotaBillingPort {
 
     private void recoverApplyClaim(QuotaSettlementCommand command) {
         try {
-            RemoteReservationStatus status = remotePort.findByFreezeIdRemote(command.getFreezeId());
+            RemoteReservationStatus status = remotePort.findByFreezeIdRemote(command.getFreezeId(),
+                    command.getBillingRequestId(), command.getTraceId());
             validateRemoteSnapshot(command, status, true);
             if (status.state() == ReservationState.CONFIRMED
                     || status.state() == ReservationState.RELEASED) {
@@ -643,6 +682,17 @@ public class DurableQuotaBillingCoordinator implements QuotaBillingPort {
 
     private String normalizeOwner(String owner) {
         return owner == null ? null : owner.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private String normalizeTraceId(String traceId) {
+        if (StringUtils.isBlank(traceId)) {
+            return null;
+        }
+        String normalized = traceId.trim();
+        if (normalized.length() > 64 || !normalized.matches("[A-Za-z0-9:_-]+")) {
+            throw new IllegalArgumentException("traceId must be a compact correlation identifier");
+        }
+        return normalized;
     }
 
     private String error(Throwable failure) {

@@ -11,35 +11,53 @@ class ProductionSecurityValidatorTest {
 
     @Test
     void localProfilesMayUseExplicitLocalConfiguration() {
-        ProductionSecurityValidator validator = validator("dev", "short", "short");
-        assertDoesNotThrow(validator::validate);
+        assertDoesNotThrow(validator("dev", "short")::validate);
     }
 
     @Test
     void mixedLocalAndProductionProfilesMustNotBypassValidation() {
-        ProductionSecurityValidator validator = validator(new String[]{"dev", "prod"}, "short", "short");
+        assertThrows(IllegalStateException.class,
+                validator(new String[]{"dev", "prod"}, "short")::validate);
+    }
+
+    @Test
+    void nonLocalProfilesAllowBlankInternalTokenWhenTheServiceHasNoInternalEndpoint() {
+        assertDoesNotThrow(validator("prod", "")::validate);
+    }
+
+    @Test
+    void nonLocalProfilesRejectEnabledAgentDebugEndpoints() {
+        ProductionSecurityValidator validator = validator(
+                "prod",
+                ""
+        );
+        ReflectionTestUtils.setField(validator, "debugEndpointsEnabled", true);
+
         assertThrows(IllegalStateException.class, validator::validate);
     }
 
     @Test
-    void nonLocalProfilesRequireStrongSecrets() {
-        ProductionSecurityValidator validator = validator(
+    void nonLocalProfilesAllowStrongInternalToken() {
+        assertDoesNotThrow(validator(
                 "prod",
-                "0123456789abcdef0123456789abcdef",
                 "abcdef0123456789abcdef0123456789"
-        );
-        assertDoesNotThrow(validator::validate);
+        )::validate);
     }
 
-    private ProductionSecurityValidator validator(String profile, String jwtSecret, String internalToken) {
-        return validator(new String[]{profile}, jwtSecret, internalToken);
+    @Test
+    void nonLocalProfilesRejectShortInternalToken() {
+        ProductionSecurityValidator validator = validator("prod", "short");
+        assertThrows(IllegalStateException.class, validator::validate);
     }
 
-    private ProductionSecurityValidator validator(String[] profiles, String jwtSecret, String internalToken) {
+    private ProductionSecurityValidator validator(String profile, String internalToken) {
+        return validator(new String[]{profile}, internalToken);
+    }
+
+    private ProductionSecurityValidator validator(String[] profiles, String internalToken) {
         MockEnvironment environment = new MockEnvironment();
         environment.setActiveProfiles(profiles);
         ProductionSecurityValidator validator = new ProductionSecurityValidator(environment);
-        ReflectionTestUtils.setField(validator, "jwtSecret", jwtSecret);
         ReflectionTestUtils.setField(validator, "internalToken", internalToken);
         return validator;
     }

@@ -9,6 +9,8 @@ import com.linrun.agent.domain.agent.ledger.entity.DialogueRun;
 import com.linrun.agent.domain.agent.ledger.impl.AgentExecutionRecorderImpl;
 import com.linrun.agent.domain.agent.ledger.model.DialogueRunClaim;
 import com.linrun.agent.domain.agent.ledger.model.DialogueRunFinishRecord;
+import com.linrun.agent.domain.agent.ledger.model.DialogueRunCancelResult;
+import com.linrun.agent.domain.agent.ledger.model.DialogueRunLeaseRenewalResult;
 import com.linrun.agent.domain.agent.ledger.model.DialogueRunStartRecord;
 import com.linrun.agent.domain.agent.ledger.model.DialogueRunView;
 import com.linrun.agent.domain.agent.ledger.model.DialogueSessionView;
@@ -481,6 +483,63 @@ public class DurableRunClaimTest {
         Mockito.verify(printer).send(Mockito.argThat(event ->
                 event instanceof AgentStreamEvent.Error failure
                         && "RUN_REQUEST_MISMATCH".equals(failure.code())));
+    }
+
+    @Test
+    public void shouldMakeDurableCancelIdempotentAndWinAgainstLaterTerminalSuccess() {
+        ExecutionLedgerFixtureFactory.LedgerTestContext context =
+                ExecutionLedgerFixtureFactory.newLedgerTestContext();
+        LocalDateTime now = LocalDateTime.of(2026, 7, 30, 12, 0);
+        DialogueRunStartRecord record = startRecord("req-cancel-first", "session-cancel-first", "1001");
+        record.setOwnerWorkerId("worker-a");
+        record.setFencingToken(1L);
+        record.setLeaseExpiresAt(now.plusMinutes(1));
+        DialogueRunClaim claim = context.recorder.claimRun(record);
+
+        DialogueRunCancelResult accepted = context.recorder.requestRunCancellation(
+                claim.getRunId(), "1001", now);
+        DialogueRunCancelResult repeated = context.recorder.requestRunCancellation(
+                claim.getRunId(), "1001", now.plusSeconds(1));
+        DialogueRunLeaseRenewalResult lease = context.recorder.renewRunLease(
+                claim.getRunId(), record.getRequestId(), "worker-a", 1L,
+                now.plusSeconds(2), now.plusMinutes(2));
+
+        Assert.assertEquals(DialogueRunCancelResult.Status.ACCEPTED, accepted.status());
+        Assert.assertEquals(DialogueRunCancelResult.Status.ALREADY_REQUESTED, repeated.status());
+        Assert.assertEquals(DialogueRunLeaseRenewalResult.Status.CANCEL_REQUESTED, lease.status());
+
+        context.recorder.finishRun(DialogueRunFinishRecord.builder()
+                .runId(claim.getRunId())
+                .requestId(record.getRequestId())
+                .ownerWorkerId("worker-a")
+                .fencingToken(1L)
+                .status(ExecutionLedgerConstants.STATUS_SUCCESS)
+                .finalSummaryText("a late model response")
+                .build());
+
+        Assert.assertEquals(ExecutionLedgerConstants.STATUS_STOPPED,
+                context.queryService.queryRunDetail(record.getRequestId()).getRun().getStatus().intValue());
+    }
+
+    @Test
+    public void shouldClassifyLeaseFenceMismatchAsOwnershipLost() {
+        IExecutionLedgerWriteRepository repository = Mockito.mock(IExecutionLedgerWriteRepository.class);
+        DialogueRun current = DialogueRun.builder()
+                .id(991L)
+                .requestId("req-ownership-lost")
+                .ownerWorkerId("worker-b")
+                .fencingToken(2L)
+                .status(ExecutionLedgerConstants.STATUS_RUNNING)
+                .build();
+        Mockito.when(repository.renewRunLease(Mockito.any())).thenReturn(0);
+        Mockito.when(repository.queryRunByRequestId("req-ownership-lost")).thenReturn(current);
+        AgentExecutionRecorder recorder = new AgentExecutionRecorderImpl(repository, Mockito.mock(ToolOutputWriter.class));
+
+        DialogueRunLeaseRenewalResult result = recorder.renewRunLease(
+                991L, "req-ownership-lost", "worker-a", 1L,
+                LocalDateTime.of(2026, 7, 30, 12, 0), LocalDateTime.of(2026, 7, 30, 12, 1));
+
+        Assert.assertEquals(DialogueRunLeaseRenewalResult.Status.OWNERSHIP_LOST, result.status());
     }
 
     private DialogueRunStartRecord startRecord(String requestId, String sessionId, String ownerId) {

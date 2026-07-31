@@ -14,6 +14,7 @@ param(
     [int]$MinCharCount = 0,
     [switch]$RequireDeepArtifact,
     [switch]$RequireHistoryReplay,
+    [switch]$RequireSseCursorReplay,
     [string]$UploadFile = "",
     [long]$OverrideFreeQuotaBalance = -1,
     [ValidateRange(30, 600)]
@@ -78,6 +79,56 @@ function Upload-SessionFile([string]$SessionId, [string]$Path, [string]$Token) {
         mimeType = $response.data.mimeType
         originFileName = [string]$response.data.originFileName
     }
+}
+
+function Assert-SseCursorReplay([string]$Token, [string]$SessionId, [string]$RequestId) {
+    $candidates = @("${SessionId}:$RequestId", $RequestId)
+    foreach ($candidate in $candidates) {
+        $client = [System.Net.Http.HttpClient]::new()
+        $client.Timeout = [System.Threading.Timeout]::InfiniteTimeSpan
+        $request = [System.Net.Http.HttpRequestMessage]::new(
+            [System.Net.Http.HttpMethod]::Get,
+            "$Gateway/api/agent/runs/$([uri]::EscapeDataString($candidate))/events?cursor=0"
+        )
+        $request.Headers.Authorization = [System.Net.Http.Headers.AuthenticationHeaderValue]::new("Bearer", $Token)
+        $request.Headers.Accept.Add([System.Net.Http.Headers.MediaTypeWithQualityHeaderValue]::new("text/event-stream"))
+        $request.Headers.Add("Last-Event-ID", "0")
+        $response = $null
+        $cts = [System.Threading.CancellationTokenSource]::new([TimeSpan]::FromSeconds(30))
+        try {
+            $response = $client.SendAsync(
+                $request,
+                [System.Net.Http.HttpCompletionOption]::ResponseHeadersRead,
+                $cts.Token
+            ).GetAwaiter().GetResult()
+            if (-not $response.IsSuccessStatusCode) { continue }
+            $reader = [System.IO.StreamReader]::new(
+                $response.Content.ReadAsStreamAsync($cts.Token).GetAwaiter().GetResult(),
+                [System.Text.Encoding]::UTF8
+            )
+            $sawEventId = $false
+            $sawData = $false
+            try {
+                while (-not $cts.IsCancellationRequested) {
+                    $line = $reader.ReadLineAsync().WaitAsync($cts.Token).GetAwaiter().GetResult()
+                    if ($null -eq $line) { break }
+                    if ($line -match '^id:\s*\d+') { $sawEventId = $true }
+                    if ($line -match '^data:\s*\{') { $sawData = $true }
+                    if ($sawEventId -and $sawData) { return }
+                }
+            } finally {
+                $reader.Dispose()
+            }
+        } catch {
+            continue
+        } finally {
+            if ($response) { $response.Dispose() }
+            $request.Dispose()
+            $client.Dispose()
+            $cts.Dispose()
+        }
+    }
+    throw "SSE cursor replay did not return durable id/data frames for session=$SessionId request=$RequestId"
 }
 
 Write-Host "==> Register isolated Agent smoke user"
@@ -258,7 +309,11 @@ if ($ExpectedOutcome -eq "QUOTA_FAILURE") {
 }
 if ($ExpectedOutcome -eq "SUCCESS") {
     if ($null -ne $errorEvent -or $null -eq $terminalEvent -or -not $eventTypes.Contains("complete")) {
-        throw "Agent Loop did not complete successfully (types=$($eventTypes -join ','), errorCode=$([string]$errorEvent.code))"
+        $errorMessage = if ($null -eq $errorEvent) { "" } else { ([string]$errorEvent.message -replace '[\r\n]+', ' ').Trim() }
+        $errorMessage = $errorMessage -replace '(?i)\b(api[_-]?key|token|password|secret)\b\s*[:=]\s*\S+', '$1=<redacted>'
+        $errorMessage = $errorMessage -replace '(?i)\b(bearer|authorization)\b\s+[-A-Za-z0-9._~+/=]+', '$1 <redacted>'
+        if ($errorMessage.Length -gt 400) { $errorMessage = $errorMessage.Substring(0, 400) + "..." }
+        throw "Agent Loop did not complete successfully (types=$($eventTypes -join ','), errorCode=$([string]$errorEvent.code), errorMessage=$errorMessage)"
     }
     if ($afterAvailable -ge $beforeAvailable) {
         throw "successful LLM run did not consume quota: before=$beforeAvailable after=$afterAvailable"
@@ -306,6 +361,9 @@ if ($ExpectedOutcome -eq "SUCCESS") {
         if ($RequireDeepArtifact -and $replayJson -notlike "*artifactRefs*" -and $replayJson -notlike "*reportArtifactId*") {
             throw "history replay did not include DEEP report artifact metadata for request $requestId"
         }
+    }
+    if ($RequireSseCursorReplay) {
+        Assert-SseCursorReplay $accessToken $sessionId $requestId
     }
 
     Write-Host "AGENT SSE SMOKE OK (outcome=SUCCESS, mode=$ExecutionMode, frames=$frameCount, types=$($eventTypes -join ','), resultChars=$($terminalResult.Length), quota=$beforeAvailable->$afterAvailable)"

@@ -12,6 +12,8 @@ import com.linrun.agent.domain.agent.ledger.entity.LlmInvocation;
 import com.linrun.agent.domain.agent.ledger.entity.ToolInvocation;
 import com.linrun.agent.domain.agent.ledger.model.DialogueRunView;
 import com.linrun.agent.domain.agent.ledger.model.DialogueRunRecoveryCommand;
+import com.linrun.agent.domain.agent.ledger.model.DialogueRunLeaseRenewalCommand;
+import com.linrun.agent.domain.agent.ledger.model.DialogueRunCancelCommand;
 import com.linrun.agent.domain.agent.ledger.model.DialogueSessionUpsertRecord;
 import com.linrun.agent.infrastructure.dao.reactor.IArtifactLedgerDao;
 import com.linrun.agent.infrastructure.dao.reactor.IDialogueRunLedgerDao;
@@ -56,6 +58,11 @@ public class ExecutionLedgerWriteRepository implements IExecutionLedgerWriteRepo
     }
 
     @Override
+    public DialogueRun queryRunById(Long runId) {
+        return dialogueRunLedgerDao.queryById(runId);
+    }
+
+    @Override
     public List<LlmInvocation> queryLlmInvocationsByRunId(Long runId) {
         return llmInvocationLedgerDao.queryByRunId(runId);
     }
@@ -78,6 +85,16 @@ public class ExecutionLedgerWriteRepository implements IExecutionLedgerWriteRepo
     @Override
     public int updateRunHeartbeat(Long runId, String requestId, LocalDateTime heartbeatAt) {
         return dialogueRunLedgerDao.updateRunHeartbeat(runId, requestId, heartbeatAt);
+    }
+
+    @Override
+    public int renewRunLease(DialogueRunLeaseRenewalCommand command) {
+        return dialogueRunLedgerDao.renewRunLease(command);
+    }
+
+    @Override
+    public int requestRunCancellation(DialogueRunCancelCommand command) {
+        return dialogueRunLedgerDao.requestRunCancellation(command);
     }
 
     @Override

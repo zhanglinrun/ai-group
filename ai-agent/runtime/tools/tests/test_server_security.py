@@ -39,7 +39,15 @@ class ReactorToolServerSecurityTest(unittest.TestCase):
     def test_tool_api_should_reject_missing_and_wrong_tokens(self):
         with patch.dict(
             os.environ,
-            {"REACTOR_TOOL_ENV": "test", "REACTOR_TOOL_TOKEN": "expected-token"},
+            {
+                "REACTOR_TOOL_ENV": "test",
+                "REACTOR_TOOL_TOKEN": "expected-token",
+                "MINIO_ENDPOINT": "",
+                "MINIO_ACCESS_KEY": "",
+                "MINIO_SECRET_KEY": "",
+                "MINIO_ROOT_USER": "",
+                "MINIO_ROOT_PASSWORD": "",
+            },
             clear=False,
         ):
             client = TestClient(create_app())
@@ -79,7 +87,15 @@ class ReactorToolServerSecurityTest(unittest.TestCase):
     def test_health_and_signed_file_reads_should_remain_public_but_mutations_require_token(self):
         with patch.dict(
             os.environ,
-            {"REACTOR_TOOL_ENV": "test", "REACTOR_TOOL_TOKEN": "expected-token"},
+            {
+                "REACTOR_TOOL_ENV": "test",
+                "REACTOR_TOOL_TOKEN": "expected-token",
+                "MINIO_ENDPOINT": "",
+                "MINIO_ACCESS_KEY": "",
+                "MINIO_SECRET_KEY": "",
+                "MINIO_ROOT_USER": "",
+                "MINIO_ROOT_PASSWORD": "",
+            },
             clear=False,
         ):
             client = TestClient(create_app())

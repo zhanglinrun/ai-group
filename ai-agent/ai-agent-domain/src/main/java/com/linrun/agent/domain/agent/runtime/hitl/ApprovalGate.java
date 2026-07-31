@@ -110,9 +110,7 @@ public class ApprovalGate {
     }
 
     public List<ToolApproval> findPending(String ownerId, String runId) {
-        return repository.findPending(ownerId, runId).stream()
-                .filter(approval -> waiters.containsKey(approval.getId()))
-                .toList();
+        return repository.findPending(ownerId, runId);
     }
 
     public boolean decide(long approvalId,
@@ -123,10 +121,6 @@ public class ApprovalGate {
             return false;
         }
         if (decision == ApprovalDecision.MODIFIED && StringUtils.isBlank(decisionPayload)) {
-            return false;
-        }
-        CompletableFuture<DecisionCommand> waiter = waiters.get(approvalId);
-        if (waiter == null) {
             return false;
         }
         boolean updated;
@@ -140,7 +134,14 @@ public class ApprovalGate {
                     approvalId, error.getClass().getSimpleName());
             return false;
         }
-        return updated && waiter.complete(new DecisionCommand(decision, decisionPayload));
+        if (!updated) {
+            return false;
+        }
+        CompletableFuture<DecisionCommand> waiter = waiters.get(approvalId);
+        if (waiter != null) {
+            waiter.complete(new DecisionCommand(decision, decisionPayload));
+        }
+        return true;
     }
 
     public void clearRunCache(String runId) {

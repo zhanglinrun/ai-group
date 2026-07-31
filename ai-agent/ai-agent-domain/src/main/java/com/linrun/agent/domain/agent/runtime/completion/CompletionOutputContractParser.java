@@ -22,6 +22,16 @@ public final class CompletionOutputContractParser {
     private static final Pattern SNAKE_CASE_FIELD =
             Pattern.compile("(?<![a-zA-Z0-9_])([a-z][a-z0-9]*(?:_[a-z0-9]+)+)(?![a-zA-Z0-9_])");
     private static final Pattern CLAUSE_END = Pattern.compile("[。！？;；\\r\\n]");
+    private static final Pattern FILE_NAME_ONLY_RESPONSE_CUE = Pattern.compile(
+            "(?iu)(?:最后|最终|final(?:ly)?)\\s*(?:只|仅|only)?\\s*"
+                    + "(?:报告|回复|返回|输出|report|reply|return|output)\\s*"
+                    + "(?:文件名|file\\s*name)");
+    private static final Pattern FILE_NAME = Pattern.compile(
+            "(?<![\\p{L}\\p{N}_.-])([\\p{L}\\p{N}][\\p{L}\\p{N}_.-]{0,240}\\.[A-Za-z0-9]{1,16})(?![\\p{L}\\p{N}_.-])");
+    private static final Pattern NUMERIC_ONLY_RESPONSE_CUE = Pattern.compile(
+            "(?iu)(?:最后|最终|final(?:ly)?)\\s*(?:只|仅|only)?\\s*"
+                    + "(?:报告|回复|返回|输出|report|reply|return|output)\\s*"
+                    + "(?:数值|数字|number|numeric(?:\\s+value)?)");
 
     public CompletionOutputContract parse(String goal) {
         if (StringUtils.isBlank(goal)) {
@@ -43,6 +53,33 @@ public final class CompletionOutputContractParser {
         return requiredFields.size() >= 2
                 ? CompletionOutputContract.of(requiredFields)
                 : CompletionOutputContract.none();
+    }
+
+    /**
+     * Returns an exact terminal reply only when the user explicitly asks to
+     * report a named artifact's filename and nothing else. This is kept
+     * separate from the field contract because a filename is a value, not a
+     * snake_case output-field label.
+     */
+    public String parseExactFinalAnswer(String goal) {
+        if (StringUtils.isBlank(goal)) {
+            return null;
+        }
+        Matcher cue = FILE_NAME_ONLY_RESPONSE_CUE.matcher(goal);
+        if (!cue.find() || isNegated(goal, cue.start())) {
+            return null;
+        }
+        Matcher fileName = FILE_NAME.matcher(goal);
+        return fileName.find() ? fileName.group(1) : null;
+    }
+
+    /** True only for an explicit final response that must contain a number and nothing else. */
+    public boolean requiresNumericOnlyFinalAnswer(String goal) {
+        if (StringUtils.isBlank(goal)) {
+            return false;
+        }
+        Matcher cue = NUMERIC_ONLY_RESPONSE_CUE.matcher(goal);
+        return cue.find() && !isNegated(goal, cue.start());
     }
 
     private int findSegmentEnd(String goal, int fromIndex) {

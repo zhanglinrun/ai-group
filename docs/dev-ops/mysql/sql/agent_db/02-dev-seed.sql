@@ -44,7 +44,7 @@ VALUES
   'dev_mcp_project_knowledge_001',
   'project-knowledge',
   'stdio',
-  '{"project-knowledge":{"command":"uv","args":["--directory","../runtime/tools","run","--frozen","python","-m","reactor_tool.mcp_servers.project_knowledge_server"],"env":{"PYTHONIOENCODING":"utf-8","PYTHONUNBUFFERED":"1"}}}',
+  '{"project-knowledge":{"command":"uv","args":["--directory","ai-agent/runtime/tools","run","--frozen","python","-m","reactor_tool.mcp_servers.project_knowledge_server"],"env":{"PYTHONIOENCODING":"utf-8","PYTHONUNBUFFERED":"1"}}}',
   30,
   1
 ),
@@ -52,7 +52,7 @@ VALUES
   'dev_mcp_agent_utility_001',
   'agent-utility',
   'stdio',
-  '{"agent-utility":{"command":"uv","args":["--directory","../runtime/tools","run","--frozen","python","-m","reactor_tool.mcp_servers.agent_utility_server"],"env":{"PYTHONIOENCODING":"utf-8","PYTHONUNBUFFERED":"1"}}}',
+  '{"agent-utility":{"command":"uv","args":["--directory","ai-agent/runtime/tools","run","--frozen","python","-m","reactor_tool.mcp_servers.agent_utility_server"],"env":{"PYTHONIOENCODING":"utf-8","PYTHONUNBUFFERED":"1"}}}',
   30,
   1
 );

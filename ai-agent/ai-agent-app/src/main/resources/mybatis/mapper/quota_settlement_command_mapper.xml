@@ -6,6 +6,7 @@
         <id column="id" property="id"/>
         <result column="user_id" property="userId"/>
         <result column="billing_request_id" property="billingRequestId"/>
+        <result column="trace_id" property="traceId"/>
         <result column="request_fingerprint" property="requestFingerprint"/>
         <result column="ability_code" property="abilityCode"/>
         <result column="requested_microcredits" property="requestedMicrocredits"/>
@@ -35,7 +36,7 @@
     </resultMap>
 
     <sql id="columns">
-        id, user_id, billing_request_id, request_fingerprint, ability_code,
+        id, user_id, billing_request_id, trace_id, request_fingerprint, ability_code,
         requested_microcredits, minimum_microcredits, freeze_id, reserved_microcredits,
         intended_action, intended_microcredits, settled_microcredits,
         llm_invocation_id, input_rate_snapshot, output_rate_snapshot, prompt_tokens,
@@ -47,7 +48,7 @@
     <insert id="insert" parameterType="com.linrun.agent.domain.agent.quota.QuotaSettlementCommand"
             useGeneratedKeys="true" keyProperty="id">
         INSERT INTO quota_settlement_command (
-            user_id, billing_request_id, request_fingerprint, ability_code,
+            user_id, billing_request_id, trace_id, request_fingerprint, ability_code,
             requested_microcredits, minimum_microcredits, freeze_id, reserved_microcredits,
             intended_action, intended_microcredits, settled_microcredits,
             llm_invocation_id, input_rate_snapshot, output_rate_snapshot, prompt_tokens,
@@ -55,7 +56,7 @@
             retry_count, next_retry_at, provider_started_at, lease_owner, lease_until, last_error, version,
             create_time, update_time
         ) VALUES (
-            #{userId}, #{billingRequestId}, #{requestFingerprint}, #{abilityCode},
+            #{userId}, #{billingRequestId}, #{traceId}, #{requestFingerprint}, #{abilityCode},
             #{requestedMicrocredits}, #{minimumMicrocredits}, #{freezeId}, #{reservedMicrocredits},
             #{intendedAction}, #{intendedMicrocredits}, #{settledMicrocredits},
             #{llmInvocationId}, #{inputRateSnapshot}, #{outputRateSnapshot}, #{promptTokens},

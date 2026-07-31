@@ -93,6 +93,17 @@ public class ExplicitToolChoicePolicyTest {
     }
 
     @Test
+    public void shouldNotTreatAnOutputFileNameAsAnUnavailableTool() {
+        List<String> available = List.of("file_tool", "report_tool");
+
+        Assert.assertNull(ExplicitToolChoicePolicy.resolveRequiredToolName(
+                "必须调用文件工具创建名为 golden_eval_note.md 的文件", 1, available));
+        Assert.assertEquals(ExplicitToolChoicePolicy.RequirementResolution.UNSPECIFIED,
+                ExplicitToolChoicePolicy.inspectRequiredTool(
+                        "必须调用文件工具创建名为 golden_eval_note.md 的文件", 1, available).resolution());
+    }
+
+    @Test
     public void shouldScopePositiveTargetAwayFromForbiddenAlternatives() {
         List<String> available = List.of(
                 "mcp__utility__utility_estimate_llm_quota",

@@ -105,8 +105,9 @@ public class AuthServiceImpl implements AuthService {
         if (!StringUtils.hasText(refreshToken)) {
             throw new BusinessException(ErrorCodeEnum.TOKEN_ERROR);
         }
-        Long userId = jwtUtils.getUserId(refreshToken);
-        String jti = jwtUtils.getJti(refreshToken);
+        Claims refreshClaims = jwtUtils.parseRefreshToken(refreshToken);
+        Long userId = jwtUtils.getUserId(refreshClaims);
+        String jti = jwtUtils.getJti(refreshClaims);
         if (userId == null || !StringUtils.hasText(jti)) {
             throw new BusinessException(ErrorCodeEnum.TOKEN_ERROR);
         }
@@ -141,7 +142,7 @@ public class AuthServiceImpl implements AuthService {
         }
         try {
             Claims claims = jwtUtils.parseAccessToken(accessToken);
-            Long userId = claims.get("userId", Long.class);
+            Long userId = jwtUtils.getUserId(claims);
             long ttlMs = jwtUtils.remainingTtlMillis(claims, jwtProperties.getAccessExpirationMs());
             stringRedisTemplate.opsForValue().set(
                     BLACKLIST_PREFIX + jwtUtils.blacklistKey(accessToken),
@@ -168,4 +169,5 @@ public class AuthServiceImpl implements AuthService {
         loginVO.setUser(userVO);
         return loginVO;
     }
+
 }

@@ -35,7 +35,7 @@ public final class StopGate {
         lastStepSignature = null;
         repeatedStepCount = 0;
         runStartedAtMillis = System.currentTimeMillis();
-        if (context != null) {
+        if (context != null && !context.hasRunDeadline()) {
             context.activateRunDeadline(effectiveBudget(budget).maxDurationMillis());
         }
     }

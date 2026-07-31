@@ -10,6 +10,9 @@ import com.linrun.agent.domain.agent.rag.ingest.DocumentIngestRequest;
 import com.linrun.agent.domain.agent.rag.ingest.DocumentIngestResult;
 import com.linrun.agent.domain.agent.rag.retrieval.HybridRetrievalHit;
 import com.linrun.agent.domain.agent.rag.retrieval.HybridRetrievalRequest;
+import com.linrun.agent.domain.agent.runtime.llm.ModelInvocationPolicy;
+import com.linrun.agent.domain.agent.runtime.artifact.ToolArtifactSource;
+import com.linrun.agent.domain.agent.runtime.stream.AgentStreamEvent;
 
 import java.util.List;
 import java.util.Map;
@@ -18,7 +21,6 @@ import java.util.Set;
 @Data
 public class AnalyzeFileTool implements BaseTool {
 
-    private static final int DIRECT_TEXT_BYTES = 200 * 1024;
     static final int MAX_DIRECT_CHARS = 30000;
     private static final Set<String> IMAGE_SUFFIXES =
             Set.of(".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp");
@@ -73,32 +75,58 @@ public class AnalyzeFileTool implements BaseTool {
         if (StringUtils.isBlank(url)) {
             throw new IllegalArgumentException("文件缺少可读取地址: " + fileName);
         }
+        emitProgress("FILE_ANALYSIS_STARTED", fileName, null, false);
         try {
             boolean image = isImage(fileName);
             String content = image ? url : filePort().readText(url, 60L);
             if (content == null) {
-                return "文件内容为空: " + fileName;
+                FileAnalysisResult empty = new FileAnalysisResult(fileName, "EMPTY", "文件内容为空", "high", false,
+                        List.of(), fileName);
+                emitProgress("FILE_ANALYSIS_COMPLETED", fileName, empty, true);
+                return empty;
             }
             var dependencies = agentContext.getRuntimeDependencies();
             if (dependencies == null || dependencies.getDocumentIngestRouter() == null) {
-                if (!image && content.length() <= MAX_DIRECT_CHARS) return content;
+                if (!image && content.length() <= MAX_DIRECT_CHARS) {
+                    FileAnalysisResult direct = new FileAnalysisResult(fileName, "DIRECT_READ", content,
+                            "low", false, List.of(content), fileName);
+                    emitProgress("FILE_ANALYSIS_COMPLETED", fileName, direct, true);
+                    return direct;
+                }
+                if (image) {
+                    FileAnalysisResult degraded = visionDegraded(fileName,
+                            "视觉模型不可用；仅保留受控附件引用，未推断图片内容。");
+                    emitProgress("FILE_ANALYSIS_COMPLETED", fileName, degraded, true);
+                    return degraded;
+                }
                 throw new IllegalStateException("analyze_file 缺少 PostgreSQL 文档摄取能力");
             }
             String ownerId = agentContext.getOwnerId() == null
                     ? agentContext.getSessionId() : String.valueOf(agentContext.getOwnerId());
-            DocumentIngestResult result = dependencies.getDocumentIngestRouter().route(
-                    DocumentIngestRequest.builder()
-                            .ownerId(ownerId)
-                            .conversationId(agentContext.getSessionId())
-                            .fileName(fileName)
-                            .mimeType(mimeType(fileName))
-                            .content(content)
-                            .build());
+            DocumentIngestResult result = ModelInvocationPolicy.withinUserInvocation(
+                    agentContext,
+                    () -> dependencies.getDocumentIngestRouter().route(
+                            DocumentIngestRequest.builder()
+                                    .ownerId(ownerId)
+                                    .conversationId(agentContext.getSessionId())
+                                    .fileName(fileName)
+                                    .mimeType(mimeType(fileName))
+                                    .content(content)
+                                    .build()));
             if (!result.isSuccess()) {
+                if (image) {
+                    FileAnalysisResult degraded = visionDegraded(fileName,
+                            "视觉分析降级：" + StringUtils.defaultIfBlank(result.getErrorMessage(), "provider unavailable"));
+                    emitProgress("FILE_ANALYSIS_COMPLETED", fileName, degraded, true);
+                    return degraded;
+                }
                 throw new IllegalStateException("文件摄取失败: " + result.getErrorMessage());
             }
             if ("DIRECT_READ".equals(result.getStrategyName()) || dependencies.getHybridRetriever() == null) {
-                return result.getReadableText();
+                FileAnalysisResult direct = result(fileName, result.getStrategyName(), result.getReadableText(), image,
+                        false, List.of(result.getReadableText()));
+                emitProgress("FILE_ANALYSIS_COMPLETED", fileName, direct, true);
+                return direct;
             }
             List<HybridRetrievalHit> hits = dependencies.getHybridRetriever().retrieve(
                     HybridRetrievalRequest.builder()
@@ -110,13 +138,41 @@ public class AnalyzeFileTool implements BaseTool {
                             .scoreThreshold(0.2d)
                             .keywordEnabled(true)
                             .build());
-            return hits.isEmpty()
-                    ? result.getReadableText()
-                    : hits.stream().map(HybridRetrievalHit::getContent)
-                            .collect(java.util.stream.Collectors.joining("\n\n---\n\n"));
+            List<String> evidence = hits.stream().map(HybridRetrievalHit::getContent)
+                    .filter(StringUtils::isNotBlank).toList();
+            String answer = evidence.isEmpty() ? result.getReadableText()
+                    : String.join("\n\n---\n\n", evidence);
+            FileAnalysisResult retrieved = result(fileName, result.getStrategyName(), answer, image, false, evidence);
+            emitProgress("FILE_ANALYSIS_COMPLETED", fileName, retrieved, true);
+            return retrieved;
         } catch (Exception e) {
+            emitProgress("FILE_ANALYSIS_FAILED", fileName, e.getClass().getSimpleName(), true);
             throw new IllegalStateException("读取文件失败: " + fileName, e);
         }
+    }
+
+    private FileAnalysisResult result(String fileName, String strategy, String answer, boolean image,
+                                      boolean degraded, List<String> evidence) {
+        String uncertainty = image
+                ? "model_generated; verify visible text and numeric values against the original attachment"
+                : "low";
+        return new FileAnalysisResult(fileName, strategy, answer, uncertainty, degraded, evidence, fileName);
+    }
+
+    private FileAnalysisResult visionDegraded(String fileName, String reason) {
+        return new FileAnalysisResult(fileName, "VLM_DEGRADED", reason,
+                "high; image content was not inferred", true, List.of(), fileName);
+    }
+
+    private void emitProgress(String lifecycleEvent, String fileName, Object detail, boolean isFinal) {
+        if (agentContext == null || agentContext.getPrinter() == null) {
+            return;
+        }
+        ToolArtifactSource source = agentContext.getCurrentToolArtifactSource();
+        agentContext.getPrinter().send(new AgentStreamEvent.StageOutput(
+                agentContext.getRequestId(), source == null ? null : source.getToolCallId(), "file_analysis",
+                Map.of("event", lifecycleEvent, "fileName", fileName, "detail", detail == null ? "" : detail),
+                List.of(Map.of("artifactReference", fileName)), isFinal));
     }
 
     private boolean isImage(String fileName) {

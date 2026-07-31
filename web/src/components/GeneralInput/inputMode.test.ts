@@ -20,7 +20,7 @@ describe('inputMode', () => {
     expect(resolveInputMode(payload.executionMode)).toBe('standard');
   });
 
-  it('深度调研模式应固定输出 Markdown 报告', () => {
+  it('深度调研模式应保留用户选择的交付格式', () => {
     expect(
       buildSubmitPayload({
         question: '帮我调研竞品',
@@ -29,7 +29,7 @@ describe('inputMode', () => {
         uploadedFiles: [],
       }),
     ).toMatchObject({
-      outputStyle: 'markdown',
+      outputStyle: 'html',
       executionMode: 'DEEP',
     });
   });

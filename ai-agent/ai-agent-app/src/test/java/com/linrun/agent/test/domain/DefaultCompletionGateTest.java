@@ -396,6 +396,24 @@ public class DefaultCompletionGateTest {
         Assert.assertTrue(decision.isCanStop());
     }
 
+    @Test
+    public void shouldAcceptSystemResearchEvidenceWhenTheCompositionTurnBlocksFurtherToolCalls() {
+        ToolInvocationContract contract = ToolInvocationContract.completionEvidenceOnly("deep_search");
+
+        CompletionDecision decision = gate.evaluate(CompletionRequest.builder()
+                .goal("研究协议用途")
+                .draftAnswer("结论仅基于已经完成的检索。")
+                .executionProfile(AgentExecutionProfile.STANDARD)
+                .toolEvidence(List.of(toolEvidence("research-call", "deep_search", true)))
+                .requiredToolName("deep_search")
+                .toolInvocationContract(contract)
+                .build());
+
+        Assert.assertTrue(decision.getReasons().toString(), decision.isCanStop());
+        Assert.assertTrue(contract.blocksModelToolCalls());
+        Assert.assertTrue(contract.allows("deep_search"));
+    }
+
     private CompletionRequest request(TodoList todoList,
                                       List<ToolExecutionEvidence> evidence,
                                       boolean reportRequired,

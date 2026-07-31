@@ -84,6 +84,27 @@ public class DialogueRun {
     /** 当前执行进程最后一次持久化心跳。 */
     private LocalDateTime heartbeatAt;
 
+    /** 当前持有 lease 的 worker；仅该 worker 可续租或写入终态。 */
+    private String ownerWorkerId;
+
+    /** 当前 worker lease 的绝对失效时间。 */
+    private LocalDateTime leaseExpiresAt;
+
+    /** 单调 fencing token，传递至 tool/checkpoint/outbox 边界。 */
+    private Long fencingToken;
+
+    /** 乐观版本，保留给外部 durable state 的 CAS 关联。 */
+    private Long version;
+
+    /** 用户显式取消的 durable intent 时间。 */
+    private LocalDateTime cancelRequestedAt;
+
+    /** 请求取消的登录用户。 */
+    private String cancelRequestedBy;
+
+    /** 首个 durable terminal transition 的时间。 */
+    private LocalDateTime terminalAt;
+
     /** 结束时间 */
     private LocalDateTime finishedAt;
 

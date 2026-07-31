@@ -30,6 +30,15 @@ public class SkillDefinition {
     private String content;
 
     @Builder.Default
+    private String version = "v1";
+
+    @Builder.Default
+    private String definitionHash = "";
+
+    @Builder.Default
+    private List<String> triggers = new ArrayList<>();
+
+    @Builder.Default
     private Map<String, Object> frontMatter = new LinkedHashMap<>();
 
     @Builder.Default

@@ -14,6 +14,7 @@
         <module>ai-agent-trigger</module>
         <module>ai-agent-infrastructure</module>
         <module>ai-agent-types</module>
+        <module>ai-agent-eval</module>
     </modules>
 
     <repositories>
@@ -39,6 +40,9 @@
         <spring-cloud-alibaba.version>2025.0.0.0</spring-cloud-alibaba.version>
         <xxl-job.version>3.4.2</xxl-job.version>
         <langgraph4j.version>1.8.20</langgraph4j.version>
+        <spring-ai.version>1.1.2</spring-ai.version>
+        <spring-ai-alibaba.version>1.1.2.2</spring-ai-alibaba.version>
+        <mcp-sdk.version>0.17.0</mcp-sdk.version>
     </properties>
 
     <developers>
@@ -130,9 +134,22 @@
             <dependency>
                 <groupId>org.springframework.ai</groupId>
                 <artifactId>spring-ai-bom</artifactId>
-                <version>1.1.8</version>
+                <version>${spring-ai.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>com.alibaba.cloud.ai</groupId>
+                <artifactId>spring-ai-alibaba-bom</artifactId>
+                <version>${spring-ai-alibaba.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <!-- Graph Core 1.1.2.2 declares MCP SDK 0.14.0 while Spring AI 1.1.2 uses 0.17.0. -->
+            <dependency>
+                <groupId>io.modelcontextprotocol.sdk</groupId>
+                <artifactId>mcp</artifactId>
+                <version>${mcp-sdk.version}</version>
             </dependency>
 
             <!-- 工程模块 -->
@@ -168,6 +185,34 @@
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <version>3.6.2</version>
+                <executions>
+                    <execution>
+                        <id>p10-runtime-dependency-guard</id>
+                        <phase>validate</phase>
+                        <goals>
+                            <goal>enforce</goal>
+                        </goals>
+                        <configuration>
+                            <rules>
+                                <requireJavaVersion>
+                                    <version>[21,22)</version>
+                                </requireJavaVersion>
+                                <!-- SAA Graph 1.1.2.2 declares MCP 0.14.0; dependencyManagement must retain this override. -->
+                                <requireProperty>
+                                    <property>mcp-sdk.version</property>
+                                    <regex>0\.17\.0</regex>
+                                    <message>P10 requires MCP SDK 0.17.0 to stay aligned with Spring AI 1.1.2.</message>
+                                </requireProperty>
+                            </rules>
+                            <fail>true</fail>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
                 <version>3.13.0</version>
                 <configuration>
@@ -193,6 +238,15 @@
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>
                 <artifactId>versions-maven-plugin</artifactId>
+            </plugin>
+            <!-- The aggregator has no runnable classes. Child modules opt in explicitly. -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.5.0</version>
+                <configuration>
+                    <skip>true</skip>
+                </configuration>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>

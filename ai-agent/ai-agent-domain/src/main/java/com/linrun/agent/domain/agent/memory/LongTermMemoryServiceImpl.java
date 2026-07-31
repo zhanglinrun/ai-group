@@ -10,10 +10,12 @@ import com.linrun.agent.domain.agent.rag.retrieval.HybridRetrievalHit;
 import com.linrun.agent.domain.agent.rag.retrieval.HybridRetrievalRequest;
 import com.linrun.agent.domain.agent.rag.retrieval.HybridRetriever;
 import com.linrun.agent.domain.agent.rag.storage.PgVectorMemoryRepository;
-import com.linrun.agent.domain.agent.rag.memory.SemanticMemoryManager;
 import com.linrun.agent.types.common.JsonUtils;
 
 import java.nio.charset.StandardCharsets;
+import java.sql.Timestamp;
+import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -22,8 +24,9 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * PostgreSQL 记忆生产入口：普通回合写 qa_pair，显式偏好/事实写用户画像，
- * 召回合并画像、会话/跨会话摘要和混合检索结果。
+ * PostgreSQL long-term-memory entry point. Only an explicit user instruction
+ * may create durable profile memory; ordinary Q&A remains run/session context
+ * and is never promoted automatically.
  */
 @Slf4j
 @Service
@@ -39,7 +42,7 @@ public class LongTermMemoryServiceImpl implements LongTermMemoryService {
     private final ReactorConfig reactorConfig;
 
     @Autowired(required = false)
-    private SemanticMemoryManager semanticMemoryManager;
+    private UserMemoryPreferenceService userMemoryPreferenceService;
 
     public LongTermMemoryServiceImpl(ObjectProvider<PgVectorMemoryRepository> memoryRepository,
                                      ObjectProvider<HybridRetriever> hybridRetriever,
@@ -51,27 +54,14 @@ public class LongTermMemoryServiceImpl implements LongTermMemoryService {
 
     @Override
     public void save(MemoryTurn turn) {
-        if (!isLongTermEnabled() || turn == null || StringUtils.isBlank(turn.ownerId())) {
+        if (turn == null || StringUtils.isBlank(turn.ownerId()) || !isLongTermEnabled(turn.ownerId())) {
             return;
         }
         long now = System.currentTimeMillis();
-        String qaContent = truncateEmbeddingText("用户: " + StringUtils.defaultString(turn.query())
-                + "\n助手: " + StringUtils.defaultString(turn.answerSummary()));
-        if (StringUtils.isNotBlank(qaContent)) {
-            Map<String, Object> metadata = Map.of(
-                    "requestId", StringUtils.defaultString(turn.requestId()),
-                    "createdAt", now,
-                    "kind", "qa-pair");
-            boolean saved = memoryRepository.saveMemory(
-                    stableUuid(turn.ownerId(), StringUtils.defaultIfBlank(turn.requestId(), qaContent)),
-                    turn.ownerId(), DOC_QA_PAIR, qaContent, metadata, turn.sessionId());
-            if (saved && semanticMemoryManager != null && StringUtils.isNotBlank(turn.sessionId())) {
-                semanticMemoryManager.mergeSessionSummary(turn.ownerId(), turn.sessionId(), qaContent);
-                semanticMemoryManager.maybeSummarizeCrossSession(turn.ownerId());
-            }
-        }
         MemoryAdmission admission = admitTurn(turn.query());
-        if (admission == null) return;
+        if (admission == null) {
+            return;
+        }
         String content = buildExplicitMemoryText(turn.query());
         if (StringUtils.isBlank(content)) return;
         LongTermMemoryEntry entry = LongTermMemoryEntry.builder()
@@ -98,17 +88,25 @@ public class LongTermMemoryServiceImpl implements LongTermMemoryService {
     }
 
     private void saveProfile(LongTermMemoryEntry entry) {
-        if (!isLongTermEnabled() || memoryRepository == null || entry == null
+        if (memoryRepository == null || entry == null
                 || StringUtils.isBlank(entry.getOwnerId())) {
+            return;
+        }
+        if (!isLongTermEnabled(entry.getOwnerId())) {
             return;
         }
         if (StringUtils.isBlank(entry.getContent()) || entry.isExpired(System.currentTimeMillis())) {
             return;
         }
         try {
+            long now = System.currentTimeMillis();
+            long retentionExpiry = now + retentionMillis(preference(entry.getOwnerId()).retentionDays());
+            long effectiveExpiry = entry.getExpiresAtEpochMillis() == null
+                    ? retentionExpiry : Math.min(entry.getExpiresAtEpochMillis(), retentionExpiry);
             boolean ok = memoryRepository.saveUserProfile(
                     entry.getOwnerId(), entry.getMemoryKey(), entry.getType().name(),
-                    entry.getContent(), entry.getConfidence(), entry.getSource());
+                    entry.getContent(), entry.getConfidence(), entry.getSource(),
+                    Instant.ofEpochMilli(effectiveExpiry));
             if (!ok) {
                 log.warn("long-term memory save returned false, ownerId={}, memoryKey={}",
                         entry.getOwnerId(), entry.getMemoryKey());
@@ -131,7 +129,7 @@ public class LongTermMemoryServiceImpl implements LongTermMemoryService {
     public List<LongTermMemoryEntry> recallEntries(String ownerId,
                                                    String currentSessionId,
                                                    String query) {
-        if (!isLongTermEnabled() || memoryRepository == null
+        if (!isLongTermEnabled(ownerId) || memoryRepository == null
                 || StringUtils.isBlank(ownerId) || StringUtils.isBlank(query)) {
             return List.of();
         }
@@ -145,7 +143,7 @@ public class LongTermMemoryServiceImpl implements LongTermMemoryService {
                     HybridRetrievalRequest.builder()
                             .ownerId(ownerId)
                             .query(query)
-                            .docTypes(List.of(DOC_QA_PAIR, "session_summary", "cross_summary"))
+                            .docTypes(List.of("session_summary", "cross_summary"))
                             .metadataFilters(Map.of())
                             .topK(Math.max(topK * 3, topK))
                             .scoreThreshold(reactorConfig.getLongTermMemoryScoreThreshold())
@@ -188,7 +186,7 @@ public class LongTermMemoryServiceImpl implements LongTermMemoryService {
 
     @Override
     public boolean delete(String ownerId, String memoryId) {
-        if (!isLongTermEnabled() || memoryRepository == null
+        if (!isLongTermFeatureAvailable() || memoryRepository == null
                 || StringUtils.isBlank(ownerId) || StringUtils.isBlank(memoryId)) {
             return false;
         }
@@ -204,6 +202,72 @@ public class LongTermMemoryServiceImpl implements LongTermMemoryService {
         } catch (Exception e) {
             log.warn("long-term memory delete failed, ownerId={}, memoryId={}", ownerId, memoryId, e);
             return false;
+        }
+    }
+
+    @Override
+    public LongTermMemoryPreference preference(String ownerId) {
+        if (StringUtils.isBlank(ownerId)) {
+            return LongTermMemoryPreference.disabled(ownerId);
+        }
+        if (userMemoryPreferenceService == null) {
+            return isLongTermFeatureAvailable()
+                    ? new LongTermMemoryPreference(ownerId, true,
+                    LongTermMemoryPreference.DEFAULT_RETENTION_DAYS, null)
+                    : LongTermMemoryPreference.disabled(ownerId);
+        }
+        return userMemoryPreferenceService.current(ownerId);
+    }
+
+    @Override
+    public LongTermMemoryPreference updatePreference(LongTermMemoryPreference preference) {
+        if (preference == null) {
+            throw new IllegalArgumentException("memory preference must not be null");
+        }
+        if (!isLongTermFeatureAvailable() || userMemoryPreferenceService == null) {
+            throw new IllegalStateException("long-term memory is unavailable");
+        }
+        return userMemoryPreferenceService.update(preference);
+    }
+
+    @Override
+    public List<LongTermMemoryEntry> listEntries(String ownerId, int limit) {
+        if (!isLongTermFeatureAvailable() || memoryRepository == null || StringUtils.isBlank(ownerId)) {
+            return List.of();
+        }
+        purgeExpired(ownerId);
+        int boundedLimit = Math.max(1, Math.min(limit, 200));
+        List<LongTermMemoryEntry> entries = new ArrayList<>();
+        for (Map<String, Object> profile : memoryRepository.getUserProfile(ownerId)) {
+            LongTermMemoryEntry entry = profileEntry(ownerId, profile);
+            if (entry != null) {
+                entries.add(entry);
+            }
+        }
+        for (Map<String, Object> semantic : memoryRepository.findMemoriesByOwner(ownerId, boundedLimit)) {
+            LongTermMemoryEntry entry = semanticEntry(ownerId, semantic);
+            if (entry != null) {
+                entries.add(entry);
+            }
+        }
+        return entries.stream()
+                .filter(entry -> !entry.isExpired(System.currentTimeMillis()))
+                .sorted(Comparator.comparing(entry -> valueOr(entry.getCreatedAtEpochMillis(), 0L), Comparator.reverseOrder()))
+                .limit(boundedLimit)
+                .toList();
+    }
+
+    @Override
+    public int purgeExpired(String ownerId) {
+        if (memoryRepository == null || StringUtils.isBlank(ownerId)) {
+            return 0;
+        }
+        try {
+            return memoryRepository.purgeExpired(ownerId);
+        } catch (Exception e) {
+            log.warn("long-term memory expiry purge failed ownerId={} errorType={}",
+                    ownerId, e.getClass().getSimpleName());
+            return 0;
         }
     }
 
@@ -281,6 +345,33 @@ public class LongTermMemoryServiceImpl implements LongTermMemoryService {
                 .source(asString(row.get("source")))
                 .confidence(clampConfidence(asDouble(row.get("confidence"))))
                 .version(1L)
+                .createdAtEpochMillis(asEpochMillis(row.get("created_at")))
+                .expiresAtEpochMillis(asEpochMillis(row.get("expires_at")))
+                .build();
+    }
+
+    private LongTermMemoryEntry semanticEntry(String ownerId, Map<String, Object> row) {
+        String id = asString(row.get("id"));
+        String content = asString(row.get("content"));
+        if (StringUtils.isAnyBlank(id, content)) {
+            return null;
+        }
+        Map<String, Object> metadata = metadata(row.get("metadata_json"));
+        long createdAt = firstPositive(asLong(metadata.get("createdAt")), asEpochMillis(row.get("created_at")));
+        long expiresAt = firstPositive(asLong(metadata.get("expiresAt")), asEpochMillis(row.get("expires_at")));
+        return LongTermMemoryEntry.builder()
+                .id(id)
+                .ownerId(ownerId)
+                .sessionId(asString(row.get("conversation_id")))
+                .requestId(asString(metadata.get("requestId")))
+                .type(LongTermMemoryType.from(metadata.get("memoryType")))
+                .memoryKey(StringUtils.defaultIfBlank(asString(metadata.get("memoryKey")), "semantic:" + id))
+                .content(content)
+                .source(StringUtils.defaultIfBlank(asString(metadata.get("source")), asString(row.get("doc_type"))))
+                .confidence(clampConfidence(defaultIfZero(asDouble(metadata.get("confidence")), 0.5d)))
+                .version(Math.max(1L, asLong(metadata.get("version"))))
+                .createdAtEpochMillis(createdAt > 0L ? createdAt : null)
+                .expiresAtEpochMillis(expiresAt > 0L ? expiresAt : null)
                 .build();
     }
 
@@ -298,10 +389,20 @@ public class LongTermMemoryServiceImpl implements LongTermMemoryService {
         return left.adjustedScore() >= right.adjustedScore() ? left : right;
     }
 
-    private boolean isLongTermEnabled() {
+    private boolean isLongTermEnabled(String ownerId) {
+        return isLongTermFeatureAvailable() && preference(ownerId).enabled();
+    }
+
+    private boolean isLongTermFeatureAvailable() {
         return Boolean.TRUE.equals(reactorConfig.getMemoryEnabled())
                 && Boolean.TRUE.equals(reactorConfig.getLongTermMemoryEnabled())
                 && memoryRepository != null;
+    }
+
+    private long retentionMillis(int retentionDays) {
+        int bounded = Math.max(LongTermMemoryPreference.MIN_RETENTION_DAYS,
+                Math.min(LongTermMemoryPreference.MAX_RETENTION_DAYS, retentionDays));
+        return bounded * 86_400_000L;
     }
 
     private int resolveTopK() {
@@ -503,6 +604,33 @@ public class LongTermMemoryServiceImpl implements LongTermMemoryService {
             return value == null ? 0L : Long.parseLong(String.valueOf(value).trim());
         } catch (NumberFormatException e) {
             return 0L;
+        }
+    }
+
+    private long asEpochMillis(Object value) {
+        if (value instanceof Timestamp timestamp) {
+            return timestamp.toInstant().toEpochMilli();
+        }
+        if (value instanceof Instant instant) {
+            return instant.toEpochMilli();
+        }
+        return asLong(value);
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> metadata(Object value) {
+        if (value instanceof Map<?, ?> map) {
+            Map<String, Object> normalized = new LinkedHashMap<>();
+            map.forEach((key, item) -> normalized.put(String.valueOf(key), item));
+            return normalized;
+        }
+        if (value == null) {
+            return Map.of();
+        }
+        try {
+            return JsonUtils.mapper().readValue(String.valueOf(value), LinkedHashMap.class);
+        } catch (Exception ignored) {
+            return Map.of();
         }
     }
 

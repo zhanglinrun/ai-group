@@ -6,9 +6,12 @@ import org.junit.Assert;
 import org.junit.Test;
 import org.mockito.Mockito;
 import org.springframework.test.util.ReflectionTestUtils;
+import com.linrun.agent.domain.agent.adapter.repository.IAgentRepository;
+import com.linrun.agent.domain.agent.model.valobj.AiClientToolMcpVO;
 import com.linrun.agent.domain.agent.runtime.dto.tool.McpToolInfo;
 import com.linrun.agent.domain.agent.runtime.tool.ToolResultPayload;
 import com.linrun.agent.domain.agent.runtime.tool.mcp.runtime.McpClientRuntime;
+import com.linrun.agent.domain.agent.runtime.tool.mcp.runtime.McpClientRuntimeFactory;
 import com.linrun.agent.domain.agent.runtime.tool.mcp.runtime.McpRegistry;
 import com.linrun.agent.domain.agent.runtime.tool.mcp.runtime.McpServerDescriptor;
 
@@ -97,8 +100,76 @@ public class McpRegistryFailureContractTest {
         Assert.assertNull(payload.getErrorMsg());
     }
 
+    @Test
+    public void shouldFailClosedWhenDeclaredMcpOutputSchemaDoesNotMatch() {
+        McpSyncClient client = Mockito.mock(McpSyncClient.class);
+        Mockito.when(client.callTool(Mockito.any(McpSchema.CallToolRequest.class)))
+                .thenReturn(McpSchema.CallToolResult.builder()
+                        .structuredContent(Map.of("count", "not-an-integer"))
+                        .isError(false)
+                        .build());
+        McpRegistry registry = registryWithClient(client, """
+                {"type":"object","properties":{"count":{"type":"integer"}},
+                 "required":["count"],"additionalProperties":false}
+                """);
+
+        ToolResultPayload payload = registry.executeTool("test-mcp", "remote_search", Map.of());
+
+        Assert.assertTrue(payload.getFailed());
+        Assert.assertTrue(payload.getErrorMsg().contains("output schema validation failed"));
+    }
+
+    @Test
+    public void shouldAcceptStructuredMcpOutputThatMatchesDeclaredSchema() {
+        McpSyncClient client = Mockito.mock(McpSyncClient.class);
+        Mockito.when(client.callTool(Mockito.any(McpSchema.CallToolRequest.class)))
+                .thenReturn(McpSchema.CallToolResult.builder()
+                        .structuredContent(Map.of("count", 2))
+                        .isError(false)
+                        .build());
+        McpRegistry registry = registryWithClient(client, """
+                {"type":"object","properties":{"count":{"type":"integer"}},
+                 "required":["count"],"additionalProperties":false}
+                """);
+
+        ToolResultPayload payload = registry.executeTool("test-mcp", "remote_search", Map.of());
+
+        Assert.assertFalse(payload.getFailed());
+        Assert.assertTrue(payload.getToolResult().contains("\"count\":2"));
+    }
+
+    @Test
+    public void shouldAttemptAnUnchangedConfiguredMcpFailureOnlyOnce() {
+        IAgentRepository repository = Mockito.mock(IAgentRepository.class);
+        McpClientRuntimeFactory runtimeFactory = Mockito.mock(McpClientRuntimeFactory.class);
+        AiClientToolMcpVO unavailable = configuredStdio("broken-stdio", "missing-runtime");
+        Mockito.when(repository.queryEnabledAiClientToolMcpVOList()).thenReturn(List.of(unavailable));
+        Mockito.when(repository.queryEnabledClientMcpIdMap(List.of("client-1")))
+                .thenReturn(Map.of("client-1", List.of("broken-stdio")));
+        Mockito.when(repository.AiClientToolMcpVOByClientIds(List.of("client-1")))
+                .thenReturn(List.of(unavailable));
+        Mockito.when(runtimeFactory.createRuntime(Mockito.any(McpServerDescriptor.class)))
+                .thenThrow(new IllegalStateException("stdio executable missing"));
+        McpRegistry registry = new McpRegistry();
+        ReflectionTestUtils.setField(registry, "repository", repository);
+        ReflectionTestUtils.setField(registry, "runtimeFactory", runtimeFactory);
+
+        registry.preloadAllEnabledMcps();
+        registry.preloadClientMcps(List.of("client-1"));
+        registry.preloadAllEnabledMcps();
+        registry.preloadClientMcps(List.of("client-1"));
+
+        Mockito.verify(runtimeFactory, Mockito.times(1))
+                .createRuntime(Mockito.any(McpServerDescriptor.class));
+    }
+
     @SuppressWarnings("unchecked")
     private McpRegistry registryWithClient(McpSyncClient client) {
+        return registryWithClient(client, null);
+    }
+
+    @SuppressWarnings("unchecked")
+    private McpRegistry registryWithClient(McpSyncClient client, String outputSchema) {
         McpRegistry registry = new McpRegistry();
         McpServerDescriptor descriptor = McpServerDescriptor.builder()
                 .mcpId("test-mcp")
@@ -118,7 +189,25 @@ public class McpRegistryFailureContractTest {
         Assert.assertNotNull(runtimeCache);
         Assert.assertNotNull(toolCache);
         runtimeCache.put("test-mcp", runtime);
-        toolCache.put("test-mcp", List.of());
+        toolCache.put("test-mcp", outputSchema == null ? List.of() : List.of(McpToolInfo.builder()
+                .mcpId("test-mcp")
+                .name("remote_search")
+                .exposedName("mcp__test_mcp__remote_search")
+                .outputSchema(outputSchema)
+                .build()));
         return registry;
+    }
+
+    private AiClientToolMcpVO configuredStdio(String id, String command) {
+        AiClientToolMcpVO.TransportConfigStdio.Stdio stdio = new AiClientToolMcpVO.TransportConfigStdio.Stdio();
+        stdio.setCommand(command);
+        return AiClientToolMcpVO.builder()
+                .mcpId(id)
+                .mcpName(id)
+                .transportType(McpServerDescriptor.TRANSPORT_TYPE_STDIO)
+                .transportConfigStdio(AiClientToolMcpVO.TransportConfigStdio.builder()
+                        .stdio(Map.of(id, stdio))
+                        .build())
+                .build();
     }
 }

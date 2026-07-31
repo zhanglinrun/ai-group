@@ -17,7 +17,10 @@ vi.mock('antd', () => ({
 }));
 
 vi.mock('lucide-react', () => ({
+  ClipboardCheck: () => null,
+  ExternalLink: () => null,
   FileArchive: () => null,
+  ListTree: () => null,
   Plus: () => null,
   Trash2: () => null,
   Upload: () => null,
@@ -30,6 +33,8 @@ describe('SystemExtensionsPanel', () => {
     expect(html).toContain('系统扩展');
     expect(html).toContain('系统 Skills');
     expect(html).toContain('不会展示在用户端');
+    expect(html).toContain('Tool Registry');
+    expect(html).toContain('载入隔离 Demo 数据');
     expect(html).not.toContain('我的 Skills 与 MCP');
   });
 });

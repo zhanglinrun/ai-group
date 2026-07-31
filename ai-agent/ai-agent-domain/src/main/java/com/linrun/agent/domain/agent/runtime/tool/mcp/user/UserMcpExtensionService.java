@@ -11,7 +11,6 @@ import com.linrun.agent.domain.agent.runtime.tool.mcp.runtime.McpServerDescripto
 import com.linrun.agent.domain.agent.runtime.tool.mcp.runtime.McpToolOrigin;
 
 import java.io.IOException;
-import java.net.InetAddress;
 import java.net.URI;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
@@ -31,6 +30,7 @@ public class UserMcpExtensionService {
     };
 
     private final McpRegistry mcpRegistry;
+    private final UserMcpEndpointPolicy endpointPolicy = new UserMcpEndpointPolicy();
     private final Map<String, Object> ownerLocks = new ConcurrentHashMap<>();
 
     @Value("${autobots.autoagent.user-extensions.directory:runtime/user-extensions}")
@@ -144,32 +144,7 @@ public class UserMcpExtensionService {
                 && !McpServerDescriptor.TRANSPORT_TYPE_STREAMABLE_HTTP.equals(transport)) {
             throw new IllegalArgumentException("用户 MCP 仅支持 SSE 或 Streamable HTTP");
         }
-        validatePublicUrl(config.getServerUrl());
-    }
-
-    private void validatePublicUrl(String rawUrl) {
-        try {
-            URI uri = URI.create(rawUrl.trim());
-            if (!"https".equalsIgnoreCase(uri.getScheme()) && !"http".equalsIgnoreCase(uri.getScheme())) {
-                throw new IllegalArgumentException("MCP 地址仅支持 HTTP/HTTPS");
-            }
-            if (StringUtils.isBlank(uri.getHost()) || uri.getUserInfo() != null) {
-                throw new IllegalArgumentException("MCP 地址格式非法");
-            }
-            for (InetAddress address : InetAddress.getAllByName(uri.getHost())) {
-                if (address.isAnyLocalAddress()
-                        || address.isLoopbackAddress()
-                        || address.isLinkLocalAddress()
-                        || address.isSiteLocalAddress()
-                        || address.isMulticastAddress()) {
-                    throw new IllegalArgumentException("MCP 地址不能指向本机或内网");
-                }
-            }
-        } catch (IllegalArgumentException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new IllegalArgumentException("无法解析 MCP 地址");
-        }
+        endpointPolicy.validate(config);
     }
 
     private String normalizeTransport(String value) {

@@ -5,7 +5,7 @@ import ipaddress
 import os
 import re
 import socket
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import unquote, urljoin, urlparse
 
@@ -14,6 +14,10 @@ import trafilatura
 from bs4 import BeautifulSoup
 
 from reactor_tool.model.protocal import WebFetchRequest
+from reactor_tool.untrusted_content import (
+    detect_untrusted_content_risk_signals,
+    wrap_untrusted_web_content,
+)
 
 
 DEFAULT_TIMEOUT_SECONDS = 30
@@ -87,6 +91,7 @@ class WebFetchResult:
     content_source: str
     metadata: dict[str, Any]
     file_name: str
+    risk_signals: list[str] = field(default_factory=list)
 
     def to_response_data(self) -> dict[str, Any]:
         """组装统一 data 结构，避免 API 层重复拼装字段。"""
@@ -99,6 +104,8 @@ class WebFetchResult:
             "truncated": self.truncated,
             "contentSource": self.content_source,
             "metadata": self.metadata,
+            "contentTrust": "UNTRUSTED",
+            "riskSignals": self.risk_signals,
         }
 
 
@@ -122,17 +129,24 @@ class WebFetcher:
         normalized_title = extracted.title or self._build_title_from_url(page.final_url)
         file_name = self._build_file_name(normalized_title, page.final_url)
         inline_content, truncated = self._truncate_content(extracted.content)
+        risk_signals = detect_untrusted_content_risk_signals(extracted.content)
+        metadata = {
+            **extracted.metadata,
+            "contentTrust": "UNTRUSTED",
+            "riskSignals": risk_signals,
+        }
         return WebFetchResult(
             title=normalized_title,
             final_url=page.final_url,
             full_content=extracted.content,
-            inline_content=inline_content,
+            inline_content=wrap_untrusted_web_content(inline_content),
             content_format=extracted.content_format,
             word_count=self._count_words(extracted.content),
             truncated=truncated,
             content_source=extracted.content_source,
-            metadata=extracted.metadata,
+            metadata=metadata,
             file_name=file_name,
+            risk_signals=risk_signals,
         )
 
     async def _download_page(self, url: str, timeout_seconds: int) -> DownloadedPage:

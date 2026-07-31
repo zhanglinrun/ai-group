@@ -170,12 +170,40 @@ create table if not exists ai_client_tool_mcp (
   transport_type varchar(32) default null comment '传输类型',
   transport_config text comment '传输配置JSON',
   request_timeout int default null comment '请求超时时间',
+  protocol_version varchar(32) not null default '2025-03-26' comment 'MCP协议版本',
+  oauth_audience varchar(255) default null comment 'OAuth audience',
+  oauth_scopes_json text comment 'OAuth scopes JSON',
+  allowed_domains_json text comment '出站允许域名 JSON',
+  tool_allowlist_json text comment 'MCP 工具 allowlist JSON',
+  credential_ref varchar(255) default null comment '服务端密钥引用，不保存密钥值',
+  version varchar(64) not null default 'v1' comment '管理员配置版本',
+  config_hash varchar(72) default null comment '管理员配置SHA-256',
   status tinyint(1) default 1 comment '状态(0:禁用,1:启用)',
   create_time datetime default current_timestamp comment '创建时间',
   update_time datetime default current_timestamp on update current_timestamp comment '更新时间',
   primary key (id),
   unique key uk_mcp_id (mcp_id)
 ) engine=InnoDB default charset=utf8mb4 comment='MCP工具配置表';
+
+create table if not exists context_snapshot (
+  id bigint not null auto_increment comment '主键ID',
+  tenant_id varchar(64) not null comment '租户ID',
+  owner_id varchar(64) not null comment '用户ID',
+  session_id varchar(64) not null comment '会话ID',
+  run_id bigint not null comment 'Run ID',
+  revision bigint not null comment '快照CAS版本',
+  snapshot_json longtext not null comment '结构化摘要，不保存原始Prompt或隐藏思维链',
+  snapshot_hash varchar(72) not null comment '快照SHA-256',
+  summary_model varchar(128) not null comment '摘要模型或deterministic',
+  summary_version varchar(64) not null comment '摘要版本',
+  source_hash varchar(72) default null comment '来源hash',
+  summary_degraded tinyint(1) not null default 0 comment 'L2摘要降级标记',
+  created_at datetime not null default current_timestamp comment '创建时间',
+  updated_at datetime not null default current_timestamp on update current_timestamp comment '更新时间',
+  primary key (id),
+  unique key uk_context_snapshot_identity (tenant_id, owner_id, session_id, run_id),
+  key idx_context_snapshot_owner_updated (tenant_id, owner_id, updated_at)
+) engine=InnoDB default charset=utf8mb4 comment='P70结构化上下文快照';
 
 create table if not exists dialogue_session (
   id bigint not null auto_increment comment '主键',
@@ -224,6 +252,13 @@ create table if not exists dialogue_run (
   started_at datetime default null comment '开始时间',
   deadline_at datetime default null comment '运行绝对截止时间',
   heartbeat_at datetime default null comment '执行进程最后心跳时间',
+  owner_worker_id varchar(128) default null comment '当前持有运行租约的worker',
+  lease_expires_at datetime default null comment 'worker租约失效时间',
+  fencing_token bigint not null default 1 comment '运行租约fencing token',
+  version bigint not null default 1 comment '运行状态CAS版本',
+  cancel_requested_at datetime default null comment '用户取消请求时间',
+  cancel_requested_by varchar(64) default null comment '取消请求用户ID',
+  terminal_at datetime default null comment '首个终态写入时间',
   finished_at datetime default null comment '结束时间',
   duration_ms bigint default null comment '总耗时(毫秒)',
   create_time datetime not null default current_timestamp comment '创建时间',
@@ -233,7 +268,9 @@ create table if not exists dialogue_run (
   unique key uk_request_id (request_id),
   key idx_session_started (session_id, started_at),
   key idx_run_uid (run_uid),
-  key idx_run_recovery (status, deadline_at, heartbeat_at)
+  key idx_run_recovery (status, deadline_at, heartbeat_at),
+  key idx_run_lease (status, lease_expires_at),
+  key idx_run_owner_cancel (owner_id, cancel_requested_at)
 ) engine=InnoDB default charset=utf8mb4 comment='单次对话执行总账';
 
 create table if not exists llm_invocation (
@@ -245,6 +282,12 @@ create table if not exists llm_invocation (
   call_kind varchar(32) default null comment '调用类型',
   streaming int default null comment '是否流式',
   model_name varchar(128) default null comment '模型名',
+  cost_owner varchar(32) not null default 'USER_QUOTA' comment 'USER_QUOTA或PLATFORM_COST',
+  prompt_hash varchar(64) default null comment '请求prompt的SHA-256',
+  model_parameters_json text comment '去密后的模型参数快照',
+  tool_snapshot_json longtext comment '工具schema快照',
+  skill_snapshot_json longtext comment '技能快照',
+  config_hash varchar(64) default null comment '配置与能力快照的SHA-256',
   response_text longtext comment '完整响应文本',
   tool_call_count int default 0 comment '工具调用数量',
   prompt_tokens int default 0 comment 'prompt token',
@@ -260,6 +303,7 @@ create table if not exists llm_invocation (
   started_at datetime default null comment '开始时间',
   finished_at datetime default null comment '结束时间',
   duration_ms bigint default null comment '耗时(毫秒)',
+  provider_latency_ms bigint default null comment 'provider调用耗时(毫秒)',
   create_time datetime not null default current_timestamp comment '创建时间',
   update_time datetime not null default current_timestamp on update current_timestamp comment '更新时间',
   deleted int not null default 0 comment '逻辑删除标记',
@@ -271,6 +315,7 @@ create table if not exists quota_settlement_command (
   id bigint not null auto_increment comment '主键',
   user_id bigint not null comment '额度账户用户',
   billing_request_id varchar(64) not null comment 'member侧稳定幂等键',
+  trace_id varchar(64) default null comment '来源Run的分布式Trace标识',
   request_fingerprint varchar(64) not null comment '预扣不可变载荷指纹',
   ability_code varchar(64) not null comment '计费能力',
   requested_microcredits bigint not null comment '请求预扣上限',
@@ -339,6 +384,11 @@ create table if not exists tool_invocation (
   step_no int default null comment '当前步号',
   tool_name varchar(128) default null comment '工具名称',
   tool_provider varchar(32) default null comment '工具来源',
+  operation_key varchar(128) default null comment '规范化工具操作幂等键',
+  execution_mode varchar(16) default null comment 'EXECUTED/REUSED',
+  source_invocation_id bigint default null comment '复用结果的来源工具调用',
+  durable_status varchar(32) default null comment 'Durable Tool状态投影',
+  durable_fencing_token bigint default null comment 'Worker fencing token',
   input_json longtext comment '入参JSON',
   tool_result longtext comment '面向用户与历史回放的原始工具结果',
   llm_observation longtext comment '主智能体observation',
@@ -347,11 +397,15 @@ create table if not exists tool_invocation (
   started_at datetime default null comment '开始时间',
   finished_at datetime default null comment '结束时间',
   duration_ms bigint default null comment '耗时(毫秒)',
+  durable_lease_expires_at datetime default null comment 'Worker租约截止时间',
   create_time datetime not null default current_timestamp comment '创建时间',
   update_time datetime not null default current_timestamp on update current_timestamp comment '更新时间',
   deleted int not null default 0 comment '逻辑删除标记',
   primary key (id),
   key idx_run_dispatch (run_id, dispatch_index),
+  unique key uk_tool_invocation_run_tool_call (run_id, tool_call_id),
+  key idx_tool_operation (run_id, operation_key),
+  key idx_tool_durable_lease (durable_status, durable_lease_expires_at),
   key idx_llm_invocation_id (llm_invocation_id),
   key idx_tool_name_started (tool_name, started_at)
 ) engine=InnoDB default charset=utf8mb4 comment='单次工具调用账本';
@@ -677,4 +731,24 @@ create table if not exists agent_stream_event (
   primary key (sequence_no),
   key idx_agent_stream_event_request_sequence (request_id, sequence_no)
 ) engine=InnoDB default charset=utf8mb4 comment='Agent canonical SSE事件账本';
+
+-- P30 durable SSE event ledger. agent_stream_event remains read-only legacy history;
+-- all new events are ordered independently inside their owning dialogue_run.
+create table if not exists run_event (
+  id bigint not null auto_increment comment '主键',
+  run_id bigint not null comment '所属dialogue_run',
+  event_seq bigint not null comment 'run内严格递增事件序号',
+  event_type varchar(64) not null comment 'SSE event名称',
+  trace_id varchar(128) default null comment '关联trace标识',
+  span_id varchar(128) default null comment '关联span标识',
+  payload_json longtext not null comment 'canonical事件JSON',
+  payload_summary varchar(1024) default null comment '不含载荷正文的事件摘要',
+  payload_hash char(64) not null comment 'payload SHA-256',
+  terminal_marker tinyint default null comment '终态唯一标识；NULL表示非终态',
+  created_at datetime not null default current_timestamp comment '创建时间',
+  primary key (id),
+  unique key uk_run_event_sequence (run_id, event_seq),
+  unique key uk_run_event_terminal (run_id, terminal_marker),
+  key idx_run_event_created (run_id, created_at)
+) engine=InnoDB default charset=utf8mb4 comment='按运行持久化的Agent SSE事件账本';
 

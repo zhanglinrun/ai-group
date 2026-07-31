@@ -34,11 +34,17 @@ public class AgentSessionPrinter implements Printer, ReplayFrameSink {
         if (event == null) {
             return;
         }
+        long eventSequence = -1L;
         if (eventStore != null) {
-            eventStore.append(request.getRequestId(), event.type(), JsonUtils.toJson(event));
+            eventSequence = eventStore.appendAndGetSequence(
+                    request.getRequestId(), event.type(), JsonUtils.toJson(event));
         }
         try {
-            stream.send(event.type(), event);
+            if (eventSequence > 0L) {
+                stream.send(event.type(), String.valueOf(eventSequence), event);
+            } else {
+                stream.send(event.type(), event);
+            }
         } catch (Exception error) {
             log.error("{} canonical stream send failed type={} errorType={}",
                     request == null ? null : request.getRequestId(), event.type(),

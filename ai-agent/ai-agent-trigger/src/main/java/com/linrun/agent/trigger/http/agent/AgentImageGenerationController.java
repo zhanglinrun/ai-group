@@ -127,10 +127,10 @@ public class AgentImageGenerationController {
                     .build();
         } catch (Exception e) {
             memberQuotaBillingService.release(freezeId);
-            log.error("生图工作台生成失败", e);
+            log.error("生图工作台生成失败 errorType={}", e.getClass().getSimpleName());
             return Response.<WorkspaceImageGenerationRespVO>builder()
                     .code(ResponseCode.UN_ERROR.getCode())
-                    .info(e.getMessage())
+                    .info(ResponseCode.UN_ERROR.getInfo())
                     .build();
         }
     }
@@ -160,10 +160,10 @@ public class AgentImageGenerationController {
                     .info(e.getMessage())
                     .build();
         } catch (Exception e) {
-            log.error("查询生图历史失败", e);
+            log.error("查询生图历史失败 errorType={}", e.getClass().getSimpleName());
             return Response.<PageRespVO<WorkspaceImageHistoryBatchRespVO>>builder()
                     .code(ResponseCode.UN_ERROR.getCode())
-                    .info(e.getMessage())
+                    .info(ResponseCode.UN_ERROR.getInfo())
                     .build();
         }
     }

@@ -1,29 +1,22 @@
 package com.aigroup.common.config;
 
-import lombok.extern.slf4j.Slf4j;
+import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.env.Environment;
-import jakarta.annotation.PostConstruct;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
-/**
- * Fail fast when production profile uses insecure default secrets.
- */
-@Slf4j
+/** Rejects unsafe placeholder credentials without adding a second authentication protocol. */
 @Component
 public class ProductionSecurityValidator {
 
-    private static final String DEV_JWT_SECRET = "change-me-to-a-long-random-secret";
-    private static final String DEV_INTERNAL_TOKEN = "change-me-to-a-long-random-internal-token";
-
-    @Value("${jwt.secret:}")
-    private String jwtSecret;
+    private final Environment environment;
 
     @Value("${ai-group.internal.token:}")
     private String internalToken;
 
-    private final Environment environment;
+    @Value("${ai-agent.debug-endpoints.enabled:false}")
+    private boolean debugEndpointsEnabled;
 
     public ProductionSecurityValidator(Environment environment) {
         this.environment = environment;
@@ -32,22 +25,15 @@ public class ProductionSecurityValidator {
     @PostConstruct
     public void validate() {
         if (isLocalProfile()) {
-            log.info("Local security profile detected; secret validation delegated to explicit local configuration");
             return;
         }
-        if (!StringUtils.hasText(jwtSecret)
-                || jwtSecret.length() < 32
-                || jwtSecret.contains("change-in-prod")
-                || DEV_JWT_SECRET.equals(jwtSecret)) {
-            throw new IllegalStateException("JWT secret must be configured with at least 32 random characters outside local profiles");
+        if (StringUtils.hasText(internalToken)
+                && (internalToken.length() < 32 || internalToken.contains("change-in-prod"))) {
+            throw new IllegalStateException("Internal token must be a random value of at least 32 characters");
         }
-        if (!StringUtils.hasText(internalToken)
-                || internalToken.length() < 32
-                || internalToken.contains("change-in-prod")
-                || DEV_INTERNAL_TOKEN.equals(internalToken)) {
-            throw new IllegalStateException("Internal token must be configured with at least 32 random characters outside local profiles");
+        if (debugEndpointsEnabled) {
+            throw new IllegalStateException("Agent debug endpoints must be disabled outside local profiles");
         }
-        log.info("Non-local security configuration validated");
     }
 
     private boolean isLocalProfile() {
@@ -56,8 +42,7 @@ public class ProductionSecurityValidator {
             return false;
         }
         for (String profile : profiles) {
-            if (!"local".equalsIgnoreCase(profile)
-                    && !"dev".equalsIgnoreCase(profile)
+            if (!"local".equalsIgnoreCase(profile) && !"dev".equalsIgnoreCase(profile)
                     && !"test".equalsIgnoreCase(profile)) {
                 return false;
             }

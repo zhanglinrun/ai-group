@@ -46,6 +46,13 @@ public class ToolInvocationBatchStartRecord {
 
         private String toolProvider;
 
+        private String operationKey;
+
+        @Builder.Default
+        private String executionMode = "EXECUTED";
+
+        private Long sourceInvocationId;
+
         private String inputJson;
 
         private LocalDateTime startedAt;

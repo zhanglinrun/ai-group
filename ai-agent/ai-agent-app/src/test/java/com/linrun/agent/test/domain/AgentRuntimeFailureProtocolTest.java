@@ -19,7 +19,9 @@ import com.linrun.agent.domain.agent.runtime.agent.AgentLoop;
 import com.linrun.agent.domain.agent.runtime.enums.AgentState;
 import com.linrun.agent.domain.agent.runtime.enums.AgentStopReason;
 import com.linrun.agent.domain.agent.runtime.AgentRuntime;
-import com.linrun.agent.domain.agent.runtime.deepresearch.DeepResearchGraphRunner;
+import com.linrun.agent.domain.agent.runtime.deepresearch.DeepResearchResult;
+import com.linrun.agent.domain.agent.runtime.deepresearch.graph.GraphRunHandle;
+import com.linrun.agent.domain.agent.runtime.deepresearch.graph.GraphPort;
 import com.linrun.agent.domain.agent.runtime.llm.LLMSettings;
 import com.linrun.agent.domain.agent.reactor.config.ReactorConfig;
 import com.linrun.agent.domain.agent.runtime.printer.Printer;
@@ -29,6 +31,7 @@ import com.linrun.agent.domain.agent.runtime.tool.ToolCollection;
 import com.linrun.agent.domain.agent.runtime.tool.factory.AgentToolCollectionFactory;
 
 import java.util.Map;
+import java.util.List;
 
 /** Canonical terminal protocol must survive unexpected harness initialization failures. */
 public class AgentRuntimeFailureProtocolTest {
@@ -293,16 +296,16 @@ public class AgentRuntimeFailureProtocolTest {
         ReactorRuntimeDependencies runtimeDependencies = Mockito.mock(ReactorRuntimeDependencies.class);
         stubLlm(runtimeDependencies);
         AgentLoopFactory loopFactory = Mockito.mock(AgentLoopFactory.class);
-        DeepResearchGraphRunner deepResearchGraphRunner = Mockito.mock(DeepResearchGraphRunner.class);
+        GraphPort deepResearchGraphPort = Mockito.mock(GraphPort.class);
         Printer printer = Mockito.mock(Printer.class);
         Mockito.when(recorder.claimRun(Mockito.any())).thenReturn(newClaim(48L, "req-deep-quota"));
         Mockito.when(toolFactory.buildForUnified(Mockito.any(), Mockito.any()))
                 .thenReturn(new ToolCollection());
-        Mockito.when(deepResearchGraphRunner.run(Mockito.any(), Mockito.any()))
+        Mockito.when(deepResearchGraphPort.start(Mockito.any()))
                 .thenThrow(new QuotaInsufficientException("额度不足，无法支持最少256个输出Token"));
 
         AgentRuntime runner = new AgentRuntime(toolFactory, recorder, runtimeDependencies,
-                loopFactory, deepResearchGraphRunner);
+                loopFactory, deepResearchGraphPort);
         String answer = runner.run(AgentRequest.builder()
                 .requestId("req-deep-quota")
                 .sessionId("session-deep-quota")
@@ -327,6 +330,80 @@ public class AgentRuntimeFailureProtocolTest {
                         && Integer.valueOf(ExecutionLedgerConstants.STATUS_FAILED).equals(record.getStatus())
                         && "QUOTA_INSUFFICIENT".equals(record.getErrorCode())
                         && record.getErrorMsg().contains("额度不足")));
+    }
+
+    @Test
+    public void shouldCompleteWhenDeliveredDeepResearchExplicitlyMarksEvidenceUncertainty() throws Exception {
+        AgentToolCollectionFactory toolFactory = Mockito.mock(AgentToolCollectionFactory.class);
+        AgentExecutionRecorder recorder = Mockito.mock(AgentExecutionRecorder.class);
+        ReactorRuntimeDependencies runtimeDependencies = Mockito.mock(ReactorRuntimeDependencies.class);
+        stubLlm(runtimeDependencies);
+        ReactorConfig reactorConfig = Mockito.mock(ReactorConfig.class);
+        Mockito.when(runtimeDependencies.requireReactorConfig()).thenReturn(reactorConfig);
+        Mockito.when(reactorConfig.getAgentLoopModelName()).thenReturn("test-model");
+        AgentLoopFactory loopFactory = Mockito.mock(AgentLoopFactory.class);
+        GraphPort deepResearchGraphPort = Mockito.mock(GraphPort.class);
+        Printer printer = Mockito.mock(Printer.class);
+        Mockito.when(recorder.claimRun(Mockito.any())).thenReturn(newClaim(50L, "req-deep-degraded-delivery"));
+        Mockito.when(toolFactory.buildForUnified(Mockito.any(), Mockito.any())).thenReturn(new ToolCollection());
+        DeepResearchResult result = new DeepResearchResult(
+                "Deep Research report completed with explicit uncertainty", "# Report", "artifact-report",
+                "DEGRADED", 0.75D, 6, 1000, 1,
+                List.of(Map.of("resourceKey", "artifact-report")), true);
+        Mockito.when(deepResearchGraphPort.start(Mockito.any())).thenReturn(
+                new GraphRunHandle("saa-deep-research", "thread-degraded", result, false));
+
+        AgentRuntime runner = new AgentRuntime(toolFactory, recorder, runtimeDependencies, loopFactory, deepResearchGraphPort);
+        String answer = runner.run(AgentRequest.builder()
+                .requestId("req-deep-degraded-delivery")
+                .sessionId("session-deep-degraded-delivery")
+                .ownerId("1001")
+                .query("深度调研一个低证据主题")
+                .executionMode("DEEP")
+                .build(), printer);
+
+        Assert.assertEquals("Deep Research report completed with explicit uncertainty", answer);
+        Mockito.verify(printer).send(Mockito.argThat(event -> event instanceof AgentStreamEvent.Complete complete
+                && "Deep Research report completed with explicit uncertainty".equals(complete.summary())));
+        Mockito.verify(printer, Mockito.never()).send(Mockito.argThat(event -> event instanceof AgentStreamEvent.Error));
+        Mockito.verify(recorder).finishRun(Mockito.argThat((DialogueRunFinishRecord record) ->
+                record != null && Integer.valueOf(ExecutionLedgerConstants.STATUS_SUCCESS).equals(record.getStatus())
+                        && record.getErrorCode() == null));
+    }
+
+    @Test
+    public void shouldEmitTypedQuotaFailureWhenStandardLoopCannotReserveQuota() throws Exception {
+        AgentToolCollectionFactory toolFactory = Mockito.mock(AgentToolCollectionFactory.class);
+        AgentExecutionRecorder recorder = Mockito.mock(AgentExecutionRecorder.class);
+        ReactorRuntimeDependencies runtimeDependencies = Mockito.mock(ReactorRuntimeDependencies.class);
+        stubLlm(runtimeDependencies);
+        AgentLoopFactory loopFactory = Mockito.mock(AgentLoopFactory.class);
+        AgentLoop loop = Mockito.mock(AgentLoop.class);
+        Printer printer = Mockito.mock(Printer.class);
+        Mockito.when(recorder.claimRun(Mockito.any())).thenReturn(newClaim(49L, "req-standard-quota"));
+        Mockito.when(toolFactory.buildForUnified(Mockito.any(), Mockito.any()))
+                .thenReturn(new ToolCollection());
+        Mockito.when(loopFactory.create(Mockito.any())).thenReturn(loop);
+        Mockito.when(loop.run(Mockito.anyString()))
+                .thenThrow(new QuotaInsufficientException("额度不足，无法支持最少256个输出Token"));
+
+        AgentRuntime runner = new AgentRuntime(toolFactory, recorder, runtimeDependencies, loopFactory);
+        String answer = runner.run(AgentRequest.builder()
+                .requestId("req-standard-quota")
+                .sessionId("session-standard-quota")
+                .ownerId("1001")
+                .query("直接回答：1+1 等于几？")
+                .executionMode("STANDARD")
+                .build(), printer);
+
+        Assert.assertEquals("", answer);
+        Mockito.verify(printer).send(Mockito.argThat(event -> event instanceof AgentStreamEvent.Error failure
+                && "QUOTA_INSUFFICIENT".equals(failure.code())
+                && failure.message().contains("额度不足")));
+        Mockito.verify(recorder).finishRun(Mockito.argThat((DialogueRunFinishRecord record) ->
+                record != null
+                        && Integer.valueOf(ExecutionLedgerConstants.STATUS_FAILED).equals(record.getStatus())
+                        && "QUOTA_INSUFFICIENT".equals(record.getErrorCode())));
     }
 
     @Test

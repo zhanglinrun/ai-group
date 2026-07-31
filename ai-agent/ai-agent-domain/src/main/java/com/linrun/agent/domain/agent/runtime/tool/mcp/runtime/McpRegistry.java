@@ -15,8 +15,14 @@ import com.linrun.agent.domain.agent.adapter.repository.IAgentRepository;
 import com.linrun.agent.domain.agent.model.valobj.AiClientToolMcpVO;
 import com.linrun.agent.domain.agent.runtime.dto.tool.McpToolInfo;
 import com.linrun.agent.domain.agent.runtime.tool.ToolResultPayload;
+import com.linrun.agent.domain.agent.runtime.tool.dispatch.ToolInputSchemaValidator;
+import com.linrun.agent.domain.agent.runtime.tool.mcp.user.UserMcpEndpointPolicy;
 
 import java.lang.reflect.Array;
+import java.net.URI;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -24,8 +30,10 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
@@ -41,6 +49,9 @@ public class McpRegistry {
      * MCP SDK 大量使用 Java record，使用 Jackson 序列化更稳定。
      */
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+
+    private final UserMcpEndpointPolicy userMcpEndpointPolicy = new UserMcpEndpointPolicy();
+    private final McpToolMetadataPolicy toolMetadataPolicy = new McpToolMetadataPolicy();
 
     @Resource
     private IAgentRepository repository;
@@ -62,6 +73,18 @@ public class McpRegistry {
      * fix 策略使用的 ToolCallback 缓存：key 为 mcpId。
      */
     private final Map<String, List<ToolCallback>> toolCallbackCache = new ConcurrentHashMap<>();
+
+    /**
+     * Last successfully initialized configured-MCP snapshot by id. A snapshot change is the
+     * explicit invalidation signal; repeated armory assembly must not reconnect unchanged MCPs.
+     */
+    private final Map<String, String> loadedConfigFingerprints = new ConcurrentHashMap<>();
+
+    /**
+     * Negative cache for configured MCP startup failures. Broken trusted STDIO configuration must
+     * become an unavailable tool, not add one request-timeout to every Agent branch.
+     */
+    private final Map<String, String> failedConfigFingerprints = new ConcurrentHashMap<>();
 
     /**
      * 客户端与 MCP 绑定关系缓存：key 为 clientId。
@@ -211,6 +234,7 @@ public class McpRegistry {
      * 注册或复用一个已经通过上层安全校验的用户远程 MCP。
      */
     public synchronized List<McpToolInfo> ensureExternalDescriptor(McpServerDescriptor descriptor) {
+        userMcpEndpointPolicy.pin(descriptor);
         String mcpId = descriptor == null ? null : descriptor.getMcpId();
         if (StringUtils.isBlank(mcpId)) {
             throw new IllegalArgumentException("用户 MCP ID 不能为空");
@@ -235,6 +259,9 @@ public class McpRegistry {
         McpClientRuntime runtime = runtimeCache.remove(mcpId);
         toolCache.remove(mcpId);
         toolCallbackCache.remove(mcpId);
+        loadedConfigFingerprints.remove(mcpId);
+        failedConfigFingerprints.remove(mcpId);
+        userMcpEndpointPolicy.forget(mcpId);
         closeQuietly(runtime, null);
     }
 
@@ -315,8 +342,14 @@ public class McpRegistry {
         }
 
         try {
+            userMcpEndpointPolicy.validatePinned(runtime.getDescriptor());
+            validateConfiguredDescriptor(runtime.getDescriptor());
             McpSchema.CallToolResult result = callToolWithRuntime(runtime, toolName, args);
-            return formatToolResult(toolName, runtime.getDescriptor(), result);
+            McpToolInfo toolInfo = toolCache.getOrDefault(mcpId, List.of()).stream()
+                    .filter(candidate -> candidate != null && StringUtils.equals(candidate.getName(), toolName))
+                    .findFirst()
+                    .orElse(null);
+            return formatToolResult(toolName, runtime.getDescriptor(), toolInfo, result);
         } catch (Exception e) {
             log.error("MCP 工具执行失败: mcpId={}, toolName={}, reason={}",
                     mcpId, toolName, e.getMessage(), e);
@@ -339,19 +372,104 @@ public class McpRegistry {
 
             try {
                 McpServerDescriptor descriptor = buildDescriptor(mcpVO);
+                validateConfiguredDescriptor(descriptor);
+                String mcpId = mcpVO.getMcpId();
+                String fingerprint = configurationFingerprint(descriptor);
+                if (isCurrentRuntime(mcpId, fingerprint) || isKnownUnavailable(mcpId, fingerprint)) {
+                    continue;
+                }
+                evictChangedRuntime(mcpId);
                 McpClientRuntime runtime = runtimeFactory.createRuntime(descriptor);
                 List<McpToolInfo> tools = discoverTools(runtime);
 
-                McpClientRuntime oldRuntime = runtimeCache.put(mcpVO.getMcpId(), runtime);
-                toolCache.put(mcpVO.getMcpId(), tools);
-                toolCallbackCache.remove(mcpVO.getMcpId());
+                McpClientRuntime oldRuntime = runtimeCache.put(mcpId, runtime);
+                toolCache.put(mcpId, tools);
+                toolCallbackCache.remove(mcpId);
+                loadedConfigFingerprints.put(mcpId, fingerprint);
+                failedConfigFingerprints.remove(mcpId);
 
                 closeQuietly(oldRuntime, runtime);
-                log.info("MCP 预热成功: mcpId={}, toolCount={}", mcpVO.getMcpId(), tools.size());
+                log.info("MCP 预热成功: mcpId={}, toolCount={}", mcpId, tools.size());
             } catch (Exception e) {
-                log.error("MCP 预热失败: mcpId={}, reason={}", mcpVO.getMcpId(), e.getMessage(), e);
+                McpServerDescriptor descriptor = buildDescriptor(mcpVO);
+                String fingerprint = configurationFingerprint(descriptor);
+                failedConfigFingerprints.put(mcpVO.getMcpId(), fingerprint);
+                log.error("MCP 预热失败: mcpId={}, errorType={}", mcpVO.getMcpId(), e.getClass().getSimpleName());
             }
         }
+    }
+
+    private boolean isCurrentRuntime(String mcpId, String fingerprint) {
+        return runtimeCache.containsKey(mcpId)
+                && toolCache.containsKey(mcpId)
+                && StringUtils.equals(loadedConfigFingerprints.get(mcpId), fingerprint);
+    }
+
+    private boolean isKnownUnavailable(String mcpId, String fingerprint) {
+        return StringUtils.equals(failedConfigFingerprints.get(mcpId), fingerprint);
+    }
+
+    private void evictChangedRuntime(String mcpId) {
+        McpClientRuntime previous = runtimeCache.remove(mcpId);
+        toolCache.remove(mcpId);
+        toolCallbackCache.remove(mcpId);
+        loadedConfigFingerprints.remove(mcpId);
+        closeQuietly(previous, null);
+    }
+
+    private String configurationFingerprint(McpServerDescriptor descriptor) {
+        String value = String.join("\n",
+                StringUtils.defaultString(descriptor.getMcpId()),
+                StringUtils.defaultString(descriptor.getTransportType()),
+                StringUtils.defaultString(descriptor.getServerUrl()),
+                StringUtils.defaultString(descriptor.getBaseUri()),
+                StringUtils.defaultString(descriptor.getEndpoint()),
+                String.valueOf(descriptor.getRequestTimeout()),
+                StringUtils.defaultString(descriptor.getCommand()),
+                String.join("\u001f", descriptor.getArgs() == null ? List.of() : descriptor.getArgs()),
+                stableMap(descriptor.getEnv()),
+                stableMap(descriptor.getHeaders()),
+                String.valueOf(descriptor.getResumableStreams()),
+                String.valueOf(descriptor.getOpenConnectionOnStartup()),
+                StringUtils.defaultString(descriptor.getProtocolVersion()),
+                StringUtils.defaultString(descriptor.getOauthAudience()),
+                stableList(descriptor.getOauthScopes()),
+                stableList(descriptor.getAllowedDomains()),
+                stableList(descriptor.getToolAllowlist()),
+                StringUtils.defaultString(descriptor.getCredentialRef()),
+                StringUtils.defaultString(descriptor.getVersion()));
+        try {
+            byte[] hash = MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8));
+            StringBuilder hex = new StringBuilder(hash.length * 2);
+            for (byte item : hash) {
+                hex.append(String.format("%02x", item));
+            }
+            return hex.toString();
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 is unavailable", e);
+        }
+    }
+
+    private String stableMap(Map<String, String> source) {
+        if (source == null || source.isEmpty()) {
+            return "";
+        }
+        return new TreeMap<>(source).entrySet().stream()
+                .map(entry -> StringUtils.defaultString(entry.getKey()) + "="
+                        + StringUtils.defaultString(entry.getValue()))
+                .collect(Collectors.joining("\u001f"));
+    }
+
+    private String stableList(List<String> values) {
+        if (values == null || values.isEmpty()) {
+            return "";
+        }
+        return values.stream()
+                .filter(StringUtils::isNotBlank)
+                .map(value -> value.trim().toLowerCase(Locale.ROOT))
+                .distinct()
+                .sorted()
+                .collect(Collectors.joining("\u001f"));
     }
 
     /**
@@ -372,14 +490,26 @@ public class McpRegistry {
                 }
 
                 for (McpSchema.Tool tool : listToolsResult.tools()) {
-                    toolInfos.add(toToolInfo(runtime.getDescriptor(), tool));
+                    if (tool == null || !toolMetadataPolicy.isSafeToolName(tool.name())) {
+                        log.warn("MCP tool ignored because its name violates metadata policy: mcpId={}, tool={}",
+                                runtime.getDescriptor().getMcpId(), tool == null ? null : tool.name());
+                        continue;
+                    }
+                    if (isToolAllowed(runtime.getDescriptor(), tool.name())) {
+                        toolInfos.add(toToolInfo(runtime.getDescriptor(), tool));
+                    } else {
+                        log.warn("MCP tool ignored because it is not in the configured allowlist: mcpId={}, tool={}",
+                                runtime.getDescriptor().getMcpId(), tool.name());
+                    }
                 }
                 cursor = listToolsResult.nextCursor();
             } while (StringUtils.isNotBlank(cursor));
         } finally {
             runtime.getLock().unlock();
         }
-        return toolInfos;
+        return toolInfos.stream()
+                .sorted(java.util.Comparator.comparing(McpToolInfo::resolveExposedName))
+                .toList();
     }
 
     /**
@@ -391,18 +521,26 @@ public class McpRegistry {
                 .serverKey(mcpVO.getMcpId())
                 .transportType(mcpVO.getTransportType())
                 .origin(McpToolOrigin.CONFIGURED)
-                .requestTimeout(mcpVO.getRequestTimeout());
+                .requestTimeout(mcpVO.getRequestTimeout())
+                .protocolVersion(StringUtils.defaultIfBlank(mcpVO.getProtocolVersion(), "2025-03-26"))
+                .oauthAudience(mcpVO.getOauthAudience())
+                .oauthScopes(mcpVO.getOauthScopes() == null ? List.of() : mcpVO.getOauthScopes())
+                .allowedDomains(mcpVO.getAllowedDomains() == null ? List.of() : mcpVO.getAllowedDomains())
+                .toolAllowlist(mcpVO.getToolAllowlist() == null ? List.of() : mcpVO.getToolAllowlist())
+                .credentialRef(mcpVO.getCredentialRef())
+                .version(StringUtils.defaultIfBlank(mcpVO.getVersion(), "v1"))
+                .configHash(mcpVO.getConfigHash());
 
         if (McpServerDescriptor.TRANSPORT_TYPE_SSE.equals(mcpVO.getTransportType())) {
             AiClientToolMcpVO.TransportConfigSse configSse = mcpVO.getTransportConfigSse();
             String baseUri = configSse != null ? configSse.getBaseUri() : "";
             String endpoint = configSse != null ? configSse.getSseEndpoint() : "";
             String serverUrl = buildServerUrl(baseUri, endpoint);
-            return builder
+            return finalizeConfiguredDescriptor(builder
                     .serverUrl(serverUrl)
                     .baseUri(baseUri)
                     .endpoint(endpoint)
-                    .build();
+                    .build());
         }
 
         if (McpServerDescriptor.TRANSPORT_TYPE_STDIO.equals(mcpVO.getTransportType())) {
@@ -415,12 +553,12 @@ public class McpRegistry {
                 }
             }
 
-            return builder
+            return finalizeConfiguredDescriptor(builder
                     .serverUrl("stdio://" + mcpVO.getMcpId())
                     .command(stdio != null ? stdio.getCommand() : null)
                     .args(stdio != null && stdio.getArgs() != null ? stdio.getArgs() : Collections.emptyList())
                     .env(stdio != null && stdio.getEnv() != null ? stdio.getEnv() : Collections.emptyMap())
-                    .build();
+                    .build());
         }
 
         if (McpServerDescriptor.TRANSPORT_TYPE_STREAMABLE_HTTP.equals(mcpVO.getTransportType())) {
@@ -433,19 +571,113 @@ public class McpRegistry {
             Boolean resumableStreams = streamableHttp != null ? streamableHttp.getResumableStreams() : false;
             Boolean openConnectionOnStartup = streamableHttp != null ? streamableHttp.getOpenConnectionOnStartup() : true;
             String serverUrl = buildServerUrl(baseUri, endpoint);
-            return builder
+            return finalizeConfiguredDescriptor(builder
                     .serverUrl(serverUrl)
                     .baseUri(baseUri)
                     .endpoint(endpoint)
                     .headers(headers)
                     .resumableStreams(Boolean.TRUE.equals(resumableStreams))
                     .openConnectionOnStartup(!Boolean.FALSE.equals(openConnectionOnStartup))
-                    .build();
+                    .build());
         }
 
-        return builder
+        return finalizeConfiguredDescriptor(builder
                 .serverUrl(mcpVO.getTransportConfig())
-                .build();
+                .build());
+    }
+
+    private McpServerDescriptor finalizeConfiguredDescriptor(McpServerDescriptor descriptor) {
+        if (descriptor == null) {
+            throw new IllegalArgumentException("MCP descriptor is required");
+        }
+        descriptor.setOauthScopes(normalizeList(descriptor.getOauthScopes()));
+        descriptor.setToolAllowlist(normalizeList(descriptor.getToolAllowlist()));
+        List<String> allowedDomains = normalizeList(descriptor.getAllowedDomains());
+        if (allowedDomains.isEmpty() && isHttpTransport(descriptor)) {
+            allowedDomains = List.of(requireHttpHost(descriptor.getServerUrl()));
+        }
+        descriptor.setAllowedDomains(allowedDomains);
+        if (StringUtils.isBlank(descriptor.getConfigHash())) {
+            descriptor.setConfigHash("sha256:" + configurationFingerprint(descriptor));
+        }
+        return descriptor;
+    }
+
+    private boolean isToolAllowed(McpServerDescriptor descriptor, String remoteToolName) {
+        if (descriptor == null || descriptor.getToolAllowlist() == null
+                || descriptor.getToolAllowlist().isEmpty()) {
+            return true;
+        }
+        String canonical = McpToolInfo.canonicalExposedName(descriptor.getMcpId(), remoteToolName);
+        return descriptor.getToolAllowlist().stream()
+                .anyMatch(item -> StringUtils.equals(item, remoteToolName)
+                        || StringUtils.equals(item, canonical));
+    }
+
+    private void validateConfiguredDescriptor(McpServerDescriptor descriptor) {
+        if (descriptor == null || descriptor.getOrigin() != McpToolOrigin.CONFIGURED) {
+            return;
+        }
+        if (StringUtils.isBlank(descriptor.getProtocolVersion())) {
+            throw new IllegalArgumentException("MCP protocol version is required");
+        }
+        if (descriptor.getOauthScopes() != null && !descriptor.getOauthScopes().isEmpty()
+                && StringUtils.isBlank(descriptor.getOauthAudience())) {
+            throw new IllegalArgumentException("MCP OAuth scopes require an audience");
+        }
+        if (StringUtils.isNotBlank(descriptor.getCredentialRef())
+                && !descriptor.getCredentialRef().matches("vault:[A-Za-z0-9._:/-]{1,200}")) {
+            throw new IllegalArgumentException("MCP credential reference must use the vault: scheme");
+        }
+        if (descriptor.getHeaders() != null && descriptor.getHeaders().keySet().stream()
+                .filter(Objects::nonNull)
+                .map(key -> key.replace("_", "").replace("-", "").toLowerCase(Locale.ROOT))
+                .anyMatch(key -> key.contains("authorization") || key.contains("token")
+                        || key.contains("apikey") || key.contains("secret") || key.contains("credential"))) {
+            throw new IllegalArgumentException("MCP token passthrough is forbidden; use credentialRef");
+        }
+        if (isHttpTransport(descriptor)) {
+            String host = requireHttpHost(descriptor.getServerUrl());
+            if (descriptor.getAllowedDomains() == null || descriptor.getAllowedDomains().isEmpty()
+                    || descriptor.getAllowedDomains().stream().noneMatch(allowed -> domainMatches(host, allowed))) {
+                throw new IllegalArgumentException("MCP endpoint is outside the configured allowed domains");
+            }
+        }
+    }
+
+    private boolean isHttpTransport(McpServerDescriptor descriptor) {
+        return descriptor != null && (McpServerDescriptor.TRANSPORT_TYPE_SSE.equals(descriptor.getTransportType())
+                || McpServerDescriptor.TRANSPORT_TYPE_STREAMABLE_HTTP.equals(descriptor.getTransportType()));
+    }
+
+    private String requireHttpHost(String rawUrl) {
+        URI uri = URI.create(StringUtils.trimToEmpty(rawUrl));
+        if (!"http".equalsIgnoreCase(uri.getScheme()) && !"https".equalsIgnoreCase(uri.getScheme())
+                || StringUtils.isBlank(uri.getHost()) || uri.getUserInfo() != null || uri.getFragment() != null) {
+            throw new IllegalArgumentException("Invalid configured MCP HTTP endpoint");
+        }
+        return uri.getHost().toLowerCase(Locale.ROOT);
+    }
+
+    private boolean domainMatches(String host, String configuredDomain) {
+        String allowed = StringUtils.trimToEmpty(configuredDomain).toLowerCase(Locale.ROOT);
+        if (allowed.startsWith("*.")) {
+            String suffix = allowed.substring(1);
+            return host.endsWith(suffix) && host.length() > suffix.length();
+        }
+        return StringUtils.equals(host, allowed);
+    }
+
+    private List<String> normalizeList(List<String> values) {
+        if (values == null || values.isEmpty()) {
+            return List.of();
+        }
+        return values.stream()
+                .filter(StringUtils::isNotBlank)
+                .map(String::trim)
+                .distinct()
+                .sorted()
+                .toList();
     }
 
     /**
@@ -474,12 +706,17 @@ public class McpRegistry {
      */
     private void syncDisabledMcps(Set<String> enabledMcpIds) {
         Set<String> staleMcpIds = new LinkedHashSet<>(runtimeCache.keySet());
+        staleMcpIds.addAll(loadedConfigFingerprints.keySet());
+        staleMcpIds.addAll(failedConfigFingerprints.keySet());
         staleMcpIds.removeAll(enabledMcpIds);
 
         for (String staleMcpId : staleMcpIds) {
             McpClientRuntime staleRuntime = runtimeCache.remove(staleMcpId);
             toolCache.remove(staleMcpId);
             toolCallbackCache.remove(staleMcpId);
+            loadedConfigFingerprints.remove(staleMcpId);
+            failedConfigFingerprints.remove(staleMcpId);
+            userMcpEndpointPolicy.forget(staleMcpId);
             removeClientBinding(staleMcpId);
             closeQuietly(staleRuntime, null);
             log.info("MCP 已从缓存移除: mcpId={}", staleMcpId);
@@ -527,12 +764,14 @@ public class McpRegistry {
      */
     private McpToolInfo toToolInfo(McpServerDescriptor descriptor, McpSchema.Tool tool) {
         String parameters = tool.inputSchema() == null ? "{}" : writeAsJson(tool.inputSchema());
+        String outputSchema = tool.outputSchema() == null ? "{}" : writeAsJson(tool.outputSchema());
         return McpToolInfo.builder()
                 .mcpId(descriptor.getMcpId())
                 .name(tool.name())
                 .exposedName(McpToolInfo.canonicalExposedName(descriptor.getMcpId(), tool.name()))
-                .desc(StringUtils.defaultIfBlank(tool.description(), tool.title()))
+                .desc(toolMetadataPolicy.sanitizeDescription(tool.description(), tool.title()))
                 .parameters(parameters)
+                .outputSchema(outputSchema)
                 .transportType(descriptor.getTransportType())
                 .origin(descriptor.getOrigin())
                 .serverKey(descriptor.resolveServerKey())
@@ -623,6 +862,14 @@ public class McpRegistry {
                 .baseUri(descriptor.getBaseUri())
                 .endpoint(descriptor.getEndpoint())
                 .requestTimeout(descriptor.getRequestTimeout())
+                .protocolVersion(descriptor.getProtocolVersion())
+                .oauthAudience(descriptor.getOauthAudience())
+                .oauthScopes(descriptor.getOauthScopes() == null ? List.of() : new ArrayList<>(descriptor.getOauthScopes()))
+                .allowedDomains(descriptor.getAllowedDomains() == null ? List.of() : new ArrayList<>(descriptor.getAllowedDomains()))
+                .toolAllowlist(descriptor.getToolAllowlist() == null ? List.of() : new ArrayList<>(descriptor.getToolAllowlist()))
+                .credentialRef(descriptor.getCredentialRef())
+                .version(descriptor.getVersion())
+                .configHash(descriptor.getConfigHash())
                 .command(descriptor.getCommand())
                 .args(descriptor.getArgs() == null ? Collections.emptyList() : new ArrayList<>(descriptor.getArgs()))
                 .env(descriptor.getEnv() == null ? Collections.emptyMap() : new LinkedHashMap<>(descriptor.getEnv()))
@@ -669,6 +916,7 @@ public class McpRegistry {
      */
     private ToolResultPayload formatToolResult(String toolName,
                                                McpServerDescriptor descriptor,
+                                               McpToolInfo toolInfo,
                                                McpSchema.CallToolResult result) {
         String mcpId = descriptor == null ? "unknown" : descriptor.getMcpId();
         if (result == null) {
@@ -681,6 +929,11 @@ public class McpRegistry {
             log.error("MCP 工具返回错误结果: mcpId={}, toolName={}, result={}",
                     mcpId, toolName, writeAsJson(result));
             return buildFailureResult(toolName, errorDetail, true);
+        }
+
+        ToolResultPayload schemaFailure = validateOutputSchema(toolName, toolInfo, result);
+        if (schemaFailure != null) {
+            return schemaFailure;
         }
 
         String textResult = extractTextContent(result.content());
@@ -696,6 +949,38 @@ public class McpRegistry {
         log.error("MCP 工具执行未返回有效内容: mcpId={}, toolName={}, result={}",
                 mcpId, toolName, writeAsJson(result));
         return buildFailureResult(toolName, "MCP returned no usable content", false);
+    }
+
+    /**
+     * Validate structured MCP output before exposing it to the model. A
+     * declared output schema with no structured payload is a protocol error;
+     * schema-less MCP tools retain the legacy text/content behavior.
+     */
+    private ToolResultPayload validateOutputSchema(String toolName,
+                                                    McpToolInfo toolInfo,
+                                                    McpSchema.CallToolResult result) {
+        if (toolInfo == null || StringUtils.isBlank(toolInfo.getOutputSchema())
+                || "{}".equals(toolInfo.getOutputSchema().trim())) {
+            return null;
+        }
+        if (result.structuredContent() == null) {
+            return buildFailureResult(toolName,
+                    "MCP output schema requires structured content", false);
+        }
+        try {
+            Map<String, Object> schema = JsonUtils.parseObject(
+                    toolInfo.getOutputSchema(), new TypeReference<Map<String, Object>>() { });
+            ToolInputSchemaValidator.ValidationResult validation =
+                    new ToolInputSchemaValidator().validate(schema, result.structuredContent());
+            if (!validation.valid()) {
+                return buildFailureResult(toolName,
+                        "MCP output schema validation failed: " + validation.message(), false);
+            }
+            return null;
+        } catch (Exception error) {
+            return buildFailureResult(toolName,
+                    "MCP output schema is invalid", false);
+        }
     }
 
     private boolean hasUsableContent(List<McpSchema.Content> contents) {

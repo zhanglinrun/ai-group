@@ -5,6 +5,8 @@ import org.apache.ibatis.annotations.Param;
 import com.linrun.agent.domain.agent.ledger.entity.DialogueRun;
 import com.linrun.agent.domain.agent.ledger.model.DialogueRunView;
 import com.linrun.agent.domain.agent.ledger.model.DialogueRunRecoveryCommand;
+import com.linrun.agent.domain.agent.ledger.model.DialogueRunLeaseRenewalCommand;
+import com.linrun.agent.domain.agent.ledger.model.DialogueRunCancelCommand;
 
 import java.time.LocalDateTime;
 
@@ -24,9 +26,15 @@ public interface IDialogueRunLedgerDao {
                            @Param("requestId") String requestId,
                            @Param("heartbeatAt") LocalDateTime heartbeatAt);
 
+    int renewRunLease(DialogueRunLeaseRenewalCommand command);
+
+    int requestRunCancellation(DialogueRunCancelCommand command);
+
     int failWorkerLostRuns(DialogueRunRecoveryCommand command);
 
     DialogueRun queryByRequestId(@Param("requestId") String requestId);
+
+    DialogueRun queryById(@Param("runId") Long runId);
 
     List<DialogueRunView> queryRecentBySessionId(@Param("sessionId") String sessionId,
                                                  @Param("limit") int limit);

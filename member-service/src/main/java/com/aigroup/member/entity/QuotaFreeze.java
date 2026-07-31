@@ -24,6 +24,8 @@ public class QuotaFreeze {
     private String status;
     /** 客户端幂等键（agent 请求ID）；同一 requestId 重复预扣返回同一 freezeId，避免重试重复冻结 */
     private String requestId;
+    /** Immutable distributed trace copied from the owning Agent Run. */
+    private String traceId;
     /** Stable hash of the canonical reservation request. */
     private String requestFingerprint;
     /** Service that durably owns terminal settlement; e.g. ai-agent. */

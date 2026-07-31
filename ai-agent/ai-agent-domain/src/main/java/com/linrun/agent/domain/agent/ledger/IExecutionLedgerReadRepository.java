@@ -19,6 +19,11 @@ public interface IExecutionLedgerReadRepository {
 
     DialogueRun queryRunByRequestId(String requestId);
 
+    /** Lookup by the durable numeric run id used by run-scoped HTTP operations. */
+    default DialogueRun queryRunById(Long runId) {
+        return null;
+    }
+
     List<LlmInvocation> queryLlmInvocationsByRunId(Long runId);
 
     List<ToolInvocation> queryToolInvocationsByRunId(Long runId);

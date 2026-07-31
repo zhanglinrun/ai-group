@@ -19,4 +19,8 @@ public class AgentFileUploadRespVO {
     private String resourceKey;
     private String mimeType;
     private String originFileName;
+    private String artifactHash;
+    private Long expiresAtEpochMillis;
+    /** Time-bounded, owner-bound redirect URL for preview/download. */
+    private String accessUrl;
 }

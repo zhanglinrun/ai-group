@@ -12,9 +12,7 @@ import org.springframework.stereotype.Component;
 @ConfigurationProperties(prefix = "jwt")
 public class JwtProperties {
 
-    /**
-     * HMAC secret; must be provided via JWT_SECRET env var.
-     */
+    /** Shared HMAC secret used by the resume-project services. */
     private String secret;
 
     /** Access token TTL in milliseconds (default 30 minutes). */

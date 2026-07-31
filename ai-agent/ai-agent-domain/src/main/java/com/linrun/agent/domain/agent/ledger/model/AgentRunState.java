@@ -5,6 +5,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.ToString;
+import com.linrun.agent.domain.agent.runtime.observability.AgentTraceScope;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -45,6 +46,20 @@ public class AgentRunState {
     @Builder.Default
     @ToString.Exclude
     private ConcurrentMap<String, Boolean> discoveredToolNames = new ConcurrentHashMap<>();
+
+    /**
+     * Definition hashes pinned by tool_search. Empty legacy discoveries remain
+     * compatible; new discoveries must match before their native schema is
+     * exposed on a later model turn.
+     */
+    @Builder.Default
+    @ToString.Exclude
+    private ConcurrentMap<String, String> discoveredToolDefinitionHashes = new ConcurrentHashMap<>();
+
+    /** Run-local skill definition pins. A changed Skill may not silently replace loaded instructions. */
+    @Builder.Default
+    @ToString.Exclude
+    private ConcurrentMap<String, String> activatedSkillDefinitionHashes = new ConcurrentHashMap<>();
 
     @Builder.Default
     @ToString.Exclude
@@ -97,6 +112,33 @@ public class AgentRunState {
     @Builder.Default
     @ToString.Exclude
     private AtomicInteger toolCallCount = new AtomicInteger();
+
+    /** Monotonic safe-context projection revision; prompt text itself is never traced. */
+    @Builder.Default
+    @ToString.Exclude
+    private AtomicInteger contextRevision = new AtomicInteger();
+
+    /** Number of typed execution-evidence records produced in this run. */
+    @Builder.Default
+    @ToString.Exclude
+    private AtomicInteger evidenceCount = new AtomicInteger();
+
+    /** The trace id is a correlation value only; Ledger remains the fact source. */
+    private String traceId;
+
+    @ToString.Exclude
+    private transient AgentTraceScope sessionTraceScope;
+
+    @ToString.Exclude
+    private transient AgentTraceScope runTraceScope;
+
+    @Builder.Default
+    @ToString.Exclude
+    private transient ConcurrentMap<Long, AgentTraceScope> llmTraceScopeByInvocationId = new ConcurrentHashMap<>();
+
+    @Builder.Default
+    @ToString.Exclude
+    private transient ConcurrentMap<String, AgentTraceScope> toolTraceScopeByToolCallId = new ConcurrentHashMap<>();
 
     @Builder.Default
     @ToString.Exclude
@@ -184,6 +226,48 @@ public class AgentRunState {
         return toolCallCount.get();
     }
 
+    public int nextContextRevision() {
+        return contextRevision.incrementAndGet();
+    }
+
+    public int getContextRevisionValue() {
+        return contextRevision.get();
+    }
+
+    public void recordEvidenceCount(int count) {
+        evidenceCount.set(Math.max(0, count));
+    }
+
+    public int getEvidenceCountValue() {
+        return evidenceCount.get();
+    }
+
+    public void activateTrace(AgentTraceScope sessionScope, AgentTraceScope runScope) {
+        this.sessionTraceScope = sessionScope;
+        this.runTraceScope = runScope;
+        this.traceId = runScope == null ? null : runScope.traceId();
+    }
+
+    public void bindLlmTraceScope(Long invocationId, AgentTraceScope scope) {
+        if (invocationId != null && scope != null) {
+            llmTraceScopeByInvocationId.put(invocationId, scope);
+        }
+    }
+
+    public AgentTraceScope resolveLlmTraceScope(Long invocationId) {
+        return invocationId == null ? null : llmTraceScopeByInvocationId.get(invocationId);
+    }
+
+    public void bindToolTraceScope(String toolCallId, AgentTraceScope scope) {
+        if (toolCallId != null && !toolCallId.isBlank() && scope != null) {
+            toolTraceScopeByToolCallId.put(toolCallId, scope);
+        }
+    }
+
+    public AgentTraceScope resolveToolTraceScope(String toolCallId) {
+        return toolCallId == null ? null : toolTraceScopeByToolCallId.get(toolCallId);
+    }
+
     /**
      * 标记当前线程的执行位置。
      */
@@ -241,8 +325,60 @@ public class AgentRunState {
         }
     }
 
+    public void markToolsDiscovered(Map<String, String> toolDefinitionHashes) {
+        if (toolDefinitionHashes == null || toolDefinitionHashes.isEmpty()) {
+            return;
+        }
+        markToolsDiscovered(toolDefinitionHashes.keySet());
+        toolDefinitionHashes.forEach((toolName, definitionHash) -> {
+            if (toolName != null && !toolName.isBlank() && definitionHash != null && !definitionHash.isBlank()) {
+                discoveredToolDefinitionHashes.putIfAbsent(toolName, definitionHash);
+            }
+        });
+    }
+
     public Set<String> discoveredToolNamesSnapshot() {
         return Set.copyOf(discoveredToolNames.keySet());
+    }
+
+    public Map<String, String> discoveredToolDefinitionHashesSnapshot() {
+        return Map.copyOf(discoveredToolDefinitionHashes);
+    }
+
+    /**
+     * Pin a Skill body when it is first loaded into a model turn. There are no
+     * automatic body loads in the current runtime, so P60 permits at most one
+     * explicit mid-run addition; repeated reads of the same pinned version are
+     * allowed and a changed version fails closed.
+     */
+    public synchronized SkillDefinitionPinResult pinSkillDefinition(String skillName,
+                                                                      String definitionHash,
+                                                                      int maxDistinctSkills) {
+        if (skillName == null || skillName.isBlank() || definitionHash == null || definitionHash.isBlank()) {
+            return SkillDefinitionPinResult.INVALID;
+        }
+        String existing = activatedSkillDefinitionHashes.get(skillName);
+        if (existing != null) {
+            return existing.equals(definitionHash)
+                    ? SkillDefinitionPinResult.PINNED
+                    : SkillDefinitionPinResult.VERSION_CHANGED;
+        }
+        if (activatedSkillDefinitionHashes.size() >= Math.max(0, maxDistinctSkills)) {
+            return SkillDefinitionPinResult.LIMIT_REACHED;
+        }
+        activatedSkillDefinitionHashes.put(skillName, definitionHash);
+        return SkillDefinitionPinResult.PINNED;
+    }
+
+    public Map<String, String> activatedSkillDefinitionHashesSnapshot() {
+        return Map.copyOf(activatedSkillDefinitionHashes);
+    }
+
+    public enum SkillDefinitionPinResult {
+        PINNED,
+        VERSION_CHANGED,
+        LIMIT_REACHED,
+        INVALID
     }
 
     public void recordToolExposure(int catalogCount, int exposedCount, int deferredCount, int schemaChars) {

@@ -111,6 +111,7 @@ public class ReactorFileGateway {
                         .resourceKey(resourceKey)
                         .mimeType(file.getContentType())
                         .originFileName(originalFileName)
+                        .artifactHash(fileBody.getSha256Hex())
                         .build();
             }
         } catch (IOException e) {

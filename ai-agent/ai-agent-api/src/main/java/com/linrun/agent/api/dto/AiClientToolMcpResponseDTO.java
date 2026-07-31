@@ -8,6 +8,7 @@ import lombok.NoArgsConstructor;
 import java.io.Serial;
 import java.io.Serializable;
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * MCP客户端配置响应 DTO
@@ -52,6 +53,23 @@ public class AiClientToolMcpResponseDTO implements Serializable {
      * 请求超时时间(分钟)
      */
     private Integer requestTimeout;
+
+    private String protocolVersion;
+
+    private String oauthAudience;
+
+    private List<String> oauthScopes;
+
+    private List<String> allowedDomains;
+
+    private List<String> toolAllowlist;
+
+    /** Only an opaque vault reference; a credential value is never returned. */
+    private String credentialRef;
+
+    private String version;
+
+    private String configHash;
 
     /**
      * 状态(0:禁用,1:启用)

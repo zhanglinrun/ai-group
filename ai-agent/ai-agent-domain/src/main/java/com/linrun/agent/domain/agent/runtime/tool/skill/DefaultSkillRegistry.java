@@ -107,7 +107,12 @@ public class DefaultSkillRegistry implements SkillRegistry {
             descriptionBuilder.append("\n- ")
                     .append(skillDefinition.getName())
                     .append(": ")
-                    .append(skillDefinition.getDescription());
+                    .append(skillDefinition.getDescription())
+                    .append(" [version=").append(skillDefinition.getVersion())
+                    .append(", hash=").append(skillDefinition.getDefinitionHash()).append("]");
+            if (skillDefinition.getTriggers() != null && !skillDefinition.getTriggers().isEmpty()) {
+                descriptionBuilder.append(" triggers=").append(String.join(",", skillDefinition.getTriggers()));
+            }
         }
         return descriptionBuilder.toString();
     }

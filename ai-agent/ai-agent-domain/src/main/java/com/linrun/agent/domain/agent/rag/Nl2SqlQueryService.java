@@ -153,7 +153,8 @@ public class Nl2SqlQueryService {
                 realSql = realSql.replaceAll(key + "|`" + key + "`", tableName);
             }
 
-            log.info("{},{} 执行sql:{}", request.getTraceId(), request.getRequestId(), realSql);
+            log.info("{},{} executing nl2sql sqlChars={}", request.getTraceId(), request.getRequestId(),
+                    realSql == null ? 0 : realSql.length());
             DbConfig dbConfig = dataAgentConfig.getDbConfig();
             QueryResult queryResult = dataQueryExecutionPort.query(dbConfig, realSql);
             log.info("{},{} 查询sql结果大小：{}", request.getTraceId(), request.getRequestId(), queryResult.getDataSize());
@@ -370,7 +371,8 @@ public class Nl2SqlQueryService {
                 if (data.startsWith("data:")) {
                     data = data.substring(5).trim();
                 }
-                log.debug("{},{} SSE nl2sql消息:{}", traceId, requestId, data);
+                log.debug("{},{} SSE nl2sql message payloadChars={}", traceId, requestId,
+                        data == null ? 0 : data.length());
                 eventCount++;
                 if ("[DONE]".equalsIgnoreCase(data) || "heartbeat".equalsIgnoreCase(data)) {
                     return;
@@ -390,11 +392,13 @@ public class Nl2SqlQueryService {
                     stream.send(ChatDataMessage.ofStatus(STATUS_STREAM_FINISHED, STATUS_STREAM_FINISHED));
                 }
                 if (STATUS_DATA.equalsIgnoreCase(eventResult.getStatus())) {
-                    log.info("{},{} SSE数据结果：{}", traceId, requestId, data);
+                    log.info("{},{} SSE nl2sql data result received payloadChars={}", traceId, requestId,
+                            data == null ? 0 : data.length());
                     nl2SQLResult = eventResult;
                 }
             } catch (Exception e) {
-                log.error("{},{} nl2sql消息解析错误:{}", traceId, requestId, e.getMessage(), e);
+                log.error("{},{} nl2sql message parse error errorType={}", traceId, requestId,
+                        e.getClass().getSimpleName());
                 throw new RuntimeException(e);
             }
         }
@@ -423,7 +427,8 @@ public class Nl2SqlQueryService {
             try {
                 return JsonUtils.parseObject(data, NL2SQLResult.class);
             } catch (Exception e) {
-                log.error("{},{} nl2sql 解析失败 {}", traceId, requestId, e.getMessage(), e);
+                log.error("{},{} nl2sql parse failed errorType={}", traceId, requestId,
+                        e.getClass().getSimpleName());
                 return null;
             }
         }

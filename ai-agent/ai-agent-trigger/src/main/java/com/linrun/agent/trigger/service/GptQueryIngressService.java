@@ -11,6 +11,7 @@ import com.linrun.agent.domain.agent.reactor.util.ChateiUtils;
 import com.linrun.agent.domain.agent.runtime.enums.AgentType;
 import com.linrun.agent.domain.agent.service.dispatch.IAgentDispatchService;
 import com.linrun.agent.domain.agent.service.session.ConversationSessionOwnershipService;
+import com.linrun.agent.domain.agent.service.session.ConversationAttachmentRegistry;
 import com.linrun.agent.trigger.stream.AgentSessionPrinter;
 import com.linrun.agent.types.agent.owner.OwnerRequestContext;
 import com.linrun.agent.domain.agent.ledger.AgentStreamEventStore;
@@ -25,13 +26,14 @@ public class GptQueryIngressService {
     private final ReactorConfig reactorConfig;
     private final ModelCatalogPort modelCatalogPort;
     private final AgentStreamEventStore streamEventStore;
+    private final ConversationAttachmentRegistry conversationAttachmentRegistry;
 
     public GptQueryIngressService(IAgentDispatchService agentDispatchService,
                                   ConversationSessionOwnershipService conversationSessionOwnershipService,
                                   ReactorConfig reactorConfig,
                                   ModelCatalogPort modelCatalogPort) {
         this(agentDispatchService, conversationSessionOwnershipService, reactorConfig, modelCatalogPort,
-                (AgentStreamEventStore) null);
+                (AgentStreamEventStore) null, (ConversationAttachmentRegistry) null);
     }
 
     @Autowired
@@ -39,21 +41,24 @@ public class GptQueryIngressService {
                                   ConversationSessionOwnershipService conversationSessionOwnershipService,
                                   ReactorConfig reactorConfig,
                                   ModelCatalogPort modelCatalogPort,
-                                  ObjectProvider<AgentStreamEventStore> streamEventStore) {
+                                  ObjectProvider<AgentStreamEventStore> streamEventStore,
+                                  ObjectProvider<ConversationAttachmentRegistry> conversationAttachmentRegistry) {
         this(agentDispatchService, conversationSessionOwnershipService, reactorConfig, modelCatalogPort,
-                streamEventStore.getIfAvailable());
+                streamEventStore.getIfAvailable(), conversationAttachmentRegistry.getIfAvailable());
     }
 
     private GptQueryIngressService(IAgentDispatchService agentDispatchService,
                                    ConversationSessionOwnershipService conversationSessionOwnershipService,
                                    ReactorConfig reactorConfig,
                                    ModelCatalogPort modelCatalogPort,
-                                   AgentStreamEventStore streamEventStore) {
+                                   AgentStreamEventStore streamEventStore,
+                                   ConversationAttachmentRegistry conversationAttachmentRegistry) {
         this.agentDispatchService = agentDispatchService;
         this.conversationSessionOwnershipService = conversationSessionOwnershipService;
         this.reactorConfig = reactorConfig;
         this.modelCatalogPort = modelCatalogPort;
         this.streamEventStore = streamEventStore;
+        this.conversationAttachmentRegistry = conversationAttachmentRegistry;
     }
 
     /**
@@ -79,6 +84,10 @@ public class GptQueryIngressService {
                 params.getSessionId(),
                 params.getQuery()
         );
+        if (conversationAttachmentRegistry != null) {
+            agentRequest.setSessionFiles(conversationAttachmentRegistry.resolveAccessible(
+                    String.valueOf(ownerId), params.getSessionId(), params.getSessionFiles()));
+        }
         return new PreparedGptQuery(agentRequest, stream);
     }
 

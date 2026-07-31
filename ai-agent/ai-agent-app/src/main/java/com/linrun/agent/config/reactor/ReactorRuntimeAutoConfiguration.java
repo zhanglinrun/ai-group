@@ -28,6 +28,7 @@ import com.linrun.agent.domain.agent.runtime.ReactorRuntimeDependencies;
 import com.linrun.agent.domain.agent.rag.ingest.DocumentIngestRouter;
 import com.linrun.agent.domain.agent.rag.retrieval.HybridRetriever;
 import com.linrun.agent.domain.agent.runtime.hitl.ApprovalGate;
+import com.linrun.agent.domain.agent.runtime.tool.durable.DurableToolExecutor;
 import org.springframework.beans.factory.ObjectProvider;
 import com.linrun.agent.domain.agent.reactor.service.imagegeneration.IImageGenerationExecutionKernel;
 import com.linrun.agent.types.agent.config.AgentExecutorNames;
@@ -71,6 +72,7 @@ public class ReactorRuntimeAutoConfiguration {
                                                                  ObjectProvider<DocumentIngestRouter> documentIngestRouter,
                                                                  ObjectProvider<HybridRetriever> hybridRetriever,
                                                                  ApprovalGate approvalGate,
+                                                                 ObjectProvider<DurableToolExecutor> durableToolExecutor,
                                                                  ModelRouter modelRouter,
                                                                  ModelCatalogPort modelCatalogPort,
                                                                  QuotaBillingPort quotaBillingPort,
@@ -92,6 +94,7 @@ public class ReactorRuntimeAutoConfiguration {
                 .documentIngestRouter(documentIngestRouter.getIfAvailable())
                 .hybridRetriever(hybridRetriever.getIfAvailable())
                 .approvalGate(approvalGate)
+                .durableToolExecutor(durableToolExecutor.getIfAvailable())
                 .modelRouter(modelRouter)
                 .modelCatalogPort(modelCatalogPort)
                 .quotaBillingPort(quotaBillingPort)

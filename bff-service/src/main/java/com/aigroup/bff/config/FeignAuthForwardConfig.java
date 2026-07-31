@@ -27,7 +27,6 @@ public class FeignAuthForwardConfig {
             if (role != null) {
                 template.header(CommonConstant.HEADER_ROLE, role);
             }
-
             String target = template.url();
             if (target == null || target.isBlank()) {
                 target = template.path();

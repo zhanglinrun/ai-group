@@ -9,11 +9,16 @@ import com.linrun.agent.domain.agent.runtime.tool.ToolCollection;
 import com.linrun.agent.domain.agent.runtime.tool.common.CodeInterpreterTool;
 import com.linrun.agent.domain.agent.runtime.tool.common.AnalyzeFileTool;
 import com.linrun.agent.domain.agent.runtime.tool.common.DeepSearchTool;
+import com.linrun.agent.domain.agent.runtime.tool.common.ExtractEvidenceTool;
 import com.linrun.agent.domain.agent.runtime.tool.common.FileTool;
+import com.linrun.agent.domain.agent.runtime.tool.common.FetchPageTool;
 import com.linrun.agent.domain.agent.runtime.tool.common.ImageGenerationTool;
 import com.linrun.agent.domain.agent.runtime.tool.common.PlatformContextTool;
+import com.linrun.agent.domain.agent.runtime.tool.common.RequestApprovalTool;
 import com.linrun.agent.domain.agent.runtime.tool.common.ReportTool;
+import com.linrun.agent.domain.agent.runtime.tool.common.SearchWebTool;
 import com.linrun.agent.domain.agent.runtime.tool.common.WebFetchTool;
+import com.linrun.agent.domain.agent.runtime.tool.common.WriteReportSpecTool;
 import com.linrun.agent.domain.agent.runtime.tool.common.ToolSearchTool;
 import com.linrun.agent.domain.agent.runtime.tool.common.ExecuteExtraTool;
 import com.linrun.agent.domain.agent.runtime.tool.common.TodoWriteTool;
@@ -104,15 +109,29 @@ public class AgentToolCollectionFactory {
             reportTool.setAgentContext(agentContext);
             toolCollection.addTool(reportTool);
         }
+        // P60 canonical capabilities are stable names for product-facing
+        // Function Calling. Legacy tool names stay registered above so saved
+        // prompts and existing sessions remain compatible.
+        toolCollection.addTool(new ExtractEvidenceTool());
+        toolCollection.addTool(new WriteReportSpecTool());
+        RequestApprovalTool requestApprovalTool = new RequestApprovalTool();
+        requestApprovalTool.setAgentContext(agentContext);
+        toolCollection.addTool(requestApprovalTool);
         if (online && agentToolList.contains("search")) {
             DeepSearchTool deepSearchTool = new DeepSearchTool();
             deepSearchTool.setAgentContext(agentContext);
             toolCollection.addTool(deepSearchTool);
+            SearchWebTool searchWebTool = new SearchWebTool();
+            searchWebTool.setAgentContext(agentContext);
+            toolCollection.addTool(searchWebTool);
         }
         if (online && agentToolList.contains("web_fetch")) {
             WebFetchTool webFetchTool = new WebFetchTool();
             webFetchTool.setAgentContext(agentContext);
             toolCollection.addTool(webFetchTool);
+            FetchPageTool fetchPageTool = new FetchPageTool();
+            fetchPageTool.setAgentContext(agentContext);
+            toolCollection.addTool(fetchPageTool);
         }
         if (agentToolList.contains("image_generation")) {
             ImageGenerationTool imageGenerationTool = new ImageGenerationTool();

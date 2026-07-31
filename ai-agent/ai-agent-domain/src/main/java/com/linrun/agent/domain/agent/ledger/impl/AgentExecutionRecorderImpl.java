@@ -13,7 +13,11 @@ import com.linrun.agent.domain.agent.ledger.entity.ToolInvocation;
 import com.linrun.agent.domain.agent.ledger.model.ArtifactRecordCommand;
 import com.linrun.agent.domain.agent.ledger.model.DialogueSessionUpsertRecord;
 import com.linrun.agent.domain.agent.ledger.model.DialogueRunClaim;
+import com.linrun.agent.domain.agent.ledger.model.DialogueRunCancelCommand;
+import com.linrun.agent.domain.agent.ledger.model.DialogueRunCancelResult;
 import com.linrun.agent.domain.agent.ledger.model.DialogueRunFinishRecord;
+import com.linrun.agent.domain.agent.ledger.model.DialogueRunLeaseRenewalCommand;
+import com.linrun.agent.domain.agent.ledger.model.DialogueRunLeaseRenewalResult;
 import com.linrun.agent.domain.agent.ledger.model.DialogueRunStartRecord;
 import com.linrun.agent.domain.agent.ledger.model.DialogueRunView;
 import com.linrun.agent.domain.agent.ledger.model.ExecutionLedgerConstants;
@@ -80,6 +84,10 @@ public class AgentExecutionRecorderImpl implements AgentExecutionRecorder {
                 .startedAt(startedAt)
                 .deadlineAt(record.getDeadlineAt())
                 .heartbeatAt(defaultNow(record.getHeartbeatAt()))
+                .ownerWorkerId(record.getOwnerWorkerId())
+                .leaseExpiresAt(record.getLeaseExpiresAt())
+                .fencingToken(record.getFencingToken() == null ? 1L : record.getFencingToken())
+                .version(record.getVersion() == null ? 1L : record.getVersion())
                 .build();
 
         final boolean inserted;
@@ -182,6 +190,10 @@ public class AgentExecutionRecorderImpl implements AgentExecutionRecorder {
                 .finalSummaryText(run.getFinalSummaryText())
                 .errorCode(run.getErrorCode())
                 .errorMsg(run.getErrorMsg())
+                .ownerWorkerId(run.getOwnerWorkerId())
+                .fencingToken(run.getFencingToken())
+                .leaseExpiresAt(run.getLeaseExpiresAt())
+                .cancelRequestedAt(run.getCancelRequestedAt())
                 .build();
     }
 
@@ -233,6 +245,65 @@ public class AgentExecutionRecorderImpl implements AgentExecutionRecorder {
         }
     }
 
+    @Override
+    public DialogueRunLeaseRenewalResult renewRunLease(Long runId,
+                                                        String requestId,
+                                                        String ownerWorkerId,
+                                                        long fencingToken,
+                                                        LocalDateTime heartbeatAt,
+                                                        LocalDateTime leaseExpiresAt) {
+        if (runId == null || StringUtils.isBlank(requestId) || StringUtils.isBlank(ownerWorkerId)
+                || fencingToken <= 0L || heartbeatAt == null || leaseExpiresAt == null) {
+            throw new IllegalArgumentException("run lease renewal requires runId, requestId, worker, fence and timestamps");
+        }
+        try {
+            int updated = executionLedgerWriteRepository.renewRunLease(new DialogueRunLeaseRenewalCommand(
+                    runId, requestId, ownerWorkerId, fencingToken, heartbeatAt, leaseExpiresAt));
+            if (updated == 1) {
+                markSuccess("renewRunLease", null);
+                return new DialogueRunLeaseRenewalResult(DialogueRunLeaseRenewalResult.Status.ACTIVE);
+            }
+            DialogueRun run = executionLedgerWriteRepository.queryRunByRequestId(requestId);
+            DialogueRunLeaseRenewalResult.Status status = resolveLeaseRenewalStatus(run, runId, ownerWorkerId, fencingToken);
+            markSuccess("renewRunLease" + status.name(), null);
+            return new DialogueRunLeaseRenewalResult(status);
+        } catch (Exception error) {
+            markFailure("renewRunLease", requestId, runId, null, error);
+            throw error;
+        }
+    }
+
+    @Override
+    public DialogueRunCancelResult requestRunCancellation(Long runId, String ownerId, LocalDateTime requestedAt) {
+        if (runId == null || StringUtils.isBlank(ownerId)) {
+            throw new IllegalArgumentException("runId and ownerId are required to cancel a durable run");
+        }
+        LocalDateTime effectiveRequestedAt = defaultNow(requestedAt);
+        try {
+            DialogueRun existing = executionLedgerWriteRepository.queryRunById(runId);
+            DialogueRunCancelResult existingResult = classifyCancel(existing, ownerId);
+            if (existingResult != null) {
+                return existingResult;
+            }
+            int updated = executionLedgerWriteRepository.requestRunCancellation(
+                    new DialogueRunCancelCommand(runId, ownerId, effectiveRequestedAt));
+            if (updated == 1) {
+                markSuccess("requestRunCancellation", null);
+                return new DialogueRunCancelResult(DialogueRunCancelResult.Status.ACCEPTED,
+                        runId, existing.getRequestId());
+            }
+            DialogueRun current = executionLedgerWriteRepository.queryRunById(runId);
+            DialogueRunCancelResult result = classifyCancel(current, ownerId);
+            if (result != null) {
+                return result;
+            }
+            throw new IllegalStateException("durable run cancel compare-and-set failed, runId=" + runId);
+        } catch (Exception error) {
+            markFailure("requestRunCancellation", null, runId, null, error);
+            throw error;
+        }
+    }
+
     private DialogueRun finishRunOnce(DialogueRunFinishRecord record, LocalDateTime finishedAt) {
         DialogueRun existing = executionLedgerWriteRepository.queryRunByRequestId(record.getRequestId());
         if (existing == null) {
@@ -240,6 +311,13 @@ public class AgentExecutionRecorderImpl implements AgentExecutionRecorder {
         }
         if (!record.getRunId().equals(existing.getId())) {
             throw new IllegalStateException("dialogue run id mismatch while finishing requestId=" + record.getRequestId());
+        }
+        if (StringUtils.isNotBlank(record.getOwnerWorkerId())
+                && !StringUtils.equals(record.getOwnerWorkerId(), existing.getOwnerWorkerId())) {
+            throw new IllegalStateException("dialogue run ownership lost while finishing requestId=" + record.getRequestId());
+        }
+        if (record.getFencingToken() != null && !record.getFencingToken().equals(existing.getFencingToken())) {
+            throw new IllegalStateException("dialogue run fencing token mismatch while finishing requestId=" + record.getRequestId());
         }
         if (existing.getStatus() != null && existing.getStatus() != ExecutionLedgerConstants.STATUS_RUNNING) {
             if (existing.getStatus().equals(record.getStatus())) {
@@ -252,10 +330,18 @@ public class AgentExecutionRecorderImpl implements AgentExecutionRecorder {
         List<LlmInvocation> llmInvocations = queryLlmInvocationsForFinish(existing, record);
         List<ToolInvocation> toolInvocations = queryToolInvocationsForFinish(existing, record);
         List<ArtifactRecord> artifacts = queryArtifactsForFinish(existing, record);
+        boolean cancellationWon = existing.getCancelRequestedAt() != null;
+        int terminalStatus = cancellationWon ? ExecutionLedgerConstants.STATUS_STOPPED : record.getStatus();
+        String terminalErrorCode = cancellationWon ? "RUN_CANCELLED" : record.getErrorCode();
+        String terminalErrorMessage = cancellationWon
+                ? "Cancellation was requested before the run reached a durable terminal state."
+                : record.getErrorMsg();
         DialogueRun updateEntity = DialogueRun.builder()
                 .id(existing.getId())
                 .requestId(record.getRequestId())
-                .status(record.getStatus())
+                .ownerWorkerId(record.getOwnerWorkerId())
+                .fencingToken(record.getFencingToken())
+                .status(terminalStatus)
                 .finalSummaryText(record.getFinalSummaryText())
                 .llmCallCount(llmInvocations == null ? defaultZero(existing.getLlmCallCount()) : sizeOf(llmInvocations))
                 .toolCallCount(toolInvocations == null ? defaultZero(existing.getToolCallCount()) : sizeOf(toolInvocations))
@@ -266,8 +352,8 @@ public class AgentExecutionRecorderImpl implements AgentExecutionRecorder {
                         ? defaultZero(existing.getCompletionTokensTotal()) : sumCompletionTokens(llmInvocations))
                 .totalTokensTotal(llmInvocations == null
                         ? defaultZero(existing.getTotalTokensTotal()) : sumTotalTokens(llmInvocations))
-                .errorCode(record.getErrorCode())
-                .errorMsg(trimText(record.getErrorMsg(), 2000))
+                .errorCode(terminalErrorCode)
+                .errorMsg(trimText(terminalErrorMessage, 2000))
                 .finishedAt(finishedAt)
                 .durationMs(calculateDuration(existing.getStartedAt(), finishedAt))
                 .build();
@@ -275,10 +361,46 @@ public class AgentExecutionRecorderImpl implements AgentExecutionRecorder {
             throw new IllegalStateException("dialogue run terminal compare-and-set failed, requestId="
                     + record.getRequestId());
         }
-        existing.setStatus(record.getStatus());
+        existing.setStatus(terminalStatus);
         existing.setFinalSummaryText(record.getFinalSummaryText());
         existing.setFinishedAt(finishedAt);
         return existing;
+    }
+
+    private DialogueRunLeaseRenewalResult.Status resolveLeaseRenewalStatus(DialogueRun run,
+                                                                             Long runId,
+                                                                             String ownerWorkerId,
+                                                                             long fencingToken) {
+        if (run == null || !runId.equals(run.getId())) {
+            return DialogueRunLeaseRenewalResult.Status.NOT_FOUND;
+        }
+        if (!StringUtils.equals(ownerWorkerId, run.getOwnerWorkerId())
+                || run.getFencingToken() == null || run.getFencingToken() != fencingToken) {
+            return DialogueRunLeaseRenewalResult.Status.OWNERSHIP_LOST;
+        }
+        if (run.getCancelRequestedAt() != null) {
+            return DialogueRunLeaseRenewalResult.Status.CANCEL_REQUESTED;
+        }
+        return DialogueRunLeaseRenewalResult.Status.TERMINAL;
+    }
+
+    private DialogueRunCancelResult classifyCancel(DialogueRun run, String ownerId) {
+        if (run == null) {
+            return new DialogueRunCancelResult(DialogueRunCancelResult.Status.NOT_FOUND, null, null);
+        }
+        if (!StringUtils.equals(ownerId, run.getOwnerId())) {
+            return new DialogueRunCancelResult(DialogueRunCancelResult.Status.OWNER_MISMATCH,
+                    run.getId(), run.getRequestId());
+        }
+        if (run.getStatus() == null || run.getStatus() != ExecutionLedgerConstants.STATUS_RUNNING) {
+            return new DialogueRunCancelResult(DialogueRunCancelResult.Status.TERMINAL,
+                    run.getId(), run.getRequestId());
+        }
+        if (run.getCancelRequestedAt() != null) {
+            return new DialogueRunCancelResult(DialogueRunCancelResult.Status.ALREADY_REQUESTED,
+                    run.getId(), run.getRequestId());
+        }
+        return null;
     }
 
     private List<LlmInvocation> queryLlmInvocationsForFinish(DialogueRun existing,
@@ -362,6 +484,12 @@ public class AgentExecutionRecorderImpl implements AgentExecutionRecorder {
                 .callKind(record.getCallKind())
                 .streaming(Boolean.TRUE.equals(record.getStreaming()) ? 1 : 0)
                 .modelName(record.getModelName())
+                .costOwner(record.getCostOwner())
+                .promptHash(record.getPromptHash())
+                .modelParametersJson(record.getModelParametersJson())
+                .toolSnapshotJson(record.getToolSnapshotJson())
+                .skillSnapshotJson(record.getSkillSnapshotJson())
+                .configHash(record.getConfigHash())
                 .inputRateSnapshot(record.getInputRateSnapshot())
                 .outputRateSnapshot(record.getOutputRateSnapshot())
                 .toolCallCount(0)
@@ -398,6 +526,8 @@ public class AgentExecutionRecorderImpl implements AgentExecutionRecorder {
                     .totalTokens(defaultZero(record.getTotalTokens()))
                     .usageSource(record.getUsageSource())
                     .chargedMicrocredits(record.getChargedMicrocredits())
+                    .providerLatencyMs(record.getProviderLatencyMs())
+                    .durationMs(record.getDurationMs())
                     .finishReason(record.getFinishReason())
                     .errorMsg(trimText(record.getErrorMsg(), 2000))
                     .finishedAt(finishedAt)
@@ -427,6 +557,9 @@ public class AgentExecutionRecorderImpl implements AgentExecutionRecorder {
                     .stepNo(record.getStepNo())
                     .toolName(item.getToolName())
                     .toolProvider(item.getToolProvider())
+                    .operationKey(item.getOperationKey())
+                    .executionMode(item.getExecutionMode())
+                    .sourceInvocationId(item.getSourceInvocationId())
                     .inputJson(item.getInputJson())
                     .status(ExecutionLedgerConstants.STATUS_RUNNING)
                     .startedAt(defaultNow(item.getStartedAt()))

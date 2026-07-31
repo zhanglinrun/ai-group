@@ -80,7 +80,7 @@ def register_middleware(app: FastAPI, security_settings: ReactorToolSecuritySett
         CORSMiddleware,
         allow_origins=list(security_settings.cors_origins),
         allow_methods=["GET", "POST", "OPTIONS"],
-        allow_headers=["Accept", "Authorization", "Content-Type", "X-Tool-Token"],
+        allow_headers=["Accept", "Authorization", "Content-Type", "X-Tool-Token", "X-Request-Id", "X-Agent-Run-Id", "X-Fencing-Token", "X-Trace-Id"],
         allow_credentials=True,
     )
     app.add_middleware(HTTPProcessTimeMiddleware)
@@ -88,7 +88,13 @@ def register_middleware(app: FastAPI, security_settings: ReactorToolSecuritySett
 
 def register_router(app: FastAPI):
     from reactor_tool.api import api_router
+    from reactor_tool.durable_worker import router as durable_worker_router
+
     app.include_router(api_router)
+    # Durable worker callbacks are an internal control-plane API.  Keep them
+    # outside the public /v1 tool surface so Java can address the exact
+    # contract at /internal/runtime/tools/...
+    app.include_router(durable_worker_router)
 
 
 app = create_app()

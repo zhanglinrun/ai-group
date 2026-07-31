@@ -38,6 +38,11 @@ public class ExecutionLedgerReadRepository implements IExecutionLedgerReadReposi
     }
 
     @Override
+    public DialogueRun queryRunById(Long runId) {
+        return dialogueRunLedgerDao.queryById(runId);
+    }
+
+    @Override
     public List<LlmInvocation> queryLlmInvocationsByRunId(Long runId) {
         return llmInvocationLedgerDao.queryByRunId(runId);
     }

@@ -36,12 +36,12 @@ public class MemberController {
 
     @GetMapping("/api/member/summary")
     public Result<MemberSummaryVO> summary() {
-        return Result.success(memberService.summary(RequestUserContext.getUserId()));
+        return Result.success(memberService.summary(RequestUserContext.requireUserId()));
     }
 
     @GetMapping("/api/member/quota-ledger")
     public Result<List<QuotaLedgerVO>> quotaLedger() {
-        return Result.success(memberService.listQuotaLedger(RequestUserContext.getUserId()));
+        return Result.success(memberService.listQuotaLedger(RequestUserContext.requireUserId()));
     }
 
     @PostMapping("/internal/members/init-free")
@@ -59,8 +59,10 @@ public class MemberController {
         String ownerService = String.valueOf(body.getOrDefault("ownerService", "legacy"));
         Object requestIdObj = body.get("requestId");
         String requestId = requestIdObj != null ? requestIdObj.toString() : null;
+        Object traceIdObj = body.get("traceId");
+        String traceId = traceIdObj != null ? traceIdObj.toString() : null;
         return Result.success(memberService.freeze(
-                userId, amount, minAmount, abilityCode, requestId, ownerService));
+                userId, amount, minAmount, abilityCode, requestId, ownerService, traceId));
     }
 
     @PostMapping("/internal/quota/confirm")
@@ -68,24 +70,29 @@ public class MemberController {
         String freezeId = requiredString(body, "freezeId");
         Object actualAmount = body.get("actualAmount");
         return Result.success(memberService.confirmWithStatus(freezeId,
-                actualAmount == null ? -1L : Long.parseLong(actualAmount.toString())));
+                actualAmount == null ? -1L : Long.parseLong(actualAmount.toString()),
+                optionalString(body, "requestId"), optionalString(body, "traceId")));
     }
 
     @PostMapping("/internal/quota/release")
     public Result<QuotaFreezeStatusVO> release(@RequestBody Map<String, Object> body) {
-        return Result.success(memberService.releaseWithStatus(requiredString(body, "freezeId")));
+        return Result.success(memberService.releaseWithStatus(requiredString(body, "freezeId"),
+                optionalString(body, "requestId"), optionalString(body, "traceId")));
     }
 
     @GetMapping("/internal/quota/freezes/{freezeId}")
-    public Result<QuotaFreezeStatusVO> freezeStatus(@PathVariable String freezeId) {
-        return Result.success(memberService.queryFreeze(freezeId));
+    public Result<QuotaFreezeStatusVO> freezeStatus(@PathVariable String freezeId,
+                                                     @org.springframework.web.bind.annotation.RequestParam(required = false) String requestId,
+                                                     @org.springframework.web.bind.annotation.RequestParam(required = false) String traceId) {
+        return Result.success(memberService.queryFreeze(freezeId, requestId, traceId));
     }
 
     @GetMapping("/internal/quota/freezes/by-request")
     public Result<QuotaFreezeStatusVO> freezeStatusByRequest(
             @org.springframework.web.bind.annotation.RequestParam Long userId,
-            @org.springframework.web.bind.annotation.RequestParam String requestId) {
-        return Result.success(memberService.queryFreezeByRequest(userId, requestId));
+            @org.springframework.web.bind.annotation.RequestParam String requestId,
+            @org.springframework.web.bind.annotation.RequestParam(required = false) String traceId) {
+        return Result.success(memberService.queryFreezeByRequest(userId, requestId, traceId));
     }
 
     @GetMapping("/internal/benefits/orders/{orderId}/status")
@@ -107,5 +114,10 @@ public class MemberController {
             throw new com.aigroup.common.exception.BusinessException(key + " is required");
         }
         return String.valueOf(value).trim();
+    }
+
+    private String optionalString(Map<String, Object> body, String key) {
+        Object value = body.get(key);
+        return value == null || String.valueOf(value).isBlank() ? null : String.valueOf(value).trim();
     }
 }

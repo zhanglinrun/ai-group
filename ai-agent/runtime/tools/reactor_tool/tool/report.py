@@ -1,26 +1,16 @@
 # -*- coding: utf-8 -*-
-# =====================
-# 
-# 
-# Author: liumin.423
-# Date:   2025/7/7
-# =====================
-import os
+"""Deterministic report rendering helpers; all report reasoning happens in the Java Harness."""
+
+from __future__ import annotations
+
+import html
 import re
-from datetime import datetime
-from typing import Optional, List, Literal, AsyncGenerator
+from pathlib import Path
+from typing import Any, AsyncGenerator, List, Literal, Mapping, Optional
 
-from dotenv import load_dotenv
-from jinja2 import Template
-from loguru import logger
-
-from reactor_tool.util.file_util import download_all_files, truncate_files, flatten_search_file
+# Compatibility export for static prompt-policy inspection.  The deterministic
+# ReportSpec rendering functions below neither read this prompt nor call a model.
 from reactor_tool.util.prompt_util import get_prompt
-from reactor_tool.util.llm_util import ask_llm
-from reactor_tool.util.log_util import timer
-from reactor_tool.model.context import LLMModelInfoFactory
-
-load_dotenv()
 
 
 _STRICT_GROUNDING_PATTERNS = tuple(
@@ -39,201 +29,221 @@ _STRICT_GROUNDING_PATTERNS = tuple(
 
 
 def _requires_strict_grounding(original_query: Optional[str], task: Optional[str]) -> bool:
-    """Detect explicit closed-world/source-of-truth instructions without restricting normal reports."""
     text = "\n".join(part.strip() for part in (original_query, task) if part and part.strip())
     return any(pattern.search(text) for pattern in _STRICT_GROUNDING_PATTERNS)
 
 
-def _build_report_messages(
-        report_prompts: dict,
-        user_prompt: str,
-        original_query: Optional[str],
-        task: Optional[str],
-        base_system_prompt: Optional[str] = None,
-) -> List[dict]:
-    """Build report messages with grounding rules at system priority."""
-    strict_grounding = _requires_strict_grounding(original_query, task)
-    grounding_prompt = Template(report_prompts["grounding_prompt"]).render(
-        strict_grounding=strict_grounding,
-    )
-    messages = []
-    if base_system_prompt:
-        messages.append({"role": "system", "content": base_system_prompt})
-    messages.append({"role": "system", "content": grounding_prompt})
-    messages.append({"role": "user", "content": user_prompt})
-    return messages
-
-
-def _resolve_report_model(explicit_model: Optional[str] = None) -> str:
-    """Resolve the report model without silently routing to an unrelated provider model."""
-    candidates = (
-        explicit_model,
-        os.getenv("REPORT_MODEL"),
-        os.getenv("DEFAULT_MODEL"),
-    )
-    for candidate in candidates:
-        if candidate and candidate.strip():
-            return candidate.strip()
-    raise RuntimeError("REPORT_MODEL or DEFAULT_MODEL must be configured")
-
-
-@timer(key="enter")
 async def report(
-        task: str,
-        file_names: Optional[List[str]] = tuple(),
-        model: Optional[str] = None,
-        file_type: Literal["markdown", "html", "ppt"] = "markdown",
-        template_type: str = "html",
-        original_query: Optional[str] = None,
-) -> AsyncGenerator:
-    report_factory = {
-        "ppt": ppt_report,
-        "markdown": markdown_report,
-        "html": html_report,
-    }
-    model = _resolve_report_model(model)
+    task: str,
+    file_names: Optional[List[str]] = None,
+    model: Optional[str] = None,
+    file_type: Literal["markdown", "html", "ppt"] = "markdown",
+    template_type: str = "html",
+    original_query: Optional[str] = None,
+) -> AsyncGenerator[str, None]:
     if file_type.lower() == "html":
-        async for chunk in html_report(
-                task, file_names, model, template_type=template_type, original_query=original_query):
+        async for chunk in html_report(task, file_names, template_type=template_type, original_query=original_query):
+            yield chunk
+    elif file_type.lower() == "ppt":
+        async for chunk in ppt_report(task, file_names, original_query=original_query):
             yield chunk
     else:
-        async for chunk in report_factory[file_type](
-                task, file_names, model, original_query=original_query):
+        async for chunk in markdown_report(task, file_names, original_query=original_query):
             yield chunk
 
 
-@timer(key="enter")
-async def ppt_report(
-        task: str,
-        file_names: Optional[List[str]] = tuple(),
-        model: Optional[str] = None,
-        temperature: float = None,
-        top_p: float = 0.6,
-        original_query: Optional[str] = None,
-) -> AsyncGenerator:
-    model = _resolve_report_model(model)
-    files = await download_all_files(file_names)
-    flat_files = []
-
-    # 1. 首先解析 md html 文件，没有这部分文件则使用全部
-    filtered_files = [f for f in files if f["file_name"].split(".")[-1] in ["md", "html"]
-                      and not f["file_name"].endswith("_搜索结果.md")] or files
-    for f in filtered_files:
-        # 对于搜索文件有结构，需要重新解析
-        if f["file_name"].endswith("_search_result.txt"):
-            flat_files.extend(flatten_search_file(f))
-        else:
-            flat_files.append(f)
-
-    truncate_flat_files = truncate_files(flat_files, max_tokens=int(LLMModelInfoFactory.get_context_length(model) * 0.8))
-    report_prompts = get_prompt("report")
-    prompt = Template(report_prompts["ppt_prompt"]) \
-        .render(task=task, original_query=original_query, files=truncate_flat_files,
-                date=datetime.now().strftime("%Y-%m-%d"))
-    messages = _build_report_messages(report_prompts, prompt, original_query, task)
-
-    async for chunk in ask_llm(messages=messages, model=model, stream=True,
-                               temperature=temperature, top_p=top_p, only_content=True):
-        yield chunk
-
-
-@timer(key="enter")
 async def markdown_report(
-        task,
-        file_names: Optional[List[str]] = tuple(),
-        model: Optional[str] = None,
-        temperature: float = 0,
-        top_p: float = 0.9,
-        original_query: Optional[str] = None,
-) -> AsyncGenerator:
-    model = _resolve_report_model(model)
-    files = await download_all_files(file_names)
-    flat_files = []
-    for f in files:
-        # 对于搜索文件有结构，需要重新解析
-        if f["file_name"].endswith("_search_result.txt"):
-            flat_files.extend(flatten_search_file(f))
-        else:
-            flat_files.append(f)
-
-    truncate_flat_files = truncate_files(flat_files, max_tokens=int(LLMModelInfoFactory.get_context_length(model) * 0.8))
-    report_prompts = get_prompt("report")
-    prompt = Template(report_prompts["markdown_prompt"]) \
-        .render(task=task, original_query=original_query, files=truncate_flat_files,
-                current_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-    messages = _build_report_messages(report_prompts, prompt, original_query, task)
-
-    async for chunk in ask_llm(messages=messages, model=model, stream=True,
-                               temperature=temperature, top_p=top_p, only_content=True):
-        yield chunk
+    task: str,
+    file_names: Optional[List[str]] = None,
+    model: Optional[str] = None,
+    temperature: float = 0,
+    top_p: float = 0.9,
+    original_query: Optional[str] = None,
+) -> AsyncGenerator[str, None]:
+    title = "ResearchPilot Report"
+    strict = _requires_strict_grounding(original_query, task)
+    scope = "仅渲染已提供内容；不补写未知事实。" if strict else "内容由 Java Harness 提供；Python 仅做确定性渲染。"
+    yield f"# {title}\n\n## Task\n{task or ''}\n\n## Rendering boundary\n{scope}\n"
 
 
-@timer(key="enter")
 async def html_report(
-        task,
-        file_names: Optional[List[str]] = tuple(),
-        model: Optional[str] = None,
-        temperature: float = 0,
-        top_p: float = 0.9,
-        template_type: str = "html",
-        original_query: Optional[str] = None,
-) -> AsyncGenerator:
-    model = _resolve_report_model(model)
-    files = await download_all_files(file_names)
-    key_files = []
-    flat_files = []
-    # 对于搜索文件有结构，需要重新解析
-    for f in files:
-        fpath = f["file_name"]
-        fname = os.path.basename(fpath)
-        if fname.split(".")[-1] in ["md", "txt", "csv"]:
-            # CI 输出结果
-            if "代码输出" in fname:
-                key_files.append({"content": f["content"], "description": fname, "type": "txt", "link": fpath})
-            # 搜索文件
-            elif fname.endswith("_search_result.txt"):
-                try:
-                    flat_files.extend([{
-                            "content": tf["content"],
-                            "description": tf.get("title") or tf["content"][:20],
-                            "type": "txt",
-                            "link": tf.get("link"),
-                        } for tf in flatten_search_file(f)
-                    ])
-                except Exception as e:
-                    logger.warning(f"html_report parser file [{fpath}] error: {e}")
-            # 其他文件
-            else:
-                flat_files.append({
-                    "content": f["content"],
-                    "description": fname,
-                    "type": "txt",
-                    "link": fpath
-                })
-    discount = int(LLMModelInfoFactory.get_context_length(model) * 0.8)
-    key_files = truncate_files(key_files, max_tokens=discount)
-    flat_files = truncate_files(flat_files, max_tokens=discount - sum([len(f["content"]) for f in key_files]))
-
-    report_prompts = get_prompt("report")
-    prompt = Template(report_prompts["html_task"]) \
-        .render(task=task, original_query=original_query, key_files=key_files, files=flat_files,
-                date=datetime.now().strftime('%Y年%m月%d日'))
-
-    if template_type == "fix":
-        messages = _build_report_messages(
-            report_prompts, prompt, original_query, task, report_prompts["fix_html_prompt"])
-        async for chunk in ask_llm(
-                messages=messages,
-                model=model, stream=True, temperature=temperature, top_p=top_p, only_content=True):
-            yield chunk
-    else:
-        messages = _build_report_messages(
-            report_prompts, prompt, original_query, task, report_prompts["html_prompt"])
-        async for chunk in ask_llm(
-                messages=messages,
-                model=model, stream=True, temperature=temperature, top_p=top_p, only_content=True):
-            yield chunk
+    task: str,
+    file_names: Optional[List[str]] = None,
+    model: Optional[str] = None,
+    temperature: float = 0,
+    top_p: float = 0.9,
+    template_type: str = "html",
+    original_query: Optional[str] = None,
+) -> AsyncGenerator[str, None]:
+    strict = _requires_strict_grounding(original_query, task)
+    boundary = "Only supplied facts are rendered." if strict else "Rendered deterministically from Harness output."
+    yield (
+        "<!doctype html><html lang=\"zh-CN\"><meta charset=\"utf-8\">"
+        "<title>ResearchPilot Report</title><body><main>"
+        "<h1>ResearchPilot Report</h1>"
+        f"<h2>Task</h2><pre>{html.escape(task or '')}</pre>"
+        f"<h2>Rendering boundary</h2><p>{html.escape(boundary)}</p>"
+        "</main></body></html>"
+    )
 
 
-if __name__ == "__main__":
-    pass
+async def ppt_report(
+    task: str,
+    file_names: Optional[List[str]] = None,
+    model: Optional[str] = None,
+    temperature: float | None = None,
+    top_p: float = 0.6,
+    original_query: Optional[str] = None,
+) -> AsyncGenerator[str, None]:
+    boundary = "仅渲染提供的内容，不补写未知事实。" if _requires_strict_grounding(original_query, task) else "Python 仅负责确定性 PPTX 渲染。"
+    yield f"## ResearchPilot Report\n\n- {task or ''}\n\n---\n\n## Boundary\n\n- {boundary}"
+
+
+def render_report_spec(spec: Mapping[str, Any], file_type: Literal["markdown", "html"]) -> str:
+    """Render an already-gated ReportSpec without invoking an LLM or prompt template."""
+    normalized = dict(spec or {})
+    if file_type == "markdown":
+        return _render_report_spec_markdown(normalized)
+    if file_type == "html":
+        return _render_report_spec_html(normalized)
+    raise ValueError(f"unsupported deterministic ReportSpec format: {file_type}")
+
+
+def render_report_spec_pdf(spec: Mapping[str, Any], output_path: str) -> None:
+    """Write a real PDF from the ReportSpec using PyMuPDF; no model/tool call is involved."""
+    import fitz
+
+    markdown = _render_report_spec_markdown(dict(spec or {}))
+    document = fitz.open()
+    page_width, page_height = 595, 842
+    font_name = "helv"
+    font_buffer = None
+    try:
+        font_buffer = fitz.Font("china-s").buffer
+        font_name = "researchpilot_cjk"
+    except Exception:
+        # Helvetica keeps PDF delivery available on minimal installations.  The
+        # report remains byte-valid even if an optional CJK font is unavailable.
+        pass
+    lines = _pdf_lines(markdown, 88)
+    for start in range(0, max(1, len(lines)), 46):
+        page = document.new_page(width=page_width, height=page_height)
+        if font_buffer is not None:
+            page.insert_font(fontname=font_name, fontbuffer=font_buffer)
+        page.insert_textbox(
+            fitz.Rect(36, 36, page_width - 36, page_height - 36),
+            "\n".join(lines[start:start + 46]),
+            fontsize=10,
+            fontname=font_name,
+            color=(0, 0, 0),
+            lineheight=1.25,
+        )
+    target = Path(output_path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    document.save(str(target), garbage=4, deflate=True)
+    document.close()
+
+
+def _render_report_spec_markdown(spec: Mapping[str, Any]) -> str:
+    title = _text(spec.get("title"), "ResearchPilot report")
+    summary = _text(spec.get("executiveSummary"))
+    methodology = _text(spec.get("methodology"))
+    citations = _dicts(spec.get("citations"))
+    claims = _dicts(spec.get("claims"))
+    conflicts = _dicts(spec.get("conflicts"))
+    limitations = _strings(spec.get("limitations"))
+    citation_numbers = {_text(citation.get("evidenceId")): index + 1 for index, citation in enumerate(citations)}
+    citations_by_claim: dict[str, list[Mapping[str, Any]]] = {}
+    for citation in citations:
+        citations_by_claim.setdefault(_text(citation.get("claimId")), []).append(citation)
+
+    lines = [f"# {title}", "", "## Executive summary", "", summary, "", "## Methodology", "", methodology,
+             "", "## Research findings", ""]
+    for claim in claims:
+        claim_id = _text(claim.get("id"))
+        statement = _text(claim.get("statement"), claim_id)
+        labels = " ".join(f"[S{citation_numbers[_text(citation.get('evidenceId'))]}]"
+                          for citation in citations_by_claim.get(claim_id, [])
+                          if _text(citation.get("evidenceId")) in citation_numbers)
+        uncertainty = _text(claim.get("uncertainty"), "NONE")
+        suffix = f" (uncertainty: {uncertainty})" if uncertainty != "NONE" else ""
+        lines.append(f"- {statement}{(' ' + labels) if labels else ''}{suffix}")
+    if not claims:
+        lines.append("- No verified claims were available.")
+    if conflicts:
+        lines.extend(["", "## Conflicts", ""])
+        lines.extend(f"- {_text(conflict.get('claimId'))}: {_text(conflict.get('description'))}" for conflict in conflicts)
+    lines.extend(["", "## Limitations", ""])
+    lines.extend(f"- {limitation}" for limitation in limitations or ["No limitations were supplied."])
+    lines.extend(["", "## Evidence and citations", ""])
+    for index, citation in enumerate(citations, start=1):
+        lines.extend([
+            f"[S{index}] {_text(citation.get('sourceUrl'))}",
+            f"> {_text(citation.get('exactQuote'))}",
+            f"> evidence_id={_text(citation.get('evidenceId'))}; hash={_text(citation.get('contentHash'))}; "
+            f"fetched_at={_text(citation.get('fetchedAtEpochMillis'))}",
+            "",
+        ])
+    lines.extend(["Generated at: " + _text(spec.get("generatedAt")),
+                  "Renderer version: " + _text(spec.get("rendererVersion"), "researchpilot-deterministic-v1")])
+    return "\n".join(lines).strip()
+
+
+def _render_report_spec_html(spec: Mapping[str, Any]) -> str:
+    title = _text(spec.get("title"), "ResearchPilot report")
+    citations = _dicts(spec.get("citations"))
+    claims = _dicts(spec.get("claims"))
+    citations_by_claim: dict[str, list[int]] = {}
+    for index, citation in enumerate(citations, start=1):
+        citations_by_claim.setdefault(_text(citation.get("claimId")), []).append(index)
+    claim_items = "".join(
+        "<li>" + html.escape(_text(claim.get("statement"), _text(claim.get("id"))))
+        + " " + " ".join(f"<a href=\"#source-{number}\">[S{number}]</a>" for number in citations_by_claim.get(_text(claim.get("id")), []))
+        + (f" <em>uncertainty: {html.escape(_text(claim.get('uncertainty')))}</em>"
+           if _text(claim.get("uncertainty"), "NONE") != "NONE" else "") + "</li>"
+        for claim in claims
+    ) or "<li>No verified claims were available.</li>"
+    conflict_items = "".join("<li>" + html.escape(_text(conflict.get("claimId"))) + ": "
+                             + html.escape(_text(conflict.get("description"))) + "</li>"
+                             for conflict in _dicts(spec.get("conflicts")))
+    limitation_items = "".join("<li>" + html.escape(item) + "</li>" for item in _strings(spec.get("limitations")))
+    source_items = "".join(
+        f"<li id=\"source-{index}\"><a href=\"{html.escape(_text(citation.get('sourceUrl')), quote=True)}\">"
+        f"[S{index}] {html.escape(_text(citation.get('sourceUrl')))}</a><blockquote>{html.escape(_text(citation.get('exactQuote')))}</blockquote>"
+        f"<small>evidence_id={html.escape(_text(citation.get('evidenceId')))}; hash={html.escape(_text(citation.get('contentHash')))}</small></li>"
+        for index, citation in enumerate(citations, start=1)
+    )
+    conflicts_html = f"<section><h2>Conflicts</h2><ul>{conflict_items}</ul></section>" if conflict_items else ""
+    return (
+        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
+        f"<title>{html.escape(title)}</title><style>body{{font-family:system-ui,sans-serif;max-width:900px;margin:2rem auto;padding:0 1rem;line-height:1.55}}blockquote{{border-left:3px solid #888;padding-left:1rem}}small{{color:#555}}</style></head>"
+        f"<body><main><h1>{html.escape(title)}</h1><section><h2>Executive summary</h2><p>{html.escape(_text(spec.get('executiveSummary')))}</p></section>"
+        f"<section><h2>Methodology</h2><p>{html.escape(_text(spec.get('methodology')))}</p></section><section><h2>Research findings</h2><ul>{claim_items}</ul></section>"
+        f"{conflicts_html}<section><h2>Limitations</h2><ul>{limitation_items}</ul></section><section><h2>Evidence and citations</h2><ol>{source_items}</ol></section>"
+        f"<footer>Generated at: {html.escape(_text(spec.get('generatedAt')))}<br>Renderer version: {html.escape(_text(spec.get('rendererVersion'), 'researchpilot-deterministic-v1'))}</footer>"
+        "</main></body></html>"
+    )
+
+
+def _pdf_lines(markdown: str, max_chars: int) -> list[str]:
+    lines: list[str] = []
+    for raw_line in markdown.splitlines() or [""]:
+        line = raw_line
+        while len(line) > max_chars:
+            lines.append(line[:max_chars])
+            line = line[max_chars:]
+        lines.append(line)
+    return lines
+
+
+def _dicts(value: Any) -> list[Mapping[str, Any]]:
+    return [item for item in (value or []) if isinstance(item, Mapping)] if isinstance(value, list) else []
+
+
+def _strings(value: Any) -> list[str]:
+    return [_text(item) for item in value if _text(item)] if isinstance(value, list) else []
+
+
+def _text(value: Any, default: str = "") -> str:
+    text = str(value).strip() if value is not None else ""
+    return text or default

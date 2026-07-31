@@ -159,6 +159,127 @@ foreach ($quotaDdl in @(
     }
 }
 
+# P160 migration parity: the full launcher is the only supported Agent database
+# upgrade path. Every numbered migration must be explicitly invoked, otherwise a
+# fresh baseline hides missing ALTER/CREATE steps until an old environment starts.
+$fullStackLauncher = Join-Path $root 'docs/dev-ops/start-full-stack.ps1'
+$fullStackContent = Get-Content -Raw -LiteralPath $fullStackLauncher
+$agentMigrationDirectory = Join-Path $root 'docs/dev-ops/mysql/sql/agent_db'
+$expectedAgentMigrations = @(
+    Get-ChildItem -LiteralPath $agentMigrationDirectory -File -Filter '*.sql' |
+        Where-Object { $_.Name -ne '02-dev-seed.sql' } |
+        ForEach-Object Name |
+        Sort-Object
+)
+$referencedAgentMigrations = @(
+    [regex]::Matches($fullStackContent, 'agent_db[\\/]([^"''\s]+\.sql)') |
+        ForEach-Object { $_.Groups[1].Value } |
+        Where-Object { $_ -ne '02-dev-seed.sql' } |
+        Sort-Object -Unique
+)
+Assert-Set 'start-full-stack agent_db migrations' $referencedAgentMigrations $expectedAgentMigrations
+
+# P160 frozen-boundary launch guard: Group/Pay source stays immutable. Full-stack
+# startup may read their SQL but must execute only externally recovered artifacts;
+# demo-lite intentionally leaves both services out of scope.
+if ($fullStackContent -notmatch '\[switch\]\$DemoLite' -or
+        $fullStackContent -notmatch 'function\s+Start-RecoveredJar' -or
+        $fullStackContent -notmatch 'Start-RecoveredJar\s+"group-buy-market"' -or
+        $fullStackContent -notmatch 'Start-RecoveredJar\s+"pay-service"') {
+    throw 'start-full-stack must provide recovered Group/Pay jars and a demo-lite mode.'
+}
+foreach ($requiredExecutorSetting in @(
+        '"member-service"\s*=\s*@\{\s*AppName\s*=\s*"member";\s*Port\s*=\s*9997\s*\}',
+        '"pay-service"\s*=\s*@\{\s*AppName\s*=\s*"pay";\s*Port\s*=\s*9998\s*\}',
+        '"group-buy-market"\s*=\s*@\{\s*AppName\s*=\s*"group";\s*Port\s*=\s*9999\s*\}',
+        '"ai-agent"\s*=\s*@\{\s*AppName\s*=\s*"ai-agent";\s*Port\s*=\s*9996\s*\}',
+        'XXL_JOB_EXECUTOR_ADDRESS',
+        'host\.docker\.internal',
+        'XXL_JOB_EXECUTOR_IP')) {
+    if ($fullStackContent -notmatch $requiredExecutorSetting) {
+        throw "start-full-stack must configure a Docker-reachable XXL executor address ('$requiredExecutorSetting')."
+    }
+}
+if ($fullStackContent -notmatch 'RedirectStandardOutput\s+\$stdoutLog' -or
+        $fullStackContent -notmatch 'RedirectStandardError\s+\$stderrLog') {
+    throw 'Recovered Group/Pay JAR startup must redirect stdout and stderr outside frozen source directories.'
+}
+$preflightGateIndex = $fullStackContent.IndexOf('$preflightPassed = Invoke-StartupPreflight', [System.StringComparison]::Ordinal)
+$firstRuntimeInitializationIndex = $fullStackContent.IndexOf('Ensure-RsaKeyPair "AUTH_JWT_PRIVATE_KEY_BASE64"', [System.StringComparison]::Ordinal)
+if ($preflightGateIndex -lt 0 -or $firstRuntimeInitializationIndex -lt 0 -or
+        $preflightGateIndex -ge $firstRuntimeInitializationIndex) {
+    throw 'start-full-stack must run startup preflight before any runtime initialization.'
+}
+if ($fullStackContent -notmatch 'function\s+Get-RunningComposeConfigDrift' -or
+        $fullStackContent -notmatch 'config\s+--hash\s+''\*''' -or
+        $fullStackContent -notmatch 'running Docker infra config drift') {
+    throw 'start-full-stack preflight must block accidental recreation when running Docker infrastructure drifts from .env.'
+}
+foreach ($frozenMavenPattern in @(
+        '(?s)Push-Location\s+"\$root/group"\s*\r?\n\s*mvn\s+',
+        '(?s)Push-Location\s+"\$root/s-pay-mall-ddd-market"\s*\r?\n\s*mvn\s+')) {
+    if ($fullStackContent -match $frozenMavenPattern) {
+        throw 'start-full-stack must not execute Maven inside frozen Group/Pay source directories.'
+    }
+}
+$acceptanceScript = Get-Content -Raw -LiteralPath (Join-Path $root 'docs/dev-ops/verify-acceptance.ps1')
+if ($acceptanceScript -notmatch 'verify-frozen-manifest\.ps1' -or
+        $acceptanceScript -notmatch 'function\s+Assert-RecoveredJar' -or
+        $acceptanceScript -match '(?m)^Push-Location\s+(group|s-pay-mall-ddd-market)') {
+    throw 'verify-acceptance must verify the frozen manifest/recovered artifacts without testing inside frozen source directories.'
+}
+foreach ($runtimeAcceptanceRequirement in @(
+        'function\s+Invoke-RuntimeAcceptance',
+        'smoke-test\.ps1',
+        'Assert-XxlOutboxPublisherReady',
+        'xxl-pay-outbox-publisher',
+        'smoke-agent-sse\.ps1',
+        'verify-deep-research-acceptance\.ps1',
+        'DurableToolRecoveryTest',
+        'run-p110-deep-trace\.ps1',
+        'run-ai-agent-eval\.ps1',
+        '\[switch\]\$SkipRuntime')) {
+    if ($acceptanceScript -notmatch $runtimeAcceptanceRequirement) {
+        throw "verify-acceptance runtime coverage is missing '$runtimeAcceptanceRequirement'."
+    }
+}
+$skipBuildIndex = $acceptanceScript.IndexOf('if ($SkipBuild)', [System.StringComparison]::Ordinal)
+$runtimeDecisionIndex = $acceptanceScript.IndexOf('if ($SkipRuntime)', [System.StringComparison]::Ordinal)
+if ($skipBuildIndex -lt 0 -or $runtimeDecisionIndex -lt 0 -or $skipBuildIndex -ge $runtimeDecisionIndex -or
+        $acceptanceScript.Substring($skipBuildIndex, $runtimeDecisionIndex - $skipBuildIndex) -match '(?m)^\s*exit\s+0\s*$') {
+    throw 'verify-acceptance -SkipBuild must still permit explicit runtime acceptance.'
+}
+$sseSmoke = Get-Content -Raw -LiteralPath (Join-Path $root 'docs/dev-ops/smoke-agent-sse.ps1')
+if ($sseSmoke -notmatch '\[switch\]\$RequireSseCursorReplay' -or
+        $sseSmoke -notmatch 'Last-Event-ID') {
+    throw 'Agent SSE smoke must verify durable Last-Event-ID replay when requested.'
+}
+$deepAcceptance = Get-Content -Raw -LiteralPath (Join-Path $root 'docs/dev-ops/verify-deep-research-acceptance.ps1')
+if ($deepAcceptance -notmatch 'requireSseCursorReplay' -or
+        $deepAcceptance -notmatch 'RequireSseCursorReplay\s*=\s*\$true') {
+    throw 'DEEP reconnect acceptance must invoke the durable Last-Event-ID replay probe.'
+}
+
+$expectedMemberMigrations = @(
+    'schema.sql'
+) + @(
+    Get-ChildItem -LiteralPath (Join-Path $root 'docs/dev-ops/mysql/sql/member_db') -File -Filter '*.sql' |
+        ForEach-Object Name |
+        Sort-Object
+)
+foreach ($launcher in @('docs/dev-ops/start-platform.ps1', 'docs/dev-ops/start-full-stack.ps1')) {
+    $content = Get-Content -Raw -LiteralPath (Join-Path $root $launcher)
+    $referencedMemberMigrations = @()
+    if ($content -match 'member-service/src/main/resources/schema\.sql') {
+        $referencedMemberMigrations += 'schema.sql'
+    }
+    $referencedMemberMigrations += @(
+        [regex]::Matches($content, 'member_db[\\/]([^"''\s]+\.sql)') |
+            ForEach-Object { $_.Groups[1].Value }
+    )
+    Assert-Set "$launcher member_db migrations" @($referencedMemberMigrations | Sort-Object -Unique) $expectedMemberMigrations
+}
+
 $seed = Get-Content -Raw -LiteralPath (Join-Path $root 'docs/dev-ops/mysql/sql/xxl_job/01-xxl_job.sql')
 $handlers = @([regex]::Matches($seed, "'FIRST','([^']+)'") | ForEach-Object { $_.Groups[1].Value })
 $expectedHandlers = @(

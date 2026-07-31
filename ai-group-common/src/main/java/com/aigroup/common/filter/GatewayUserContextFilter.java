@@ -1,8 +1,8 @@
 package com.aigroup.common.filter;
 
-import com.aigroup.common.context.RequestUserContext;
 import com.aigroup.common.config.InternalTokenProperties;
 import com.aigroup.common.constant.CommonConstant;
+import com.aigroup.common.context.RequestUserContext;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -37,7 +37,7 @@ public class GatewayUserContextFilter extends OncePerRequestFilter {
             return false;
         }
         String expected = internalTokenProperties.getToken();
-        String provided = request.getHeader(CommonConstant.HEADER_INTERNAL_TOKEN);
-        return expected != null && !expected.isBlank() && expected.equals(provided);
+        return expected != null && !expected.isBlank()
+                && expected.equals(request.getHeader(CommonConstant.HEADER_INTERNAL_TOKEN));
     }
 }

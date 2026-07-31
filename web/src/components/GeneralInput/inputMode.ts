@@ -19,9 +19,7 @@ export function buildSubmitPayload(params: {
   modelId?: string;
   online?: boolean;
 }) {
-  const outputStyle = params.visibleMode === 'deep'
-    ? 'markdown'
-    : params.visibleOutputProduct.type;
+  const outputStyle = params.visibleOutputProduct.type;
 
   return {
     message: params.question.trim(),

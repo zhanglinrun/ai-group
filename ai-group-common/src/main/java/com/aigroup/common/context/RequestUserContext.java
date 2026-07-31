@@ -1,9 +1,11 @@
 package com.aigroup.common.context;
 
 import com.aigroup.common.constant.CommonConstant;
+import com.aigroup.common.exception.BusinessException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.util.StringUtils;
 
+/** Request-scoped user context populated by the Gateway. */
 public final class RequestUserContext {
 
     private static final ThreadLocal<Long> USER_ID = new ThreadLocal<>();
@@ -16,7 +18,11 @@ public final class RequestUserContext {
     public static void bind(HttpServletRequest request) {
         String userId = request.getHeader(CommonConstant.HEADER_USER_ID);
         if (StringUtils.hasText(userId)) {
-            USER_ID.set(Long.parseLong(userId));
+            try {
+                USER_ID.set(Long.parseLong(userId));
+            } catch (NumberFormatException ignored) {
+                // A malformed Gateway header is treated as an unauthenticated request.
+            }
         }
         USERNAME.set(request.getHeader(CommonConstant.HEADER_USERNAME));
         ROLE.set(request.getHeader(CommonConstant.HEADER_ROLE));
@@ -24,6 +30,14 @@ public final class RequestUserContext {
 
     public static Long getUserId() {
         return USER_ID.get();
+    }
+
+    public static Long requireUserId() {
+        Long userId = USER_ID.get();
+        if (userId == null) {
+            throw new BusinessException("未登录");
+        }
+        return userId;
     }
 
     public static String getUsername() {

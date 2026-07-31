@@ -10,6 +10,7 @@ public class QuotaLedgerVO {
     private Long amount;
     private String freezeId;
     private String abilityCode;
+    private String traceId;
     private String remark;
     private LocalDateTime createdAt;
 }

@@ -5,6 +5,8 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.time.LocalDateTime;
+
 /**
  * Durable claim result for one request id.
  *
@@ -35,6 +37,10 @@ public class DialogueRunClaim {
     private String finalSummaryText;
     private String errorCode;
     private String errorMsg;
+    private String ownerWorkerId;
+    private Long fencingToken;
+    private LocalDateTime leaseExpiresAt;
+    private LocalDateTime cancelRequestedAt;
 
     public boolean isNew() {
         return disposition == Disposition.NEW;

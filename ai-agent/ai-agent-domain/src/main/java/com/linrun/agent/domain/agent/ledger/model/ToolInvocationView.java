@@ -41,6 +41,16 @@ public class ToolInvocationView {
 
     private String toolProvider;
 
+    private String operationKey;
+
+    private String executionMode;
+
+    private Long sourceInvocationId;
+
+    private String durableStatus;
+
+    private Long durableFencingToken;
+
     private String inputJson;
 
     private String toolResult;
@@ -57,6 +67,8 @@ public class ToolInvocationView {
     private String errorMsg;
 
     private Long durationMs;
+
+    private LocalDateTime durableLeaseExpiresAt;
 
     private Integer artifactCount;
 

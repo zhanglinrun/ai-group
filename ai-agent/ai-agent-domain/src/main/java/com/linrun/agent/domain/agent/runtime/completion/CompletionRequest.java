@@ -23,6 +23,8 @@ public class CompletionRequest {
     ToolInvocationContract toolInvocationContract = ToolInvocationContract.none();
     @Builder.Default
     List<String> requiredOutputFields = List.of();
+    String requiredExactFinalAnswer;
+    boolean numericOnlyFinalAnswer;
     boolean runFailed;
     boolean networkLookupRequired;
     boolean reportArtifactRequired;

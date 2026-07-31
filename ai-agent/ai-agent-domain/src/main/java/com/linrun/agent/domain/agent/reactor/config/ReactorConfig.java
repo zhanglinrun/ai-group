@@ -239,7 +239,7 @@ public class ReactorConfig {
     private Boolean memoryEnabled;
 
     /** 长期跨会话语义记忆开关。 */
-    @Value("${autobots.autoagent.memory.longterm.enabled:false}")
+    @Value("${autobots.autoagent.memory.longterm.enabled:true}")
     private Boolean longTermMemoryEnabled;
 
     /** 长期记忆召回条数 */

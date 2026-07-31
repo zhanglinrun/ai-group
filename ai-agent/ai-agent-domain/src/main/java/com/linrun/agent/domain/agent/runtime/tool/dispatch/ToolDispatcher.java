@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import com.linrun.agent.domain.agent.ledger.model.ArtifactRecordCommand;
+import com.linrun.agent.domain.agent.ledger.model.tooloutput.CodeInterpreterToolOutput;
+import com.linrun.agent.domain.agent.ledger.model.tooloutput.ToolFileRef;
 import com.linrun.agent.domain.agent.ledger.model.ExecutionLedgerConstants;
 import com.linrun.agent.domain.agent.ledger.model.ToolInvocationBatchStartRecord;
 import com.linrun.agent.domain.agent.ledger.model.ToolInvocationFinishRecord;
@@ -28,9 +30,15 @@ import com.linrun.agent.domain.agent.runtime.stream.AgentStreamEvent;
 import com.linrun.agent.domain.agent.runtime.tool.BaseTool;
 import com.linrun.agent.domain.agent.runtime.tool.ToolCollection;
 import com.linrun.agent.domain.agent.runtime.tool.ToolResultPayload;
+import com.linrun.agent.domain.agent.runtime.tool.common.DeepSearchTool;
 import com.linrun.agent.domain.agent.runtime.tool.common.ExecuteExtraTool;
 import com.linrun.agent.domain.agent.runtime.tool.common.TodoWriteTool;
+import com.linrun.agent.domain.agent.runtime.tool.durable.DurableToolExecutionRequest;
+import com.linrun.agent.domain.agent.runtime.tool.durable.DurableToolExecutor;
 import com.linrun.agent.domain.agent.runtime.work.TodoStepEvidenceScope;
+import com.linrun.agent.domain.agent.runtime.observability.AgentTraceMapper;
+import com.linrun.agent.domain.agent.runtime.observability.AgentTraceRecorder;
+import com.linrun.agent.domain.agent.runtime.observability.AgentTraceScope;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -90,9 +98,12 @@ public final class ToolDispatcher {
         if (context != null && context.getAgentRunState() != null && !toolInvocationIds.isEmpty()) {
             context.getAgentRunState().bindToolInvocationIds(toolInvocationIds);
         }
+        startToolTraceSpans(commands, toolInvocationIds);
         Map<String, Integer> dispatchIndexMapping = buildDispatchIndexMapping(commands);
         emitToolCallRunningEvents(commands, dispatchIndexMapping);
-        ToolExecutionOutcome outcome = finalizeToolExecutionOutcome(command, executeToolInternal(command));
+        ToolExecutionOutcome rawOutcome = executeToolInternal(command);
+        recoverCodeInterpreterArtifacts(command, rawOutcome);
+        ToolExecutionOutcome outcome = finalizeToolExecutionOutcome(command, rawOutcome);
         operationLedger.recordSuccessful(command, outcome);
         recordToolExecutionEvidence(command, outcome);
         finishToolInvocation(command, outcome);
@@ -126,6 +137,7 @@ public final class ToolDispatcher {
         if (context != null && context.getAgentRunState() != null) {
             context.getAgentRunState().bindToolInvocationIds(toolInvocationIds);
         }
+        startToolTraceSpans(commands, toolInvocationIds);
         emitToolCallRunningEvents(commands, dispatchIndexMapping);
 
         AgentStopReason waitStopReason = dispatchInSafetyBlocks(
@@ -314,8 +326,9 @@ public final class ToolDispatcher {
         for (ToolCall toolCall : block) {
             CompletableFuture<Void> future = AgentExecutorSupport
                     .supplyAsync(toolExecutor, "toolBatch", () -> {
-                        ToolExecutionOutcome outcome = finalizeToolExecutionOutcome(
-                                toolCall, executeToolInternal(toolCall));
+                        ToolExecutionOutcome rawOutcome = executeToolInternal(toolCall);
+                        recoverCodeInterpreterArtifacts(toolCall, rawOutcome);
+                        ToolExecutionOutcome outcome = finalizeToolExecutionOutcome(toolCall, rawOutcome);
                         AgentContext currentContext = context();
                         if (currentContext != null && currentContext.isRunDeadlineExceeded()) {
                             outcome = toolTimeBudgetFailure();
@@ -546,7 +559,8 @@ public final class ToolDispatcher {
         boolean permissionRequiresApproval = permission != null && permission.requiresApproval();
         boolean costRequiresApproval = ownerId != null
                 && ownerId > 0L
-                && estimatedMicrocredits >= APPROVAL_THRESHOLD_MICROCREDITS;
+                && estimatedMicrocredits >= APPROVAL_THRESHOLD_MICROCREDITS
+                && !isTrustedReadOnlyPlatformSearch(toolName);
         if (!permissionRequiresApproval && !costRequiresApproval) {
             return null;
         }
@@ -604,6 +618,19 @@ public final class ToolDispatcher {
         String message = "Tool " + toolName + " was not approved: "
                 + StringUtils.defaultIfBlank(approval.getReason(), "approval denied");
         return ToolExecutionOutcome.failure(message, message, null, message);
+    }
+
+    /**
+     * Deep Research already has an explicit user-initiated quota admission and
+     * the built-in search is read-only. Its configured price must not turn the
+     * internal research branch into a browser approval waiter. This does not
+     * include user MCP tools: they are MCP entries rather than this local tool
+     * and continue through the permission-driven fail-closed approval path.
+     */
+    private boolean isTrustedReadOnlyPlatformSearch(String toolName) {
+        return "deep_search".equals(toolName)
+                && toolCatalog() != null
+                && toolCatalog().getTool(toolName) instanceof DeepSearchTool;
     }
 
     private void emitPaused(com.linrun.agent.domain.agent.runtime.hitl.ToolApproval approval) {
@@ -693,6 +720,43 @@ public final class ToolDispatcher {
             return null;
         }
         AgentContext context = context();
+        if (context != null && context.getRuntimeDependencies() != null) {
+            DurableToolExecutor durableToolExecutor = context.getRuntimeDependencies().getOptionalDurableToolExecutor();
+            if (durableToolExecutor != null && durableToolExecutor.supports(toolName)) {
+                Long toolInvocationId = context.getAgentRunState() == null
+                        ? null
+                        : context.getAgentRunState().resolveToolInvocationId(command.getId());
+                if (toolInvocationId == null || context.getAgentRunState() == null) {
+                    return ToolResultPayload.failure("Durable tool requires an active execution ledger run.",
+                            "Durable tool requires an active execution ledger run.", null,
+                            "DURABLE_TOOL_LEDGER_REQUIRED");
+                }
+                AgentTraceRecorder recorder = traceRecorder(context);
+                AgentTraceScope workerScope = recorder.start("worker",
+                        context.getAgentRunState().resolveToolTraceScope(command.getId()),
+                        new AgentTraceMapper().tool(context, toolName, "worker", toolInvocationId, command.getId()));
+                RuntimeException workerTraceError = null;
+                try {
+                    return durableToolExecutor.execute(DurableToolExecutionRequest.builder()
+                            .toolInvocationId(toolInvocationId)
+                            .runId(context.getAgentRunState().getRunId())
+                            .requestId(context.getRequestId())
+                            .toolCallId(command.getId())
+                            .toolName(toolName)
+                            .operationKey(operationLedger.operationKey(command))
+                            .inputJson(normalizeToolPayload(command.getFunction().getArguments()))
+                            .ownerWorkerId(context.getRunOwnerWorkerId())
+                            .fencingToken(Math.max(1L, context.getFencingToken() == null ? 0L : context.getFencingToken()))
+                            .retryable("deep_search".equals(toolName))
+                            .build());
+                } catch (RuntimeException workerError) {
+                    workerTraceError = workerError;
+                    throw workerError;
+                } finally {
+                    recorder.end(workerScope, workerTraceError);
+                }
+            }
+        }
         if (context == null) {
             return tools.execute(toolName, args);
         }
@@ -726,6 +790,41 @@ public final class ToolDispatcher {
         finishToolInvocation(command, outcome);
         recordToolArtifacts(command);
         emitToolCallFinishedEvent(command, dispatchIndexMapping.get(command.getId()), outcome);
+    }
+
+    /**
+     * The SSE callback is the primary artifact projection path. This fallback
+     * protects the durable ledger when a terminal code-interpreter event is
+     * observed only by the typed result adapter (for example after a transport
+     * reconnect) before artifact recording runs.
+     */
+    private void recoverCodeInterpreterArtifacts(ToolCall command, ToolExecutionOutcome outcome) {
+        AgentContext context = context();
+        if (context == null || command == null || command.getFunction() == null || outcome == null
+                || !outcome.isSuccess() || !(outcome.getStructuredOutput() instanceof CodeInterpreterToolOutput output)
+                || StringUtils.isBlank(command.getId())
+                || !context.getArtifactBindingsByToolCallId(command.getId()).isEmpty()) {
+            return;
+        }
+        ToolArtifactSource source = ToolArtifactSource.builder()
+                .sessionId(context.getSessionId())
+                .requestId(context.getRequestId())
+                .toolCallId(command.getId())
+                .toolName(command.getFunction().getName())
+                .build();
+        for (ToolFileRef fileRef : output.getFileRefs()) {
+            if (fileRef == null || StringUtils.isBlank(fileRef.getFileName())) {
+                continue;
+            }
+            context.registerGeneratedArtifact(source, File.builder()
+                    .fileName(fileRef.getFileName())
+                    .ossUrl(StringUtils.defaultIfBlank(fileRef.getOssUrl(), fileRef.getDownloadUrl()))
+                    .domainUrl(StringUtils.defaultIfBlank(fileRef.getDomainUrl(), fileRef.getPreviewUrl()))
+                    .fileSize(fileRef.getFileSize() == null ? null : Math.toIntExact(fileRef.getFileSize()))
+                    .description("code_interpreter generated artifact")
+                    .isInternalFile(false)
+                    .build());
+        }
     }
 
     private boolean reserveToolCallBudget(int requested) {
@@ -908,10 +1007,10 @@ public final class ToolDispatcher {
         if (context == null || !context.hasActiveLedgerRun() || context.getAgentRunState() == null) {
             return Map.of();
         }
+        // A bounded system preflight may execute before the first model turn.
+        // It still belongs to the active run and must be durable/auditable, but
+        // deliberately has no model invocation parent in the ledger.
         Long llmInvocationId = context.getAgentRunState().getCurrentLlmInvocationId();
-        if (llmInvocationId == null) {
-            return Map.of();
-        }
         List<ToolInvocationBatchStartRecord.Item> items = new ArrayList<>(commands.size());
         int dispatchIndex = 1;
         for (ToolCall command : commands) {
@@ -924,6 +1023,8 @@ public final class ToolDispatcher {
                     .dispatchIndex(dispatchIndex++)
                     .toolName(command.getFunction().getName())
                     .toolProvider(resolveToolProvider(command.getFunction().getName()))
+                    .operationKey(operationLedger.operationKey(command))
+                    .executionMode("EXECUTED")
                     .inputJson(normalizeToolPayload(command.getFunction().getArguments()))
                     .startedAt(LocalDateTime.now())
                     .build());
@@ -967,6 +1068,47 @@ public final class ToolDispatcher {
                 .errorMsg(outcome == null ? null : outcome.getErrorMsg())
                 .finishedAt(LocalDateTime.now())
                 .build());
+        AgentTraceScope traceScope = context.getAgentRunState().resolveToolTraceScope(command.getId());
+        AgentTraceRecorder traceRecorder = traceRecorder(context);
+        traceRecorder.annotate(traceScope, new AgentTraceMapper().sanitize(Map.of(
+                AgentTraceMapper.STATUS, outcome != null && outcome.isSuccess() ? "SUCCESS" : "FAILED")));
+        traceRecorder.end(traceScope, outcome != null && outcome.isSuccess()
+                ? null
+                : new IllegalStateException("tool_invocation_failed"));
+    }
+
+    /** Creates a Ledger-correlated span after the durable tool-attempt id exists. */
+    private void startToolTraceSpans(List<ToolCall> commands, Map<String, Long> toolInvocationIds) {
+        AgentContext context = context();
+        if (context == null || context.getAgentRunState() == null || commands == null || commands.isEmpty()) {
+            return;
+        }
+        AgentTraceRecorder recorder = traceRecorder(context);
+        Long llmInvocationId = context.getAgentRunState().getCurrentLlmInvocationId();
+        AgentTraceScope parent = context.getAgentRunState().resolveLlmTraceScope(llmInvocationId);
+        if (parent == null) {
+            parent = context.getAgentRunState().getRunTraceScope();
+        }
+        AgentTraceMapper mapper = new AgentTraceMapper();
+        for (ToolCall command : commands) {
+            if (command == null || command.getFunction() == null || StringUtils.isBlank(command.getId())
+                    || StringUtils.isBlank(command.getFunction().getName())
+                    || context.getAgentRunState().resolveToolTraceScope(command.getId()) != null) {
+                continue;
+            }
+            String toolName = command.getFunction().getName();
+            String provider = resolveToolProvider(toolName);
+            Long toolInvocationId = toolInvocationIds == null ? null : toolInvocationIds.get(command.getId());
+            AgentTraceScope scope = recorder.start("mcp".equals(provider) ? "mcp" : "tool", parent,
+                    mapper.tool(context, toolName, provider, toolInvocationId, command.getId()));
+            context.getAgentRunState().bindToolTraceScope(command.getId(), scope);
+        }
+    }
+
+    private AgentTraceRecorder traceRecorder(AgentContext context) {
+        return context == null || context.getAgentTraceRecorder() == null
+                ? AgentTraceRecorder.noop()
+                : context.getAgentTraceRecorder();
     }
 
     private void recordToolArtifacts(ToolCall command) {
@@ -1051,6 +1193,8 @@ public final class ToolDispatcher {
                 .operationKey(operationLedger.operationKey(command))
                 .success(outcome.isSuccess())
                 .errorMessage(outcome.getErrorMsg())
+                .toolResult(outcome.getToolResult())
+                .structuredOutput(outcome.getStructuredOutput())
                 .correctableInputFailure(outcome.isCorrectableInputFailure())
                 .todoStepIndex(todoScope == null ? null : todoScope.stepIndex())
                 .todoStepActivationId(todoScope == null ? null : todoScope.activationId())

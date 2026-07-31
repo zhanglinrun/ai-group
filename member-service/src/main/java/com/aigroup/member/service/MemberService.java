@@ -27,6 +27,10 @@ public interface MemberService {
     Map<String, Object> freeze(Long userId, long requestedAmount, long minAmount,
                                String abilityCode, String requestId, String ownerService);
 
+    /** Immutable trace correlation for a service-owned reservation and its recovery. */
+    Map<String, Object> freeze(Long userId, long requestedAmount, long minAmount,
+                               String abilityCode, String requestId, String ownerService, String traceId);
+
     void confirm(String freezeId, long actualAmount);
 
     void confirm(String freezeId);
@@ -35,11 +39,20 @@ public interface MemberService {
 
     QuotaFreezeStatusVO confirmWithStatus(String freezeId, long actualAmount);
 
+    QuotaFreezeStatusVO confirmWithStatus(String freezeId, long actualAmount,
+                                          String requestId, String traceId);
+
     QuotaFreezeStatusVO releaseWithStatus(String freezeId);
+
+    QuotaFreezeStatusVO releaseWithStatus(String freezeId, String requestId, String traceId);
 
     QuotaFreezeStatusVO queryFreeze(String freezeId);
 
+    QuotaFreezeStatusVO queryFreeze(String freezeId, String requestId, String traceId);
+
     QuotaFreezeStatusVO queryFreezeByRequest(Long userId, String requestId);
+
+    QuotaFreezeStatusVO queryFreezeByRequest(Long userId, String requestId, String traceId);
 
     /** Query legacy/unmanaged stale freezes that member may safely release. */
     List<String> listExpiredPendingFreezeIds(int timeoutMinutes, int batchLimit);

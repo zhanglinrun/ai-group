@@ -4,6 +4,7 @@ import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import com.linrun.agent.domain.agent.runtime.agent.AgentContext;
+import com.linrun.agent.domain.agent.ledger.model.AgentRunState;
 import com.linrun.agent.domain.agent.runtime.dto.skill.SkillToolResult;
 import com.linrun.agent.domain.agent.runtime.tool.BaseTool;
 import com.linrun.agent.domain.agent.runtime.tool.skill.SkillDefinition;
@@ -21,6 +22,8 @@ import java.util.Map;
 @Data
 @RequiredArgsConstructor
 public class SkillTool implements BaseTool {
+
+    private static final int MAX_MID_RUN_SKILL_BODY_ADDITIONS = 1;
 
     private final SkillRegistry skillRegistry;
 
@@ -68,6 +71,10 @@ public class SkillTool implements BaseTool {
             }
 
             SkillDefinition skillDefinition = skillRegistry.getRequiredSkill(skillName);
+            String pinFailure = pinRunLocalDefinition(skillDefinition);
+            if (pinFailure != null) {
+                return pinFailure;
+            }
             SkillToolResult result = SkillToolResult.builder()
                     .name(skillDefinition.getName())
                     .description(skillDefinition.getDescription())
@@ -93,5 +100,20 @@ public class SkillTool implements BaseTool {
                     e);
             return "skill_tool execute failed";
         }
+    }
+
+    private String pinRunLocalDefinition(SkillDefinition definition) {
+        if (agentContext == null || agentContext.getAgentRunState() == null) {
+            return null;
+        }
+        AgentRunState.SkillDefinitionPinResult result = agentContext.getAgentRunState()
+                .pinSkillDefinition(definition.getName(), definition.getDefinitionHash(),
+                        MAX_MID_RUN_SKILL_BODY_ADDITIONS);
+        return switch (result) {
+            case PINNED -> null;
+            case VERSION_CHANGED -> "skill definition changed during this run; restart the run before loading it again";
+            case LIMIT_REACHED -> "only one additional skill body may be loaded during this run";
+            case INVALID -> "skill definition metadata is invalid";
+        };
     }
 }

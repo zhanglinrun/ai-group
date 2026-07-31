@@ -99,18 +99,25 @@ public class ToolExposurePolicyTest {
     }
 
     @Test
-    public void shouldNotInjectDiscoveredNativeSchemaOnNextTurn() {
+    public void shouldInjectAtMostThreePinnedNativeSchemasOnNextTurn() {
         ReactorConfig config = config("filtered", 2, 1);
         ToolCollection catalog = catalog(10);
         AgentContext context = context(config, catalog, "完成业务任务", "继续执行");
         ToolCollection before = ToolExposurePolicy.selectForTurn(catalog, context, config);
-        context.getAgentRunState().markToolsDiscovered(List.of("mcp__server9__unrelated_tool_9"));
+        context.getAgentRunState().markToolsDiscovered(Map.of(
+                "mcp__server1__unrelated_tool_1", catalog.getMcpTool("mcp__server1__unrelated_tool_1").definitionHash(),
+                "mcp__server2__unrelated_tool_2", catalog.getMcpTool("mcp__server2__unrelated_tool_2").definitionHash(),
+                "mcp__server3__unrelated_tool_3", catalog.getMcpTool("mcp__server3__unrelated_tool_3").definitionHash(),
+                "mcp__server4__unrelated_tool_4", catalog.getMcpTool("mcp__server4__unrelated_tool_4").definitionHash()));
 
         ToolCollection after = ToolExposurePolicy.selectForTurn(catalog, context, config);
 
-        Assert.assertEquals(before.getToolMap().keySet(), after.getToolMap().keySet());
-        Assert.assertEquals(before.getMcpToolMap().keySet(), after.getMcpToolMap().keySet());
-        Assert.assertFalse(after.getMcpToolMap().containsKey("mcp__server9__unrelated_tool_9"));
+        Assert.assertTrue(before.getMcpToolMap().isEmpty());
+        Assert.assertEquals(3, after.getMcpToolMap().size());
+        Assert.assertTrue(after.getMcpToolMap().containsKey("mcp__server1__unrelated_tool_1"));
+        Assert.assertTrue(after.getMcpToolMap().containsKey("mcp__server2__unrelated_tool_2"));
+        Assert.assertTrue(after.getMcpToolMap().containsKey("mcp__server3__unrelated_tool_3"));
+        Assert.assertFalse(after.getMcpToolMap().containsKey("mcp__server4__unrelated_tool_4"));
     }
 
     @Test
@@ -124,10 +131,25 @@ public class ToolExposurePolicyTest {
         String result = String.valueOf(tool.execute(Map.of("query", "查询日历会议", "limit", 3)));
 
         Assert.assertTrue(result, result.contains("mcp__calendar__list_events"));
-        Assert.assertTrue(result, result.contains("input_schema"));
-        Assert.assertTrue(result, result.contains(ExecuteExtraTool.NAME));
+        Assert.assertTrue(result, result.contains("definition_hash"));
+        Assert.assertTrue(result, result.contains("available_next_turn"));
+        Assert.assertFalse(result, result.contains("input_schema"));
         Assert.assertTrue(context.getAgentRunState().discoveredToolNamesSnapshot()
                 .contains("mcp__calendar__list_events"));
+    }
+
+    @Test
+    public void shouldRejectDiscoveredSchemaWhenRegistryDefinitionChangesDuringRun() {
+        ReactorConfig config = config("filtered", 2, 1);
+        ToolCollection catalog = catalog(3);
+        AgentContext context = context(config, catalog, "完成业务任务", "继续执行");
+        McpToolInfo target = catalog.getMcpTool("mcp__calendar__list_events");
+        context.getAgentRunState().markToolsDiscovered(Map.of(target.resolveExposedName(), target.definitionHash()));
+        target.setParameters("{\"type\":\"object\",\"properties\":{\"changed\":{\"type\":\"string\"}}}");
+
+        ToolCollection exposed = ToolExposurePolicy.selectForTurn(catalog, context, config);
+
+        Assert.assertFalse(exposed.getMcpToolMap().containsKey(target.resolveExposedName()));
     }
 
     @Test

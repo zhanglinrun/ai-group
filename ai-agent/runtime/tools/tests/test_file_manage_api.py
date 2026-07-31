@@ -104,18 +104,25 @@ class FileManageApiTest(unittest.TestCase):
             upload_file = UploadFile(filename="poster.png", file=io.BytesIO(b"fake-image-bytes"))
 
             try:
-                with patch.object(
-                    FileInfoOp,
-                    "add",
-                    new=AsyncMock(side_effect=lambda file_info: file_info),
-                ):
-                    file_info = asyncio.run(
-                        FileInfoOp.add_by_file(
-                            file=upload_file,
-                            file_id="file-id-001",
-                            request_id="session-1779798194080-9667",
+                with patch.dict(os.environ, {
+                    "MINIO_ENDPOINT": "",
+                    "MINIO_ACCESS_KEY": "",
+                    "MINIO_SECRET_KEY": "",
+                    "MINIO_ROOT_USER": "",
+                    "MINIO_ROOT_PASSWORD": "",
+                }, clear=False):
+                    with patch.object(
+                        FileInfoOp,
+                        "add",
+                        new=AsyncMock(side_effect=lambda file_info: file_info),
+                    ):
+                        file_info = asyncio.run(
+                            FileInfoOp.add_by_file(
+                                file=upload_file,
+                                file_id="file-id-001",
+                                request_id="session-1779798194080-9667",
+                            )
                         )
-                    )
 
                 saved_path = Path(file_info.file_path)
                 self.assertTrue(saved_path.exists())

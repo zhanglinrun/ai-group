@@ -36,7 +36,7 @@ public class EmbeddingService {
                     .map(this::box)
                     .toList();
         } catch (Exception e) {
-            log.error("embedding failed, error:{}", e.getMessage(), e);
+            log.error("embedding failed errorType={}", e.getClass().getSimpleName());
             return List.of();
         }
     }

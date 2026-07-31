@@ -7,6 +7,8 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.HashSet;
+import java.util.Set;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -15,6 +17,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -26,7 +29,9 @@ public class ApprovalGateTest {
         AtomicLong ids = new AtomicLong();
         when(repository.create(any())).thenAnswer(invocation ->
                 invocation.<ToolApproval>getArgument(0).toBuilder().id(ids.incrementAndGet()).build());
-        when(repository.decide(anyLong(), anyString(), any(), any())).thenReturn(true);
+        Set<Long> decidedApprovalIds = new HashSet<>();
+        when(repository.decide(anyLong(), anyString(), any(), any())).thenAnswer(
+                invocation -> decidedApprovalIds.add(invocation.getArgument(0)));
         ApprovalGate gate = new ApprovalGate(repository, 1_000L);
 
         for (ApprovalDecision decision : new ApprovalDecision[]{
@@ -50,10 +55,10 @@ public class ApprovalGateTest {
         }
 
         ArgumentCaptor<String> persistedPayload = ArgumentCaptor.forClass(String.class);
-        verify(repository).decide(anyLong(), anyString(),
+        verify(repository, times(2)).decide(anyLong(), anyString(),
                 org.mockito.ArgumentMatchers.eq(ApprovalDecision.MODIFIED), persistedPayload.capture());
-        assertTrue(persistedPayload.getValue().contains("***"));
-        assertFalse(persistedPayload.getValue().contains("raw-secret"));
+        assertTrue(persistedPayload.getAllValues().stream().allMatch(value -> value.contains("***")));
+        assertTrue(persistedPayload.getAllValues().stream().noneMatch(value -> value.contains("raw-secret")));
     }
 
     @Test

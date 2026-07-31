@@ -1,6 +1,5 @@
 import importlib
 import unittest
-from unittest.mock import AsyncMock, patch
 
 from reactor_tool.model.protocal import ReportRequest
 
@@ -48,35 +47,20 @@ class ReportGroundingPolicyTest(unittest.TestCase):
 
 
 class ReportGroundingWiringTest(unittest.IsolatedAsyncioTestCase):
-    async def test_html_report_puts_original_query_and_closed_world_rules_into_messages(self):
-        captured = {}
-
-        async def fake_ask_llm(**kwargs):
-            captured.update(kwargs)
-            yield "<!DOCTYPE html><html lang=\"zh-CN\"></html>"
-
+    async def test_html_report_renders_closed_world_boundary_without_model_invocation(self):
         original_query = (
             "仅允许使用下列已验证事实：端口 5173、8070、8090；"
             "禁止补写端口职责、Docker 状态、接口、命令、模型版本和域名。"
         )
-        with patch.object(report_module, "download_all_files", new=AsyncMock(return_value=[])), \
-                patch.object(report_module.LLMModelInfoFactory, "get_context_length", return_value=16000), \
-                patch.object(report_module, "ask_llm", side_effect=fake_ask_llm):
-            chunks = [chunk async for chunk in report_module.html_report(
-                task="整理事实并生成网页报告",
-                original_query=original_query,
-                file_names=[],
-                model="test-model",
-            )]
+        chunks = [chunk async for chunk in report_module.html_report(
+            task="整理事实并生成网页报告",
+            original_query=original_query,
+            file_names=[],
+        )]
 
-        self.assertEqual(["<!DOCTYPE html><html lang=\"zh-CN\"></html>"], chunks)
-        messages = captured["messages"]
-        self.assertEqual(["system", "system", "user"], [message["role"] for message in messages])
-        self.assertIn("当前模式：严格闭集事实模式", messages[1]["content"])
-        self.assertIn("以原始用户请求为准并丢弃冲突内容", messages[1]["content"])
-        self.assertIn("端口职责", messages[1]["content"])
-        self.assertIn(original_query, messages[2]["content"])
-        self.assertIn("<report_task>整理事实并生成网页报告</report_task>", messages[2]["content"])
+        self.assertEqual(1, len(chunks))
+        self.assertIn("Only supplied facts are rendered.", chunks[0])
+        self.assertIn("整理事实并生成网页报告", chunks[0])
 
 
 if __name__ == "__main__":

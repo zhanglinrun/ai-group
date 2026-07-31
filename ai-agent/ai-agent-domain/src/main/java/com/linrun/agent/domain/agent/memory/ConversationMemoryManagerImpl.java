@@ -1,11 +1,13 @@
 package com.linrun.agent.domain.agent.memory;
 
 import jakarta.annotation.Resource;
+import org.springframework.beans.factory.annotation.Autowired;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
 import com.linrun.agent.domain.agent.reactor.config.ReactorConfig;
 import com.linrun.agent.domain.agent.runtime.context.ContextTrustBoundary;
+import com.linrun.agent.domain.agent.memory.workspace.WorkspaceMemoryService;
 import com.linrun.agent.types.agent.config.AgentExecutorNames;
 
 import java.util.List;
@@ -25,6 +27,10 @@ public class ConversationMemoryManagerImpl implements ConversationMemoryManager 
     private final SessionContextMemoryService sessionContextMemoryService;
     private final LongTermMemoryService longTermMemoryService;
     private final ReactorConfig reactorConfig;
+
+    /** P70 explicit user memory is optional during no-PostgreSQL local runs. */
+    @Autowired(required = false)
+    private WorkspaceMemoryService workspaceMemoryService;
 
     @Resource(name = AgentExecutorNames.TASK_EXECUTOR)
     private Executor memoryExecutor;
@@ -105,16 +111,37 @@ public class ConversationMemoryManagerImpl implements ConversationMemoryManager 
     }
 
     private List<String> safeRecallStructuredFirst(MemoryQuery query) {
+        List<String> workspace = safeRecallWorkspace(query);
         try {
             List<LongTermMemoryEntry> entries = longTermMemoryService.recallEntries(
                     query.ownerId(), query.sessionId(), query.query());
             if (entries != null && !entries.isEmpty()) {
-                return entries.stream().map(LongTermMemoryEntry::toPromptSnippet).toList();
+                return java.util.stream.Stream.concat(workspace.stream(),
+                                entries.stream().map(LongTermMemoryEntry::toPromptSnippet))
+                        .distinct()
+                        .toList();
             }
         } catch (Exception e) {
             log.warn("recall structured long-term memory failed, ownerId={}", query.ownerId(), e);
         }
+        if (!workspace.isEmpty()) {
+            return workspace;
+        }
         return safeRecall(query);
+    }
+
+    private List<String> safeRecallWorkspace(MemoryQuery query) {
+        if (workspaceMemoryService == null) {
+            return List.of();
+        }
+        try {
+            return workspaceMemoryService.loadForRun("default", query.ownerId(), List.of()).stream()
+                    .map(entry -> entry.topic() + ": " + entry.content())
+                    .toList();
+        } catch (Exception e) {
+            log.warn("workspace memory recall failed, ownerId={}", query.ownerId(), e);
+            return List.of();
+        }
     }
 
     private String wrapMemoryBlock(String block) {

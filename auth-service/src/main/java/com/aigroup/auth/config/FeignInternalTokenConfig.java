@@ -1,7 +1,7 @@
 package com.aigroup.auth.config;
 
-import com.aigroup.common.config.InternalTokenProperties;
 import com.aigroup.common.constant.CommonConstant;
+import com.aigroup.common.config.InternalTokenProperties;
 import feign.RequestInterceptor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -10,14 +10,14 @@ import org.springframework.context.annotation.Configuration;
 public class FeignInternalTokenConfig {
 
     @Bean
-    public RequestInterceptor internalTokenInterceptor(InternalTokenProperties properties) {
+    public RequestInterceptor internalTokenInterceptor(InternalTokenProperties internalTokenProperties) {
         return template -> {
             String target = template.url();
             if (target == null || target.isBlank()) {
                 target = template.path();
             }
             if (target != null && target.contains("/internal/")) {
-                template.header(CommonConstant.HEADER_INTERNAL_TOKEN, properties.getToken());
+                template.header(CommonConstant.HEADER_INTERNAL_TOKEN, internalTokenProperties.getToken());
             }
         };
     }

@@ -13,6 +13,7 @@ import com.linrun.agent.domain.agent.runtime.stream.AgentStreamEvent;
 import com.linrun.agent.domain.agent.runtime.tool.ToolCollection;
 import com.linrun.agent.domain.agent.runtime.tool.ToolResultPayload;
 import com.linrun.agent.domain.agent.runtime.tool.common.WebFetchTool;
+import com.linrun.agent.domain.agent.ledger.model.tooloutput.FetchedPageToolOutput;
 import com.linrun.agent.domain.agent.reactor.config.ReactorConfig;
 import com.linrun.agent.test.domain.support.ReactorRuntimeTestSupport;
 
@@ -78,6 +79,11 @@ public class WebFetchToolTest {
             Assert.assertFalse(payload.getFailed());
             Assert.assertTrue(payload.getLlmObservation().contains("网页抓取完成"));
             Assert.assertTrue(payload.getLlmObservation().contains("完整内容已保存为文件产物"));
+            Assert.assertTrue(payload.getLlmObservation().contains("内容信任级别：UNTRUSTED"));
+            FetchedPageToolOutput output = (FetchedPageToolOutput) payload.getStructuredOutput();
+            Assert.assertEquals("UNTRUSTED", output.getContentTrust());
+            Assert.assertEquals(List.of("ignore_instructions"), output.getRiskSignals());
+            Assert.assertTrue(output.getContent().startsWith("<<<UNTRUSTED_WEB_CONTENT>>>"));
             Assert.assertEquals(1, context.getTaskProductFiles().size());
             Assert.assertEquals("example-article.md", context.getTaskProductFiles().get(0).getFileName());
             Assert.assertEquals(List.of("file"), printer.messageTypes());
@@ -107,7 +113,7 @@ public class WebFetchToolTest {
         public void handle(HttpExchange exchange) throws IOException {
             lastRequestBody.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
             byte[] body = """
-                    {"code":200,"requestId":"session-webfetch-001","data":{"title":"Example Article","finalUrl":"https://example.com/article","content":"这是一段网页摘要","contentFormat":"markdown","wordCount":42,"truncated":false,"contentSource":"trafilatura","metadata":{"description":"示例页面"}},"fileInfo":[{"fileName":"example-article.md","ossUrl":"https://file.example.com/download/example-article.md","domainUrl":"https://file.example.com/preview/example-article.md","fileSize":2048}]}
+                    {"code":200,"requestId":"session-webfetch-001","data":{"title":"Example Article","finalUrl":"https://example.com/article","content":"这是一段网页摘要","contentTrust":"UNTRUSTED","riskSignals":["ignore_instructions","INVALID SIGNAL"],"contentFormat":"markdown","wordCount":42,"truncated":false,"contentSource":"trafilatura","metadata":{"description":"示例页面","contentTrust":"UNTRUSTED"}},"fileInfo":[{"fileName":"example-article.md","ossUrl":"https://file.example.com/download/example-article.md","domainUrl":"https://file.example.com/preview/example-article.md","fileSize":2048}]}
                     """.getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().add("Content-Type", "application/json; charset=utf-8");
             exchange.sendResponseHeaders(200, body.length);

@@ -3,8 +3,6 @@ package com.linrun.agent.trigger.http.reactor.support;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import com.linrun.agent.domain.agent.adapter.port.AgentMessageStream;
 
-import java.util.List;
-import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -15,10 +13,8 @@ public class SseEmitterAgentSessionStream implements AgentMessageStream {
 
     private final SseEmitter emitter;
     private final AtomicBoolean closed = new AtomicBoolean(false);
-    private final AtomicBoolean aborted = new AtomicBoolean(false);
+    private final AtomicBoolean detached = new AtomicBoolean(false);
     private final AtomicBoolean localTermination = new AtomicBoolean(false);
-    private final AtomicBoolean abortNotified = new AtomicBoolean(false);
-    private final List<Runnable> abortHandlers = new CopyOnWriteArrayList<>();
 
     public SseEmitterAgentSessionStream(SseEmitter emitter) {
         this.emitter = emitter;
@@ -45,11 +41,20 @@ public class SseEmitterAgentSessionStream implements AgentMessageStream {
 
     @Override
     public void send(String eventName, Object payload) throws Exception {
+        send(eventName, null, payload);
+    }
+
+    @Override
+    public void send(String eventName, String eventId, Object payload) throws Exception {
         if (closed.get()) {
             return;
         }
         try {
-            emitter.send(SseEmitter.event().name(eventName).data(payload));
+            SseEmitter.SseEventBuilder event = SseEmitter.event().name(eventName).data(payload);
+            if (eventId != null && !eventId.isBlank()) {
+                event.id(eventId);
+            }
+            emitter.send(event);
         } catch (Exception ex) {
             if (SseClientDisconnectDetector.isClientDisconnected(ex)) {
                 markAborted();
@@ -77,22 +82,19 @@ public class SseEmitterAgentSessionStream implements AgentMessageStream {
 
     @Override
     public void onAbort(Runnable abortHandler) {
-        if (abortHandler == null) {
-            return;
-        }
-        if (aborted.get()) {
-            abortHandler.run();
-            return;
-        }
-        abortHandlers.add(abortHandler);
-        if (aborted.get() && abortHandlers.remove(abortHandler)) {
-            abortHandler.run();
-        }
+        // Browser transport loss is not a run cancellation. P30 makes cancel a
+        // durable owner-scoped intent handled by the Run API, so this legacy
+        // callback intentionally never fires for an SSE disconnect.
     }
 
     @Override
     public boolean isAborted() {
-        return aborted.get();
+        return false;
+    }
+
+    /** True when this browser connection detached while the durable run continues. */
+    public boolean isDetached() {
+        return detached.get();
     }
 
     private void handleCompletion() {
@@ -123,17 +125,9 @@ public class SseEmitterAgentSessionStream implements AgentMessageStream {
         markAborted();
     }
 
-    /**
-     * 对客户端断开做一次性广播，避免重复取消上游远端流。
-     */
+    /** Detach this transport only; model/tool work continues from durable state. */
     private void markAborted() {
-        aborted.set(true);
+        detached.set(true);
         closed.set(true);
-        if (!abortNotified.compareAndSet(false, true)) {
-            return;
-        }
-        for (Runnable abortHandler : abortHandlers) {
-            abortHandler.run();
-        }
     }
 }

@@ -70,6 +70,47 @@ public class RemoteStreamDeadlineContractTest {
         Assert.assertNull(port.lastRequest.get());
     }
 
+    @Test
+    public void shouldRegisterTerminalCodeArtifactFromRealSseProjection() throws Exception {
+        ArtifactStreamPort port = new ArtifactStreamPort("{\"requestId\":\"session\","
+                + "\"codeOutput\":\"{\\\"status\\\":\\\"SUCCEEDED\\\",\\\"result\\\":{}}\","
+                + "\"fileInfo\":[{\"fileName\":\"delivery.csv\",\"ossUrl\":\"https://files.test/delivery.csv\","
+                + "\"domainUrl\":\"https://files.test/preview/delivery.csv\",\"fileSize\":64}],\"isFinal\":true}");
+        AgentContext context = context(port);
+        CodeInterpreterTool tool = new CodeInterpreterTool();
+        tool.setAgentContext(context);
+
+        ToolResultPayload payload = tool.callCodeAgentStream(
+                        CodeInterpreterRequest.builder().requestId("session").task("legacy task").fileNames(List.of()).build(),
+                        source("deep-research-delivery:table", "code_interpreter"))
+                .get(1, TimeUnit.SECONDS);
+
+        Assert.assertEquals(Boolean.FALSE, payload.getFailed());
+        Assert.assertEquals(1, context.getArtifactBindingsByToolCallId("deep-research-delivery:table").size());
+        Assert.assertEquals("delivery.csv", context.getArtifactBindingsByToolCallId("deep-research-delivery:table")
+                .getFirst().getFile().getFileName());
+        Assert.assertEquals("https://files.test/delivery.csv", context
+                .getArtifactBindingsByToolCallId("deep-research-delivery:table").getFirst().getFile().getOssUrl());
+    }
+
+    @Test
+    public void shouldFailClosedWhenSandboxReportsTerminalFailure() throws Exception {
+        ArtifactStreamPort port = new ArtifactStreamPort("{\"requestId\":\"session\","
+                + "\"codeOutput\":\"{\\\"status\\\":\\\"FAILED\\\",\\\"errorType\\\":\\\"CODE_REQUIRED\\\"}\","
+                + "\"fileInfo\":[],\"isFinal\":true}");
+        AgentContext context = context(port);
+        CodeInterpreterTool tool = new CodeInterpreterTool();
+        tool.setAgentContext(context);
+
+        ToolResultPayload payload = tool.callCodeAgentStream(
+                        CodeInterpreterRequest.builder().requestId("session").task("invalid").fileNames(List.of()).build(),
+                        source("code-call", "code_interpreter"))
+                .get(1, TimeUnit.SECONDS);
+
+        Assert.assertEquals(Boolean.TRUE, payload.getFailed());
+        Assert.assertTrue(payload.getErrorMsg().contains("CODE_REQUIRED"));
+    }
+
     @Test(timeout = 2000L)
     public void shouldCancelRemoteSessionWhenRunDeadlineExpires() {
         CapturingRemoteStreamPort port = new CapturingRemoteStreamPort(false);
@@ -117,7 +158,7 @@ public class RemoteStreamDeadlineContractTest {
         Assert.assertEquals(1, port.cancelCount.get());
     }
 
-    private AgentContext context(CapturingRemoteStreamPort port) {
+    private AgentContext context(RemoteStreamPort port) {
         ReactorConfig config = new ReactorConfig();
         ReflectionTestUtils.setField(config, "codeInterpreterUrl", "http://runtime/tools.test");
         ReflectionTestUtils.setField(config, "dataAnalysisUrl", "http://runtime/tools.test");
@@ -174,6 +215,27 @@ public class RemoteStreamDeadlineContractTest {
                 listener.onFailure(new IOException("offline fixture"), null, null);
             }
             return cancelCount::incrementAndGet;
+        }
+    }
+
+    private static final class ArtifactStreamPort implements RemoteStreamPort {
+        private final String terminalPayload;
+
+        private ArtifactStreamPort(String terminalPayload) {
+            this.terminalPayload = terminalPayload;
+        }
+
+        @Override
+        public RemoteStreamSession openStream(RemoteStreamRequest request,
+                                              RemoteStreamListener listener) throws IOException {
+            try {
+                listener.onOpen();
+                listener.onLine("data: " + terminalPayload);
+                listener.onClosed();
+            } catch (Exception error) {
+                throw new IOException(error);
+            }
+            return () -> { };
         }
     }
 }

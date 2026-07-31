@@ -17,6 +17,8 @@ public class QuotaFreezeRequest {
     private String abilityCode;
     /** Client idempotency key for a single billable invocation. */
     private String requestId;
+    /** Immutable Run trace used by Member audit and recovery lookups. */
+    private String traceId;
     /** Marks ai-agent as the durable owner of confirm/release recovery. */
     private String ownerService;
 }

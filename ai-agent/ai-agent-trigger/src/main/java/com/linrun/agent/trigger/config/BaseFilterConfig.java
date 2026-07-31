@@ -13,6 +13,7 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 import org.springframework.web.filter.CorsFilter;
 import com.linrun.agent.trigger.http.auth.GatewayUserContextFilter;
 import com.linrun.agent.trigger.http.auth.InternalApiTokenFilter;
+import com.linrun.agent.trigger.http.auth.AdminOperationAuditFilter;
 import com.linrun.agent.types.agent.config.AgentExecutorProperties;
 
 /**
@@ -21,6 +22,10 @@ import com.linrun.agent.types.agent.config.AgentExecutorProperties;
 @Configuration
 @EnableConfigurationProperties(AgentExecutorProperties.class)
 public class BaseFilterConfig {
+	private static final String[] MANAGEMENT_PATHS = {
+			"/api/v1/admin/*", "/data/*", "/armory_agent", "/armory_api", "/query_available_agents", "/actuator/*"
+	};
+
 	public BaseFilterConfig() {
 	}
 
@@ -40,21 +45,24 @@ public class BaseFilterConfig {
 
 	@Bean
 	public FilterRegistrationBean<GatewayUserContextFilter> gatewayUserContextFilter(
-			@Value("${ai-group.internal.token:change-me-to-a-long-random-internal-token}") String token) {
+			@Value("${ai-group.internal.token:}") String token) {
 		return this.creatAllFilter(new GatewayUserContextFilter(token), 2);
 	}
 
 	/**
 	 * 管理接口、数据接口与装配触发接口（armory/query_available_agents）不经 Gateway 路由，
 	 * 直连即可访问，这里用内部令牌收口。
-	 * 令牌为空时放行（本地开发），配置后强制校验，失败返回 403。
+	 * 令牌缺失或校验失败都返回 403；本地开发使用 dev profile 中的显式本地令牌。
 	 */
 	@Bean
 	public FilterRegistrationBean<InternalApiTokenFilter> internalApiTokenFilter(
 			@Value("${ai-group.internal.token:}") String token) {
-		return this.createFilter(new InternalApiTokenFilter(token), 0,
-				"/api/v1/admin/*", "/data/*",
-				"/armory_agent", "/armory_api", "/query_available_agents");
+		return this.createFilter(new InternalApiTokenFilter(token), 0, MANAGEMENT_PATHS);
+	}
+
+	@Bean
+	public FilterRegistrationBean<AdminOperationAuditFilter> adminOperationAuditFilter() {
+		return this.createFilter(new AdminOperationAuditFilter(), 3, MANAGEMENT_PATHS);
 	}
 
 	<T extends Filter> FilterRegistrationBean<T> creatAllFilter(T filter, int order) {

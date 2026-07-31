@@ -14,12 +14,12 @@ import java.util.Set;
  * It intentionally validates only deterministic structural keywords instead
  * of pretending to implement the complete JSON Schema specification.
  */
-final class ToolInputSchemaValidator {
+public final class ToolInputSchemaValidator {
 
     private static final Set<String> SUPPORTED_TYPES = Set.of(
             "object", "array", "string", "integer", "number", "boolean", "null");
 
-    ValidationResult validate(Object schema, Object input) {
+    public ValidationResult validate(Object schema, Object input) {
         if (!(schema instanceof Map<?, ?> schemaMap)) {
             return ValidationResult.invalid("Tool schema root must be an object.");
         }
@@ -292,7 +292,7 @@ final class ToolInputSchemaValidator {
         return parent + "." + property;
     }
 
-    record ValidationResult(boolean valid, String message) {
+    public record ValidationResult(boolean valid, String message) {
         static ValidationResult validResult() {
             return new ValidationResult(true, null);
         }

@@ -19,6 +19,7 @@ public class DeepResearchState extends AgentState {
     static final String EVIDENCE = "evidence";
     static final String MARKDOWN = "markdown";
     static final String QUALITY = "quality";
+    static final String PLAN_REVISION = "planRevision";
     static final String REPAIR_COUNT = "repairCount";
     static final String SUMMARY = "summary";
     static final String REPORT_ARTIFACT_ID = "reportArtifactId";
@@ -72,6 +73,10 @@ public class DeepResearchState extends AgentState {
 
     public ReportQualityResult quality() {
         return ReportQualityResult.from(data().get(QUALITY));
+    }
+
+    public ResearchPlanRevision planRevision() {
+        return ResearchPlanRevision.from(data().get(PLAN_REVISION));
     }
 
     @SuppressWarnings("unchecked")

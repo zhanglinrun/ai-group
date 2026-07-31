@@ -1,6 +1,7 @@
 package com.linrun.agent.trigger.http.agent;
 
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -24,6 +25,7 @@ import java.util.Map;
  */
 @Slf4j
 @RestController
+@ConditionalOnProperty(prefix = "ai-agent.debug-endpoints", name = "enabled", havingValue = "true")
 @RequestMapping("/api/agent/memory")
 public class AgentMemoryController {
 
@@ -58,10 +60,10 @@ public class AgentMemoryController {
                     .data(data)
                     .build();
         } catch (Exception e) {
-            log.warn("memory inspect failed, sessionId={}", sessionId, e);
+            log.warn("memory inspect failed errorType={}", e.getClass().getSimpleName());
             return Response.<Map<String, Object>>builder()
                     .code(ResponseCode.UN_ERROR.getCode())
-                    .info(StringUtils.hasText(e.getMessage()) ? e.getMessage() : ResponseCode.UN_ERROR.getInfo())
+                    .info(ResponseCode.UN_ERROR.getInfo())
                     .build();
         }
     }

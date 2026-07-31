@@ -21,12 +21,38 @@ docs/evals/last-report.json
 *.iml
 
 # Local agent development assets
-.agents/
-.codex/
-.cursor/
-.cursor-tmp/
-.trellis/
 .codegraph/
+
+# Local runtime and test artifacts
+autobots.db
+/runtime/
+ai-agent/runtime/tools/.p90-test-venv/
+ai-agent/runtime/tools/.venv/
+ai-agent/runtime/tools/.pytest_cache/
+ai-agent/runtime/tools/**/__pycache__/
+
+# Local acceptance snapshots and evaluation outputs. Keep executable verification
+# scripts, SQL migrations, Compose files, and test datasets versioned.
+docs/acceptance/*.md
+docs/acceptance/*.json
+docs/acceptance/*.log
+docs/acceptance/p160-runtime-*/
+docs/acceptance/p190-verify-*/
+docs/evals/reports/
+docs/evals/annotations/
+docs/evals/baselines/
+docs/evals/README.md
+
+# Local delivery and interview narrative, not part of the product source commit.
+AGENTS.md
+README.md
+ai-agent/README.md
+2027_AUTUMN_RECRUITMENT_PROJECT_EXECUTION_PLAN.md
+docs/adr/
+docs/architecture/
+docs/implementation/
+docs/interview/
+docs/dev-ops/README.md
 
 study/
 

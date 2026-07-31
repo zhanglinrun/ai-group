@@ -147,3 +147,12 @@ ON DUPLICATE KEY UPDATE
  `misfire_strategy`='DO_NOTHING',`executor_route_strategy`='FIRST',
  `executor_handler`=VALUES(`executor_handler`),`executor_block_strategy`='SERIAL_EXECUTION',
  `glue_type`='BEAN';
+
+-- Payment completion is durable only when the committed benefit_event outbox is
+-- continuously published. The local full-stack launcher therefore enables this
+-- one essential reconciler and lets the Admin scheduler calculate its next tick.
+UPDATE `xxl_job_info`
+SET `trigger_status` = 1,
+    `trigger_next_time` = UNIX_TIMESTAMP(CURRENT_TIMESTAMP(3)) * 1000,
+    `update_time` = NOW()
+WHERE `executor_handler` = 'outboxEventPublishJob';

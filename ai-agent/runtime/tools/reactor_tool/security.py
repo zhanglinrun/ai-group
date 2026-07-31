@@ -109,6 +109,8 @@ def _requires_internal_token(request: Request) -> bool:
     path = request.url.path
     if path.startswith("/v1/tool/") or path.startswith("/v1/documents/"):
         return True
+    if path.startswith("/internal/runtime/tools"):
+        return True
     # Preview/download remain public URLs; file mutation and content lookup stay internal.
     return path.startswith("/v1/file_tool/") and request.method.upper() not in {"GET", "HEAD", "OPTIONS"}
 

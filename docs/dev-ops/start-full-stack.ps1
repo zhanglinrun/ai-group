@@ -3,6 +3,8 @@ param(
     [switch]$StopPort8080Conflict,
     [switch]$IncludeObservability,
     [switch]$EphemeralLlmCredentials,
+    [switch]$DemoLite,
+    [switch]$Preflight,
     [ValidateRange(1, 65535)]
     [int]$MemberPort = 18082
 )
@@ -27,6 +29,145 @@ function Import-DotEnv($path) {
 }
 
 Import-DotEnv $envFile
+
+function Test-UsableSecret([string]$name, [int]$minimumLength = 32) {
+    $value = [Environment]::GetEnvironmentVariable($name, "Process")
+    return -not [string]::IsNullOrWhiteSpace($value) -and $value.Length -ge $minimumLength -and
+        $value -notmatch '(?i)change-me|replace-me|your-'
+}
+
+function Resolve-PreflightArtifactRoot() {
+    if ($env:AI_GROUP_FROZEN_ARTIFACT_ROOT) {
+        return [System.IO.Path]::GetFullPath($env:AI_GROUP_FROZEN_ARTIFACT_ROOT)
+    }
+    $recoveryParent = Join-Path (Split-Path -Parent $root) "ai-group-generated-recovery"
+    if (Test-Path -LiteralPath $recoveryParent -PathType Container) {
+        $candidate = Get-ChildItem -LiteralPath $recoveryParent -Directory |
+            Where-Object { $_.Name -like "p130-generated-*" } |
+            Sort-Object LastWriteTimeUtc -Descending |
+            Select-Object -First 1
+        if ($candidate) {
+            return $candidate.FullName
+        }
+    }
+    return $null
+}
+
+function Get-RunningComposeConfigDrift() {
+    $composeFile = Join-Path $PSScriptRoot "docker-compose-platform.yml"
+    if (-not (Test-Path -LiteralPath $composeFile -PathType Leaf)) {
+        throw "platform Compose file is missing: $composeFile"
+    }
+    $expectedByService = @{}
+    $hashLines = & docker compose --env-file $envFile -f $composeFile config --hash '*' 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        throw "docker compose config hash failed"
+    }
+    foreach ($line in $hashLines) {
+        if ($line -match '^([^\s]+)\s+([0-9a-f]+)$') {
+            $expectedByService[$Matches[1]] = $Matches[2]
+        }
+    }
+    if ($expectedByService.Count -eq 0) {
+        throw "docker compose config hash returned no service hashes"
+    }
+    $containerLines = & docker compose --env-file $envFile -f $composeFile ps -a --format json 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        throw "docker compose ps failed"
+    }
+    $drifted = [System.Collections.Generic.List[string]]::new()
+    foreach ($line in $containerLines) {
+        if ([string]::IsNullOrWhiteSpace([string]$line)) { continue }
+        try {
+            $container = $line | ConvertFrom-Json -ErrorAction Stop
+        } catch {
+            throw "docker compose ps returned invalid JSON"
+        }
+        if ([string]$container.State -ne "running" -or -not $expectedByService.ContainsKey([string]$container.Service)) {
+            continue
+        }
+        $inspect = & docker inspect $container.ID | ConvertFrom-Json -ErrorAction Stop
+        $actualHash = [string]$inspect[0].Config.Labels.'com.docker.compose.config-hash'
+        if ($actualHash -ne $expectedByService[[string]$container.Service]) {
+            $drifted.Add([string]$container.Service) | Out-Null
+        }
+    }
+    return $drifted.ToArray()
+}
+
+function Invoke-StartupPreflight {
+    $failures = [System.Collections.Generic.List[string]]::new()
+    foreach ($command in @("docker", "mvn", "java", "jar", "uv", "pnpm", "node")) {
+        if (-not (Get-Command $command -ErrorAction SilentlyContinue)) {
+            $failures.Add("required command is unavailable: $command") | Out-Null
+        }
+    }
+    foreach ($secret in @(
+            "AI_GROUP_INTERNAL_TOKEN", "XXL_JOB_ACCESS_TOKEN", "MYSQL_ROOT_PASSWORD",
+            "REDIS_PASSWORD", "POSTGRES_PASSWORD", "MINIO_ROOT_PASSWORD")) {
+        if (-not (Test-UsableSecret $secret)) {
+            $failures.Add("missing or placeholder secret: $secret") | Out-Null
+        }
+    }
+    if (-not (Test-UsableSecret "AGENT_GROUP_LLM_API_KEY") -and -not (Test-UsableSecret "DASHSCOPE_API_KEY")) {
+        $failures.Add("a real LLM credential is required: AGENT_GROUP_LLM_API_KEY or DASHSCOPE_API_KEY") | Out-Null
+    }
+    if ($IncludeObservability) {
+        foreach ($secret in @("GRAFANA_ADMIN_PASSWORD", "REDIS_ADMIN_PASSWORD")) {
+            if (-not (Test-UsableSecret $secret)) {
+                $failures.Add("observability requires secret: $secret") | Out-Null
+            }
+        }
+    }
+    if (-not $DemoLite) {
+        $artifactRoot = Resolve-PreflightArtifactRoot
+        if ([string]::IsNullOrWhiteSpace($artifactRoot)) {
+            $failures.Add("full-stack requires AI_GROUP_FROZEN_ARTIFACT_ROOT or a sibling ai-group-generated-recovery/p130-generated-* directory") | Out-Null
+        } else {
+            foreach ($relativeArtifact in @(
+                    "group/group-buy-market-app/target/group-buy-market-app.jar",
+                    "s-pay-mall-ddd-market/s-pay-mall-ddd-app/target/s-pay-mall-ddd-app.jar")) {
+                if (-not (Test-Path -LiteralPath (Join-Path $artifactRoot $relativeArtifact) -PathType Leaf)) {
+                    $failures.Add("recovered frozen artifact missing: $(Join-Path $artifactRoot $relativeArtifact)") | Out-Null
+                }
+            }
+        }
+    }
+    if (Get-Command docker -ErrorAction SilentlyContinue) {
+        try {
+            $driftedServices = Get-RunningComposeConfigDrift
+            if ($driftedServices.Count -gt 0) {
+                $failures.Add("running Docker infra config drift: $($driftedServices -join ', '); reconcile these services explicitly before startup") | Out-Null
+            }
+        } catch {
+            $failures.Add("unable to verify running Docker infra config drift: $($_.Exception.Message)") | Out-Null
+        }
+    }
+    try {
+        & pwsh -NoProfile -File (Join-Path $PSScriptRoot "verify-frozen-manifest.ps1") | Out-Host
+        if ($LASTEXITCODE -ne 0) { throw "frozen manifest verifier exit $LASTEXITCODE" }
+    } catch {
+        $failures.Add("frozen Manifest verification failed: $($_.Exception.Message)") | Out-Null
+    }
+    if ($failures.Count -gt 0) {
+        Write-Host "P160 startup preflight failed:" -ForegroundColor Red
+        foreach ($failure in $failures) {
+            Write-Host " - $failure" -ForegroundColor Red
+        }
+        return $false
+    }
+    Write-Host "P160 startup preflight passed (mode=$(if ($DemoLite) { 'demo-lite' } else { 'full-stack' }))."
+    return $true
+}
+
+$preflightPassed = Invoke-StartupPreflight
+if (-not $preflightPassed) {
+    exit 1
+}
+if ($Preflight) {
+    exit 0
+}
+
 function Require-Secret([string]$name, [int]$minimumLength = 32) {
     $value = [Environment]::GetEnvironmentVariable($name, "Process")
     if (-not $value -or $value.Length -lt $minimumLength -or $value -match '(?i)change-me|replace-me|your-') {
@@ -39,8 +180,40 @@ function New-RandomSecret() {
     [System.Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
     return [Convert]::ToBase64String($bytes)
 }
-$env:JWT_SECRET = Require-Secret "JWT_SECRET"
+function Ensure-RsaKeyPair([string]$privateName, [string]$publicName) {
+    $privateKey = [Environment]::GetEnvironmentVariable($privateName, "Process")
+    $publicKey = [Environment]::GetEnvironmentVariable($publicName, "Process")
+    if ($privateKey -or $publicKey) {
+        if (-not $privateKey -or -not $publicKey) {
+            throw "$privateName and $publicName must be configured together"
+        }
+        return
+    }
+    $rsa = [System.Security.Cryptography.RSA]::Create(2048)
+    try {
+        Set-Item -Path "env:$privateName" -Value ([Convert]::ToBase64String($rsa.ExportPkcs8PrivateKey()))
+        Set-Item -Path "env:$publicName" -Value ([Convert]::ToBase64String($rsa.ExportSubjectPublicKeyInfo()))
+    } finally {
+        $rsa.Dispose()
+    }
+}
+Ensure-RsaKeyPair "AUTH_JWT_PRIVATE_KEY_BASE64" "AUTH_JWT_PUBLIC_KEY_BASE64"
+Ensure-RsaKeyPair "GATEWAY_IDENTITY_PRIVATE_KEY_BASE64" "GATEWAY_IDENTITY_PUBLIC_KEY_BASE64"
+$env:JWT_ISSUER = if ($env:JWT_ISSUER) { $env:JWT_ISSUER } else { "ai-group-auth" }
+$env:JWT_AUDIENCE = if ($env:JWT_AUDIENCE) { $env:JWT_AUDIENCE } else { "ai-group-api" }
+$env:AUTH_JWT_KEY_ID = if ($env:AUTH_JWT_KEY_ID) { $env:AUTH_JWT_KEY_ID } else { "auth-rsa-current" }
+$env:GATEWAY_IDENTITY_ISSUER = if ($env:GATEWAY_IDENTITY_ISSUER) { $env:GATEWAY_IDENTITY_ISSUER } else { "ai-group-gateway" }
+$env:GATEWAY_IDENTITY_AUDIENCE = if ($env:GATEWAY_IDENTITY_AUDIENCE) { $env:GATEWAY_IDENTITY_AUDIENCE } else { "ai-group-downstream" }
+$env:GATEWAY_IDENTITY_KEY_ID = if ($env:GATEWAY_IDENTITY_KEY_ID) { $env:GATEWAY_IDENTITY_KEY_ID } else { "gateway-rsa-current" }
+$env:GATEWAY_IDENTITY_TTL_SECONDS = if ($env:GATEWAY_IDENTITY_TTL_SECONDS) { $env:GATEWAY_IDENTITY_TTL_SECONDS } else { "60" }
+$env:BFF_SERVICE_CLIENT_ID = if ($env:BFF_SERVICE_CLIENT_ID) { $env:BFF_SERVICE_CLIENT_ID } else { "bff-service" }
+$env:AGENT_SERVICE_CLIENT_ID = if ($env:AGENT_SERVICE_CLIENT_ID) { $env:AGENT_SERVICE_CLIENT_ID } else { "ai-agent" }
 $env:AI_GROUP_INTERNAL_TOKEN = Require-Secret "AI_GROUP_INTERNAL_TOKEN"
+$env:AI_GROUP_LEGACY_INTERNAL_TOKEN_ENABLED = if ($env:AI_GROUP_LEGACY_INTERNAL_TOKEN_ENABLED) { $env:AI_GROUP_LEGACY_INTERNAL_TOKEN_ENABLED } else { "true" }
+$env:JWT_JWK_SET_URI = if ($env:JWT_JWK_SET_URI) { $env:JWT_JWK_SET_URI } else { "http://127.0.0.1:8081/.well-known/jwks.json" }
+$env:AI_GROUP_AUTH_SERVICE_TOKEN_ENDPOINT = if ($env:AI_GROUP_AUTH_SERVICE_TOKEN_ENDPOINT) { $env:AI_GROUP_AUTH_SERVICE_TOKEN_ENDPOINT } else { "http://127.0.0.1:8081/api/auth/service-token" }
+$env:BFF_SERVICE_CLIENT_SECRET = if ($env:BFF_SERVICE_CLIENT_SECRET) { Require-Secret "BFF_SERVICE_CLIENT_SECRET" } else { New-RandomSecret }
+$env:AGENT_SERVICE_CLIENT_SECRET = if ($env:AGENT_SERVICE_CLIENT_SECRET) { Require-Secret "AGENT_SERVICE_CLIENT_SECRET" } else { New-RandomSecret }
 $env:XXL_JOB_ACCESS_TOKEN = Require-Secret "XXL_JOB_ACCESS_TOKEN"
 $env:XXL_JOB_ADMIN_PORT = if ($env:XXL_JOB_ADMIN_PORT) { $env:XXL_JOB_ADMIN_PORT } else { "18081" }
 $env:XXL_JOB_ADMIN_ADDRESSES = if ($env:XXL_JOB_ADMIN_ADDRESSES) { $env:XXL_JOB_ADMIN_ADDRESSES } else { "http://127.0.0.1:$($env:XXL_JOB_ADMIN_PORT)" }
@@ -144,6 +317,19 @@ function Wait-HttpReady($name, $uri, [int]$timeoutSec = 60) {
     throw "$name not ready after ${timeoutSec}s: $uri"
 }
 
+function Wait-PortReady($name, $port, [int]$timeoutSec = 60) {
+    $deadline = (Get-Date).AddSeconds($timeoutSec)
+    do {
+        if (Test-PortListening $port) {
+            Write-Host "$name is listening on :$port"
+            return
+        }
+        Start-Sleep -Seconds 1
+    } while ((Get-Date) -lt $deadline)
+
+    throw "$name did not listen on :$port after ${timeoutSec}s"
+}
+
 function Stop-PortListener($port) {
     $line = netstat -ano | Select-String "LISTENING" | Select-String ":$port " | Select-Object -First 1
     if ($line -match "\s(\d+)\s*$") {
@@ -154,14 +340,22 @@ function Stop-PortListener($port) {
     }
 }
 
-function Start-ServiceWindow($name, $path, $port, $extraEnv = @{}) {
-    if (Test-PortListening $port) {
-        throw "Port :$port is already in use. Stop the existing listener before starting $name."
-    }
+function New-ServiceEnvironment($name, $port, $extraEnv = @{}) {
     $serviceEnvironment = @{
+        PATH                           = [string]$env:PATH
+        SYSTEMROOT                     = [string]$env:SYSTEMROOT
+        TEMP                           = [string]$env:TEMP
+        TMP                            = [string]$env:TMP
         SERVER_PORT                   = [string]$port
-        JWT_SECRET                    = [string]$env:JWT_SECRET
-        AI_GROUP_INTERNAL_TOKEN       = [string]$env:AI_GROUP_INTERNAL_TOKEN
+        JWT_ISSUER                    = [string]$env:JWT_ISSUER
+        JWT_AUDIENCE                  = [string]$env:JWT_AUDIENCE
+        JWT_JWK_SET_URI               = [string]$env:JWT_JWK_SET_URI
+        AUTH_JWT_KEY_ID               = [string]$env:AUTH_JWT_KEY_ID
+        GATEWAY_IDENTITY_ISSUER       = [string]$env:GATEWAY_IDENTITY_ISSUER
+        GATEWAY_IDENTITY_AUDIENCE     = [string]$env:GATEWAY_IDENTITY_AUDIENCE
+        GATEWAY_IDENTITY_KEY_ID       = [string]$env:GATEWAY_IDENTITY_KEY_ID
+        GATEWAY_IDENTITY_TTL_SECONDS  = [string]$env:GATEWAY_IDENTITY_TTL_SECONDS
+        AI_GROUP_AUTH_SERVICE_TOKEN_ENDPOINT = [string]$env:AI_GROUP_AUTH_SERVICE_TOKEN_ENDPOINT
         AI_GROUP_INTERNAL_AUTH_ENABLED = [string]$env:AI_GROUP_INTERNAL_AUTH_ENABLED
         MYSQL_HOST                    = [string]$env:MYSQL_HOST
         MYSQL_PORT                    = [string]$env:MYSQL_PORT
@@ -179,15 +373,111 @@ function Start-ServiceWindow($name, $path, $port, $extraEnv = @{}) {
         XXL_JOB_ACCESS_TOKEN          = [string]$env:XXL_JOB_ACCESS_TOKEN
         SPRING_PROFILES_ACTIVE        = "dev"
     }
+    if ($name -eq "auth-service") {
+        $serviceEnvironment["AUTH_JWT_PRIVATE_KEY_BASE64"] = [string]$env:AUTH_JWT_PRIVATE_KEY_BASE64
+        $serviceEnvironment["AUTH_JWT_PUBLIC_KEY_BASE64"] = [string]$env:AUTH_JWT_PUBLIC_KEY_BASE64
+        $serviceEnvironment["GATEWAY_IDENTITY_PUBLIC_KEY_BASE64"] = [string]$env:GATEWAY_IDENTITY_PUBLIC_KEY_BASE64
+        $serviceEnvironment["BFF_SERVICE_CLIENT_ID"] = [string]$env:BFF_SERVICE_CLIENT_ID
+        $serviceEnvironment["BFF_SERVICE_CLIENT_SECRET"] = [string]$env:BFF_SERVICE_CLIENT_SECRET
+        $serviceEnvironment["AGENT_SERVICE_CLIENT_ID"] = [string]$env:AGENT_SERVICE_CLIENT_ID
+        $serviceEnvironment["AGENT_SERVICE_CLIENT_SECRET"] = [string]$env:AGENT_SERVICE_CLIENT_SECRET
+    } elseif ($name -eq "gateway-service") {
+        $serviceEnvironment["AI_GROUP_INTERNAL_TOKEN"] = [string]$env:AI_GROUP_INTERNAL_TOKEN
+        $serviceEnvironment["AI_GROUP_LEGACY_INTERNAL_TOKEN_ENABLED"] = [string]$env:AI_GROUP_LEGACY_INTERNAL_TOKEN_ENABLED
+        $serviceEnvironment["AUTH_JWT_PUBLIC_KEY_BASE64"] = [string]$env:AUTH_JWT_PUBLIC_KEY_BASE64
+        $serviceEnvironment["GATEWAY_IDENTITY_PRIVATE_KEY_BASE64"] = [string]$env:GATEWAY_IDENTITY_PRIVATE_KEY_BASE64
+        $serviceEnvironment["GATEWAY_IDENTITY_PUBLIC_KEY_BASE64"] = [string]$env:GATEWAY_IDENTITY_PUBLIC_KEY_BASE64
+    } elseif ($name -in @("member-service", "bff-service", "ai-agent")) {
+        $serviceEnvironment["AUTH_JWT_PUBLIC_KEY_BASE64"] = [string]$env:AUTH_JWT_PUBLIC_KEY_BASE64
+        $serviceEnvironment["GATEWAY_IDENTITY_PUBLIC_KEY_BASE64"] = [string]$env:GATEWAY_IDENTITY_PUBLIC_KEY_BASE64
+        if ($name -eq "bff-service") {
+            $serviceEnvironment["BFF_SERVICE_CLIENT_ID"] = [string]$env:BFF_SERVICE_CLIENT_ID
+            $serviceEnvironment["BFF_SERVICE_CLIENT_SECRET"] = [string]$env:BFF_SERVICE_CLIENT_SECRET
+        }
+        if ($name -eq "ai-agent") {
+            $serviceEnvironment["AGENT_SERVICE_CLIENT_ID"] = [string]$env:AGENT_SERVICE_CLIENT_ID
+            $serviceEnvironment["AGENT_SERVICE_CLIENT_SECRET"] = [string]$env:AGENT_SERVICE_CLIENT_SECRET
+        }
+    }
+    if ($name -in @("group-buy-market", "pay-service")) {
+        $serviceEnvironment["AI_GROUP_INTERNAL_TOKEN"] = [string]$env:AI_GROUP_INTERNAL_TOKEN
+    }
+    # XXL Admin runs in Docker while executors run on the Windows host. Auto-detected
+    # link-local addresses are not routable from the Admin container, so advertise a
+    # Docker Desktop host alias and bind the embedded executor on all local interfaces.
+    # These ports are independent of the HTTP service ports above.
+    $xxlExecutors = @{
+        "member-service"   = @{ AppName = "member"; Port = 9997 }
+        "pay-service"      = @{ AppName = "pay"; Port = 9998 }
+        "group-buy-market" = @{ AppName = "group"; Port = 9999 }
+        "ai-agent"         = @{ AppName = "ai-agent"; Port = 9996 }
+    }
+    if ($xxlExecutors.ContainsKey($name)) {
+        $executor = $xxlExecutors[$name]
+        $advertiseHost = if ($env:XXL_JOB_EXECUTOR_ADVERTISE_HOST) {
+            [string]$env:XXL_JOB_EXECUTOR_ADVERTISE_HOST
+        } else {
+            "host.docker.internal"
+        }
+        $serviceEnvironment["XXL_JOB_EXECUTOR_APPNAME"] = [string]$executor.AppName
+        $serviceEnvironment["XXL_JOB_EXECUTOR_PORT"] = [string]$executor.Port
+        $serviceEnvironment["XXL_JOB_EXECUTOR_IP"] = "0.0.0.0"
+        $serviceEnvironment["XXL_JOB_EXECUTOR_ADDRESS"] = "http://${advertiseHost}:$($executor.Port)/"
+        $serviceEnvironment["XXL_JOB_LOGPATH"] = Join-Path $runtimeDataRoot "logs\xxl-job\$($executor.AppName)"
+    }
     foreach ($key in $extraEnv.Keys) {
         $serviceEnvironment[$key] = [string]$extraEnv[$key]
     }
+    return $serviceEnvironment
+}
+
+function Start-ServiceWindow($name, $path, $port, $extraEnv = @{}) {
+    if (Test-PortListening $port) {
+        throw "Port :$port is already in use. Stop the existing listener before starting $name."
+    }
+    $serviceEnvironment = New-ServiceEnvironment $name $port $extraEnv
+    $serviceLogDirectory = Join-Path $runtimeDataRoot "logs"
+    New-Item -ItemType Directory -Path $serviceLogDirectory -Force | Out-Null
+    $stdoutLog = Join-Path $serviceLogDirectory "$name.stdout.log"
+    $stderrLog = Join-Path $serviceLogDirectory "$name.stderr.log"
+    Remove-Item -LiteralPath $stdoutLog, $stderrLog -Force -ErrorAction SilentlyContinue
     Write-Host "Start $name on :$port"
     Start-Process pwsh `
         -ArgumentList "-NoProfile", "-Command", "`$ErrorActionPreference = 'Stop'; mvn spring-boot:run -q" `
         -WorkingDirectory $path `
         -Environment $serviceEnvironment `
+        -RedirectStandardOutput $stdoutLog `
+        -RedirectStandardError $stderrLog `
         -WindowStyle Hidden
+    Start-Sleep -Seconds 12
+}
+
+function Start-RecoveredJar($name, $jarPath, $port, $extraEnv = @{}) {
+    if (-not (Test-Path -LiteralPath $jarPath -PathType Leaf)) {
+        throw "Recovered frozen service artifact is missing for ${name}: $jarPath"
+    }
+    if (Test-PortListening $port) {
+        throw "Port :$port is already in use. Stop the existing listener before starting $name."
+    }
+    $workingDirectory = Join-Path $runtimeDataRoot $name
+    New-Item -ItemType Directory -Path $workingDirectory -Force | Out-Null
+    $serviceLogDirectory = Join-Path $runtimeDataRoot "logs"
+    New-Item -ItemType Directory -Path $serviceLogDirectory -Force | Out-Null
+    $stdoutLog = Join-Path $serviceLogDirectory "$name.stdout.log"
+    $stderrLog = Join-Path $serviceLogDirectory "$name.stderr.log"
+    Remove-Item -LiteralPath $stdoutLog, $stderrLog -Force -ErrorAction SilentlyContinue
+    $serviceEnvironment = New-ServiceEnvironment $name $port $extraEnv
+    $serviceEnvironment["AI_GROUP_RUNTIME_DATA_ROOT"] = [string]$runtimeDataRoot
+    $javaExecutable = (Get-Command java -ErrorAction Stop).Source
+    Write-Host "Start $name from recovered frozen artifact on :$port"
+    Start-Process `
+        -FilePath $javaExecutable `
+        -ArgumentList @("-jar", $jarPath) `
+        -WorkingDirectory $workingDirectory `
+        -Environment $serviceEnvironment `
+        -RedirectStandardOutput $stdoutLog `
+        -RedirectStandardError $stderrLog `
+        -WindowStyle Hidden | Out-Null
     Start-Sleep -Seconds 12
 }
 
@@ -226,6 +516,62 @@ function Sync-ReactorToolEnv() {
     Write-Host "Synced non-secret runtime/tools/.env; credentials remain process-only"
 }
 
+function Assert-OutsideFrozenSource([string]$path, [string]$name) {
+    $fullPath = [System.IO.Path]::GetFullPath($path).TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+    foreach ($frozen in @(
+            (Join-Path $root "group"),
+            (Join-Path $root "s-pay-mall-ddd-market"))) {
+        $frozenPath = [System.IO.Path]::GetFullPath($frozen).TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+        if ($fullPath.Equals($frozenPath, [System.StringComparison]::OrdinalIgnoreCase) -or
+                $fullPath.StartsWith($frozenPath + [System.IO.Path]::DirectorySeparatorChar, [System.StringComparison]::OrdinalIgnoreCase)) {
+            throw "$name must stay outside frozen source directory: $frozenPath"
+        }
+    }
+}
+
+function Resolve-FrozenArtifactRoot() {
+    if ($env:AI_GROUP_FROZEN_ARTIFACT_ROOT) {
+        return [System.IO.Path]::GetFullPath($env:AI_GROUP_FROZEN_ARTIFACT_ROOT)
+    }
+    $recoveryParent = Join-Path (Split-Path -Parent $root) "ai-group-generated-recovery"
+    if (Test-Path -LiteralPath $recoveryParent -PathType Container) {
+        $candidate = Get-ChildItem -LiteralPath $recoveryParent -Directory |
+            Where-Object { $_.Name -like "p130-generated-*" } |
+            Sort-Object LastWriteTimeUtc -Descending |
+            Select-Object -First 1
+        if ($candidate) {
+            return $candidate.FullName
+        }
+    }
+    throw "Full-stack mode requires recovered Group/Pay jars outside the repository. Set AI_GROUP_FROZEN_ARTIFACT_ROOT or run with -DemoLite."
+}
+
+$runtimeDataRoot = if ($env:AI_GROUP_RUNTIME_DATA_ROOT) {
+    [System.IO.Path]::GetFullPath($env:AI_GROUP_RUNTIME_DATA_ROOT)
+} else {
+    Join-Path (Split-Path -Parent $root) "ai-group-runtime-data"
+}
+Assert-OutsideFrozenSource $runtimeDataRoot "AI_GROUP_RUNTIME_DATA_ROOT"
+New-Item -ItemType Directory -Path $runtimeDataRoot -Force | Out-Null
+
+$frozenArtifactRoot = $null
+$groupRecoveryJar = $null
+$payRecoveryJar = $null
+if ($DemoLite) {
+    Write-Host "Demo-lite mode: Group/Pay migrations, recovered jars and Group/Pay smoke checks are skipped."
+} else {
+    $frozenArtifactRoot = Resolve-FrozenArtifactRoot
+    Assert-OutsideFrozenSource $frozenArtifactRoot "AI_GROUP_FROZEN_ARTIFACT_ROOT"
+    $groupRecoveryJar = Join-Path $frozenArtifactRoot "group\group-buy-market-app\target\group-buy-market-app.jar"
+    $payRecoveryJar = Join-Path $frozenArtifactRoot "s-pay-mall-ddd-market\s-pay-mall-ddd-app\target\s-pay-mall-ddd-app.jar"
+    foreach ($artifact in @($groupRecoveryJar, $payRecoveryJar)) {
+        if (-not (Test-Path -LiteralPath $artifact -PathType Leaf)) {
+            throw "Recovered frozen service artifact is missing: $artifact"
+        }
+    }
+    Write-Host "Using recovered Group/Pay artifacts from $frozenArtifactRoot"
+}
+
 if ($StopPort8080Conflict) {
     Stop-PortListener 8080
 }
@@ -253,39 +599,55 @@ Invoke-Mysql "$root/docs/dev-ops/mysql/sql/agent_db/03-agent-loop-migrate.sql"
 Invoke-Mysql "$root/docs/dev-ops/mysql/sql/agent_db/04-task-graph.sql"
 Invoke-Mysql "$root/docs/dev-ops/mysql/sql/agent_db/05-dialogue-run-role.sql"
 Invoke-Mysql "$root/docs/dev-ops/mysql/sql/agent_db/06-dialogue-run-claim-hardening.sql"
+# Existing databases need the lease/fencing/cancel columns explicitly; the base DDL alone
+# cannot upgrade a P30 database in place.
+Invoke-Mysql "$root/docs/dev-ops/mysql/sql/agent_db/07-durable-run-lease-cancel.sql"
 Invoke-Mysql "$root/docs/dev-ops/mysql/sql/agent_db/07-quota-settlement-command.sql"
+# LLM snapshot and ordered run events are durable replay prerequisites. Apply them before the
+# tool-result projection so recovered runs always have their parent ledger structures.
+Invoke-Mysql "$root/docs/dev-ops/mysql/sql/agent_db/08-llm-invocation-snapshot.sql"
+Invoke-Mysql "$root/docs/dev-ops/mysql/sql/agent_db/08-run-event-hardening.sql"
 # 工具结果与模型 observation 分离持久化，保证结构化工具的实时展示和历史回放一致。
 Invoke-Mysql "$root/docs/dev-ops/mysql/sql/agent_db/08-tool-result-replay.sql"
 Invoke-Mysql "$root/docs/dev-ops/mysql/sql/agent_db/09-tool-approval.sql"
+# Native deep-research recovery, durable worker, registry governance, context snapshots and the P90
+# evidence ledger are all runtime dependencies. Apply every idempotent increment before seed data.
+Invoke-Mysql "$root/docs/dev-ops/mysql/sql/agent_db/10-deep-research-langgraph.sql"
+Invoke-Mysql "$root/docs/dev-ops/mysql/sql/agent_db/11-deep-research-checkpoint-order-index.sql"
+Invoke-Mysql "$root/docs/dev-ops/mysql/sql/agent_db/12-saa-deep-research-checkpoint.sql"
+Invoke-Mysql "$root/docs/dev-ops/mysql/sql/agent_db/13-durable-tool-outbox.sql"
+Invoke-Mysql "$root/docs/dev-ops/mysql/sql/agent_db/14-mcp-registry-governance.sql"
+Invoke-Mysql "$root/docs/dev-ops/mysql/sql/agent_db/15-context-snapshot.sql"
+Invoke-Mysql "$root/docs/dev-ops/mysql/sql/agent_db/16-evidence-ledger.sql"
+# Keep the trace correlation migration in the launcher even though a fresh baseline may
+# already contain the column: it is required for old agent_db upgrades and is idempotent.
+Invoke-Mysql "$root/docs/dev-ops/mysql/sql/agent_db/16-quota-trace-correlation.sql"
 Invoke-Mysql "$root/docs/dev-ops/mysql/sql/agent_db/02-dev-seed.sql"
-# group/pay 为全量转储（DROP+重灌）：仅首次初始化执行，已存在则跳过以保留订单/拼团数据
-Invoke-MysqlDumpOnce "$root/group/docs/dev-ops/mysql/sql/2-29-group_buy_market.sql" -Schema "group_buy_market" -MarkerTable "group_buy_order"
-# 每个额度包使用独立拼团链（goods + discount + activity）：幂等迁移，老库也会补齐
-Invoke-Mysql "$root/group/docs/dev-ops/mysql/sql/3-01-per-sku-groupbuy-migrate.sql"
-# 阶梯拼团：档位表 + activity_type + 档位种子（3-02）；容量=最高档人数(10)（3-03，须在 3-01 之后覆盖 target）
-Invoke-Mysql "$root/group/docs/dev-ops/mysql/sql/3-02-groupbuy-tier-migrate.sql"
-Invoke-Mysql "$root/group/docs/dev-ops/mysql/sql/3-03-groupbuy-tier-settlement-migrate.sql"
-Invoke-Mysql "$root/group/docs/dev-ops/mysql/sql/3-04-identifier-width-migrate.sql"
-Invoke-MysqlDumpOnce "$root/s-pay-mall-ddd-market/docs/dev-ops/mysql/sql/s-pay-mall-ddd-market.sql" -Schema "s_pay_mall_ddd_market" -MarkerTable "pay_order" -PayBase
-Invoke-Mysql "$root/s-pay-mall-ddd-market/docs/dev-ops/mysql/sql/V3_benefit_event.sql"
-Invoke-Mysql "$root/s-pay-mall-ddd-market/docs/dev-ops/mysql/sql/V4_settlement_notified.sql"
-# 支付交易统一 outbox：履约/权益事件共用本地消息表，补齐老库索引并回填可能丢失的支付成功事件。
-Invoke-Mysql "$root/s-pay-mall-ddd-market/docs/dev-ops/mysql/sql/V5_transactional_outbox.sql"
-# 支付下单 durable 幂等键、规范化载荷指纹及拼团路径快照。
-Invoke-Mysql "$root/s-pay-mall-ddd-market/docs/dev-ops/mysql/sql/V6_pay_order_idempotency.sql"
-Invoke-Mysql "$root/s-pay-mall-ddd-market/docs/dev-ops/mysql/sql/V7-order-identifier-width.sql"
-# 阶梯拼团：benefit_event.bonus_quota（加赠额度随权益事件透传给 member）
-Invoke-Mysql "$root/docs/dev-ops/mysql/sql/pay_db/01-benefit-event-bonus-migrate.sql"
+if (-not $DemoLite) {
+    # Frozen Group/Pay SQL is read-only input; their generated artifacts are never created in source directories.
+    # group/pay 为全量转储（DROP+重灌）：仅首次初始化执行，已存在则跳过以保留订单/拼团数据
+    Invoke-MysqlDumpOnce "$root/group/docs/dev-ops/mysql/sql/2-29-group_buy_market.sql" -Schema "group_buy_market" -MarkerTable "group_buy_order"
+    # 每个额度包使用独立拼团链（goods + discount + activity）：幂等迁移，老库也会补齐
+    Invoke-Mysql "$root/group/docs/dev-ops/mysql/sql/3-01-per-sku-groupbuy-migrate.sql"
+    # 阶梯拼团：档位表 + activity_type + 档位种子（3-02）；容量=最高档人数(10)（3-03，须在 3-01 之后覆盖 target）
+    Invoke-Mysql "$root/group/docs/dev-ops/mysql/sql/3-02-groupbuy-tier-migrate.sql"
+    Invoke-Mysql "$root/group/docs/dev-ops/mysql/sql/3-03-groupbuy-tier-settlement-migrate.sql"
+    Invoke-Mysql "$root/group/docs/dev-ops/mysql/sql/3-04-identifier-width-migrate.sql"
+    Invoke-MysqlDumpOnce "$root/s-pay-mall-ddd-market/docs/dev-ops/mysql/sql/s-pay-mall-ddd-market.sql" -Schema "s_pay_mall_ddd_market" -MarkerTable "pay_order" -PayBase
+    Invoke-Mysql "$root/s-pay-mall-ddd-market/docs/dev-ops/mysql/sql/V3_benefit_event.sql"
+    Invoke-Mysql "$root/s-pay-mall-ddd-market/docs/dev-ops/mysql/sql/V4_settlement_notified.sql"
+    # 支付交易统一 outbox：履约/权益事件共用本地消息表，补齐老库索引并回填可能丢失的支付成功事件。
+    Invoke-Mysql "$root/s-pay-mall-ddd-market/docs/dev-ops/mysql/sql/V5_transactional_outbox.sql"
+    # 支付下单 durable 幂等键、规范化载荷指纹及拼团路径快照。
+    Invoke-Mysql "$root/s-pay-mall-ddd-market/docs/dev-ops/mysql/sql/V6_pay_order_idempotency.sql"
+    Invoke-Mysql "$root/s-pay-mall-ddd-market/docs/dev-ops/mysql/sql/V7-order-identifier-width.sql"
+    # 阶梯拼团：benefit_event.bonus_quota（加赠额度随权益事件透传给 member）
+    Invoke-Mysql "$root/docs/dev-ops/mysql/sql/pay_db/01-benefit-event-bonus-migrate.sql"
+}
 Invoke-Mysql "$root/docs/dev-ops/mysql/sql/xxl_job/01-xxl_job.sql"
 Write-Host "==> Build platform"
 Push-Location $root
 mvn clean install -DskipTests -q
-Push-Location "$root/group"
-mvn clean install -DskipTests -q
-Pop-Location
-Push-Location "$root/s-pay-mall-ddd-market"
-mvn clean install -DskipTests -q
-Pop-Location
 # ai-agent 是独立聚合工程（不在根 pom 的 modules 里）；干净 .m2 下必须先 install，
 # 否则后面直接在 ai-agent-app 子模块 spring-boot:run 会因缺兄弟 SNAPSHOT 依赖失败。
 Push-Location "$root/ai-agent"
@@ -326,11 +688,21 @@ $payEnv = @{
 Start-ServiceWindow "gateway-service" "$root/gateway-service" 8080
 Start-ServiceWindow "auth-service" "$root/auth-service" 8081
 Start-ServiceWindow "member-service" "$root/member-service" $MemberPort
-Start-ServiceWindow "bff-service" "$root/bff-service" 8083
-Start-ServiceWindow "group-buy-market" "$root/group/group-buy-market-app" 8091 @{
-    AI_GROUP_DEMO_PAYMENT_ENABLED = $env:AI_GROUP_DEMO_PAYMENT_ENABLED
+# The launcher uses the dev profile globally. BFF must still target the locally started
+# Group/Pay/Member processes instead of attempting Nacos discovery for recovered artifacts.
+Start-ServiceWindow "bff-service" "$root/bff-service" 8083 @{
+    AI_GROUP_GROUP_URL  = "http://127.0.0.1:8091"
+    AI_GROUP_PAY_URL    = "http://127.0.0.1:8070"
+    AI_GROUP_MEMBER_URL = "http://127.0.0.1:$MemberPort"
 }
-Start-ServiceWindow "pay-service" "$root/s-pay-mall-ddd-market/s-pay-mall-ddd-app" 8070 $payEnv
+if (-not $DemoLite) {
+    Start-RecoveredJar "group-buy-market" $groupRecoveryJar 8091 @{
+        AI_GROUP_DEMO_PAYMENT_ENABLED = $env:AI_GROUP_DEMO_PAYMENT_ENABLED
+    }
+    Start-RecoveredJar "pay-service" $payRecoveryJar 8070 $payEnv
+    Wait-HttpReady "group-buy-market" "http://127.0.0.1:8091/actuator/health" 120
+    Wait-PortReady "pay-service" 8070 120
+}
 Start-ServiceWindow "ai-agent" "$root/ai-agent/ai-agent-app" 8090 @{
     AGENT_GROUP_LLM_API_KEY       = $env:AGENT_GROUP_LLM_API_KEY
     DASHSCOPE_API_KEY             = $env:DASHSCOPE_API_KEY
@@ -490,20 +862,28 @@ for ($i = 0; $i -lt 40; $i++) {
 }
 if (-not $ready) { Write-Host "WARN: gateway health not UP yet, running smoke anyway" }
 & pwsh -NoProfile -File "$root/docs/dev-ops/smoke-test.ps1"
-& pwsh -NoProfile -File "$root/docs/dev-ops/smoke-benefit-event.ps1"
-& pwsh -NoProfile -File "$root/docs/dev-ops/smoke-benefit-revoke.ps1"
-if (Test-PortListening 8070) {
-    & pwsh -NoProfile -File "$root/docs/dev-ops/smoke-security.ps1"
+if (-not $DemoLite) {
+    & pwsh -NoProfile -File "$root/docs/dev-ops/smoke-benefit-event.ps1"
+    & pwsh -NoProfile -File "$root/docs/dev-ops/smoke-benefit-revoke.ps1"
+    if (Test-PortListening 8070) {
+        & pwsh -NoProfile -File "$root/docs/dev-ops/smoke-security.ps1"
+    } else {
+        throw "pay-service is not listening on :8070 after full-stack startup"
+    }
 } else {
-    Write-Host "Skip smoke-security.ps1 (pay :8070 not running)"
+    Write-Host "Demo-lite smoke complete: Group/Pay benefit and security checks are intentionally skipped."
 }
 
 Write-Host ""
 Write-Host "========================================"
 Write-Host "  Frontend : http://localhost:5173/login"
 Write-Host "  Gateway  : http://localhost:8080"
-Write-Host "  group    : http://localhost:8091"
-Write-Host "  pay      : http://localhost:8070"
+if (-not $DemoLite) {
+    Write-Host "  group    : http://localhost:8091 (recovered jar)"
+    Write-Host "  pay      : http://localhost:8070 (recovered jar)"
+} else {
+    Write-Host "  Group/Pay: skipped (demo-lite)"
+}
 Write-Host "  ai-agent : http://localhost:8090"
 Write-Host "  reactor  : http://localhost:1601"
 Write-Host "========================================"

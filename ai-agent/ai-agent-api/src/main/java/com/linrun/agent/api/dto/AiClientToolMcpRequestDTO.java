@@ -7,6 +7,7 @@ import lombok.NoArgsConstructor;
 
 import java.io.Serial;
 import java.io.Serializable;
+import java.util.List;
 
 /**
  * MCP客户端配置请求 DTO
@@ -50,6 +51,23 @@ public class AiClientToolMcpRequestDTO implements Serializable {
      * 请求超时时间(分钟)
      */
     private Integer requestTimeout;
+
+    private String protocolVersion;
+
+    private String oauthAudience;
+
+    private List<String> oauthScopes;
+
+    private List<String> allowedDomains;
+
+    private List<String> toolAllowlist;
+
+    /** Opaque vault reference; clients must not submit secret material. */
+    private String credentialRef;
+
+    private String version;
+
+    private String configHash;
 
     /**
      * 状态(0:禁用,1:启用)

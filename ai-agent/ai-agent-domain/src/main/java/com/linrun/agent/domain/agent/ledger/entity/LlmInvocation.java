@@ -39,6 +39,24 @@ public class LlmInvocation {
     /** 模型名 */
     private String modelName;
 
+    /** USER_QUOTA or PLATFORM_COST. */
+    private String costOwner;
+
+    /** SHA-256 of the exact prompt payload; prompt text is not copied into diagnostics. */
+    private String promptHash;
+
+    /** Secret-free effective model parameter snapshot. */
+    private String modelParametersJson;
+
+    /** Active tool schema snapshot for reproducible evaluation. */
+    private String toolSnapshotJson;
+
+    /** Active skill snapshot; an explicit empty array means no runtime skill collection existed. */
+    private String skillSnapshotJson;
+
+    /** SHA-256 of the secret-free effective configuration and runtime capability snapshots. */
+    private String configHash;
+
     /** 完整响应文本 */
     private String responseText;
 
@@ -83,6 +101,9 @@ public class LlmInvocation {
 
     /** 耗时 */
     private Long durationMs;
+
+    /** Provider call duration, excluding local reservation and ledger work. */
+    private Long providerLatencyMs;
 
     private LocalDateTime createTime;
 

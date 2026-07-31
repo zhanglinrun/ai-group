@@ -29,4 +29,9 @@ public class DialogueRunFinishRecord {
     private String errorMsg;
 
     private LocalDateTime finishedAt;
+
+    /** P30 CAS expectations. Null retains legacy fixture compatibility. */
+    private String ownerWorkerId;
+
+    private Long fencingToken;
 }

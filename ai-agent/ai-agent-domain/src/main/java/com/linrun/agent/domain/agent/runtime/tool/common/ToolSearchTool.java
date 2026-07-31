@@ -17,6 +17,8 @@ import java.util.Map;
 @Data
 public class ToolSearchTool implements BaseTool {
 
+    private static final int MAX_DISCOVERED_TOOLS_PER_SEARCH = 3;
+
     private AgentContext agentContext;
 
     @Override
@@ -27,8 +29,8 @@ public class ToolSearchTool implements BaseTool {
     @Override
     public String getDescription() {
         return "SearchExtraTools：搜索当前未直接暴露的 MCP 扩展工具。"
-                + "返回目标的原生 input_schema 并授权本次 run 通过 execute_extra_tool 调用；"
-                + "发现后不会改变后续模型轮次的工具 schema 集合。";
+                + "本轮只返回 descriptor；真实 Tool Schema 将在下一模型轮注入，并固定本次 run 的定义版本。"
+                + "execute_extra_tool 仅用于兼容已知原生参数的旧调用。";
     }
 
     @Override
@@ -61,11 +63,15 @@ public class ToolSearchTool implements BaseTool {
         ReactorConfig config = requireConfig();
         int defaultLimit = config.getToolExposureSearchDefaultLimit() == null
                 ? 6 : Math.max(1, config.getToolExposureSearchDefaultLimit());
-        int limit = parseLimit(args.get("limit"), defaultLimit);
+        int limit = Math.min(MAX_DISCOVERED_TOOLS_PER_SEARCH, parseLimit(args.get("limit"), defaultLimit));
         List<McpToolInfo> tools = ToolExposurePolicy.searchMcpTools(
                 agentContext.getToolCollection(), query, limit);
         List<String> names = tools.stream().map(McpToolInfo::resolveExposedName).toList();
-        agentContext.getAgentRunState().markToolsDiscovered(names);
+        Map<String, String> discoveredDefinitions = new LinkedHashMap<>();
+        for (McpToolInfo tool : tools) {
+            discoveredDefinitions.put(tool.resolveExposedName(), tool.definitionHash());
+        }
+        agentContext.getAgentRunState().markToolsDiscovered(discoveredDefinitions);
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("query", query);
@@ -73,25 +79,15 @@ public class ToolSearchTool implements BaseTool {
             Map<String, Object> discovered = new LinkedHashMap<>();
             discovered.put("name", tool.resolveExposedName());
             discovered.put("description", StringUtils.defaultString(tool.getDesc()));
-            discovered.put("input_schema", parseInputSchema(tool.getParameters()));
-            discovered.put("execute_with", ExecuteExtraTool.NAME);
+            discovered.put("definition_hash", tool.definitionHash());
+            discovered.put("available_next_turn", true);
             return discovered;
         }).toList());
         result.put("instruction", names.isEmpty()
                 ? "No matching deferred tools were found; continue with visible tools or explain the limitation."
-                : "The matched tools are authorized for this run. Invoke them only through execute_extra_tool using the returned native input_schema; do not expect their schemas to appear in the next tool list.");
+                : "The matched tools are authorized and their real schemas will be available on the next model turn. "
+                        + "Do not invoke them in this turn; execute_extra_tool remains a backward-compatible fallback only.");
         return JsonUtils.toJson(result);
-    }
-
-    private Object parseInputSchema(String parameters) {
-        if (StringUtils.isBlank(parameters)) {
-            return Map.of();
-        }
-        try {
-            return JsonUtils.parseTree(parameters);
-        } catch (Exception ignored) {
-            return parameters;
-        }
     }
 
     private int parseLimit(Object value, int fallback) {

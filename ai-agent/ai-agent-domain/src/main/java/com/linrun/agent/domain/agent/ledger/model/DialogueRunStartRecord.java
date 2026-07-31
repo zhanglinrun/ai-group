@@ -39,4 +39,12 @@ public class DialogueRunStartRecord {
     private LocalDateTime deadlineAt;
 
     private LocalDateTime heartbeatAt;
+
+    private String ownerWorkerId;
+
+    private LocalDateTime leaseExpiresAt;
+
+    private Long fencingToken;
+
+    private Long version;
 }

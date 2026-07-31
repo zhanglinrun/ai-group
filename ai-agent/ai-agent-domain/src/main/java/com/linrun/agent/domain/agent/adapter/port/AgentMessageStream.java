@@ -12,6 +12,14 @@ public interface AgentMessageStream {
         send(payload);
     }
 
+    /**
+     * Sends a named event with a durable transport cursor when the protocol
+     * supports one. Implementations without cursors keep named-event behavior.
+     */
+    default void send(String eventName, String eventId, Object payload) throws Exception {
+        send(eventName, payload);
+    }
+
     void complete();
 
     void completeWithError(Throwable throwable);

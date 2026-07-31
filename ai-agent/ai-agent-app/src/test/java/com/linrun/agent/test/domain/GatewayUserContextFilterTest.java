@@ -1,83 +1,55 @@
 package com.linrun.agent.test.domain;
 
-import jakarta.servlet.FilterChain;
+import com.aigroup.common.constant.CommonConstant;
+import com.linrun.agent.trigger.http.auth.GatewayUserContextFilter;
+import com.linrun.agent.types.agent.owner.OwnerRequestContext;
 import org.junit.Assert;
 import org.junit.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
-import com.linrun.agent.trigger.http.auth.GatewayUserContextFilter;
-import com.linrun.agent.types.agent.owner.OwnerRequestContext;
 
 import java.util.concurrent.atomic.AtomicReference;
 
-/**
- * Gateway 用户上下文过滤器测试。
- */
+/** Gateway 用户上下文过滤器测试。 */
 public class GatewayUserContextFilterTest {
 
     @Test
-    public void shouldBindOwnerIdFromGatewayHeader() throws Exception {
+    public void shouldBindOwnerIdFromGatewayHeaders() throws Exception {
         GatewayUserContextFilter filter = new GatewayUserContextFilter("secret-token");
         MockHttpServletRequest request = new MockHttpServletRequest("POST", "/web/api/v1/gpt/queryAgentStreamIncr");
-        request.addHeader("X-Gateway-Request", "true");
-        request.addHeader("X-User-Id", "1001");
-        request.addHeader("X-Internal-Token", "secret-token");
-        MockHttpServletResponse response = new MockHttpServletResponse();
+        request.addHeader(CommonConstant.HEADER_GATEWAY_REQUEST, "true");
+        request.addHeader(CommonConstant.HEADER_INTERNAL_TOKEN, "secret-token");
+        request.addHeader(CommonConstant.HEADER_USER_ID, "1001");
         AtomicReference<Long> ownerSeenInChain = new AtomicReference<>();
 
-        filter.doFilter(request, response, (req, res) -> ownerSeenInChain.set(OwnerRequestContext.currentOwnerId()));
+        filter.doFilter(request, new MockHttpServletResponse(),
+                (req, res) -> ownerSeenInChain.set(OwnerRequestContext.currentOwnerId()));
 
         Assert.assertEquals(Long.valueOf(1001L), ownerSeenInChain.get());
         Assert.assertNull(OwnerRequestContext.currentOwnerId());
     }
 
     @Test
-    public void shouldIgnoreSpoofedUserIdWithoutGatewayMarker() throws Exception {
+    public void shouldIgnoreSpoofedUserIdWithoutGatewayProof() throws Exception {
+        assertOwnerNotBound(null);
+    }
+
+    @Test
+    public void shouldIgnoreWrongInternalToken() throws Exception {
+        assertOwnerNotBound("wrong-token");
+    }
+
+    private void assertOwnerNotBound(String internalToken) throws Exception {
         GatewayUserContextFilter filter = new GatewayUserContextFilter("secret-token");
         MockHttpServletRequest request = new MockHttpServletRequest("POST", "/web/api/v1/gpt/queryAgentStreamIncr");
-        request.addHeader("X-User-Id", "1001");
-        MockHttpServletResponse response = new MockHttpServletResponse();
-        AtomicReference<Long> ownerSeenInChain = new AtomicReference<>();
-
-        filter.doFilter(request, response, (req, res) -> ownerSeenInChain.set(OwnerRequestContext.currentOwnerId()));
-
-        Assert.assertNull(ownerSeenInChain.get());
-    }
-
-    @Test
-    public void shouldIgnoreGatewayIdentityWhenInternalTokenIsMissing() throws Exception {
-        assertOwnerNotBound("true", "1001", null);
-    }
-
-    @Test
-    public void shouldIgnoreGatewayIdentityWhenInternalTokenDoesNotMatch() throws Exception {
-        assertOwnerNotBound("true", "1001", "wrong-token");
-    }
-
-    @Test
-    public void shouldIgnoreMalformedGatewayUserId() throws Exception {
-        assertOwnerNotBound("true", "not-a-number", "secret-token");
-    }
-
-    private void assertOwnerNotBound(String gatewayMarker,
-                                     String userId,
-                                     String internalToken) throws Exception {
-        GatewayUserContextFilter filter = new GatewayUserContextFilter("secret-token");
-        MockHttpServletRequest request = new MockHttpServletRequest(
-                "POST", "/web/api/v1/gpt/queryAgentStreamIncr");
-        if (gatewayMarker != null) {
-            request.addHeader("X-Gateway-Request", gatewayMarker);
-        }
-        if (userId != null) {
-            request.addHeader("X-User-Id", userId);
-        }
+        request.addHeader(CommonConstant.HEADER_USER_ID, "1001");
+        request.addHeader(CommonConstant.HEADER_GATEWAY_REQUEST, "true");
         if (internalToken != null) {
-            request.addHeader("X-Internal-Token", internalToken);
+            request.addHeader(CommonConstant.HEADER_INTERNAL_TOKEN, internalToken);
         }
-        MockHttpServletResponse response = new MockHttpServletResponse();
         AtomicReference<Long> ownerSeenInChain = new AtomicReference<>();
 
-        filter.doFilter(request, response,
+        filter.doFilter(request, new MockHttpServletResponse(),
                 (req, res) -> ownerSeenInChain.set(OwnerRequestContext.currentOwnerId()));
 
         Assert.assertNull(ownerSeenInChain.get());

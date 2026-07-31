@@ -61,6 +61,7 @@ public class ReportToolTerminalValidationTest {
         Assert.assertEquals(Boolean.FALSE, result.getFailed());
         Assert.assertEquals("报告正文", result.getToolResult());
         Assert.assertEquals(1, tool.getAgentContext().getVisibleArtifactFiles().size());
+        Assert.assertEquals("demo.html", tool.getAgentContext().getVisibleArtifactFiles().getFirst().getFileName());
     }
 
     private ReportTool newTool(StreamScript script) {

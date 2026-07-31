@@ -36,6 +36,10 @@ public class LlmInvocationFinishRecord {
 
     private Long chargedMicrocredits;
 
+    private Long providerLatencyMs;
+
+    private Long durationMs;
+
     private String finishReason;
 
     private String errorMsg;

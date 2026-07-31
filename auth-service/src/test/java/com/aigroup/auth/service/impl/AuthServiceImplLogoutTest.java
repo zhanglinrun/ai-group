@@ -11,7 +11,6 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
-
 import java.time.Duration;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -40,7 +39,6 @@ class AuthServiceImplLogoutTest {
         jwtProperties.setAccessExpirationMs(60_000L);
         jwtUtils = new JwtUtils(jwtProperties);
         org.springframework.test.util.ReflectionTestUtils.invokeMethod(jwtUtils, "init");
-
         redisTemplate = mock(StringRedisTemplate.class);
         valueOperations = mock(ValueOperations.class);
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
@@ -71,13 +69,10 @@ class AuthServiceImplLogoutTest {
         authService.logout(token);
 
         ArgumentCaptor<Duration> ttl = ArgumentCaptor.forClass(Duration.class);
-        verify(valueOperations).set(
-                eq("jwt:blacklist:" + jwtUtils.blacklistKey(token)),
-                eq("1"),
-                ttl.capture()
-        );
+        verify(valueOperations).set(eq("jwt:blacklist:" + jwtUtils.blacklistKey(token)), eq("1"), ttl.capture());
         assertTrue(ttl.getValue().toMillis() > 0);
         assertTrue(ttl.getValue().toMillis() <= jwtProperties.getAccessExpirationMs());
         verify(refreshTokenStore).revokeAllForUser(7L);
     }
+
 }

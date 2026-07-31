@@ -4,6 +4,7 @@ import org.apache.commons.lang3.StringUtils;
 import com.linrun.agent.domain.agent.reactor.config.ReactorConfig;
 import com.linrun.agent.domain.agent.runtime.agent.AgentContext;
 import com.linrun.agent.domain.agent.runtime.agent.ExplicitToolChoicePolicy;
+import com.linrun.agent.domain.agent.runtime.agent.ToolInvocationContract;
 import com.linrun.agent.domain.agent.runtime.dto.Memory;
 import com.linrun.agent.domain.agent.runtime.dto.Message;
 import com.linrun.agent.domain.agent.runtime.dto.TodoList;
@@ -16,6 +17,9 @@ import com.linrun.agent.domain.agent.runtime.tool.ToolCollection;
 import com.linrun.agent.domain.agent.runtime.tool.common.TodoWriteTool;
 import com.linrun.agent.domain.agent.runtime.tool.exposure.ToolExposurePolicy;
 import com.linrun.agent.domain.agent.runtime.util.FileUtil;
+import com.linrun.agent.domain.agent.runtime.observability.AgentTraceMapper;
+import com.linrun.agent.domain.agent.runtime.observability.AgentTraceRecorder;
+import com.linrun.agent.domain.agent.runtime.observability.AgentTraceScope;
 
 import java.util.Map;
 
@@ -72,6 +76,7 @@ public final class ContextPipeline {
                 : todoCreationRequired || evidenceReconciliationRequired || todoOnlyStepRequired
                 ? todoOnlyToolView(toolCatalog, context)
                 : ToolExposurePolicy.selectForTurn(toolCatalog, context, config);
+        recordContextProjection(context);
         return new PreparedModelTurn(systemPrompt, nextPrompt, exposedTools, toolChoice);
     }
 
@@ -85,6 +90,12 @@ public final class ContextPipeline {
                                          ToolCollection toolCatalog,
                                          int currentStep,
                                          boolean todoStateTransitionRequired) {
+        ToolInvocationContract invocationContract = context == null
+                ? null
+                : context.getToolInvocationContract();
+        if (invocationContract != null && invocationContract.blocksModelToolCalls()) {
+            return ToolChoice.NONE;
+        }
         if (todoStateTransitionRequired) {
             return ToolChoice.REQUIRED;
         }
@@ -196,6 +207,21 @@ public final class ContextPipeline {
         if (last == null || last.getRole() != RoleType.USER) {
             memory.addMessage(Message.userMessage(nextPrompt, null));
         }
+    }
+
+    /** Captures only revision/count metadata, never rendered context or prompt text. */
+    private void recordContextProjection(AgentContext context) {
+        if (context == null || context.getAgentRunState() == null) {
+            return;
+        }
+        context.getAgentRunState().nextContextRevision();
+        AgentTraceRecorder recorder = context.getAgentTraceRecorder() == null
+                ? AgentTraceRecorder.noop()
+                : context.getAgentTraceRecorder();
+        AgentTraceScope scope = recorder.start("context.compaction",
+                context.getAgentRunState().getRunTraceScope(),
+                new AgentTraceMapper().contextCompaction(context));
+        recorder.end(scope, null);
     }
 
     private String promptTemplate(Map<String, String> promptMap, String fallback) {

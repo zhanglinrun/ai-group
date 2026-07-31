@@ -4,6 +4,10 @@ import com.linrun.agent.domain.agent.rag.retrieval.HybridRetriever;
 import com.linrun.agent.domain.agent.rag.retrieval.HybridRetrievalHit;
 import com.linrun.agent.domain.agent.rag.retrieval.HybridRetrievalRequest;
 import com.linrun.agent.domain.agent.rag.storage.PgVectorMemoryRepository;
+import com.linrun.agent.domain.agent.ledger.ExecutionLedgerQueryService;
+import com.linrun.agent.domain.agent.ledger.model.ExecutionRunDetail;
+import com.linrun.agent.domain.agent.runtime.llm.BillableModelInvocationService;
+import com.linrun.agent.domain.agent.runtime.llm.ModelInvocationPolicy;
 import com.linrun.agent.domain.agent.runtime.llm.TokenCounter;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -47,6 +51,9 @@ public class SemanticMemoryManager {
     private static final int SUMMARY_QA_BATCH = 20;
     private static final int SUMMARY_INPUT_TOKENS = 6000;
     private static final int SUMMARY_OUTPUT_TOKENS = 800;
+    private static final int DEFAULT_RETENTION_DAYS = 180;
+    private static final long DEFAULT_INPUT_RATE = 5L;
+    private static final long DEFAULT_OUTPUT_RATE = 30L;
     private static final TokenCounter TOKEN_COUNTER = new TokenCounter();
 
     private final PgVectorMemoryRepository memoryRepository;
@@ -54,6 +61,12 @@ public class SemanticMemoryManager {
     private final JdbcTemplate pgJdbcTemplate;
     private final ChatModel chatModel;
     private final String summaryModel;
+
+    @Autowired
+    private BillableModelInvocationService modelInvocationService;
+
+    @Autowired
+    private ExecutionLedgerQueryService executionLedgerQueryService;
 
     @Autowired
     public SemanticMemoryManager(PgVectorMemoryRepository memoryRepository,
@@ -92,6 +105,21 @@ public class SemanticMemoryManager {
      * <p>上下文有界：始终只取 1 条旧 session_summary + 本轮新对话，不会无限膨胀。</p>
      */
     public boolean mergeSessionSummary(String ownerId, String conversationId, String newConversation) {
+        return mergeSessionSummary(ownerId, conversationId, null, newConversation, DEFAULT_RETENTION_DAYS);
+    }
+
+    public boolean mergeSessionSummary(String ownerId,
+                                       String conversationId,
+                                       String requestId,
+                                       String newConversation) {
+        return mergeSessionSummary(ownerId, conversationId, requestId, newConversation, DEFAULT_RETENTION_DAYS);
+    }
+
+    public boolean mergeSessionSummary(String ownerId,
+                                       String conversationId,
+                                       String requestId,
+                                       String newConversation,
+                                       int retentionDays) {
         if (StringUtils.isAnyBlank(ownerId, conversationId, newConversation)) {
             return false;
         }
@@ -105,7 +133,7 @@ public class SemanticMemoryManager {
         String memoryId = UUID.nameUUIDFromBytes((ownerId + "|ss|" + conversationId).getBytes()).toString();
 
         String prompt = buildSessionSummaryPrompt(oldSummary, newConversation);
-        String summary = callLlm(prompt);
+        String summary = callLlm(ownerId, requestId, prompt);
         if (StringUtils.isBlank(summary)) {
             return false;
         }
@@ -113,7 +141,8 @@ public class SemanticMemoryManager {
                 "conversationId", StringUtils.defaultString(conversationId),
                 "mergeType", "incremental");
         return memoryRepository.saveMemory(memoryId, ownerId,
-                SemanticMemoryType.SESSION_SUMMARY.dbValue(), summary, metadata, conversationId);
+                SemanticMemoryType.SESSION_SUMMARY.dbValue(), summary, metadata, conversationId,
+                Instant.now().plusSeconds(retentionSeconds(retentionDays)));
     }
 
     /**
@@ -122,6 +151,14 @@ public class SemanticMemoryManager {
      * <p>若溢出，取最新 cross_summary + 溢出的 qa_pair → LLM 摘要 → 写新 cross_summary（更新水位线）。</p>
      */
     public boolean maybeSummarizeCrossSession(String ownerId) {
+        return maybeSummarizeCrossSession(ownerId, null, DEFAULT_RETENTION_DAYS);
+    }
+
+    public boolean maybeSummarizeCrossSession(String ownerId, String requestId) {
+        return maybeSummarizeCrossSession(ownerId, requestId, DEFAULT_RETENTION_DAYS);
+    }
+
+    public boolean maybeSummarizeCrossSession(String ownerId, String requestId, int retentionDays) {
         if (StringUtils.isBlank(ownerId)) {
             return false;
         }
@@ -144,7 +181,7 @@ public class SemanticMemoryManager {
                 .reduce("", (a, b) -> a + "\n" + b);
         Timestamp newWatermark = asTimestamp(overflowQa.get(overflowQa.size() - 1).get("created_at"));
         String prompt = buildCrossSummaryPrompt(oldCrossSummary, qaText);
-        String summary = callLlm(prompt);
+        String summary = callLlm(ownerId, requestId, prompt);
         if (StringUtils.isBlank(summary)) {
             return false;
         }
@@ -152,7 +189,8 @@ public class SemanticMemoryManager {
                 (ownerId + "|cs|" + newWatermark.getTime()).getBytes()).toString();
         Map<String, Object> metadata = Map.of("watermark", newWatermark.getTime());
         boolean saved = memoryRepository.saveMemoryWithWatermark(memoryId, ownerId,
-                SemanticMemoryType.CROSS_SUMMARY.dbValue(), summary, metadata, null, newWatermark);
+                SemanticMemoryType.CROSS_SUMMARY.dbValue(), summary, metadata, null, newWatermark,
+                Instant.now().plusSeconds(retentionSeconds(retentionDays)));
         log.info("cross session summary ownerId={} qaCount={} watermark={}",
                 ownerId, overflowQa.size(), newWatermark);
         return saved;
@@ -194,11 +232,31 @@ public class SemanticMemoryManager {
         return rows.isEmpty() ? "" : asString(rows.get(0).get("content"));
     }
 
-    private String callLlm(String prompt) {
+    private long retentionSeconds(int retentionDays) {
+        return Math.max(1, Math.min(365, retentionDays)) * 86_400L;
+    }
+
+    private String callLlm(String ownerId, String requestId, String prompt) {
+        if (StringUtils.isBlank(requestId) || modelInvocationService == null || executionLedgerQueryService == null) {
+            log.warn("summary llm call skipped because durable invocation context is unavailable ownerId={}", ownerId);
+            return null;
+        }
         try {
-            ChatResponse response = chatModel.call(new Prompt(
-                    new UserMessage(TOKEN_COUNTER.truncateTextToTokens(prompt, SUMMARY_INPUT_TOKENS)),
-                    OpenAiChatOptions.builder().model(summaryModel).maxTokens(SUMMARY_OUTPUT_TOKENS).build()));
+            ExecutionRunDetail runDetail = executionLedgerQueryService.queryRunDetail(requestId);
+            if (runDetail == null || runDetail.getRun() == null || runDetail.getRun().getId() == null
+                    || !StringUtils.equals(ownerId, runDetail.getRun().getOwnerId())) {
+                log.warn("summary llm call skipped because run ownership cannot be verified requestId={}", requestId);
+                return null;
+            }
+            String boundedPrompt = TOKEN_COUNTER.truncateTextToTokens(prompt, SUMMARY_INPUT_TOKENS);
+            ChatResponse response = modelInvocationService.invoke(
+                    chatModel,
+                    new Prompt(new UserMessage(boundedPrompt),
+                            OpenAiChatOptions.builder().model(summaryModel).maxTokens(SUMMARY_OUTPUT_TOKENS).build()),
+                    ModelInvocationPolicy.platformCost(
+                            runDetail.getRun().getId(), requestId, "memory_summary", summaryModel,
+                            SUMMARY_OUTPUT_TOKENS, TOKEN_COUNTER.countText(boundedPrompt),
+                            DEFAULT_INPUT_RATE, DEFAULT_OUTPUT_RATE, 0D));
             return response.getResult().getOutput().getText();
         } catch (Exception e) {
             log.warn("summary llm call failed errorType={}", e.getClass().getSimpleName(), e);

@@ -11,6 +11,10 @@ import com.linrun.agent.domain.agent.runtime.tool.mcp.runtime.McpToolOrigin;
 import com.linrun.agent.domain.agent.runtime.harness.ToolRiskLevel;
 import com.linrun.agent.domain.agent.runtime.harness.ToolSideEffect;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+
 @Data
 @Builder
 @NoArgsConstructor
@@ -42,6 +46,9 @@ public class McpToolInfo {
      * MCP 工具参数 Schema，沿用 JSON 字符串格式以兼容现有链路。
      */
     private String parameters;
+
+    /** Optional MCP output schema; absent schemas are handled fail-closed by the registry. */
+    private String outputSchema;
 
     /**
      * 传输协议类型，支持 sse/stdio/streamable_http。
@@ -93,6 +100,32 @@ public class McpToolInfo {
                 && McpServerDescriptor.TRANSPORT_TYPE_STDIO.equals(transportType);
     }
 
+    /**
+     * Credential-free identity of the discovered schema and policy. A Run pins
+     * this value so a later registry refresh cannot silently swap a tool
+     * definition after it has been selected by {@code tool_search}.
+     */
+    public String definitionHash() {
+        String canonical = String.join("\n",
+                safe(mcpId), safe(resolveExposedName()), safe(name), safe(desc), safe(parameters), safe(outputSchema),
+                safe(transportType), String.valueOf(origin), String.valueOf(riskLevel),
+                String.valueOf(sideEffect), safe(serverKey),
+                descriptor == null ? "" : safe(descriptor.getProtocolVersion()),
+                descriptor == null ? "" : safe(descriptor.getVersion()),
+                descriptor == null ? "" : safe(descriptor.getConfigHash()));
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                    .digest(canonical.getBytes(StandardCharsets.UTF_8));
+            StringBuilder hex = new StringBuilder(digest.length * 2);
+            for (byte value : digest) {
+                hex.append(String.format("%02x", value));
+            }
+            return "sha256:" + hex;
+        } catch (NoSuchAlgorithmException error) {
+            throw new IllegalStateException("SHA-256 is unavailable", error);
+        }
+    }
+
     public static String canonicalExposedName(String mcpId, String toolName) {
         return "mcp__" + normalizeName(mcpId) + "__" + normalizeName(toolName);
     }
@@ -100,5 +133,9 @@ public class McpToolInfo {
     private static String normalizeName(String value) {
         String normalized = value == null ? "" : value.trim().replaceAll("[^a-zA-Z0-9_-]", "_");
         return normalized.isBlank() ? "unknown" : normalized;
+    }
+
+    private static String safe(String value) {
+        return value == null ? "" : value;
     }
 }

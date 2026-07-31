@@ -14,6 +14,20 @@ public interface QuotaBillingPort {
         return reserve(userId, requestedMicrocredits, minimumMicrocredits, requestId);
     }
 
+    /**
+     * Reserves quota while binding the durable command to the active distributed trace.
+     * Implementations that predate trace correlation keep their existing behavior through
+     * the compatibility default; the production coordinator persists the value.
+     */
+    default Reservation reserve(Long userId,
+                                long requestedMicrocredits,
+                                long minimumMicrocredits,
+                                String abilityCode,
+                                String requestId,
+                                String traceId) {
+        return reserve(userId, requestedMicrocredits, minimumMicrocredits, abilityCode, requestId);
+    }
+
     void settle(String freezeId, long actualMicrocredits);
 
     void release(String freezeId);

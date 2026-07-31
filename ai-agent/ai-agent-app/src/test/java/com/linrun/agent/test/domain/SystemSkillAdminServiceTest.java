@@ -29,13 +29,16 @@ public class SystemSkillAdminServiceTest {
                 registry
         );
 
-        service.install(archive("""
+        var installed = service.install(archive("""
                 ---
                 name: admin-demo
                 description: system skill
                 ---
                 # Demo
                 """));
+        Assert.assertFalse(installed.isEnabled());
+
+        service.setEnabled("admin-demo", true);
         Assert.assertTrue(service.getRequired("admin-demo").isEnabled());
 
         service.setEnabled("admin-demo", false);
@@ -43,7 +46,7 @@ public class SystemSkillAdminServiceTest {
 
         service.delete("admin-demo");
         Assert.assertTrue(service.list().isEmpty());
-        Mockito.verify(registry, Mockito.times(3)).refresh();
+        Mockito.verify(registry, Mockito.times(4)).refresh();
     }
 
     private ByteArrayInputStream archive(String content) throws Exception {

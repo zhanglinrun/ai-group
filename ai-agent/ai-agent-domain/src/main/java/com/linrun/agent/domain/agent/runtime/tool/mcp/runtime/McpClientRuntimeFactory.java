@@ -8,12 +8,14 @@ import io.modelcontextprotocol.client.transport.StdioClientTransport;
 import io.modelcontextprotocol.client.transport.WebClientStreamableHttpTransport;
 import io.modelcontextprotocol.client.transport.WebFluxSseClientTransport;
 import io.modelcontextprotocol.json.McpJsonMapper;
-import io.modelcontextprotocol.json.jackson2.JacksonMcpJsonMapper;
+import io.modelcontextprotocol.json.jackson.JacksonMcpJsonMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import org.springframework.web.reactive.function.client.WebClient;
+import com.linrun.agent.domain.agent.runtime.tool.mcp.user.UserMcpEndpointPolicy;
 
 import java.net.URI;
 import java.time.Duration;
@@ -28,6 +30,8 @@ public class McpClientRuntimeFactory {
 
     private static final McpJsonMapper MCP_JSON_MAPPER = new JacksonMcpJsonMapper(new ObjectMapper());
 
+    private final UserMcpEndpointPolicy userMcpEndpointPolicy = new UserMcpEndpointPolicy();
+
     /**
      * 根据服务描述创建运行时。
      */
@@ -39,6 +43,7 @@ public class McpClientRuntimeFactory {
         String transportType = StringUtils.defaultIfBlank(descriptor.getTransportType(), McpServerDescriptor.TRANSPORT_TYPE_SSE);
         descriptor.setTransportType(transportType);
         descriptor.setServerKey(descriptor.resolveServerKey());
+        userMcpEndpointPolicy.validate(descriptor);
 
         return switch (transportType) {
             case McpServerDescriptor.TRANSPORT_TYPE_SSE -> createSseRuntime(descriptor);
@@ -222,6 +227,11 @@ public class McpClientRuntimeFactory {
     private WebClient.Builder buildWebClientBuilder(String baseUri, McpServerDescriptor descriptor) {
         WebClient.Builder builder = WebClient.builder()
                 .baseUrl(baseUri);
+
+        if (descriptor.getOrigin() == McpToolOrigin.USER_EXTENSION) {
+            // A redirect is an unvalidated new destination and must fail closed.
+            builder.defaultStatusHandler(HttpStatusCode::is3xxRedirection, response -> response.createException());
+        }
 
         if (descriptor.getHeaders() != null && !descriptor.getHeaders().isEmpty()) {
             builder.defaultHeaders(headers -> descriptor.getHeaders().forEach(headers::add));

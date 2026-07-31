@@ -23,9 +23,10 @@ import java.util.concurrent.atomic.AtomicReference;
 public class ReactorToolHeaderPropagationTest {
 
     @Test
-    public void jsonFileArtifactAdapterShouldPropagateTokenForMutations() throws Exception {
+    public void fileArtifactAdapterShouldPropagateTokenOnlyForRuntimeToolRequests() throws Exception {
         ReactorConfig config = new ReactorConfig();
         ReflectionTestUtils.setField(config, "reactorToolToken", "file-token");
+        ReflectionTestUtils.setField(config, "codeInterpreterUrl", "http://127.0.0.1:1601");
         List<RemoteHttpRequest> requests = new ArrayList<>();
         RemoteHttpPort remoteHttpPort = request -> {
             requests.add(request);
@@ -36,10 +37,14 @@ public class ReactorToolHeaderPropagationTest {
 
         adapter.upload("http://127.0.0.1:1601", null);
         adapter.get("http://127.0.0.1:1601", null);
+        adapter.readText("http://127.0.0.1:1601/v1/file_tool/download/session/demo.txt", 60L);
+        adapter.readText("https://external.example/download/demo.txt", 60L);
 
-        Assert.assertEquals(2, requests.size());
+        Assert.assertEquals(4, requests.size());
         Assert.assertEquals("file-token", requests.get(0).getHeaders().get("X-Tool-Token"));
         Assert.assertEquals("file-token", requests.get(1).getHeaders().get("X-Tool-Token"));
+        Assert.assertEquals("file-token", requests.get(2).getHeaders().get("X-Tool-Token"));
+        Assert.assertNull(requests.get(3).getHeaders().get("X-Tool-Token"));
     }
 
     @Test

@@ -32,6 +32,18 @@ public class LlmInvocationView {
 
     private String modelName;
 
+    private String costOwner;
+
+    private String promptHash;
+
+    private String modelParametersJson;
+
+    private String toolSnapshotJson;
+
+    private String skillSnapshotJson;
+
+    private String configHash;
+
     private String responseText;
 
     private Integer toolCallCount;
@@ -61,6 +73,8 @@ public class LlmInvocationView {
     private LocalDateTime finishedAt;
 
     private Long durationMs;
+
+    private Long providerLatencyMs;
 
     private LocalDateTime createTime;
 }

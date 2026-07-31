@@ -26,6 +26,13 @@
         <result column="started_at" property="startedAt"/>
         <result column="deadline_at" property="deadlineAt"/>
         <result column="heartbeat_at" property="heartbeatAt"/>
+        <result column="owner_worker_id" property="ownerWorkerId"/>
+        <result column="lease_expires_at" property="leaseExpiresAt"/>
+        <result column="fencing_token" property="fencingToken"/>
+        <result column="version" property="version"/>
+        <result column="cancel_requested_at" property="cancelRequestedAt"/>
+        <result column="cancel_requested_by" property="cancelRequestedBy"/>
+        <result column="terminal_at" property="terminalAt"/>
         <result column="finished_at" property="finishedAt"/>
         <result column="duration_ms" property="durationMs"/>
         <result column="create_time" property="createTime"/>
@@ -63,7 +70,9 @@
         id, run_uid, request_id, session_id, owner_id, entry_agent, role_agent_id, role_agent_name,
         status, query_text, request_fingerprint, final_summary_text,
         llm_call_count, tool_call_count, artifact_count, prompt_tokens_total, completion_tokens_total, total_tokens_total,
-        error_code, error_msg, started_at, deadline_at, heartbeat_at, finished_at, duration_ms, create_time, update_time, deleted
+        error_code, error_msg, started_at, deadline_at, heartbeat_at,
+        owner_worker_id, lease_expires_at, fencing_token, version, cancel_requested_at, cancel_requested_by, terminal_at,
+        finished_at, duration_ms, create_time, update_time, deleted
     </sql>
 
     <sql id="viewColumns">
@@ -78,12 +87,16 @@
             run_uid, request_id, session_id, owner_id, entry_agent, role_agent_id, role_agent_name,
             status, query_text, request_fingerprint, final_summary_text,
             llm_call_count, tool_call_count, artifact_count, prompt_tokens_total, completion_tokens_total, total_tokens_total,
-            error_code, error_msg, started_at, deadline_at, heartbeat_at, finished_at, duration_ms, create_time, update_time, deleted
+            error_code, error_msg, started_at, deadline_at, heartbeat_at,
+            owner_worker_id, lease_expires_at, fencing_token, version, cancel_requested_at, cancel_requested_by, terminal_at,
+            finished_at, duration_ms, create_time, update_time, deleted
         ) VALUES (
             #{runUid}, #{requestId}, #{sessionId}, #{ownerId}, #{entryAgent}, #{roleAgentId}, #{roleAgentName},
             #{status}, #{queryText}, #{requestFingerprint}, #{finalSummaryText},
             #{llmCallCount}, #{toolCallCount}, #{artifactCount}, #{promptTokensTotal}, #{completionTokensTotal}, #{totalTokensTotal},
-            #{errorCode}, #{errorMsg}, #{startedAt}, #{deadlineAt}, #{heartbeatAt}, #{finishedAt}, #{durationMs}, NOW(), NOW(), 0
+            #{errorCode}, #{errorMsg}, #{startedAt}, #{deadlineAt}, #{heartbeatAt},
+            #{ownerWorkerId}, #{leaseExpiresAt}, #{fencingToken}, #{version}, #{cancelRequestedAt}, #{cancelRequestedBy}, #{terminalAt},
+            #{finishedAt}, #{durationMs}, NOW(), NOW(), 0
         )
     </insert>
 
@@ -100,12 +113,19 @@
             error_code = #{errorCode},
             error_msg = #{errorMsg},
             finished_at = #{finishedAt},
+            terminal_at = COALESCE(terminal_at, #{finishedAt}),
             duration_ms = #{durationMs},
+            version = version + 1,
             update_time = NOW()
         WHERE id = #{id}
           AND request_id = #{requestId}
           AND deleted = 0
           AND status = 0
+          AND (cancel_requested_at IS NULL OR #{status} = 4)
+        <if test="ownerWorkerId != null and ownerWorkerId != '' and fencingToken != null">
+          AND owner_worker_id = #{ownerWorkerId}
+          AND fencing_token = #{fencingToken}
+        </if>
     </update>
 
     <update id="updateRunHeartbeat">
@@ -116,6 +136,35 @@
           AND request_id = #{requestId}
           AND deleted = 0
           AND status = 0
+    </update>
+
+    <update id="renewRunLease" parameterType="com.linrun.agent.domain.agent.ledger.model.DialogueRunLeaseRenewalCommand">
+        UPDATE dialogue_run SET
+            heartbeat_at = #{heartbeatAt},
+            lease_expires_at = #{leaseExpiresAt},
+            version = version + 1,
+            update_time = NOW()
+        WHERE id = #{runId}
+          AND request_id = #{requestId}
+          AND owner_worker_id = #{ownerWorkerId}
+          AND fencing_token = #{fencingToken}
+          AND deleted = 0
+          AND status = 0
+          AND cancel_requested_at IS NULL
+          AND lease_expires_at &gt; #{heartbeatAt}
+    </update>
+
+    <update id="requestRunCancellation" parameterType="com.linrun.agent.domain.agent.ledger.model.DialogueRunCancelCommand">
+        UPDATE dialogue_run SET
+            cancel_requested_at = #{requestedAt},
+            cancel_requested_by = #{ownerId},
+            version = version + 1,
+            update_time = NOW()
+        WHERE id = #{runId}
+          AND owner_id = #{ownerId}
+          AND deleted = 0
+          AND status = 0
+          AND cancel_requested_at IS NULL
     </update>
 
     <update id="failWorkerLostRuns" parameterType="com.linrun.agent.domain.agent.ledger.model.DialogueRunRecoveryCommand">
@@ -142,6 +191,13 @@
         SELECT <include refid="entityColumns"/>
         FROM dialogue_run
         WHERE request_id = #{requestId} AND deleted = 0
+        LIMIT 1
+    </select>
+
+    <select id="queryById" parameterType="java.lang.Long" resultMap="DialogueRunMap">
+        SELECT <include refid="entityColumns"/>
+        FROM dialogue_run
+        WHERE id = #{runId} AND deleted = 0
         LIMIT 1
     </select>
 

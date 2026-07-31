@@ -30,6 +30,7 @@ class StreamMode(BaseModel):
 class CIRequest(BaseModel):
     request_id: str = Field(alias="requestId", description="Request ID")
     task: Optional[str] = Field(default=None, description="Task")
+    code: Optional[str] = Field(default=None, description="Explicit sandbox code")
     file_names: Optional[List[str]] = Field(default=[], alias="fileNames", description="输入的文件列表")
     file_name: Optional[str] = Field(default=None, alias="fileName", description="返回的生成的文件名称")
     file_description: Optional[str] = Field(default=None, alias="fileDescription", description="返回的生成的文件描述")
@@ -44,12 +45,14 @@ class CIRequest(BaseModel):
 
 
 class ReportRequest(CIRequest):
+    model_config = ConfigDict(populate_by_name=True)
     query: Optional[str] = Field(
         default=None,
         description="原始用户请求；用于保留事实边界、禁止项和输出约束",
     )
-    file_type: Literal["html", "markdown", "ppt"] = Field("html", alias="fileType", description="生成报告的文件类型")
+    file_type: Literal["html", "markdown", "pdf", "ppt"] = Field("html", alias="fileType", description="生成报告的文件类型")
     template_type: str = Field(default="html", alias="templateType", description="生成报告的模板样式类型")
+    report_spec: Optional[Dict[str, Any]] = Field(default=None, alias="reportSpec", description="已审核的 ReportSpec；提供时仅做确定性渲染")
 
 class FileRequest(BaseModel):
     request_id: str = Field(alias="requestId", description="Request ID")

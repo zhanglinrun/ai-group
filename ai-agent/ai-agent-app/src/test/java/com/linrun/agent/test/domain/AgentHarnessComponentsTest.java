@@ -11,7 +11,9 @@ import com.linrun.agent.domain.agent.runtime.dto.tool.McpToolInfo;
 import com.linrun.agent.domain.agent.runtime.dto.tool.ToolCall;
 import com.linrun.agent.domain.agent.runtime.enums.AgentStopReason;
 import com.linrun.agent.domain.agent.runtime.harness.AgentFutureWaiter;
+import com.linrun.agent.domain.agent.runtime.harness.AgentRunBudget;
 import com.linrun.agent.domain.agent.runtime.harness.HookBus;
+import com.linrun.agent.domain.agent.runtime.harness.StopGate;
 import com.linrun.agent.domain.agent.runtime.tool.BaseTool;
 import com.linrun.agent.domain.agent.runtime.tool.ToolCollection;
 import com.linrun.agent.domain.agent.runtime.tool.ToolResultPayload;
@@ -41,6 +43,18 @@ public class AgentHarnessComponentsTest {
 
         Assert.assertEquals(AgentStopReason.DOWNSTREAM_ABORTED, child.cancellationReason());
         Assert.assertSame(parent.getCancellationToken(), child.getCancellationToken());
+    }
+
+    @Test
+    public void shouldPreserveParentDeadlineWhenStartingResearchBranch() {
+        AgentContext parent = AgentContext.builder().build();
+        parent.activateRunDeadline(1_000L);
+        AgentContext child = parent.forkForParallelTask("researcher_1");
+
+        new StopGate().beginRun(child, new AgentRunBudget(4, 4, 1, 120_000L, 100, 100));
+
+        Assert.assertTrue("a branch must not replace the shared parent deadline",
+                child.remainingRunDuration().toMillis() < 1_500L);
     }
 
     @Test

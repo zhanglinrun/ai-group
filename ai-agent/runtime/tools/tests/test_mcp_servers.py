@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sys
+from pathlib import Path
 
 import anyio
 from mcp import ClientSession, StdioServerParameters, types
@@ -81,6 +82,11 @@ async def _exercise_stdio_server(
     server = StdioServerParameters(
         command=sys.executable,
         args=["-m", module],
+        # The repository is not installed as a site package in the local
+        # verification environment.  Pin the child process to the runtime
+        # tools directory so the real `python -m reactor_tool...` protocol
+        # works regardless of the pytest caller's current directory.
+        cwd=Path(__file__).resolve().parents[1],
     )
     async with stdio_client(server) as (read_stream, write_stream):
         async with ClientSession(read_stream, write_stream) as session:

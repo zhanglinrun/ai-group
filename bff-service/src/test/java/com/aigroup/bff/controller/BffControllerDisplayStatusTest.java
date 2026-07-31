@@ -3,10 +3,9 @@ package com.aigroup.bff.controller;
 import com.aigroup.bff.client.GroupFeignClient;
 import com.aigroup.bff.client.MemberFeignClient;
 import com.aigroup.bff.client.PayFeignClient;
-import com.aigroup.common.constant.CommonConstant;
+import com.aigroup.bff.support.GroupMarketQueryCoordinator;
 import com.aigroup.common.context.RequestUserContext;
 import com.aigroup.common.model.Result;
-import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -21,7 +20,6 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -38,13 +36,16 @@ class BffControllerDisplayStatusTest {
 
     @BeforeEach
     void setUp() {
-        controller = new BffController(memberFeignClient, groupFeignClient, payFeignClient);
+        controller = new BffController(memberFeignClient, groupFeignClient, payFeignClient,
+                new GroupMarketQueryCoordinator(0L));
         ReflectionTestUtils.setField(controller, "groupSource", "s01");
         ReflectionTestUtils.setField(controller, "groupChannel", "c01");
         ReflectionTestUtils.setField(controller, "defaultGoodsId", "9890001");
 
-        HttpServletRequest request = mock(HttpServletRequest.class);
-        when(request.getHeader(CommonConstant.HEADER_USER_ID)).thenReturn("1001");
+        org.springframework.mock.web.MockHttpServletRequest request = new org.springframework.mock.web.MockHttpServletRequest();
+        request.addHeader("X-User-Id", "1001");
+        request.addHeader("X-Username", "tester");
+        request.addHeader("X-Role", "USER");
         RequestUserContext.bind(request);
     }
 

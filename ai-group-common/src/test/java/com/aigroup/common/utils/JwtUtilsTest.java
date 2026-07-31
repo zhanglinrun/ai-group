@@ -14,6 +14,7 @@ class JwtUtilsTest {
     void rejectsWeakSigningSecret() {
         JwtProperties properties = new JwtProperties();
         properties.setSecret("too-short");
+
         assertThrows(IllegalStateException.class, () -> newJwtUtils(properties));
     }
 

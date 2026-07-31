@@ -11,6 +11,8 @@ import com.linrun.agent.domain.agent.ledger.model.DialogueRunStartRecord;
 import com.linrun.agent.domain.agent.ledger.model.ExecutionLedgerConstants;
 import com.linrun.agent.domain.agent.reactor.model.req.AgentRequest;
 
+import java.lang.management.ManagementFactory;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -40,6 +42,8 @@ public final class ExecutionLedgerRunSupport {
         }
         LocalDateTime startedAt = LocalDateTime.now();
         long maxDurationSeconds = resolveMaxDurationSeconds(agentContext);
+        String ownerWorkerId = resolveWorkerId();
+        LocalDateTime leaseExpiresAt = startedAt.plus(resolveLeaseDuration(agentContext));
         String originalQuery = request.getOriginalQuery() != null
                 ? request.getOriginalQuery()
                 : request.getQuery();
@@ -56,12 +60,18 @@ public final class ExecutionLedgerRunSupport {
                 .startedAt(startedAt)
                 .deadlineAt(startedAt.plusSeconds(maxDurationSeconds))
                 .heartbeatAt(startedAt)
+                .ownerWorkerId(ownerWorkerId)
+                .leaseExpiresAt(leaseExpiresAt)
+                .fencingToken(1L)
+                .version(1L)
                 .build());
         if (claim == null || claim.getDisposition() == null || claim.getRunId() == null) {
             throw new IllegalStateException("dialogue run claim returned an incomplete result");
         }
         if (claim.isNew()) {
             agentContext.activateLedgerRun(claim.getRunId(), claim.getRunUid());
+            agentContext.setRunOwnerWorkerId(claim.getOwnerWorkerId());
+            agentContext.setFencingToken(claim.getFencingToken() == null ? 1L : claim.getFencingToken());
             recordInputArtifacts(recorder, request.getSessionFiles(), claim.getRunId(), request.getRequestId());
         }
         return claim;
@@ -75,6 +85,23 @@ public final class ExecutionLedgerRunSupport {
         Long configured = agentContext.getRuntimeDependencies().getReactorConfig()
                 .getAgentLoopMaxDurationSeconds();
         return configured == null || configured <= 0L ? DEFAULT_MAX_DURATION_SECONDS : configured;
+    }
+
+    private static Duration resolveLeaseDuration(AgentContext agentContext) {
+        long heartbeatMillis = agentContext == null || agentContext.getRuntimeDependencies() == null
+                ? 10_000L
+                : agentContext.getRuntimeDependencies().effectiveRunHeartbeatIntervalMillis();
+        return Duration.ofMillis(Math.max(30_000L, heartbeatMillis * 3L));
+    }
+
+    private static String resolveWorkerId() {
+        String configured = System.getProperty("aigroup.agent.worker-id");
+        if (StringUtils.isNotBlank(configured)) {
+            return configured.trim();
+        }
+        String host = StringUtils.defaultIfBlank(System.getenv("HOSTNAME"), System.getenv("COMPUTERNAME"));
+        return "agent-" + StringUtils.defaultIfBlank(host, "local") + "-"
+                + ManagementFactory.getRuntimeMXBean().getName();
     }
 
     /**
@@ -96,6 +123,8 @@ public final class ExecutionLedgerRunSupport {
                 .finalSummaryText(finalSummaryText)
                 .errorCode(errorCode)
                 .errorMsg(errorMsg)
+                .ownerWorkerId(agentContext.getRunOwnerWorkerId())
+                .fencingToken(agentContext.getFencingToken())
                 .build());
     }
 

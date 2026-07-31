@@ -69,11 +69,11 @@ public class FileTool implements BaseTool {
         parameters.put("type", "object");
         Map<String, Object> properties = new HashMap<>();
         properties.put("command", command);
-        properties.put("filename", fileName);
+        properties.put("fileName", fileName);
         properties.put("description", fileDesc);
         properties.put("content", fileContent);
         parameters.put("properties", properties);
-        parameters.put("required", Arrays.asList("command", "filename"));
+        parameters.put("required", Arrays.asList("command", "fileName"));
 
         return parameters;
     }
@@ -93,7 +93,8 @@ public class FileTool implements BaseTool {
                 return getFilePayload(fileRequest, true);
             }
         } catch (Exception e) {
-            log.error("{} file tool request failed", agentContext.getRequestId(), e);
+            log.error("{} file tool request failed errorType={}", agentContext.getRequestId(),
+                    e.getClass().getSimpleName());
             return buildFailurePayload(command, null, "file_tool 执行失败：" + e.getMessage());
         }
         return buildFailurePayload(command, null, "file_tool 执行失败：不支持的 command。");
@@ -149,7 +150,7 @@ public class FileTool implements BaseTool {
         if (fileRequest.getFileName() == null || fileRequest.getFileName().isEmpty()) {
             String errorMessage = "上传文件失败 文件名为空";
 
-            log.error("{} {}", agentContext.getRequestId(), errorMessage);
+            log.error("{} file tool upload rejected", agentContext.getRequestId());
             return buildFailurePayload("upload", fileRequest.getFileName(), errorMessage);
         }
 
@@ -158,14 +159,18 @@ public class FileTool implements BaseTool {
             fileRequest.setFileName(fileRequest.getFileName() + ".md");
         }
         try {
-            log.info("{} file tool upload fileName={}, contentChars={}", agentContext.getRequestId(),
-                    fileRequest.getFileName(), fileRequest.getContent() == null ? 0 : fileRequest.getContent().length());
+            log.info("{} file tool upload contentChars={}", agentContext.getRequestId(),
+                    fileRequest.getContent() == null ? 0 : fileRequest.getContent().length());
             FileResponse fileResponse = fileArtifactPort.upload(reactorConfig.getCodeInterpreterUrl(), fileRequest);
             if (fileResponse == null) {
                 return buildFailurePayload("upload", fileRequest.getFileName(), "上传文件失败 " + fileRequest.getFileName());
             }
-            log.info("{} file tool upload completed fileName={}, fileSize={}", agentContext.getRequestId(),
-                    fileResponse.getFileName(), fileResponse.getFileSize());
+            fileRequest.setFileName(StringUtil.firstNonBlank(
+                    fileResponse.getFileName(),
+                    fileRequest.getFileName()
+            ));
+            log.info("{} file tool upload completed fileSize={}", agentContext.getRequestId(),
+                    fileResponse.getFileSize());
             // 构建前端格式
             Map<String, Object> resultMap = new HashMap<>();
             resultMap.put("command", "写入文件");
@@ -214,7 +219,8 @@ public class FileTool implements BaseTool {
             );
 
         } catch (Exception e) {
-            log.error("{} upload file error", agentContext.getRequestId(), e);
+            log.error("{} upload file error errorType={}", agentContext.getRequestId(),
+                    e.getClass().getSimpleName());
             return buildFailurePayload("upload", fileRequest.getFileName(), "上传文件失败 " + fileRequest.getFileName());
         }
     }
@@ -236,14 +242,14 @@ public class FileTool implements BaseTool {
         // 适配多轮对话
         getFileRequest.setRequestId(agentContext.getSessionId());
         try {
-            log.info("{} file tool get fileName={}", agentContext.getRequestId(), getFileRequest.getFileName());
+            log.info("{} file tool get started", agentContext.getRequestId());
             FileResponse fileResponse = fileArtifactPort.get(reactorConfig.getCodeInterpreterUrl(), getFileRequest);
             if (fileResponse == null) {
                 String errMessage = "获取文件失败 " + fileRequest.getFileName();
                 return buildFailurePayload("get", fileRequest.getFileName(), errMessage);
             }
-            log.info("{} file tool get completed fileName={}, fileSize={}", agentContext.getRequestId(),
-                    fileResponse.getFileName(), fileResponse.getFileSize());
+            log.info("{} file tool get completed fileSize={}", agentContext.getRequestId(),
+                    fileResponse.getFileSize());
             // 构建前端格式
             Map<String, Object> resultMap = new HashMap<>();
             resultMap.put("command", "读取文件");
@@ -287,7 +293,8 @@ public class FileTool implements BaseTool {
             }
         } catch (Exception e) {
 
-            log.error("{} get file error", agentContext.getRequestId(), e);
+            log.error("{} get file error errorType={}", agentContext.getRequestId(),
+                    e.getClass().getSimpleName());
             return buildFailurePayload("get", fileRequest.getFileName(), "获取文件失败 " + fileRequest.getFileName());
         }
         return buildFailurePayload("get", fileRequest.getFileName(), "获取文件失败 " + fileRequest.getFileName());
@@ -297,7 +304,8 @@ public class FileTool implements BaseTool {
         try {
             return requireFileArtifactPort().readText(url, 60L);
         } catch (IOException e) {
-            log.error("{} 获取文件异常", agentContext.getRequestId(), e);
+            log.error("{} 获取文件异常 errorType={}", agentContext.getRequestId(),
+                    e.getClass().getSimpleName());
             return null;
         }
     }

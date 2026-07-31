@@ -17,6 +17,7 @@ import com.linrun.agent.domain.agent.reactor.config.ReactorConfig;
 import com.linrun.agent.domain.agent.rag.ingest.DocumentIngestRouter;
 import com.linrun.agent.domain.agent.rag.retrieval.HybridRetriever;
 import com.linrun.agent.domain.agent.runtime.hitl.ApprovalGate;
+import com.linrun.agent.domain.agent.runtime.tool.durable.DurableToolExecutor;
 import com.linrun.agent.domain.agent.reactor.service.imagegeneration.IImageGenerationExecutionKernel;
 import org.springframework.scheduling.TaskScheduler;
 
@@ -55,6 +56,9 @@ public class ReactorRuntimeDependencies {
 
     ApprovalGate approvalGate;
 
+    /** Optional only for isolated legacy tests; production binds deep_search/code_interpreter through this boundary. */
+    DurableToolExecutor durableToolExecutor;
+
     ModelRouter modelRouter;
 
     /** 模型目录端口，供用户按 modelId 覆盖模型时解析 DB 配置。可为空（未装配时回退静态配置）。 */
@@ -91,6 +95,10 @@ public class ReactorRuntimeDependencies {
 
     public McpToolExecutor getOptionalMcpToolExecutor() {
         return mcpToolExecutor;
+    }
+
+    public DurableToolExecutor getOptionalDurableToolExecutor() {
+        return durableToolExecutor;
     }
 
     public IImageGenerationExecutionKernel requireImageGenerationExecutionKernel() {

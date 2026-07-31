@@ -17,6 +17,8 @@ public class QuotaLedger {
     private Long amount;
     private String freezeId;
     private String abilityCode;
+    /** Correlates a quota mutation to the originating Agent Run without retaining prompts. */
+    private String traceId;
     private String remark;
     private LocalDateTime createdAt;
 }

@@ -16,14 +16,16 @@ import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Claude Code 风格的两级工具暴露策略：内置工具直接暴露，deferred MCP 工具只通过稳定代理执行。
- * 完整 ToolCollection 仍是执行目录；本类只创建单轮模型可见且可执行的浅视图。
- * 一旦进入 filtered/auto deferred 模式，发现结果不会再改变后续轮次的 provider tool schema 数组。
+ * Two-level tool exposure: core tools are immediately available, while a
+ * deferred MCP discovery becomes a real schema only on the following model
+ * turn. The Run pins the discovered definition hash, so registry refreshes
+ * cannot silently replace a selected tool.
  */
 @Slf4j
 public final class ToolExposurePolicy {
@@ -77,6 +79,8 @@ public final class ToolExposurePolicy {
                     candidateMcpCount, selected.toolCount(), selected.estimateSchemaChars());
         }
 
+        selected = injectPinnedDiscoveries(catalog, selected, context, stableDeferredProxy);
+
         ToolInvocationContract invocationContract = context == null
                 ? null
                 : context.getToolInvocationContract();
@@ -95,6 +99,37 @@ public final class ToolExposurePolicy {
                     catalog.toolCount(), selected.toolCount(), deferred, selected.estimateSchemaChars());
         }
         return selected;
+    }
+
+    private static ToolCollection injectPinnedDiscoveries(ToolCollection catalog,
+                                                          ToolCollection selected,
+                                                          AgentContext context,
+                                                          boolean stableDeferredProxy) {
+        if (!stableDeferredProxy || context == null || context.getAgentRunState() == null) {
+            return selected;
+        }
+        Map<String, String> pinnedDefinitions = context.getAgentRunState()
+                .discoveredToolDefinitionHashesSnapshot();
+        if (pinnedDefinitions.isEmpty()) {
+            return selected;
+        }
+        Set<String> names = new LinkedHashSet<>(selected.getToolMap().keySet());
+        names.addAll(selected.getMcpToolMap().keySet());
+        pinnedDefinitions.keySet().stream()
+                .sorted()
+                .limit(3)
+                .forEach(name -> {
+                    McpToolInfo current = catalog.getMcpTool(name);
+                    String pinnedHash = pinnedDefinitions.get(name);
+                    if (current != null && StringUtils.equals(pinnedHash, current.definitionHash())) {
+                        names.add(name);
+                    } else {
+                        log.warn("{} skip stale discovered MCP schema tool={} expectedHash={} actualHash={}",
+                                context.getRequestId(), name, pinnedHash,
+                                current == null ? null : current.definitionHash());
+                    }
+                });
+        return catalog.selectedView(names);
     }
 
     /**

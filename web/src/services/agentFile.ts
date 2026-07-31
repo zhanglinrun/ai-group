@@ -10,6 +10,9 @@ export type UploadedConversationFile = {
   resourceKey?: string;
   mimeType?: string | null;
   originFileName?: string;
+  artifactHash?: string;
+  expiresAtEpochMillis?: number;
+  accessUrl?: string;
 };
 
 export const agentFileApi = {

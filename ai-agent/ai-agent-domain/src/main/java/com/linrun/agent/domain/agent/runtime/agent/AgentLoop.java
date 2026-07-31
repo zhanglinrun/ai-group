@@ -4,6 +4,7 @@ package com.linrun.agent.domain.agent.runtime.agent;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.extern.slf4j.Slf4j;
+import com.linrun.agent.domain.agent.adapter.port.QuotaInsufficientException;
 import com.linrun.agent.domain.agent.runtime.dto.Message;
 import com.linrun.agent.domain.agent.runtime.dto.TodoList;
 import com.linrun.agent.domain.agent.ledger.model.ExecutionLedgerConstants;
@@ -278,7 +279,17 @@ public class AgentLoop extends BaseAgent {
             setStopReason(interruptedReason);
             setState(AgentState.FINISHED);
             return false;
+        } catch (QuotaInsufficientException quotaFailure) {
+            // AgentRuntime owns the canonical QUOTA_INSUFFICIENT terminal protocol.
+            // Do not collapse a rejected pre-provider reservation into MODEL_ERROR here.
+            throw quotaFailure;
         } catch (Exception e) {
+            QuotaInsufficientException quotaFailure = quotaFailure(e);
+            if (quotaFailure != null) {
+                // ModelGateway awaits an asynchronous LLM call, so a rejected
+                // reservation can arrive wrapped in ExecutionException.
+                throw quotaFailure;
+            }
             // 异常处理：记录错误日志，添加异常消息到记忆，标记智能体为完成状态
             log.error("{} agent loop model turn failed errorType={}",
                     context.getRequestId(), e.getClass().getSimpleName());
@@ -294,6 +305,17 @@ public class AgentLoop extends BaseAgent {
         }
 
         return true; // 思考成功
+    }
+
+    private QuotaInsufficientException quotaFailure(Throwable error) {
+        Throwable current = error;
+        while (current != null) {
+            if (current instanceof QuotaInsufficientException quotaInsufficient) {
+                return quotaInsufficient;
+            }
+            current = current.getCause();
+        }
+        return null;
     }
 
     private void discardSyntheticTurnMessages(int memorySizeBeforeTurn) {
@@ -436,6 +458,7 @@ public class AgentLoop extends BaseAgent {
                 .anyMatch(binding -> binding != null
                         && binding.getSource() != null
                         && "report_tool".equals(binding.getSource().getToolName()));
+        CompletionOutputContractParser completionContractParser = COMPLETION_OUTPUT_CONTRACT_PARSER;
         return CompletionRequest.builder()
                 .goal(context == null ? null : context.getQuery())
                 .draftAnswer(draftAnswer)
@@ -446,9 +469,13 @@ public class AgentLoop extends BaseAgent {
                 .toolInvocationContract(context == null
                         ? ToolInvocationContract.none()
                         : context.getToolInvocationContract())
-                .requiredOutputFields(COMPLETION_OUTPUT_CONTRACT_PARSER
+                .requiredOutputFields(completionContractParser
                         .parse(context == null ? null : context.getQuery())
                         .requiredFields())
+                .requiredExactFinalAnswer(completionContractParser
+                        .parseExactFinalAnswer(context == null ? null : context.getQuery()))
+                .numericOnlyFinalAnswer(completionContractParser
+                        .requiresNumericOnlyFinalAnswer(context == null ? null : context.getQuery()))
                 .runFailed(context != null && context.isRunFailed())
                 .networkLookupRequired(context != null
                         && ExplicitToolChoicePolicy.requiresNetworkLookup(context.getQuery()))

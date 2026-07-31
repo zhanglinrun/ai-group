@@ -2,6 +2,7 @@ package com.linrun.agent.domain.agent.runtime.tool.common;
 
 
 import com.linrun.agent.types.common.JsonUtils;
+import com.fasterxml.jackson.databind.JsonNode;
 import org.apache.commons.lang3.StringUtils;
 import com.linrun.agent.domain.agent.adapter.port.RemoteStreamListener;
 import com.linrun.agent.domain.agent.adapter.port.RemoteStreamPort;
@@ -66,13 +67,35 @@ public class CodeInterpreterTool implements BaseTool {
 
         Map<String, Object> taskParam = new HashMap<>();
         taskParam.put("type", "string");
-        taskParam.put("description", "需要完成的任务以及完成任务需要的数据，需要尽可能详细");
+        taskParam.put("description", "任务说明；仅用于产物说明，不会在 Python Worker 中触发隐藏模型生成");
+        Map<String, Object> codeParam = new HashMap<>();
+        codeParam.put("type", "string");
+        codeParam.put("description", "待在预置隔离沙箱中执行的显式 Python 代码；必须使用受控文件 helper");
+        Map<String, Object> profileParam = new HashMap<>();
+        profileParam.put("type", "string");
+        profileParam.put("enum", List.of("analysis", "workspace"));
+        profileParam.put("description", "预置沙箱权限档位；不能通过参数提升权限");
+        Map<String, Object> timeoutParam = new HashMap<>();
+        timeoutParam.put("type", "integer");
+        timeoutParam.put("minimum", 1);
+        timeoutParam.put("maximum", 120);
+        Map<String, Object> fileNameParam = new HashMap<>();
+        fileNameParam.put("type", "string");
+        fileNameParam.put("description", "可选的最终产物文件名；生成表格时应包含 .csv 或 .xlsx 扩展名");
+        Map<String, Object> fileDescriptionParam = new HashMap<>();
+        fileDescriptionParam.put("type", "string");
+        fileDescriptionParam.put("description", "可选的最终产物说明");
         Map<String, Object> parameters = new HashMap<>();
         parameters.put("type", "object");
         Map<String, Object> properties = new HashMap<>();
         properties.put("task", taskParam);
+        properties.put("code", codeParam);
+        properties.put("permissionProfile", profileParam);
+        properties.put("timeoutSeconds", timeoutParam);
+        properties.put("fileName", fileNameParam);
+        properties.put("fileDescription", fileDescriptionParam);
         parameters.put("properties", properties);
-        parameters.put("required", Collections.singletonList("task"));
+        parameters.put("required", Collections.singletonList("code"));
 
         return parameters;
     }
@@ -82,12 +105,18 @@ public class CodeInterpreterTool implements BaseTool {
         try {
             Map<String, Object> params = (Map<String, Object>) input;
             String task = (String) params.get("task");
+            String code = (String) params.get("code");
+            String fileName = (String) params.get("fileName");
+            String fileDescription = (String) params.get("fileDescription");
             List<String> fileNames = agentContext.getProductFiles().stream().map(File::getFileName).collect(Collectors.toList());
             CodeInterpreterRequest request = CodeInterpreterRequest.builder()
                     .requestId(agentContext.getSessionId()) // 适配多轮对话
                     .query(agentContext.getQuery())
                     .task(task)
+                    .code(code)
                     .fileNames(fileNames)
+                    .fileName(fileName)
+                    .fileDescription(fileDescription)
                     .stream(true)
                     .build();
             ToolArtifactSource artifactSource = agentContext.requireCurrentToolArtifactSource(getName());
@@ -233,6 +262,10 @@ public class CodeInterpreterTool implements BaseTool {
     }
 
     private ToolResultPayload buildSuccessPayload(CodeInterpreterResponse codeResponse, String displayText) {
+        String sandboxFailure = sandboxFailureMessage(codeResponse == null ? null : codeResponse.getCodeOutput());
+        if (sandboxFailure != null) {
+            return buildFailurePayload(sandboxFailure);
+        }
         return ToolResultPayload.structured(
                 displayText,
                 displayText,
@@ -244,6 +277,27 @@ public class CodeInterpreterTool implements BaseTool {
                         .fileRefs(ToolFileRefMapper.fromCodeInterpreterFileInfo(codeResponse == null ? null : codeResponse.getFileInfo()))
                         .build()
         );
+    }
+
+    private String sandboxFailureMessage(String codeOutput) {
+        if (StringUtils.isBlank(codeOutput)) {
+            return null;
+        }
+        try {
+            JsonNode terminal = JsonUtils.parseTree(codeOutput);
+            if (terminal == null || !terminal.isObject() || !terminal.hasNonNull("status")) {
+                return null;
+            }
+            String status = terminal.path("status").asText("");
+            if ("SUCCEEDED".equalsIgnoreCase(status)) {
+                return null;
+            }
+            String errorType = terminal.path("errorType").asText("UNKNOWN");
+            return "code_interpreter sandbox failed: " + errorType;
+        } catch (RuntimeException ignored) {
+            // Older worker responses can be plain text. Preserve their existing compatibility.
+            return null;
+        }
     }
 
     private ToolResultPayload buildFailurePayload(String message) {

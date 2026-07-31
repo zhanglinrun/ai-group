@@ -12,6 +12,7 @@ import org.springframework.mock.http.server.reactive.MockServerHttpRequest;
 import org.springframework.mock.web.server.MockServerWebExchange;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.core.env.Environment;
 import reactor.core.publisher.Mono;
 
 import java.util.List;
@@ -22,8 +23,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @SpringBootTest
 @TestPropertySource(properties = {
+        "spring.profiles.active=local",
         "spring.cloud.nacos.discovery.enabled=false",
-        "jwt.secret=test-jwt-secret-for-local-regression-012345678901234567890123",
+        "jwt.secret=0123456789abcdef0123456789abcdef",
         "ai-group.internal.token=test-internal-token-for-local-regression-012345678901234567890"
 })
 class GatewayApplicationContextTest {
@@ -39,6 +41,9 @@ class GatewayApplicationContextTest {
 
     @Autowired
     private RouteLocator routeLocator;
+
+    @Autowired
+    private Environment environment;
 
     @Test
     void contextLoadsInternalTokenProperties() {
@@ -64,6 +69,22 @@ class GatewayApplicationContextTest {
 
         assertNotNull(route);
         assertTrue(Boolean.TRUE.equals(Mono.from(route.getPredicate().apply(exchange)).block()));
+    }
+
+    @Test
+    void agentSseRouteMatchesReplayEndpointAndDeepRunTimeoutIsFiveMinutes() {
+        Route route = routeLocator.getRoutes()
+                .filter(item -> "agent-api".equals(item.getId()))
+                .blockFirst();
+        MockServerWebExchange exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.get("/api/agent/runs/run-1/events")
+                        .header("Last-Event-ID", "42").build());
+
+        assertNotNull(route);
+        assertTrue(Boolean.TRUE.equals(Mono.from(route.getPredicate().apply(exchange)).block()));
+        assertEquals("42", exchange.getRequest().getHeaders().getFirst("Last-Event-ID"));
+        assertTrue(environment.getProperty(
+                "spring.cloud.gateway.server.webflux.httpclient.response-timeout", Long.class, 0L) >= 300_000L);
     }
 
     private void assertRouteHasDedupe(List<Route> routes, String routeId) {

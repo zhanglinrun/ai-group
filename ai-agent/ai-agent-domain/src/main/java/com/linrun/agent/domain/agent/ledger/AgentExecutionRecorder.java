@@ -4,6 +4,8 @@ import com.linrun.agent.domain.agent.ledger.model.ArtifactRecordCommand;
 import com.linrun.agent.domain.agent.ledger.model.DialogueRunFinishRecord;
 import com.linrun.agent.domain.agent.ledger.model.DialogueRunClaim;
 import com.linrun.agent.domain.agent.ledger.model.DialogueRunStartRecord;
+import com.linrun.agent.domain.agent.ledger.model.DialogueRunLeaseRenewalResult;
+import com.linrun.agent.domain.agent.ledger.model.DialogueRunCancelResult;
 import com.linrun.agent.domain.agent.ledger.model.LlmInvocationFinishRecord;
 import com.linrun.agent.domain.agent.ledger.model.LlmInvocationStartRecord;
 import com.linrun.agent.domain.agent.ledger.model.ToolInvocationBatchStartRecord;
@@ -30,6 +32,21 @@ public interface AgentExecutionRecorder {
 
     /** Returns false when the claimed run is no longer active. */
     boolean heartbeatRun(Long runId, String requestId, LocalDateTime heartbeatAt);
+
+    /** P30 owner/fence CAS heartbeat. Any non-active result must stop new side effects. */
+    default DialogueRunLeaseRenewalResult renewRunLease(Long runId,
+                                                        String requestId,
+                                                        String ownerWorkerId,
+                                                        long fencingToken,
+                                                        LocalDateTime heartbeatAt,
+                                                        LocalDateTime leaseExpiresAt) {
+        return new DialogueRunLeaseRenewalResult(DialogueRunLeaseRenewalResult.Status.OWNERSHIP_LOST);
+    }
+
+    /** Idempotent explicit cancellation; only the run owner may create the durable intent. */
+    default DialogueRunCancelResult requestRunCancellation(Long runId, String ownerId, LocalDateTime requestedAt) {
+        return new DialogueRunCancelResult(DialogueRunCancelResult.Status.NOT_FOUND, runId, null);
+    }
 
     Long createLlmInvocation(LlmInvocationStartRecord record);
 

@@ -6,6 +6,7 @@ import com.linrun.agent.domain.agent.runtime.agent.ToolInvocationContract;
 import com.linrun.agent.domain.agent.runtime.dto.tool.McpToolInfo;
 import com.linrun.agent.domain.agent.runtime.tool.ToolCollection;
 import com.linrun.agent.domain.agent.runtime.tool.common.PlatformContextTool;
+import com.linrun.agent.domain.agent.runtime.tool.mcp.runtime.McpToolOrigin;
 
 import java.util.Locale;
 import java.util.Map;
@@ -45,7 +46,7 @@ public final class DefaultPermissionPolicy implements PermissionPolicy {
         if (PlatformContextTool.NAME.equals(toolName)) {
             if (context == null || context.getOwnerId() == null || context.getOwnerId() <= 0L) {
                 return PermissionDecision.deny(
-                        "Tool platform_context requires an authenticated AgentContext owner.");
+                        "Tool platform_context requires an authenticated AgentContext identity.");
             }
             if (containsModelControlledIdentity(input)) {
                 return PermissionDecision.deny(
@@ -76,6 +77,10 @@ public final class DefaultPermissionPolicy implements PermissionPolicy {
         }
         McpToolInfo mcpTool = activeTools.getMcpTool(toolName);
         if (mcpTool != null) {
+            if (mcpTool.getOrigin() == McpToolOrigin.USER_EXTENSION) {
+                // A remote endpoint registered by a user cannot self-attest that it is read-only.
+                return new ToolPermissionMetadata(ToolRiskLevel.HIGH, ToolSideEffect.UNKNOWN);
+            }
             return new ToolPermissionMetadata(mcpTool.getRiskLevel(), mcpTool.getSideEffect());
         }
         return ToolPermissionMetadata.readOnly();

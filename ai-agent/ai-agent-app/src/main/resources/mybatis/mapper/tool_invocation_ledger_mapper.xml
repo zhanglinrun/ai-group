@@ -12,6 +12,11 @@
         <result column="step_no" property="stepNo"/>
         <result column="tool_name" property="toolName"/>
         <result column="tool_provider" property="toolProvider"/>
+        <result column="operation_key" property="operationKey"/>
+        <result column="execution_mode" property="executionMode"/>
+        <result column="source_invocation_id" property="sourceInvocationId"/>
+        <result column="durable_status" property="durableStatus"/>
+        <result column="durable_fencing_token" property="durableFencingToken"/>
         <result column="input_json" property="inputJson"/>
         <result column="tool_result" property="toolResult"/>
         <result column="llm_observation" property="llmObservation"/>
@@ -20,6 +25,7 @@
         <result column="started_at" property="startedAt"/>
         <result column="finished_at" property="finishedAt"/>
         <result column="duration_ms" property="durationMs"/>
+        <result column="durable_lease_expires_at" property="durableLeaseExpiresAt"/>
         <result column="create_time" property="createTime"/>
         <result column="update_time" property="updateTime"/>
         <result column="deleted" property="deleted"/>
@@ -38,12 +44,18 @@
         <result column="step_no" property="stepNo"/>
         <result column="tool_name" property="toolName"/>
         <result column="tool_provider" property="toolProvider"/>
+        <result column="operation_key" property="operationKey"/>
+        <result column="execution_mode" property="executionMode"/>
+        <result column="source_invocation_id" property="sourceInvocationId"/>
+        <result column="durable_status" property="durableStatus"/>
+        <result column="durable_fencing_token" property="durableFencingToken"/>
         <result column="input_json" property="inputJson"/>
         <result column="tool_result" property="toolResult"/>
         <result column="llm_observation" property="llmObservation"/>
         <result column="status" property="status"/>
         <result column="error_msg" property="errorMsg"/>
         <result column="duration_ms" property="durationMs"/>
+        <result column="durable_lease_expires_at" property="durableLeaseExpiresAt"/>
         <result column="artifact_count" property="artifactCount"/>
         <result column="started_at" property="startedAt"/>
         <result column="finished_at" property="finishedAt"/>
@@ -52,16 +64,22 @@
 
     <sql id="entityColumns">
         id, run_id, llm_invocation_id, tool_call_id, dispatch_index, agent_name, step_no, tool_name, tool_provider,
-        input_json, tool_result, llm_observation, status, error_msg, started_at, finished_at, duration_ms, create_time, update_time, deleted
+        operation_key, execution_mode, source_invocation_id, durable_status, durable_fencing_token,
+        input_json, tool_result, llm_observation, status, error_msg, started_at, finished_at, duration_ms,
+        durable_lease_expires_at, create_time, update_time, deleted
     </sql>
 
     <insert id="insertToolInvocation" parameterType="com.linrun.agent.domain.agent.ledger.entity.ToolInvocation" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO tool_invocation (
             run_id, llm_invocation_id, tool_call_id, dispatch_index, agent_name, step_no, tool_name, tool_provider,
-            input_json, tool_result, llm_observation, status, error_msg, started_at, finished_at, duration_ms, create_time, update_time, deleted
+            operation_key, execution_mode, source_invocation_id, durable_status, durable_fencing_token,
+            input_json, tool_result, llm_observation, status, error_msg, started_at, finished_at, duration_ms,
+            durable_lease_expires_at, create_time, update_time, deleted
         ) VALUES (
             #{runId}, #{llmInvocationId}, #{toolCallId}, #{dispatchIndex}, #{agentName}, #{stepNo}, #{toolName}, #{toolProvider},
-            #{inputJson}, #{toolResult}, #{llmObservation}, #{status}, #{errorMsg}, #{startedAt}, #{finishedAt}, #{durationMs}, NOW(), NOW(), 0
+            #{operationKey}, #{executionMode}, #{sourceInvocationId}, #{durableStatus}, #{durableFencingToken},
+            #{inputJson}, #{toolResult}, #{llmObservation}, #{status}, #{errorMsg}, #{startedAt}, #{finishedAt}, #{durationMs},
+            #{durableLeaseExpiresAt}, NOW(), NOW(), 0
         )
     </insert>
 
@@ -109,8 +127,9 @@
     <select id="queryRecentByToolName" resultMap="ToolInvocationViewMap">
         SELECT
             ti.id, ti.run_id, ti.llm_invocation_id, ti.tool_call_id, ti.dispatch_index, ti.agent_name, ti.step_no,
-            ti.tool_name, ti.tool_provider, ti.input_json, ti.tool_result, ti.llm_observation, ti.status, ti.error_msg,
-            ti.started_at, ti.finished_at, ti.duration_ms, ti.create_time,
+            ti.tool_name, ti.tool_provider, ti.operation_key, ti.execution_mode, ti.source_invocation_id,
+            ti.durable_status, ti.durable_fencing_token, ti.input_json, ti.tool_result, ti.llm_observation, ti.status, ti.error_msg,
+            ti.started_at, ti.finished_at, ti.duration_ms, ti.durable_lease_expires_at, ti.create_time,
             dr.request_id, dr.session_id, dr.owner_id,
             (SELECT COUNT(1) FROM artifact_record ar WHERE ar.tool_invocation_id = ti.id AND ar.deleted = 0) AS artifact_count
         FROM tool_invocation ti

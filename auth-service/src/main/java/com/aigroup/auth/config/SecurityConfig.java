@@ -1,6 +1,8 @@
 package com.aigroup.auth.config;
 
 import com.aigroup.common.filter.GatewayUserContextFilter;
+import com.aigroup.common.filter.InternalApiAuthFilter;
+import com.aigroup.common.filter.OperationalAuditFilter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -15,9 +17,12 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 public class SecurityConfig {
 
     private final GatewayUserContextFilter gatewayUserContextFilter;
+    private final InternalApiAuthFilter internalApiAuthFilter;
 
-    public SecurityConfig(GatewayUserContextFilter gatewayUserContextFilter) {
+    public SecurityConfig(GatewayUserContextFilter gatewayUserContextFilter,
+                          InternalApiAuthFilter internalApiAuthFilter) {
         this.gatewayUserContextFilter = gatewayUserContextFilter;
+        this.internalApiAuthFilter = internalApiAuthFilter;
     }
 
     @Bean
@@ -28,7 +33,9 @@ public class SecurityConfig {
                         .requestMatchers("/api/auth/login", "/api/auth/register", "/api/auth/refresh").permitAll()
                         .requestMatchers("/actuator/**").permitAll()
                         .anyRequest().permitAll())
-                .addFilterBefore(gatewayUserContextFilter, UsernamePasswordAuthenticationFilter.class);
+                .addFilterBefore(internalApiAuthFilter, UsernamePasswordAuthenticationFilter.class)
+                .addFilterBefore(gatewayUserContextFilter, UsernamePasswordAuthenticationFilter.class)
+                .addFilterAfter(new OperationalAuditFilter(), GatewayUserContextFilter.class);
         return http.build();
     }
 

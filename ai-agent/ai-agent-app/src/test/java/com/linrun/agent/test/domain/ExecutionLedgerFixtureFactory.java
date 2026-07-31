@@ -454,6 +454,44 @@ public final class ExecutionLedgerFixtureFactory {
         }
 
         @Override
+        public synchronized int renewRunLease(
+                com.linrun.agent.domain.agent.ledger.model.DialogueRunLeaseRenewalCommand command) {
+            DialogueRun existing = command == null ? null : store.runs.get(command.runId());
+            if (existing == null || existing.getDeleted() != 0
+                    || existing.getStatus() != ExecutionLedgerConstants.STATUS_RUNNING
+                    || existing.getCancelRequestedAt() != null
+                    || !equalsNullable(existing.getRequestId(), command.requestId())
+                    || !equalsNullable(existing.getOwnerWorkerId(), command.ownerWorkerId())
+                    || !java.util.Objects.equals(existing.getFencingToken(), command.fencingToken())
+                    || existing.getLeaseExpiresAt() == null
+                    || !existing.getLeaseExpiresAt().isAfter(command.heartbeatAt())) {
+                return 0;
+            }
+            existing.setHeartbeatAt(command.heartbeatAt());
+            existing.setLeaseExpiresAt(command.leaseExpiresAt());
+            existing.setVersion((existing.getVersion() == null ? 0L : existing.getVersion()) + 1L);
+            existing.setUpdateTime(LocalDateTime.now());
+            return 1;
+        }
+
+        @Override
+        public synchronized int requestRunCancellation(
+                com.linrun.agent.domain.agent.ledger.model.DialogueRunCancelCommand command) {
+            DialogueRun existing = command == null ? null : store.runs.get(command.runId());
+            if (existing == null || existing.getDeleted() != 0
+                    || existing.getStatus() != ExecutionLedgerConstants.STATUS_RUNNING
+                    || existing.getCancelRequestedAt() != null
+                    || !equalsNullable(existing.getOwnerId(), command.ownerId())) {
+                return 0;
+            }
+            existing.setCancelRequestedAt(command.requestedAt());
+            existing.setCancelRequestedBy(command.ownerId());
+            existing.setVersion((existing.getVersion() == null ? 0L : existing.getVersion()) + 1L);
+            existing.setUpdateTime(LocalDateTime.now());
+            return 1;
+        }
+
+        @Override
         public synchronized int failWorkerLostRuns(DialogueRunRecoveryCommand command) {
             List<DialogueRun> candidates = store.runs.values().stream()
                     .filter(item -> item.getDeleted() == 0)
@@ -484,6 +522,12 @@ public final class ExecutionLedgerFixtureFactory {
                     .findFirst()
                     .map(ExecutionLedgerFixtureFactory::cloneRun)
                     .orElse(null);
+        }
+
+        @Override
+        public DialogueRun queryById(Long runId) {
+            DialogueRun run = runId == null ? null : store.runs.get(runId);
+            return run == null || run.getDeleted() != 0 ? null : cloneRun(run);
         }
 
         @Override
@@ -1011,6 +1055,13 @@ public final class ExecutionLedgerFixtureFactory {
                 .startedAt(run.getStartedAt())
                 .deadlineAt(run.getDeadlineAt())
                 .heartbeatAt(run.getHeartbeatAt())
+                .ownerWorkerId(run.getOwnerWorkerId())
+                .leaseExpiresAt(run.getLeaseExpiresAt())
+                .fencingToken(run.getFencingToken())
+                .version(run.getVersion())
+                .cancelRequestedAt(run.getCancelRequestedAt())
+                .cancelRequestedBy(run.getCancelRequestedBy())
+                .terminalAt(run.getTerminalAt())
                 .finishedAt(run.getFinishedAt())
                 .durationMs(run.getDurationMs())
                 .createTime(run.getCreateTime())

@@ -16,7 +16,6 @@ from pathlib import Path
 from dotenv import load_dotenv
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
-from jinja2 import Template
 from loguru import logger
 from sse_starlette import ServerSentEvent, EventSourceResponse
 
@@ -39,7 +38,6 @@ from reactor_tool.util.report_file_util import (
     sanitize_report_html_content,
     sanitize_strict_grounded_markdown,
 )
-from reactor_tool.util.prompt_util import get_prompt
 from reactor_tool.util.middleware_util import RequestHandlerRoute
 load_dotenv()
 
@@ -57,7 +55,7 @@ def _error_response(status_code: int, message: str) -> JSONResponse:
 async def post_code_interpreter(
     body: CIRequest,
 ):
-    # 按需导入重型依赖，避免仅使用轻量路由时被 smolagents 等可选依赖阻塞。
+    # 按需导入隔离执行器，避免轻量路由初始化沙箱资源。
     from reactor_tool.tool.code_interpreter import code_interpreter_agent
 
      # 处理文件路径
@@ -77,6 +75,7 @@ async def post_code_interpreter(
                 request_id=body.request_id,
                 stream=True,
                 permission_profile=body.permission_profile,
+                code=body.code,
             ):
 
 
@@ -183,10 +182,10 @@ async def post_code_interpreter(
                 request_id=body.request_id,
                 stream=body.stream,
                 permission_profile=body.permission_profile,
+                code=body.code,
             ):
-                # stream=False yields a single RunResult from smolagents
-                if hasattr(chunk, "output"):
-                    content = str(chunk.output) if chunk.output is not None else ""
+                if isinstance(chunk, ActionOutput):
+                    content = str(chunk.content) if chunk.content is not None else ""
                     break
                 if isinstance(chunk, str):
                     content += chunk
@@ -225,6 +224,48 @@ async def post_code_interpreter(
 async def post_report(
     body: ReportRequest,
 ):
+    if body.report_spec is not None:
+        from reactor_tool.tool.report import render_report_spec, render_report_spec_pdf
+
+        async def _render_report_spec_artifact():
+            if body.file_type == "pdf":
+                preview = render_report_spec(body.report_spec, "markdown")
+                with tempfile.TemporaryDirectory(prefix="researchpilot-pdf-") as temp_dir:
+                    output_path = Path(temp_dir) / f"{body.file_name or 'researchpilot-report'}.pdf"
+                    render_report_spec_pdf(body.report_spec, str(output_path))
+                    file_info = await upload_file_by_path(str(output_path), body.request_id)
+                if not file_info:
+                    raise RuntimeError("deterministic PDF rendering succeeded but artifact upload failed")
+                return preview, [file_info]
+            if body.file_type == "ppt":
+                content = render_report_spec(body.report_spec, "html")
+                with tempfile.TemporaryDirectory(prefix="researchpilot-ppt-") as temp_dir:
+                    output_path = Path(temp_dir) / safe_pptx_name(body.file_name or "researchpilot-report")
+                    render_pptx(content, str(output_path), requested_slide_limit("", ""))
+                    file_info = await upload_file_by_path(str(output_path), body.request_id)
+                if not file_info:
+                    raise RuntimeError("deterministic PPTX rendering succeeded but artifact upload failed")
+                return content, [file_info]
+            content = render_report_spec(body.report_spec, body.file_type)
+            file_info = await upload_file(
+                content=content,
+                file_name=body.file_name or "researchpilot-report",
+                request_id=body.request_id,
+                file_type=body.file_type,
+            )
+            return content, [file_info]
+
+        content, file_info = await _render_report_spec_artifact()
+        if body.stream:
+            async def _stream_report_spec():
+                yield ServerSentEvent(data=json.dumps(
+                    {"requestId": body.request_id, "data": content, "fileInfo": file_info, "isFinal": True},
+                    ensure_ascii=False))
+                yield ServerSentEvent(data="[DONE]")
+            return EventSourceResponse(_stream_report_spec(),
+                                       ping_message_factory=lambda: ServerSentEvent(data="heartbeat"), ping=15)
+        return {"code": 200, "data": content, "fileInfo": file_info, "requestId": body.request_id}
+
     from reactor_tool.tool.report import report
     from reactor_tool.tool.report import _requires_strict_grounding
 
@@ -535,17 +576,15 @@ async def post_web_fetch(body: WebFetchRequest):
 
 @router.post("/cal_engine")
 async def cal_engine(body: CalEngineRequest):
-    """根据用户获取数据和用户 query 生成指标计算公式"""
-    from reactor_tool.util.llm_util import ask_llm
-
-    prompt = Template(get_prompt("analysis")["cal_engine_prompt"]).render(
-        query=body.query,
-        data=body.data,
+    """Calculation formula generation belongs to the Java model boundary, not the deterministic Worker."""
+    return JSONResponse(
+        status_code=501,
+        content={
+            "code": "MODEL_EXECUTION_MOVED_TO_JAVA",
+            "message": "cal_engine is not available in the deterministic Python data plane",
+            "requestId": body.request_id,
+        },
     )
-
-    async for chunk in ask_llm(messages=prompt, model=os.getenv("CAL_ENGINE_MODEL", "qwen-vl-max"), only_content=True):
-        expression = chunk
-    return {"code": 200, "expression": expression, "request_id": body.request_id, "query": body.query}
 
 
 @router.post("/script_runner")

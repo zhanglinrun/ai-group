@@ -670,6 +670,15 @@ public class AgentRepository implements IAgentRepository {
                 .transportType(toolMcp.getTransportType())
                 .transportConfig(toolMcp.getTransportConfig())
                 .requestTimeout(toolMcp.getRequestTimeout())
+                .protocolVersion(blankOrDefault(toolMcp.getProtocolVersion(), "2025-03-26"))
+                .oauthAudience(toolMcp.getOauthAudience())
+                .oauthScopes(parseStringList(toolMcp.getOauthScopesJson()))
+                .allowedDomains(parseStringList(toolMcp.getAllowedDomainsJson()))
+                .toolAllowlist(parseStringList(toolMcp.getToolAllowlistJson()))
+                .credentialRef(toolMcp.getCredentialRef())
+                .version(blankOrDefault(toolMcp.getVersion(), "v1"))
+                .configHash(toolMcp.getConfigHash())
+                .enabled(toolMcp.getStatus() != null && toolMcp.getStatus() == 1)
                 .build();
 
         String transportConfig = toolMcp.getTransportConfig();
@@ -709,10 +718,32 @@ public class AgentRepository implements IAgentRepository {
                 mcpVO.setTransportConfigStreamableHttp(transportConfigStreamableHttp);
             }
         } catch (Exception e) {
-            log.error("解析传输配置失败: mcpId={}, reason={}", toolMcp.getMcpId(), e.getMessage(), e);
+            log.error("解析传输配置失败: mcpId={}, errorType={}", toolMcp.getMcpId(), e.getClass().getSimpleName());
         }
 
         return mcpVO;
+    }
+
+    private List<String> parseStringList(String rawJson) {
+        if (rawJson == null || rawJson.isBlank()) {
+            return List.of();
+        }
+        try {
+            List<String> values = JsonUtils.parseObject(rawJson, new TypeReference<List<String>>() { });
+            return values == null ? List.of() : values.stream()
+                    .filter(Objects::nonNull)
+                    .map(String::trim)
+                    .filter(value -> !value.isBlank())
+                    .distinct()
+                    .toList();
+        } catch (Exception error) {
+            log.warn("MCP governance list parse failed errorType={}", error.getClass().getSimpleName());
+            return List.of();
+        }
+    }
+
+    private String blankOrDefault(String value, String fallback) {
+        return value == null || value.isBlank() ? fallback : value.trim();
     }
 
     private boolean isEnabledClient(String clientId) {

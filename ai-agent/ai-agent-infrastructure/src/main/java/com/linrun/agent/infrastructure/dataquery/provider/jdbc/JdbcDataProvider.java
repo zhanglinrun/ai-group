@@ -59,7 +59,7 @@ public class JdbcDataProvider implements DataProvider<JdbcQueryRequest> {
         final ConnectionWrapper wrapper = JdbcConnectionFactory.getConnection(request.getJdbcConnectionConfig());
         request.setSql(wrapper.getJdbcDialect().formatSql(request.getSql()));
         queryResult.setQuerySql(request.getSql());
-        log.info("jdbc执行sql:{}", request.getSql());
+        log.info("jdbc query started sqlChars={}", request.getSql() == null ? 0 : request.getSql().length());
         try (Connection connection = wrapper.getConnection()) {
             long getConnectionTime = System.currentTimeMillis();
             queryResult.setCreateConnectionTime(getConnectionTime - queryStartTime);
@@ -102,4 +102,3 @@ public class JdbcDataProvider implements DataProvider<JdbcQueryRequest> {
     }
 
 }
-

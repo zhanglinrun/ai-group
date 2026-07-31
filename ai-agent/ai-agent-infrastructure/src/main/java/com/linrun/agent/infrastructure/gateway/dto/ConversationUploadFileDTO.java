@@ -22,4 +22,5 @@ public class ConversationUploadFileDTO {
     private String resourceKey;
     private String mimeType;
     private String originFileName;
+    private String artifactHash;
 }

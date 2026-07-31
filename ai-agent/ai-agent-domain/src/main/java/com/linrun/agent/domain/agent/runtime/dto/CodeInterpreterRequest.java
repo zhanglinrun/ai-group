@@ -16,6 +16,7 @@ public class CodeInterpreterRequest {
     private String requestId;
     private String query;
     private String task;
+    private String code;
     private List<String> fileNames;
     private List<FileInfo> originFileNames;
     private String fileName;
@@ -25,6 +26,8 @@ public class CodeInterpreterRequest {
     private Boolean contentStream;
     private Map<String, Object> streamMode;
     private String templateType;
+    /** Optional P100 ReportSpec.  The Python report endpoint renders it without an LLM call. */
+    private Map<String, Object> reportSpec;
 
     @Data
     @AllArgsConstructor

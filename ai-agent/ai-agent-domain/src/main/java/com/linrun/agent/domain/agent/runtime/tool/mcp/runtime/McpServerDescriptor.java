@@ -67,6 +67,29 @@ public class McpServerDescriptor {
      */
     private Integer requestTimeout;
 
+    /** Pinned protocol/governance snapshot supplied by the admin registry. */
+    @Builder.Default
+    private String protocolVersion = "2025-03-26";
+
+    private String oauthAudience;
+
+    @Builder.Default
+    private List<String> oauthScopes = new ArrayList<>();
+
+    @Builder.Default
+    private List<String> allowedDomains = new ArrayList<>();
+
+    @Builder.Default
+    private List<String> toolAllowlist = new ArrayList<>();
+
+    /** Opaque server-side secret reference. It must never be forwarded as a token. */
+    private String credentialRef;
+
+    @Builder.Default
+    private String version = "v1";
+
+    private String configHash;
+
     /**
      * STDIO 启动命令。
      */

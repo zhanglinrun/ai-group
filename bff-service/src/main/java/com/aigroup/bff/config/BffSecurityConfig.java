@@ -1,6 +1,8 @@
 package com.aigroup.bff.config;
 
 import com.aigroup.common.filter.GatewayUserContextFilter;
+import com.aigroup.common.filter.InternalApiAuthFilter;
+import com.aigroup.common.filter.OperationalAuditFilter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -14,9 +16,12 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 public class BffSecurityConfig {
 
     private final GatewayUserContextFilter gatewayUserContextFilter;
+    private final InternalApiAuthFilter internalApiAuthFilter;
 
-    public BffSecurityConfig(GatewayUserContextFilter gatewayUserContextFilter) {
+    public BffSecurityConfig(GatewayUserContextFilter gatewayUserContextFilter,
+                             InternalApiAuthFilter internalApiAuthFilter) {
         this.gatewayUserContextFilter = gatewayUserContextFilter;
+        this.internalApiAuthFilter = internalApiAuthFilter;
     }
 
     @Bean
@@ -24,7 +29,9 @@ public class BffSecurityConfig {
         http.csrf(csrf -> csrf.disable())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth.anyRequest().permitAll())
-                .addFilterBefore(gatewayUserContextFilter, UsernamePasswordAuthenticationFilter.class);
+                .addFilterBefore(internalApiAuthFilter, UsernamePasswordAuthenticationFilter.class)
+                .addFilterBefore(gatewayUserContextFilter, UsernamePasswordAuthenticationFilter.class)
+                .addFilterAfter(new OperationalAuditFilter(), GatewayUserContextFilter.class);
         return http.build();
     }
 }

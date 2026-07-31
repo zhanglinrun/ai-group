@@ -9,7 +9,6 @@ import com.aigroup.auth.vo.UserVO;
 import com.aigroup.common.constant.CommonConstant;
 import com.aigroup.common.context.RequestUserContext;
 import com.aigroup.common.model.Result;
-import com.aigroup.common.utils.JwtUtils;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -29,7 +28,6 @@ public class AuthController {
     private static final int MAX_AUTHORIZATION_HEADER_LENGTH = 8192;
 
     private final AuthService authService;
-    private final JwtUtils jwtUtils;
 
     @PostMapping("/login")
     public Result<LoginVO> login(@RequestBody LoginDTO loginDTO) {
@@ -62,7 +60,7 @@ public class AuthController {
 
     @GetMapping("/profile")
     public Result<UserVO> profile() {
-        Long userId = RequestUserContext.getUserId();
+        Long userId = RequestUserContext.requireUserId();
         return Result.success(authService.profile(userId));
     }
 }

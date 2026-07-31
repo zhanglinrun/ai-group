@@ -93,7 +93,7 @@ public class AiAgentController implements IAiAgentService {
         }
         // per-user 并发对话限流：单用户在途对话超过上限即拒绝，避免刷满线程池影响他人并控制成本。
         if (!perUserConcurrencyLimiter.tryAcquire(ownerId)) {
-            log.warn("{} gpt stream rejected: per-user concurrency limit reached, ownerId={}", params.getRequestId(), ownerId);
+            log.warn("{} gpt stream rejected: per-user concurrency limit reached", params.getRequestId());
             emitter.completeWithError(new AgentExecutorBusyException("当前并发对话数已达上限，请稍后再试"));
             return emitter;
         }
@@ -146,7 +146,7 @@ public class AiAgentController implements IAiAgentService {
     @RequestMapping(value = "armory_agent", method = RequestMethod.POST)
     @Override
     public Response<Boolean> armoryAgent(@RequestBody ArmoryAgentRequestDTO request) {
-        log.info("装配智能体请求开始，agentId={}", request == null ? null : request.getAgentId());
+        log.info("装配智能体请求开始");
 
         try {
             // 参数校验
@@ -162,7 +162,7 @@ public class AiAgentController implements IAiAgentService {
             // 调用装配服务
             armoryService.acceptArmoryAgent(request.getAgentId());
 
-            log.info("装配智能体成功，agentId：{}", request.getAgentId());
+            log.info("装配智能体成功");
             return Response.<Boolean>builder()
                     .code(ResponseCode.SUCCESS.getCode())
                     .info("装配成功")
@@ -170,11 +170,10 @@ public class AiAgentController implements IAiAgentService {
                     .build();
 
         } catch (Exception e) {
-            log.error("装配智能体失败，agentId={}，errorType={}",
-                    request != null ? request.getAgentId() : "null", e.getClass().getSimpleName());
+            log.error("装配智能体失败，errorType={}", e.getClass().getSimpleName());
             return Response.<Boolean>builder()
                     .code(ResponseCode.UN_ERROR.getCode())
-                    .info("装配失败：" + e.getMessage())
+                    .info("装配失败")
                     .data(false)
                     .build();
         }
@@ -214,7 +213,7 @@ public class AiAgentController implements IAiAgentService {
             log.error("查询可用智能体列表失败，errorType={}", e.getClass().getSimpleName());
             return Response.<List<AiAgentResponseDTO>>builder()
                     .code(ResponseCode.UN_ERROR.getCode())
-                    .info("查询失败：" + e.getMessage())
+                    .info("查询失败")
                     .data(new ArrayList<>())
                     .build();
         }
@@ -223,7 +222,7 @@ public class AiAgentController implements IAiAgentService {
     @RequestMapping(value = "armory_api", method = RequestMethod.POST)
     @Override
     public Response<Boolean> armoryApi(@RequestBody ArmoryApiRequestDTO request) {
-        log.info("装配API请求开始，apiId={}", request == null ? null : request.getApiId());
+        log.info("装配API请求开始");
 
         try {
             // 参数校验
@@ -239,7 +238,7 @@ public class AiAgentController implements IAiAgentService {
             // 调用装配服务
             armoryService.acceptArmoryAgentClientModelApi(request.getApiId());
 
-            log.info("装配API成功，apiId：{}", request.getApiId());
+            log.info("装配API成功");
             return Response.<Boolean>builder()
                     .code(ResponseCode.SUCCESS.getCode())
                     .info("装配成功")
@@ -247,11 +246,10 @@ public class AiAgentController implements IAiAgentService {
                     .build();
 
         } catch (Exception e) {
-            log.error("装配API失败，apiId={}，errorType={}",
-                    request != null ? request.getApiId() : "null", e.getClass().getSimpleName());
+            log.error("装配API失败，errorType={}", e.getClass().getSimpleName());
             return Response.<Boolean>builder()
                     .code(ResponseCode.UN_ERROR.getCode())
-                    .info("装配失败：" + e.getMessage())
+                    .info("装配失败")
                     .data(false)
                     .build();
         }

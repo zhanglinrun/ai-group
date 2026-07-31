@@ -4,7 +4,10 @@ import org.junit.Assert;
 import org.junit.Test;
 import com.linrun.agent.domain.agent.service.session.ConversationSessionOwnershipService;
 import com.linrun.agent.domain.agent.service.session.SessionOwnershipDeniedException;
+import com.linrun.agent.domain.agent.ledger.IExecutionLedgerReadRepository;
+import com.linrun.agent.domain.agent.ledger.IExecutionLedgerWriteRepository;
 import com.linrun.agent.domain.agent.ledger.entity.DialogueSession;
+import org.mockito.Mockito;
 
 /**
  * 会话归属应用服务测试。
@@ -54,6 +57,21 @@ public class ConversationSessionOwnershipServiceTest {
         service.ensureSessionAccessible("1001", "session-001", "第一次进入");
 
         service.ensureSessionAccessible("1002", "session-001", "尝试越权访问");
+    }
+
+    @Test(expected = SessionOwnershipDeniedException.class)
+    public void shouldRejectConcurrentFirstBindWonByAnotherOwner() {
+        IExecutionLedgerReadRepository readRepository = Mockito.mock(IExecutionLedgerReadRepository.class);
+        IExecutionLedgerWriteRepository writeRepository = Mockito.mock(IExecutionLedgerWriteRepository.class);
+        Mockito.when(readRepository.querySessionEntity("session-001")).thenReturn(null);
+        Mockito.when(writeRepository.querySessionBySessionId("session-001"))
+                .thenReturn(DialogueSession.builder().sessionId("session-001").ownerId("1002").build());
+        ConversationSessionOwnershipService service = new ConversationSessionOwnershipService(
+                readRepository,
+                writeRepository
+        );
+
+        service.ensureSessionAccessible("1001", "session-001", "首次绑定");
     }
 
     @Test

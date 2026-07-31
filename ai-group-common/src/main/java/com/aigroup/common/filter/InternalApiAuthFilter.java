@@ -14,19 +14,20 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
 
-/**
- * Protects /internal/** endpoints with a shared service token.
- */
+/** Protects internal and management endpoints with the configured service token. */
 @Component
 @RequiredArgsConstructor
 public class InternalApiAuthFilter extends OncePerRequestFilter {
+
+    public static final String AUDIT_ACTOR_TYPE_ATTRIBUTE = InternalApiAuthFilter.class.getName() + ".actorType";
+    public static final String AUDIT_ACTOR_ID_ATTRIBUTE = InternalApiAuthFilter.class.getName() + ".actorId";
 
     private final InternalTokenProperties internalTokenProperties;
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
         String path = request.getRequestURI();
-        return path == null || !path.startsWith("/internal/");
+        return path == null || (!path.startsWith("/internal/") && !path.startsWith("/actuator/"));
     }
 
     @Override
@@ -39,6 +40,8 @@ public class InternalApiAuthFilter extends OncePerRequestFilter {
             response.setStatus(HttpStatus.FORBIDDEN.value());
             return;
         }
+        request.setAttribute(AUDIT_ACTOR_TYPE_ATTRIBUTE, "internal-token");
+        request.setAttribute(AUDIT_ACTOR_ID_ATTRIBUTE, "platform");
         filterChain.doFilter(request, response);
     }
 }

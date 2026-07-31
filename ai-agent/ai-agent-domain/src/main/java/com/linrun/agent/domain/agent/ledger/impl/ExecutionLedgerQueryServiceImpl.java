@@ -188,6 +188,12 @@ public class ExecutionLedgerQueryServiceImpl implements ExecutionLedgerQueryServ
                     .callKind(invocation.getCallKind())
                     .streaming(invocation.getStreaming())
                     .modelName(invocation.getModelName())
+                    .costOwner(invocation.getCostOwner())
+                    .promptHash(invocation.getPromptHash())
+                    .modelParametersJson(invocation.getModelParametersJson())
+                    .toolSnapshotJson(invocation.getToolSnapshotJson())
+                    .skillSnapshotJson(invocation.getSkillSnapshotJson())
+                    .configHash(invocation.getConfigHash())
                     .responseText(invocation.getResponseText())
                     .toolCallCount(invocation.getToolCallCount())
                     .promptTokens(invocation.getPromptTokens())
@@ -203,6 +209,7 @@ public class ExecutionLedgerQueryServiceImpl implements ExecutionLedgerQueryServ
                     .startedAt(invocation.getStartedAt())
                     .finishedAt(invocation.getFinishedAt())
                     .durationMs(invocation.getDurationMs())
+                    .providerLatencyMs(invocation.getProviderLatencyMs())
                     .createTime(invocation.getCreateTime())
                     .build());
         }

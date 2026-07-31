@@ -1,6 +1,8 @@
 package com.linrun.agent.domain.agent.rag.ingest;
 
 import com.linrun.agent.domain.agent.rag.storage.PgVectorMemoryRepository;
+import com.linrun.agent.domain.agent.runtime.llm.BillableModelInvocationService;
+import com.linrun.agent.domain.agent.runtime.llm.ModelInvocationPolicy;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.ai.chat.messages.UserMessage;
@@ -35,17 +37,24 @@ import java.util.UUID;
 public class VlmDescribeStrategy implements IngestStrategy {
 
     private static final String VLM_PROMPT = "请详细描述这张图片的内容，包括图表数据、文字、场景等关键信息，用于后续检索。用中文回答。";
+    private static final int VLM_MAX_OUTPUT_TOKENS = 800;
+    private static final int VLM_INPUT_TOKEN_ESTIMATE = 1024;
+    private static final long DEFAULT_INPUT_RATE = 5L;
+    private static final long DEFAULT_OUTPUT_RATE = 30L;
 
     private final PgVectorMemoryRepository memoryRepository;
     private final ChatModel chatModel;
+    private final BillableModelInvocationService modelInvocationService;
     private final String visionModelName;
 
     @Autowired
     public VlmDescribeStrategy(PgVectorMemoryRepository memoryRepository,
                                 ChatModel chatModel,
+                                BillableModelInvocationService modelInvocationService,
                                 @Value("${agent.rag.vlm.model:qwen-vl-plus}") String visionModelName) {
         this.memoryRepository = memoryRepository;
         this.chatModel = chatModel;
+        this.modelInvocationService = modelInvocationService;
         this.visionModelName = visionModelName;
     }
 
@@ -73,8 +82,22 @@ public class VlmDescribeStrategy implements IngestStrategy {
                     .text(VLM_PROMPT)
                     .media(imageMedia)
                     .build();
-            OpenAiChatOptions options = OpenAiChatOptions.builder().model(visionModelName).build();
-            ChatResponse response = chatModel.call(new Prompt(List.of(userMessage), options));
+            OpenAiChatOptions options = OpenAiChatOptions.builder()
+                    .model(visionModelName)
+                    .maxTokens(VLM_MAX_OUTPUT_TOKENS)
+                    .build();
+            ChatResponse response = modelInvocationService.invoke(
+                    chatModel,
+                    new Prompt(List.of(userMessage), options),
+                    ModelInvocationPolicy.userQuota(
+                            ModelInvocationPolicy.requireCurrentUserInvocationContext(),
+                            "vlm_describe",
+                            visionModelName,
+                            VLM_MAX_OUTPUT_TOKENS,
+                            VLM_INPUT_TOKEN_ESTIMATE,
+                            DEFAULT_INPUT_RATE,
+                            DEFAULT_OUTPUT_RATE,
+                            0D));
             String description = response.getResult().getOutput().getText();
             if (StringUtils.isBlank(description)) {
                 return DocumentIngestResult.builder()

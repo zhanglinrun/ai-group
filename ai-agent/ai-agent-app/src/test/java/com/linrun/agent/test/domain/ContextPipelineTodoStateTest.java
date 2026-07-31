@@ -30,6 +30,33 @@ import java.util.Set;
 public class ContextPipelineTodoStateTest {
 
     @Test
+    public void shouldExposeNoToolsForModelOnlyCompositionTurn() {
+        AgentContext context = AgentContext.builder()
+                .query("根据已获取的证据撰写研究结论")
+                .executionProfile(AgentExecutionProfile.STANDARD)
+                .toolInvocationContract(ToolInvocationContract.modelOnly())
+                .productFiles(new ArrayList<>())
+                .taskProductFiles(new ArrayList<>())
+                .build();
+        TodoWriteTool todoWriteTool = new TodoWriteTool();
+        todoWriteTool.setAgentContext(context);
+        ToolCollection catalog = catalog(context, todoWriteTool);
+
+        ContextPipeline.PreparedModelTurn turn = new ContextPipeline().prepareTurn(
+                context,
+                new ReactorConfig(),
+                new ContextPipeline.PromptState("stable-system", "compose-answer"),
+                new Memory(),
+                catalog,
+                1);
+
+        Assert.assertEquals(ToolChoice.NONE, turn.toolChoice());
+        Assert.assertTrue(turn.exposedTools().getToolMap().isEmpty());
+        Assert.assertNull(turn.exposedTools().getTool("business_probe"));
+        Assert.assertNull(turn.exposedTools().getTool(TodoWriteTool.NAME));
+    }
+
+    @Test
     public void shouldExposeOnlyTodoWriteUntilDeepTodoIsCreated() {
         AgentContext context = AgentContext.builder()
                 .query("执行深度配额核验")

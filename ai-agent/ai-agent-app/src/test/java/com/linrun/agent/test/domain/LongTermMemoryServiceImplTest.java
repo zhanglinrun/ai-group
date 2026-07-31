@@ -1,6 +1,7 @@
 package com.linrun.agent.test.domain;
 
 import com.linrun.agent.domain.agent.memory.LongTermMemoryEntry;
+import com.linrun.agent.domain.agent.memory.LongTermMemoryPreference;
 import com.linrun.agent.domain.agent.memory.LongTermMemoryServiceImpl;
 import com.linrun.agent.domain.agent.memory.LongTermMemoryType;
 import com.linrun.agent.domain.agent.memory.MemoryTurn;
@@ -8,7 +9,6 @@ import com.linrun.agent.domain.agent.rag.retrieval.HybridRetrievalHit;
 import com.linrun.agent.domain.agent.rag.retrieval.HybridRetrievalRequest;
 import com.linrun.agent.domain.agent.rag.retrieval.HybridRetriever;
 import com.linrun.agent.domain.agent.rag.storage.PgVectorMemoryRepository;
-import com.linrun.agent.domain.agent.rag.memory.SemanticMemoryManager;
 import com.linrun.agent.domain.agent.reactor.config.ReactorConfig;
 import org.junit.Assert;
 import org.junit.Test;
@@ -23,49 +23,34 @@ import java.util.Map;
 public class LongTermMemoryServiceImplTest {
 
     @Test
-    public void shouldSaveQaPairAndExplicitProfile() {
+    public void shouldSaveOnlyExplicitProfileAndNeverPersistRawQaPair() {
         PgVectorMemoryRepository repository = Mockito.mock(PgVectorMemoryRepository.class);
         LongTermMemoryServiceImpl service = service(repository, Mockito.mock(HybridRetriever.class), true);
 
         service.save(new MemoryTurn("user-1", "session-1", "req-1", "请记住：我叫小王", "已记录"));
 
-        Mockito.verify(repository).saveMemory(
-                Mockito.anyString(), Mockito.eq("user-1"), Mockito.eq("qa_pair"),
-                Mockito.contains("已记录"), Mockito.argThat(metadata -> "req-1".equals(metadata.get("requestId"))),
-                Mockito.eq("session-1"));
+        Mockito.verify(repository, Mockito.never()).saveMemory(
+                Mockito.anyString(), Mockito.anyString(), Mockito.anyString(), Mockito.anyString(),
+                Mockito.anyMap(), Mockito.anyString(), Mockito.any());
         Mockito.verify(repository).saveUserProfile(
-                "user-1", "fact:user-name", "FACT", "用户明确声明: 我叫小王", 0.8d,
-                "explicit-user-memory");
+                Mockito.eq("user-1"), Mockito.eq("fact:user-name"), Mockito.eq("FACT"),
+                Mockito.eq("用户明确声明: 我叫小王"), Mockito.eq(0.8d),
+                Mockito.eq("explicit-user-memory"), Mockito.any());
     }
 
     @Test
-    public void shouldSaveOrdinaryConversationOnlyAsQaPair() {
+    public void shouldNotPersistOrdinaryConversationAsLongTermMemory() {
         PgVectorMemoryRepository repository = Mockito.mock(PgVectorMemoryRepository.class);
         LongTermMemoryServiceImpl service = service(repository, Mockito.mock(HybridRetriever.class), true);
 
         service.save(new MemoryTurn("user-1", "session-1", "req-1", "解释 Java 虚拟线程", "回答"));
 
-        Mockito.verify(repository).saveMemory(Mockito.anyString(), Mockito.eq("user-1"),
-                Mockito.eq("qa_pair"), Mockito.anyString(), Mockito.anyMap(), Mockito.eq("session-1"));
+        Mockito.verify(repository, Mockito.never()).saveMemory(
+                Mockito.anyString(), Mockito.anyString(), Mockito.anyString(), Mockito.anyString(),
+                Mockito.anyMap(), Mockito.anyString(), Mockito.any());
         Mockito.verify(repository, Mockito.never()).saveUserProfile(
                 Mockito.anyString(), Mockito.anyString(), Mockito.anyString(), Mockito.anyString(),
-                Mockito.anyDouble(), Mockito.anyString());
-    }
-
-    @Test
-    public void shouldRefreshThreeLayerSummariesAfterQaPairPersists() {
-        PgVectorMemoryRepository repository = Mockito.mock(PgVectorMemoryRepository.class);
-        Mockito.when(repository.saveMemory(Mockito.anyString(), Mockito.anyString(), Mockito.eq("qa_pair"),
-                Mockito.anyString(), Mockito.anyMap(), Mockito.anyString())).thenReturn(true);
-        SemanticMemoryManager semanticMemoryManager = Mockito.mock(SemanticMemoryManager.class);
-        LongTermMemoryServiceImpl service = service(repository, Mockito.mock(HybridRetriever.class), true);
-        ReflectionTestUtils.setField(service, "semanticMemoryManager", semanticMemoryManager);
-
-        service.save(new MemoryTurn("user-1", "session-1", "req-1", "问题", "回答"));
-
-        Mockito.verify(semanticMemoryManager).mergeSessionSummary(
-                Mockito.eq("user-1"), Mockito.eq("session-1"), Mockito.contains("回答"));
-        Mockito.verify(semanticMemoryManager).maybeSummarizeCrossSession("user-1");
+                Mockito.anyDouble(), Mockito.anyString(), Mockito.any());
     }
 
     @Test
@@ -96,7 +81,7 @@ public class LongTermMemoryServiceImplTest {
         ArgumentCaptor<HybridRetrievalRequest> captor = ArgumentCaptor.forClass(HybridRetrievalRequest.class);
         Mockito.verify(retriever).retrieve(captor.capture());
         Assert.assertEquals("user-1", captor.getValue().getOwnerId());
-        Assert.assertEquals(List.of("qa_pair", "session_summary", "cross_summary"),
+        Assert.assertEquals(List.of("session_summary", "cross_summary"),
                 captor.getValue().getDocTypes());
     }
 

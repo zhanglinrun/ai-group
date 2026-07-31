@@ -40,7 +40,7 @@ public class JdbcDataMetaProvider implements DataMetaProvider<JdbcQueryRequest> 
     public List<TableColumn> getTableColumnsOfSql(JdbcQueryRequest request) throws SQLException {
         final ConnectionWrapper wrapper = JdbcConnectionFactory.getConnection(request.getJdbcConnectionConfig());
         request.setSql(wrapper.getJdbcDialect().formatSql(request.getSql()));
-        log.info("jdbc meta 执行sql:{}", request.getSql());
+        log.info("jdbc metadata query started sqlChars={}", request.getSql() == null ? 0 : request.getSql().length());
         List<TableColumn> columnList = new ArrayList<>();
         try (Connection connection = wrapper.getConnection()) {
             try (
@@ -69,4 +69,3 @@ public class JdbcDataMetaProvider implements DataMetaProvider<JdbcQueryRequest> 
     }
 
 }
-

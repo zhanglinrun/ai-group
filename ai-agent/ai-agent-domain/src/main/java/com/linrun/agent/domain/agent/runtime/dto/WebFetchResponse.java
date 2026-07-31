@@ -31,6 +31,14 @@ public class WebFetchResponse {
         private String title;
         private String finalUrl;
         private String content;
+        /**
+         * External web content is never promoted to trusted prompt material.
+         * The worker emits {@code UNTRUSTED}; older workers are treated as
+         * untrusted by the Java boundary as well.
+         */
+        private String contentTrust;
+        @Builder.Default
+        private List<String> riskSignals = List.of();
         private String contentFormat;
         private Integer wordCount;
         private Boolean truncated;

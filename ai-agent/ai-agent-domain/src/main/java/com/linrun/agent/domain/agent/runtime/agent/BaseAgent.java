@@ -54,6 +54,7 @@ public abstract class BaseAgent {
     private PermissionPolicy permissionPolicy;
     private HookBus hookBus;
     private String singleUseToolName;
+    private boolean propagateFailureToContext = true;
     protected Printer printer;
 
     private final transient ToolDispatcher toolDispatcher = new ToolDispatcher(new ToolDispatcher.Host() {
@@ -205,7 +206,7 @@ public abstract class BaseAgent {
         } catch (Exception error) {
             stopReason = AgentStopReason.EXECUTION_ERROR;
             state = AgentState.ERROR;
-            if (context != null) {
+            if (propagateFailureToContext && context != null) {
                 context.cancel(AgentStopReason.EXECUTION_ERROR);
                 context.markRunFailed();
             }
@@ -231,7 +232,7 @@ public abstract class BaseAgent {
     private void failRun(AgentStopReason reason) {
         stopReason = reason;
         state = AgentState.FINISHED;
-        if (context != null) {
+        if (propagateFailureToContext && context != null) {
             context.cancel(reason);
             context.markRunFailed();
         }
@@ -244,7 +245,7 @@ public abstract class BaseAgent {
 
     private boolean isDownstreamAborted() {
         return (printer != null && printer.isAborted())
-                || (context != null && context.isDownstreamAborted());
+                || (context != null && context.cancellationReason() != AgentStopReason.NONE);
     }
 
     protected Duration remainingRunDuration() {
@@ -274,6 +275,11 @@ public abstract class BaseAgent {
 
     public void setToolMaxAttempts(int maxAttempts) {
         retryPolicy = new RetryPolicy(maxAttempts);
+    }
+
+    /** A bounded child branch can terminate locally without failing its parent run. */
+    public void setPropagateFailureToContext(boolean propagateFailureToContext) {
+        this.propagateFailureToContext = propagateFailureToContext;
     }
 
     public int getToolMaxAttempts() {
@@ -325,7 +331,12 @@ public abstract class BaseAgent {
         return executeToolOutcome(command).getLlmObservation();
     }
 
-    protected ToolExecutionOutcome executeToolOutcome(ToolCall command) {
+    /**
+     * Executes one tool through the canonical dispatcher and retains its typed
+     * outcome for callers that must make protocol decisions. The string-returning
+     * method above remains for legacy loop callers.
+     */
+    public ToolExecutionOutcome executeToolOutcome(ToolCall command) {
         return toolDispatcher.dispatch(command);
     }
 

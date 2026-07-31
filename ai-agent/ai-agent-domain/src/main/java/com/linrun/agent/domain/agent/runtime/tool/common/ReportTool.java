@@ -78,8 +78,8 @@ public class ReportTool implements BaseTool {
         fileDescParam.put("description", "产物文件的简要描述");
         Map<String, Object> fileTypeParam = new HashMap<>();
         fileTypeParam.put("type", "string");
-        fileTypeParam.put("enum", Arrays.asList("html", "markdown", "ppt"));
-        fileTypeParam.put("description", "报告产物格式：html=网页报告，markdown=文档报告，ppt=演示文稿。用户指定了输出格式时必须严格使用对应值");
+        fileTypeParam.put("enum", Arrays.asList("html", "markdown", "pdf", "ppt"));
+        fileTypeParam.put("description", "报告产物格式：html=网页报告，markdown=文档报告，pdf=PDF，ppt=演示文稿。用户指定了输出格式时必须严格使用对应值");
         Map<String, Object> parameters = new HashMap<>();
         parameters.put("type", "object");
         Map<String, Object> properties = new HashMap<>();
@@ -87,6 +87,7 @@ public class ReportTool implements BaseTool {
         properties.put("fileName", fileNameParam);
         properties.put("fileDescription", fileDescParam);
         properties.put("fileType", fileTypeParam);
+        properties.put("reportSpec", Map.of("type", "object", "description", "已审核的 ReportSpec；提供时仅允许确定性渲染，不得补写事实"));
         parameters.put("properties", properties);
         parameters.put("required", Arrays.asList("task", "fileName"));
 
@@ -101,6 +102,10 @@ public class ReportTool implements BaseTool {
             String fileDescription = (String) params.get("fileDescription");
             String fileName = (String) params.get("fileName");
             String fileType = (String) params.get("fileType");
+            Map<String, Object> reportSpec = params.get("reportSpec") instanceof Map<?, ?> raw
+                    ? raw.entrySet().stream().collect(Collectors.toMap(entry -> String.valueOf(entry.getKey()),
+                    Map.Entry::getValue, (left, right) -> right, LinkedHashMap::new))
+                    : null;
 
             if (StringUtils.isBlank(fileName)) {
                 String errMessage = "文件名参数为空，无法生成报告。";
@@ -124,6 +129,7 @@ public class ReportTool implements BaseTool {
                     .streamMode(streamMode)
                     .fileType(fileType)
                     .templateType(agentContext.getTemplateType())
+                    .reportSpec(reportSpec)
                     .build();
             ToolArtifactSource artifactSource = agentContext.requireCurrentToolArtifactSource(getName());
             // 调用流式 API
@@ -220,7 +226,7 @@ public class ReportTool implements BaseTool {
                         if (Objects.nonNull(codeResponse.getFileInfo())) {
                             for (CodeInterpreterResponse.FileInfo fileInfo : codeResponse.getFileInfo()) {
                                 File file = File.builder()
-                                        .fileName(codeRequest.getFileName())
+                                        .fileName(StringUtils.defaultIfBlank(fileInfo.getFileName(), codeRequest.getFileName()))
                                         .fileSize(fileInfo.getFileSize())
                                         .ossUrl(fileInfo.getOssUrl())
                                         .domainUrl(fileInfo.getDomainUrl())

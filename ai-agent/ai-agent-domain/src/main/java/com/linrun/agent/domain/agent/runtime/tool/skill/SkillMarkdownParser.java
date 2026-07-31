@@ -5,10 +5,13 @@ import org.yaml.snakeyaml.Yaml;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.List;
+import java.util.ArrayList;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -40,6 +43,9 @@ public class SkillMarkdownParser {
                     .basePath(normalizedSkillDirectory)
                     .content(parsedMarkdown.content())
                     .frontMatter(parsedMarkdown.frontMatter())
+                    .version(readOptionalField(parsedMarkdown.frontMatter(), "version", "v1"))
+                    .triggers(readStringList(parsedMarkdown.frontMatter().get("triggers")))
+                    .definitionHash(hash(markdown))
                     .build();
         } catch (IOException e) {
             throw new SkillLoadException("failed to read " + skillMarkdownPath, e);
@@ -87,6 +93,38 @@ public class SkillMarkdownParser {
             throw new SkillLoadException("missing required front matter '" + fieldName + "' in " + skillMarkdownPath);
         }
         return String.valueOf(value).trim();
+    }
+
+    private String readOptionalField(Map<String, Object> frontMatter, String fieldName, String fallback) {
+        Object value = frontMatter.get(fieldName);
+        return value == null || String.valueOf(value).isBlank() ? fallback : String.valueOf(value).trim();
+    }
+
+    private List<String> readStringList(Object value) {
+        if (!(value instanceof List<?> values)) {
+            return List.of();
+        }
+        List<String> result = new ArrayList<>();
+        for (Object item : values) {
+            if (item != null && !String.valueOf(item).isBlank()) {
+                result.add(String.valueOf(item).trim());
+            }
+        }
+        return List.copyOf(result);
+    }
+
+    private String hash(String value) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                    .digest(value.getBytes(StandardCharsets.UTF_8));
+            StringBuilder result = new StringBuilder("sha256:");
+            for (byte item : digest) {
+                result.append(String.format("%02x", item));
+            }
+            return result.toString();
+        } catch (Exception error) {
+            throw new SkillLoadException("failed to hash SKILL.md", error);
+        }
     }
 
     private record ParsedMarkdown(Map<String, Object> frontMatter, String content) {

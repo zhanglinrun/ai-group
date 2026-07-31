@@ -227,10 +227,34 @@ final class ToolDirectiveParser {
         Matcher matcher = pattern.matcher(StringUtils.defaultString(value));
         while (matcher.find()) {
             String identifier = matcher.group(group).toLowerCase(Locale.ROOT);
-            if (!identifier.equals("mcp") && !identifier.equals("tool")) {
+            if (!identifier.equals("mcp") && !identifier.equals("tool")
+                    && !isFileNameIdentifier(value, matcher.end(group))) {
                 identifiers.add(identifier);
             }
         }
+    }
+
+    /** A deliverable name such as {@code research_note.md} is not a tool target. */
+    private static boolean isFileNameIdentifier(String value, int identifierEnd) {
+        String text = StringUtils.defaultString(value);
+        if (identifierEnd >= text.length() || text.charAt(identifierEnd) != '.') {
+            return false;
+        }
+        int extensionStart = identifierEnd + 1;
+        int extensionEnd = extensionStart;
+        while (extensionEnd < text.length() && Character.isLetterOrDigit(text.charAt(extensionEnd))) {
+            extensionEnd++;
+        }
+        return extensionEnd > extensionStart
+                && extensionEnd - extensionStart <= 10
+                && (extensionEnd == text.length() || !isIdentifierCharacter(text.charAt(extensionEnd)));
+    }
+
+    private static boolean isIdentifierCharacter(char value) {
+        return value >= 'a' && value <= 'z'
+                || value >= 'A' && value <= 'Z'
+                || value >= '0' && value <= '9'
+                || value == '_' || value == '-';
     }
 
     private static boolean containsAny(String value, List<String> candidates) {

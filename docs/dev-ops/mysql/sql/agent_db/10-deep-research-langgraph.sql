@@ -1,6 +1,8 @@
 -- LangGraph4j checkpoint tables for 熊博士 deep research.
 -- Runtime uses CreateOption.CREATE_NONE, so schema changes stay explicit.
 
+use agent_db;
+
 create table if not exists `LANGRAPH4J_THREAD` (
   `thread_id` varchar(36) not null,
   `thread_name` varchar(255),
@@ -19,6 +21,7 @@ create table if not exists `LANGRAPH4J_CHECKPOINT` (
   `saved_at` timestamp(6) default current_timestamp(6),
   primary key (`checkpoint_id`),
   key `idx_langraph4j_checkpoint_thread` (`thread_id`),
+  key `idx_langraph4j_checkpoint_thread_saved_at_id` (`thread_id`, `saved_at` desc, `id` desc),
   constraint `LANGRAPH4J_FK_THREAD`
     foreign key (`thread_id`) references `LANGRAPH4J_THREAD` (`thread_id`)
     on delete cascade
@@ -89,3 +92,24 @@ call `relax_legacy_langraph4j_column`('LANGRAPH4J_CHECKPOINT', 'checkpoint', '`c
 call `relax_legacy_langraph4j_column`('LANGRAPH4J_CHECKPOINT', 'metadata', '`metadata` json null');
 
 drop procedure `relax_legacy_langraph4j_column`;
+
+drop procedure if exists `ensure_langraph4j_checkpoint_order_index`;
+
+delimiter //
+create procedure `ensure_langraph4j_checkpoint_order_index`()
+begin
+  if not exists (
+    select 1
+    from information_schema.statistics
+    where table_schema = database()
+      and table_name = 'LANGRAPH4J_CHECKPOINT'
+      and index_name = 'idx_langraph4j_checkpoint_thread_saved_at_id'
+  ) then
+    create index `idx_langraph4j_checkpoint_thread_saved_at_id`
+      on `LANGRAPH4J_CHECKPOINT` (`thread_id`, `saved_at` desc, `id` desc);
+  end if;
+end//
+delimiter ;
+
+call `ensure_langraph4j_checkpoint_order_index`;
+drop procedure `ensure_langraph4j_checkpoint_order_index`;

@@ -17,6 +17,8 @@ public class QuotaSettlementCommand {
     private Long id;
     private Long userId;
     private String billingRequestId;
+    /** Immutable originating run trace, used for remote recovery/audit correlation. */
+    private String traceId;
     private String requestFingerprint;
     private String abilityCode;
     private Long requestedMicrocredits;

@@ -11,6 +11,24 @@ SET @sql = IF((
     'DO 0');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
+-- P130 trace correlation: Member keeps the same non-sensitive trace ID on the
+-- freeze and every resulting ledger row so agent recovery can be audited.
+SET @sql = IF((
+    SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = 'member_db' AND TABLE_NAME = 'quota_freeze' AND COLUMN_NAME = 'trace_id'
+) = 0,
+    'ALTER TABLE `quota_freeze` ADD COLUMN `trace_id` VARCHAR(64) DEFAULT NULL AFTER `request_id`',
+    'DO 0');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @sql = IF((
+    SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = 'member_db' AND TABLE_NAME = 'quota_ledger' AND COLUMN_NAME = 'trace_id'
+) = 0,
+    'ALTER TABLE `quota_ledger` ADD COLUMN `trace_id` VARCHAR(64) DEFAULT NULL AFTER `ability_code`',
+    'DO 0');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
 SET @sql = IF((
     SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
     WHERE TABLE_SCHEMA = 'member_db' AND TABLE_NAME = 'product_sku' AND COLUMN_NAME = 'group_goods_id'

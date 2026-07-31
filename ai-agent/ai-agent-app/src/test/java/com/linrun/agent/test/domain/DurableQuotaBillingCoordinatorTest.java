@@ -59,6 +59,24 @@ public class DurableQuotaBillingCoordinatorTest {
     }
 
     @Test
+    public void shouldPersistAndReplayTheOriginatingTraceForEveryQuotaMutation() {
+        InMemoryRepository repository = new InMemoryRepository();
+        FakeRemote remote = new FakeRemote(repository);
+        DurableQuotaBillingCoordinator coordinator = new DurableQuotaBillingCoordinator(repository, remote);
+
+        QuotaBillingPort.Reservation reservation = coordinator.reserve(
+                1001L, 50_000L, 10_000L, "llm_call", "billing-trace", "trace-p130-1");
+
+        Assert.assertEquals("trace-p130-1", repository.byRequest(1001L, "billing-trace").getTraceId());
+        Assert.assertEquals("trace-p130-1", remote.lastReserveTraceId);
+
+        coordinator.markProviderStarted(reservation.freezeId());
+        coordinator.settle(reservation.freezeId(), 5_000L);
+        Assert.assertEquals("billing-trace", remote.lastTerminalRequestId);
+        Assert.assertEquals("trace-p130-1", remote.lastTerminalTraceId);
+    }
+
+    @Test
     public void shouldRecoverLostFreezeResponseByStableBillingRequestId() {
         InMemoryRepository repository = new InMemoryRepository();
         FakeRemote remote = new FakeRemote(repository);
@@ -143,6 +161,29 @@ public class DurableQuotaBillingCoordinatorTest {
                 reservation.freezeId(), 5_000L,
                 new QuotaBillingPort.UsageMetadata(
                         100L, 5L, 30L, 700, 50, "PROVIDER", 5_000L));
+
+        Assert.assertEquals(QuotaBillingPort.ReservationState.CONFIRMED, result.state());
+        Assert.assertEquals(5_000L, result.settledMicrocredits());
+        Assert.assertEquals(QuotaSettlementState.CONFIRMED,
+                repository.byFreeze(reservation.freezeId()).getState());
+        Assert.assertEquals(1, remote.confirmCalls);
+        Assert.assertEquals(0, remote.releaseCalls);
+    }
+
+    @Test
+    public void shouldRefreshLocalVersionBeforeFinalizingRemoteConfirmedSettlement() {
+        InMemoryRepository repository = new InMemoryRepository();
+        FakeRemote remote = new FakeRemote(repository);
+        DurableQuotaBillingCoordinator coordinator = new DurableQuotaBillingCoordinator(repository, remote);
+        QuotaBillingPort.Reservation reservation = coordinator.reserve(
+                1001L, 50_000L, 10_000L, "llm_call", "billing-terminal-version-race");
+        coordinator.markProviderStarted(reservation.freezeId());
+        repository.advanceVersionBeforeNextTerminalAttempt = true;
+
+        QuotaBillingPort.SettlementResult result = coordinator.settleWithUsage(
+                reservation.freezeId(), 5_000L,
+                new QuotaBillingPort.UsageMetadata(
+                        101L, 5L, 30L, 700, 50, "PROVIDER", 5_000L));
 
         Assert.assertEquals(QuotaBillingPort.ReservationState.CONFIRMED, result.state());
         Assert.assertEquals(5_000L, result.settledMicrocredits());
@@ -353,6 +394,9 @@ public class DurableQuotaBillingCoordinatorTest {
         private RuntimeException confirmFailure;
         private RuntimeException findByFreezeFailure;
         private String lastAbility;
+        private String lastReserveTraceId;
+        private String lastTerminalRequestId;
+        private String lastTerminalTraceId;
         private int findByRequestCalls;
         private int findByRequestFailuresRemaining;
         private int reserveCalls;
@@ -394,6 +438,17 @@ public class DurableQuotaBillingCoordinatorTest {
         }
 
         @Override
+        public RemoteReservationStatus reserveRemote(Long userId,
+                                                     long requestedMicrocredits,
+                                                     long minimumMicrocredits,
+                                                     String abilityCode,
+                                                     String billingRequestId,
+                                                     String traceId) {
+            lastReserveTraceId = traceId;
+            return reserveRemote(userId, requestedMicrocredits, minimumMicrocredits, abilityCode, billingRequestId);
+        }
+
+        @Override
         public RemoteReservationStatus confirmRemote(String freezeId, long actualMicrocredits) {
             confirmCalls++;
             if (confirmFailure != null) {
@@ -414,6 +469,16 @@ public class DurableQuotaBillingCoordinatorTest {
         }
 
         @Override
+        public RemoteReservationStatus confirmRemote(String freezeId,
+                                                     long actualMicrocredits,
+                                                     String billingRequestId,
+                                                     String traceId) {
+            lastTerminalRequestId = billingRequestId;
+            lastTerminalTraceId = traceId;
+            return confirmRemote(freezeId, actualMicrocredits);
+        }
+
+        @Override
         public RemoteReservationStatus releaseRemote(String freezeId) {
             releaseCalls++;
             RemoteReservationStatus pending = remoteByFreeze.get(freezeId);
@@ -425,6 +490,15 @@ public class DurableQuotaBillingCoordinatorTest {
             remoteByFreeze.put(freezeId, released);
             remoteByRequest.put(released.billingRequestId(), released);
             return released;
+        }
+
+        @Override
+        public RemoteReservationStatus releaseRemote(String freezeId,
+                                                     String billingRequestId,
+                                                     String traceId) {
+            lastTerminalRequestId = billingRequestId;
+            lastTerminalTraceId = traceId;
+            return releaseRemote(freezeId);
         }
 
         private void forceState(String freezeId,
@@ -495,6 +569,7 @@ public class DurableQuotaBillingCoordinatorTest {
         private final Map<Long, QuotaSettlementCommand> commands = new LinkedHashMap<>();
         private long sequence;
         private boolean failInsert;
+        private boolean advanceVersionBeforeNextTerminalAttempt;
 
         @Override
         public synchronized boolean insertIfAbsent(QuotaSettlementCommand command) {
@@ -590,6 +665,15 @@ public class DurableQuotaBillingCoordinatorTest {
                                                  int version,
                                                  QuotaSettlementState terminalState,
                                                  long settledMicrocredits) {
+            if (advanceVersionBeforeNextTerminalAttempt) {
+                advanceVersionBeforeNextTerminalAttempt = false;
+                QuotaSettlementCommand current = commands.get(id);
+                if (current != null && current.getState() == QuotaSettlementState.APPLY_PENDING) {
+                    current.setLeaseOwner("recovery-lease");
+                    bump(current);
+                }
+                return false;
+            }
             QuotaSettlementCommand command = cas(id, version, QuotaSettlementState.APPLY_PENDING);
             if (command == null) return false;
             command.setState(terminalState);

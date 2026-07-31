@@ -28,9 +28,12 @@ public interface MemberQuotaFeignClient {
     MemberQuotaResult<QuotaFreezeVO> release(@RequestBody QuotaFreezeActionRequest request);
 
     @GetMapping("/internal/quota/freezes/{freezeId}")
-    MemberQuotaResult<QuotaFreezeVO> findByFreezeId(@PathVariable("freezeId") String freezeId);
+    MemberQuotaResult<QuotaFreezeVO> findByFreezeId(@PathVariable("freezeId") String freezeId,
+                                                    @RequestParam(value = "requestId", required = false) String requestId,
+                                                    @RequestParam(value = "traceId", required = false) String traceId);
 
     @GetMapping("/internal/quota/freezes/by-request")
     MemberQuotaResult<QuotaFreezeVO> findByRequest(@RequestParam("userId") Long userId,
-                                                   @RequestParam("requestId") String requestId);
+                                                   @RequestParam("requestId") String requestId,
+                                                   @RequestParam(value = "traceId", required = false) String traceId);
 }

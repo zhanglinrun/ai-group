@@ -34,16 +34,18 @@ public class MemberQuotaBillingAdapterTest {
         MemberQuotaBillingAdapter adapter = new MemberQuotaBillingAdapter(client);
         Mockito.when(client.freeze(Mockito.any())).thenReturn(success(QuotaFreezeVO.builder()
                 .freezeId("call-1").amount(25_000L).build()));
-        Mockito.when(client.findByRequest(1001L, "req:llm:1")).thenReturn(success(pendingSnapshot(
+        Mockito.when(client.findByRequest(1001L, "req:llm:1", "trace-p130-1")).thenReturn(success(pendingSnapshot(
                 "call-1", 1001L, 100_000L, 10_000L, 25_000L, "llm_call", "req:llm:1")));
 
-        var status = adapter.reserveRemote(1001L, 100_000L, 10_000L, "llm_call", "req:llm:1");
+        var status = adapter.reserveRemote(1001L, 100_000L, 10_000L,
+                "llm_call", "req:llm:1", "trace-p130-1");
 
         Assert.assertEquals(25_000L, status.reservedMicrocredits());
         Assert.assertEquals(QuotaBillingPort.ReservationState.PENDING, status.state());
         Mockito.verify(client).freeze(Mockito.argThat(request ->
                 request.getAmount() == 100_000L
                         && request.getMinAmount() == 10_000L
+                        && "trace-p130-1".equals(request.getTraceId())
                         && "ai-agent".equals(request.getOwnerService())));
     }
 
@@ -54,7 +56,7 @@ public class MemberQuotaBillingAdapterTest {
         String longRequestId = "r".repeat(64) + ":llm:9223372036854775807";
         Mockito.when(client.freeze(Mockito.any())).thenReturn(success(QuotaFreezeVO.builder()
                 .freezeId("call-long").amount(20_000L).build()));
-        Mockito.when(client.findByRequest(Mockito.eq(1001L), Mockito.anyString()))
+        Mockito.when(client.findByRequest(Mockito.eq(1001L), Mockito.anyString(), Mockito.isNull()))
                 .thenAnswer(invocation -> success(pendingSnapshot(
                         "call-long", 1001L, 20_000L, 10_000L, 20_000L,
                         "llm_call", invocation.getArgument(1))));
@@ -65,14 +67,14 @@ public class MemberQuotaBillingAdapterTest {
         Mockito.verify(client).freeze(captor.capture());
         Assert.assertEquals(64, captor.getValue().getRequestId().length());
         Assert.assertTrue(captor.getValue().getRequestId().matches("[0-9a-f]{64}"));
-        Mockito.verify(client).findByRequest(1001L, captor.getValue().getRequestId());
+        Mockito.verify(client).findByRequest(1001L, captor.getValue().getRequestId(), null);
     }
 
     @Test
     public void shouldMapSuccessfulMissingLookupToExplicitNotFound() {
         MemberQuotaFeignClient client = Mockito.mock(MemberQuotaFeignClient.class);
         MemberQuotaBillingAdapter adapter = new MemberQuotaBillingAdapter(client);
-        Mockito.when(client.findByFreezeId("missing")).thenReturn(success(null));
+        Mockito.when(client.findByFreezeId("missing", null, null)).thenReturn(success(null));
 
         var status = adapter.findByFreezeIdRemote("missing");
 

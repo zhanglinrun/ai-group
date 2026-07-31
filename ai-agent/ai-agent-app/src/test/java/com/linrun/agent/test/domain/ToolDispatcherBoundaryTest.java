@@ -4,12 +4,15 @@ import org.junit.Assert;
 import org.junit.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
+import org.springframework.test.util.ReflectionTestUtils;
 import com.linrun.agent.domain.agent.ledger.AgentExecutionRecorder;
+import com.linrun.agent.domain.agent.ledger.entity.ToolInvocation;
 import com.linrun.agent.domain.agent.ledger.model.AgentRunState;
 import com.linrun.agent.domain.agent.ledger.model.ExecutionLedgerConstants;
 import com.linrun.agent.domain.agent.ledger.model.ToolInvocationBatchStartRecord;
 import com.linrun.agent.domain.agent.ledger.model.ToolInvocationFinishRecord;
 import com.linrun.agent.domain.agent.reactor.config.ReactorConfig;
+import com.linrun.agent.domain.agent.runtime.ReactorRuntimeDependencies;
 import com.linrun.agent.domain.agent.runtime.agent.AgentContext;
 import com.linrun.agent.domain.agent.runtime.agent.BaseAgent;
 import com.linrun.agent.domain.agent.runtime.agent.ToolInvocationContract;
@@ -23,10 +26,14 @@ import com.linrun.agent.domain.agent.runtime.enums.AgentExecutionProfile;
 import com.linrun.agent.domain.agent.runtime.harness.AgentRunBudget;
 import com.linrun.agent.domain.agent.runtime.harness.HookBus;
 import com.linrun.agent.domain.agent.runtime.harness.PermissionPolicy;
+import com.linrun.agent.domain.agent.runtime.harness.ToolPermissionMetadata;
+import com.linrun.agent.domain.agent.runtime.harness.ToolSideEffect;
+import com.linrun.agent.domain.agent.runtime.hitl.ApprovalGate;
 import com.linrun.agent.domain.agent.runtime.loop.ContextPipeline;
 import com.linrun.agent.domain.agent.runtime.tool.BaseTool;
 import com.linrun.agent.domain.agent.runtime.tool.ToolCollection;
 import com.linrun.agent.domain.agent.runtime.tool.ToolResultPayload;
+import com.linrun.agent.domain.agent.runtime.tool.common.DeepSearchTool;
 import com.linrun.agent.domain.agent.runtime.tool.common.ExecuteExtraTool;
 import com.linrun.agent.domain.agent.runtime.tool.common.TodoWriteTool;
 import com.linrun.agent.domain.agent.runtime.tool.dispatch.ToolDispatcher;
@@ -36,6 +43,10 @@ import com.linrun.agent.domain.agent.runtime.tool.mcp.runtime.McpToolExecutor;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -265,6 +276,45 @@ public class ToolDispatcherBoundaryTest {
         Assert.assertTrue(outcome.isSuccess());
         Assert.assertEquals("remote-ok", outcome.getToolResult());
         Mockito.verify(executor).executeTool(Mockito.eq(toolInfo), Mockito.any());
+    }
+
+    @Test
+    public void shouldRecordSystemPreflightMcpToolWithoutModelInvocationParent() {
+        McpToolExecutor executor = Mockito.mock(McpToolExecutor.class);
+        McpToolInfo toolInfo = strictMcpToolInfo("mcp__remote__search");
+        Mockito.when(executor.executeTool(Mockito.eq(toolInfo), Mockito.any()))
+                .thenReturn(ToolResultPayload.text("remote-ok"));
+        ExecutionLedgerFixtureFactory.LedgerTestContext ledger =
+                ExecutionLedgerFixtureFactory.newLedgerTestContext();
+        AgentContext context = ExecutionLedgerFixtureFactory.newAgentContext(
+                "system-preflight-mcp-ledger", "system-preflight-session", ledger.recorder);
+        Long runId = ExecutionLedgerFixtureFactory.activateRun(context, ledger.recorder, "agent_loop");
+        context.setOnline(true);
+        ToolCollection tools = new ToolCollection();
+        tools.setMcpToolExecutor(executor);
+        tools.addMcpTool(toolInfo);
+        tools.setAgentContext(context);
+        context.setToolCollection(tools);
+        TestAgent agent = new TestAgent();
+        agent.setName("system-preflight-mcp-ledger");
+        agent.setContext(context);
+        agent.setAvailableTools(tools);
+        agent.activateTurnTools(tools);
+
+        ToolExecutionOutcome outcome = agent.executeOutcome(
+                toolCall("system-preflight-mcp", toolInfo.resolveExposedName(),
+                        "{\"query\":\"ledger evidence\",\"limit\":1}"));
+
+        Assert.assertTrue(outcome.isSuccess());
+        List<ToolInvocation> invocations = ledger.toolDao.queryByRunId(runId);
+        Assert.assertEquals(1, invocations.size());
+        ToolInvocation invocation = invocations.getFirst();
+        Assert.assertEquals("system-preflight-mcp", invocation.getToolCallId());
+        Assert.assertEquals(toolInfo.resolveExposedName(), invocation.getToolName());
+        Assert.assertEquals(ExecutionLedgerConstants.TOOL_PROVIDER_MCP, invocation.getToolProvider());
+        Assert.assertNull(invocation.getLlmInvocationId());
+        Assert.assertEquals(Integer.valueOf(ExecutionLedgerConstants.STATUS_SUCCESS), invocation.getStatus());
+        Assert.assertNotNull(context.getAgentRunState().resolveToolInvocationId("system-preflight-mcp"));
     }
 
     @Test
@@ -712,6 +762,54 @@ public class ToolDispatcherBoundaryTest {
     }
 
     @Test
+    public void shouldDispatchTrustedReadOnlyDeepSearchWithoutCostApproval() {
+        DeepSearchTool deepSearch = Mockito.mock(DeepSearchTool.class);
+        Mockito.when(deepSearch.getName()).thenReturn("deep_search");
+        Mockito.when(deepSearch.toParams()).thenReturn(Map.of("type", "object"));
+        Mockito.when(deepSearch.permissionMetadata()).thenReturn(ToolPermissionMetadata.readOnly());
+        Mockito.when(deepSearch.execute(Mockito.any())).thenReturn(ToolResultPayload.text("search result"));
+        ApprovalGate approvalGate = Mockito.mock(ApprovalGate.class);
+        TestAgent agent = localAgent(deepSearch);
+        configurePricedOwnerContext(agent, approvalGate);
+
+        ToolExecutionOutcome outcome = agent.executeOutcome(toolCall(
+                "trusted-deep-search", "deep_search", "{\"query\":\"citation source\"}"));
+
+        Assert.assertTrue(outcome.isSuccess());
+        Assert.assertEquals("search result", outcome.getToolResult());
+        Mockito.verify(deepSearch).execute(Mockito.any());
+        Mockito.verifyNoInteractions(approvalGate);
+    }
+
+    @Test
+    public void shouldKeepMutatingMcpOnFailClosedApprovalPath() {
+        McpToolExecutor executor = Mockito.mock(McpToolExecutor.class);
+        McpToolInfo toolInfo = McpToolInfo.builder()
+                .mcpId("user:1001:extension-1")
+                .name("mutate_remote")
+                .exposedName("mcp__user_1001_extension-1__mutate_remote")
+                .parameters("{\"type\":\"object\"}")
+                .sideEffect(ToolSideEffect.MUTATING)
+                .build();
+        ApprovalGate approvalGate = Mockito.mock(ApprovalGate.class);
+        Mockito.when(approvalGate.awaitApproval(Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenReturn(ApprovalGate.ApprovalResult.builder()
+                        .rejected(true)
+                        .reason("denied for test")
+                        .build());
+        TestAgent agent = mcpAgent(executor, toolInfo);
+        configurePricedOwnerContext(agent, approvalGate);
+
+        ToolExecutionOutcome outcome = agent.executeOutcome(toolCall(
+                "mutating-mcp", toolInfo.resolveExposedName(), "{}"));
+
+        Assert.assertFalse(outcome.isSuccess());
+        Assert.assertTrue(outcome.getErrorMsg().contains("not approved"));
+        Mockito.verify(approvalGate).awaitApproval(Mockito.any(), Mockito.any(), Mockito.any());
+        Mockito.verifyNoInteractions(executor);
+    }
+
+    @Test
     public void shouldCountReusedOperationsAgainstModelRequestedToolCallBudget() {
         AtomicInteger executions = new AtomicInteger();
         TestAgent agent = localAgent(countingTool("budgeted_tool", executions, false));
@@ -733,8 +831,101 @@ public class ToolDispatcherBoundaryTest {
         Assert.assertEquals(2, agent.getContext().getAgentRunState().getToolCallCountValue());
     }
 
+    @Test
+    public void shouldParallelizeOnlyAdjacentConcurrencySafeReadsAndSerializeWrites() {
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            AtomicInteger readActive = new AtomicInteger();
+            AtomicInteger readMaxActive = new AtomicInteger();
+            CountDownLatch readsStarted = new CountDownLatch(2);
+            AtomicInteger writeActive = new AtomicInteger();
+            AtomicInteger writeMaxActive = new AtomicInteger();
+            List<String> writeOrder = new CopyOnWriteArrayList<>();
+
+            ToolCollection tools = new ToolCollection();
+            tools.addTool(overlappingReadTool("read_a", readActive, readMaxActive, readsStarted));
+            tools.addTool(overlappingReadTool("read_b", readActive, readMaxActive, readsStarted));
+            tools.addTool(serialWriteTool("write_a", writeActive, writeMaxActive, writeOrder));
+            tools.addTool(serialWriteTool("write_b", writeActive, writeMaxActive, writeOrder));
+            AgentContext context = AgentContext.builder()
+                    .requestId("p60-concurrency")
+                    .query("run a tool batch")
+                    .productFiles(List.of())
+                    .agentRunState(AgentRunState.builder().build())
+                    .runtimeDependencies(ReactorRuntimeDependencies.builder().toolExecutor(executor).build())
+                    .build();
+            tools.setAgentContext(context);
+            TestAgent agent = new TestAgent();
+            agent.setName("p60-concurrency");
+            agent.setContext(context);
+            agent.setAvailableTools(tools);
+
+            Map<String, String> reads = agent.executeTools(List.of(
+                    toolCall("read-call-a", "read_a", "{}"),
+                    toolCall("read-call-b", "read_b", "{}")));
+            Assert.assertEquals(2, reads.size());
+            Assert.assertEquals(2, readMaxActive.get());
+
+            Map<String, String> writes = agent.executeTools(List.of(
+                    toolCall("write-call-a", "write_a", "{}"),
+                    toolCall("write-call-b", "write_b", "{}")));
+            Assert.assertEquals(2, writes.size());
+            Assert.assertEquals(1, writeMaxActive.get());
+            Assert.assertEquals(List.of("write_a", "write_b"), writeOrder);
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
     private TestAgent testAgent(AtomicInteger executions, String query) {
         return testAgent(executions, query, Map.of("type", "object"));
+    }
+
+    private BaseTool overlappingReadTool(String name,
+                                         AtomicInteger active,
+                                         AtomicInteger maxActive,
+                                         CountDownLatch started) {
+        return new BaseTool() {
+            @Override public String getName() { return name; }
+            @Override public String getDescription() { return "parallel-safe read"; }
+            @Override public Map<String, Object> toParams() { return Map.of("type", "object"); }
+            @Override public Object execute(Object input) {
+                int current = active.incrementAndGet();
+                maxActive.accumulateAndGet(current, Math::max);
+                started.countDown();
+                try {
+                    Assert.assertTrue(started.await(1, TimeUnit.SECONDS));
+                    return name;
+                } catch (InterruptedException error) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException(error);
+                } finally {
+                    active.decrementAndGet();
+                }
+            }
+            @Override public boolean isConcurrencySafe(Object input) { return true; }
+        };
+    }
+
+    private BaseTool serialWriteTool(String name,
+                                     AtomicInteger active,
+                                     AtomicInteger maxActive,
+                                     List<String> order) {
+        return new BaseTool() {
+            @Override public String getName() { return name; }
+            @Override public String getDescription() { return "mutating write"; }
+            @Override public Map<String, Object> toParams() { return Map.of("type", "object"); }
+            @Override public Object execute(Object input) {
+                int current = active.incrementAndGet();
+                maxActive.accumulateAndGet(current, Math::max);
+                try {
+                    order.add(name);
+                    return name;
+                } finally {
+                    active.decrementAndGet();
+                }
+            }
+        };
     }
 
     private TestAgent testAgent(AtomicInteger executions,
@@ -836,6 +1027,16 @@ public class ToolDispatcherBoundaryTest {
         agent.setContext(context);
         agent.setAvailableTools(tools);
         return agent;
+    }
+
+    private void configurePricedOwnerContext(TestAgent agent, ApprovalGate approvalGate) {
+        ReactorConfig config = new ReactorConfig();
+        ReflectionTestUtils.setField(config, "deepSearchMicrocredits", 200_000L);
+        agent.getContext().setOwnerId(1001L);
+        agent.getContext().setRuntimeDependencies(ReactorRuntimeDependencies.builder()
+                .reactorConfig(config)
+                .approvalGate(approvalGate)
+                .build());
     }
 
     private BaseTool countingTool(String name,

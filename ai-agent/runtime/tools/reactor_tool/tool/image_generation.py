@@ -25,10 +25,6 @@ from reactor_tool.util.file_util import (
     _normalize_local_path,
     upload_file_by_path,
 )
-from reactor_tool.util.llm_util import (
-    _build_openai_compat_headers,
-    _normalize_openai_compat_api_base,
-)
 
 
 DEFAULT_IMAGE_MODEL = "gpt-image-2"
@@ -41,6 +37,22 @@ DATA_URL_RE = re.compile(r"^data:(?P<mime>[^;,]+);base64,(?P<data>.+)$", re.IGNO
 BASE64_IMAGE_RE = re.compile(r"[A-Za-z0-9+/=\s]{200,}")
 HTTP_IMAGE_RE = re.compile(r"https?://[^\s\"'<>)]+" , re.IGNORECASE)
 MARKDOWN_IMAGE_RE = re.compile(r"!\[[^\]]*]\((https?://[^)\s]+)\)", re.IGNORECASE)
+
+
+def _normalize_gateway_api_base(base_url: str) -> str:
+    normalized = (base_url or "").strip().rstrip("/")
+    if normalized.endswith("/chat/completions"):
+        normalized = normalized[: -len("/chat/completions")]
+    if normalized.endswith("/v1"):
+        return normalized
+    return normalized + "/v1" if normalized else normalized
+
+
+def _build_gateway_headers(existing_headers: dict[str, str] | None = None, api_key: str | None = None) -> dict[str, str]:
+    headers = dict(existing_headers or {})
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    return headers
 
 
 @dataclass
@@ -121,7 +133,7 @@ async def generate_images(request: ImageGenerationRequest) -> dict[str, Any]:
     if not api_key:
         raise ValueError("未配置图片生成 api key，请设置 IMAGE_GENERATION_API_KEY")
 
-    normalized_base_url = _normalize_openai_compat_api_base(base_url)
+    normalized_base_url = _normalize_gateway_api_base(base_url)
     model_name = _resolve_model_name()
     if not model_name:
         raise ValueError("未配置图片生成 model，请设置 IMAGE_GENERATION_MODEL")
@@ -329,14 +341,14 @@ async def _execute_generation_request(
     fallback_request: dict[str, Any] | None,
 ) -> tuple[Any, bool]:
     """优先走 Responses API，未实现时自动切换 legacy 接口。"""
-    json_headers = _build_openai_compat_headers(
+    json_headers = _build_gateway_headers(
         {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
             "Accept": "application/json",
         }
     )
-    multipart_headers = _build_openai_compat_headers(
+    multipart_headers = _build_gateway_headers(
         {
             "Authorization": f"Bearer {api_key}",
             "Accept": "application/json",

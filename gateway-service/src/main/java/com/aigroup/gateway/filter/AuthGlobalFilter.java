@@ -3,7 +3,6 @@ package com.aigroup.gateway.filter;
 import com.aigroup.common.config.InternalTokenProperties;
 import com.aigroup.common.constant.CommonConstant;
 import com.aigroup.common.utils.JwtUtils;
-import io.jsonwebtoken.Claims;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
@@ -21,6 +20,7 @@ import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
 import java.util.List;
+import io.jsonwebtoken.Claims;
 
 @Slf4j
 @Component
@@ -36,8 +36,7 @@ public class AuthGlobalFilter implements GlobalFilter, Ordered {
             "/api/auth/register",
             "/api/auth/refresh",
             "/api/v1/alipay/alipay_notify_url",
-            "/web/health",
-            "/actuator/**"
+            "/web/health"
     );
 
     /**
@@ -48,6 +47,9 @@ public class AuthGlobalFilter implements GlobalFilter, Ordered {
             "/api/v1/alipay/group_buy_notify",
             "/api/v1/alipay/active_pay_notify"
     );
+
+    /** Gateway's own actuator surface is for authenticated operations, never browser traffic. */
+    private static final List<String> MANAGEMENT_PATHS = List.of("/actuator/**");
 
     private final JwtUtils jwtUtils;
     private final ReactiveStringRedisTemplate reactiveStringRedisTemplate;
@@ -65,6 +67,15 @@ public class AuthGlobalFilter implements GlobalFilter, Ordered {
             }
             ServerHttpRequest downstream = GatewayIdentityHeaderSupport.withInternalToken(
                     request, internalTokenProperties.getToken());
+            return chain.filter(exchange.mutate().request(downstream).build());
+        }
+
+        if (isManagementPath(path)) {
+            if (!isValidInternalToken(request)) {
+                log.warn("Rejected management request without valid service credential, path={}", path);
+                return forbidden(exchange);
+            }
+            ServerHttpRequest downstream = GatewayIdentityHeaderSupport.stripUntrustedIdentity(request);
             return chain.filter(exchange.mutate().request(downstream).build());
         }
 
@@ -99,7 +110,7 @@ public class AuthGlobalFilter implements GlobalFilter, Ordered {
                         return unauthorized(exchange);
                     }
                     try {
-                        Long userId = claims.get(CommonConstant.TOKEN_CLAIM_USER_ID, Long.class);
+                        Long userId = jwtUtils.getUserId(claims);
                         if (userId == null) {
                             log.warn("JWT missing userId claim, path={}", path);
                             return unauthorized(exchange);
@@ -109,11 +120,12 @@ public class AuthGlobalFilter implements GlobalFilter, Ordered {
                         ServerHttpRequest downstream = GatewayIdentityHeaderSupport.withVerifiedIdentity(
                                 request, userId, username, role, internalTokenProperties.getToken());
                         if (log.isDebugEnabled()) {
-                            log.debug("Forwarding verified identity userId={} path={}", userId, path);
+                            log.debug("Forwarding verified identity path={}", path);
                         }
                         return chain.filter(exchange.mutate().request(downstream).build());
                     } catch (Exception ex) {
-                        log.warn("JWT parse failed for path {}", path, ex);
+                        log.warn("JWT claim propagation failed, path={}, errorType={}", path,
+                                ex.getClass().getSimpleName());
                         return unauthorized(exchange);
                     }
                 });
@@ -125,6 +137,10 @@ public class AuthGlobalFilter implements GlobalFilter, Ordered {
 
     private boolean isInternalCallback(String path) {
         return INTERNAL_CALLBACK_PATHS.stream().anyMatch(pattern -> PATH_MATCHER.match(pattern, path));
+    }
+
+    private boolean isManagementPath(String path) {
+        return MANAGEMENT_PATHS.stream().anyMatch(pattern -> PATH_MATCHER.match(pattern, path));
     }
 
     private boolean isValidInternalToken(ServerHttpRequest request) {

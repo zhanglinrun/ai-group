@@ -5,6 +5,8 @@ import com.linrun.agent.api.dto.AiClientToolMcpQueryRequestDTO;
 import com.linrun.agent.api.dto.AiClientToolMcpRequestDTO;
 import com.linrun.agent.api.dto.AiClientToolMcpResponseDTO;
 import com.linrun.agent.api.response.Response;
+import com.linrun.agent.types.common.JsonUtils;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.linrun.agent.infrastructure.dao.IAiClientToolMcpDao;
 import com.linrun.agent.infrastructure.dao.po.AiClientToolMcp;
 import com.linrun.agent.domain.agent.runtime.tool.mcp.runtime.McpRegistry;
@@ -16,7 +18,10 @@ import org.springframework.web.bind.annotation.*;
 
 import jakarta.annotation.Resource;
 import java.time.LocalDateTime;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -26,7 +31,6 @@ import java.util.stream.Collectors;
 @Slf4j
 @RestController
 @RequestMapping("/api/v1/admin/ai-client-tool-mcp")
-@CrossOrigin(origins = "*", allowedHeaders = "*", methods = {RequestMethod.GET, RequestMethod.POST, RequestMethod.PUT, RequestMethod.DELETE, RequestMethod.OPTIONS})
 public class AiClientToolMcpAdminController implements IAiClientToolMcpAdminService {
 
     @Resource
@@ -417,6 +421,14 @@ public class AiClientToolMcpAdminController implements IAiClientToolMcpAdminServ
     private AiClientToolMcp convertToAiClientToolMcp(AiClientToolMcpRequestDTO requestDTO) {
         AiClientToolMcp aiClientToolMcp = new AiClientToolMcp();
         BeanUtils.copyProperties(requestDTO, aiClientToolMcp);
+        aiClientToolMcp.setProtocolVersion(defaultIfBlank(requestDTO.getProtocolVersion(), "2025-03-26"));
+        aiClientToolMcp.setOauthScopesJson(toJsonArray(requestDTO.getOauthScopes()));
+        aiClientToolMcp.setAllowedDomainsJson(toJsonArray(requestDTO.getAllowedDomains()));
+        aiClientToolMcp.setToolAllowlistJson(toJsonArray(requestDTO.getToolAllowlist()));
+        validateCredentialReference(requestDTO.getCredentialRef());
+        aiClientToolMcp.setVersion(defaultIfBlank(requestDTO.getVersion(), "v1"));
+        aiClientToolMcp.setConfigHash(defaultIfBlank(requestDTO.getConfigHash(),
+                computeConfigHash(requestDTO)));
         return aiClientToolMcp;
     }
 
@@ -428,7 +440,70 @@ public class AiClientToolMcpAdminController implements IAiClientToolMcpAdminServ
     private AiClientToolMcpResponseDTO convertToAiClientToolMcpResponseDTO(AiClientToolMcp aiClientToolMcp) {
         AiClientToolMcpResponseDTO responseDTO = new AiClientToolMcpResponseDTO();
         BeanUtils.copyProperties(aiClientToolMcp, responseDTO);
+        responseDTO.setOauthScopes(fromJsonArray(aiClientToolMcp.getOauthScopesJson()));
+        responseDTO.setAllowedDomains(fromJsonArray(aiClientToolMcp.getAllowedDomainsJson()));
+        responseDTO.setToolAllowlist(fromJsonArray(aiClientToolMcp.getToolAllowlistJson()));
         return responseDTO;
+    }
+
+    private String toJsonArray(List<String> values) {
+        return JsonUtils.toJson(values == null ? List.of() : values.stream()
+                .filter(value -> value != null && !value.isBlank())
+                .map(String::trim)
+                .distinct()
+                .toList());
+    }
+
+    private List<String> fromJsonArray(String rawJson) {
+        if (!StringUtils.hasText(rawJson)) {
+            return List.of();
+        }
+        try {
+            List<String> values = JsonUtils.parseObject(rawJson, new TypeReference<List<String>>() { });
+            return values == null ? List.of() : values;
+        } catch (Exception ignored) {
+            return List.of();
+        }
+    }
+
+    private void validateCredentialReference(String credentialRef) {
+        if (!StringUtils.hasText(credentialRef)) {
+            return;
+        }
+        if (!credentialRef.matches("vault:[A-Za-z0-9._:/-]{1,200}")) {
+            throw new IllegalArgumentException("credentialRef 必须是 vault: 前缀的密钥引用，不能提交凭据值");
+        }
+    }
+
+    private String computeConfigHash(AiClientToolMcpRequestDTO request) {
+        Map<String, Object> payload = new java.util.LinkedHashMap<>();
+        payload.put("mcpId", defaultIfBlank(request.getMcpId(), ""));
+        payload.put("transportType", defaultIfBlank(request.getTransportType(), ""));
+        payload.put("transportConfig", defaultIfBlank(request.getTransportConfig(), ""));
+        payload.put("protocolVersion", defaultIfBlank(request.getProtocolVersion(), "2025-03-26"));
+        payload.put("oauthAudience", defaultIfBlank(request.getOauthAudience(), ""));
+        payload.put("oauthScopes", request.getOauthScopes() == null ? List.of() : request.getOauthScopes());
+        payload.put("allowedDomains", request.getAllowedDomains() == null ? List.of() : request.getAllowedDomains());
+        payload.put("toolAllowlist", request.getToolAllowlist() == null ? List.of() : request.getToolAllowlist());
+        payload.put("credentialRef", defaultIfBlank(request.getCredentialRef(), ""));
+        payload.put("version", defaultIfBlank(request.getVersion(), "v1"));
+        payload.put("status", request.getStatus() == null ? 0 : request.getStatus());
+        String canonical = JsonUtils.toJson(payload);
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                    .digest(canonical.getBytes(StandardCharsets.UTF_8));
+            StringBuilder builder = new StringBuilder("sha256:");
+            for (byte value : digest) {
+                builder.append(String.format("%02x", value));
+            }
+            return builder.toString();
+        } catch (Exception error) {
+            throw new IllegalStateException("MCP configuration hash unavailable", error);
+        }
+    }
+
+    private String defaultIfBlank(String value, String fallback) {
+        return StringUtils.hasText(value) ? value.trim() : fallback;
     }
 
     private void refreshRuntime(int changedRows) {

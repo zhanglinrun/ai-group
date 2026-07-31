@@ -60,7 +60,7 @@ public class SqlParserUtils {
             SqlNode node = parser.parseStmt();
             return isSelectNode(node);
         } catch (SqlParseException e) {
-            log.error("sql parse error:", e);
+            log.error("sql parse error errorType={}", e.getClass().getSimpleName());
             return false;
         }
     }
@@ -391,7 +391,7 @@ public class SqlParserUtils {
     }
 
     public static SqlModel parseSelectSql(String sql, String dialect) throws SqlParseException {
-        log.debug("待解析sql:{}", sql);
+        log.debug("sql parse started sqlChars={}", sql == null ? 0 : sql.length());
         sql = cleanSql(sql, dialect);
         SqlModel sqlModel = new SqlModel();
         sql = hintParse(sqlModel, sql);

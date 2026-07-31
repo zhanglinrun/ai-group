@@ -1,6 +1,7 @@
 package com.linrun.agent.domain.agent.rag.storage;
 
 import com.linrun.agent.domain.agent.reactor.service.EmbeddingService;
+import com.linrun.agent.domain.agent.memory.LongTermMemoryPreference;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -59,21 +60,33 @@ public class PgVectorMemoryRepository {
     public boolean saveMemory(String id, String ownerId, String docType,
                               String content, Map<String, Object> metadata,
                               String conversationId) {
-        return saveMemory(id, ownerId, docType, content, metadata, conversationId, null);
+        return saveMemory(id, ownerId, docType, content, metadata, conversationId, null, null);
+    }
+
+    public boolean saveMemory(String id, String ownerId, String docType,
+                              String content, Map<String, Object> metadata,
+                              String conversationId, Instant expiresAt) {
+        return saveMemory(id, ownerId, docType, content, metadata, conversationId, null, expiresAt);
     }
 
     public boolean saveMemoryWithWatermark(String id, String ownerId, String docType,
                                            String content, Map<String, Object> metadata,
                                            String conversationId, Timestamp watermark) {
+        return saveMemoryWithWatermark(id, ownerId, docType, content, metadata, conversationId, watermark, null);
+    }
+
+    public boolean saveMemoryWithWatermark(String id, String ownerId, String docType,
+                                           String content, Map<String, Object> metadata,
+                                           String conversationId, Timestamp watermark, Instant expiresAt) {
         if (watermark == null) {
             return false;
         }
-        return saveMemory(id, ownerId, docType, content, metadata, conversationId, watermark);
+        return saveMemory(id, ownerId, docType, content, metadata, conversationId, watermark, expiresAt);
     }
 
     private boolean saveMemory(String id, String ownerId, String docType,
                                String content, Map<String, Object> metadata,
-                               String conversationId, Timestamp watermark) {
+                               String conversationId, Timestamp watermark, Instant expiresAt) {
         if (StringUtils.isBlank(ownerId) || StringUtils.isBlank(content) || StringUtils.isBlank(docType)) {
             return false;
         }
@@ -88,13 +101,14 @@ public class PgVectorMemoryRepository {
                 metadata == null ? Map.of() : metadata);
         try {
             pgJdbcTemplate.update(
-                    "INSERT INTO agent_semantic_memory (id, owner_id, doc_type, content, embedding, metadata, conversation_id, created_at, latest_qa_created_at) " +
-                            "VALUES (?, ?, ?, ?, ?::vector, ?::jsonb, ?, ?, ?) " +
+                    "INSERT INTO agent_semantic_memory (id, owner_id, doc_type, content, embedding, metadata, conversation_id, created_at, latest_qa_created_at, expires_at) " +
+                            "VALUES (?, ?, ?, ?, ?::vector, ?::jsonb, ?, ?, ?, ?) " +
                             "ON CONFLICT (id) DO UPDATE SET content = EXCLUDED.content, embedding = EXCLUDED.embedding, " +
                             "metadata = EXCLUDED.metadata, conversation_id = EXCLUDED.conversation_id, " +
-                            "latest_qa_created_at = EXCLUDED.latest_qa_created_at",
+                            "latest_qa_created_at = EXCLUDED.latest_qa_created_at, expires_at = EXCLUDED.expires_at",
                     memoryId, ownerId, docType, content, vectorLiteral, metadataJson,
-                    conversationId, Timestamp.from(Instant.now()), watermark);
+                    conversationId, Timestamp.from(Instant.now()), watermark,
+                    expiresAt == null ? null : Timestamp.from(expiresAt));
             return true;
         } catch (Exception e) {
             log.warn("pgvector save failed ownerId={} docType={} memoryId={} errorType={}",
@@ -127,7 +141,8 @@ public class PgVectorMemoryRepository {
         StringBuilder sql = new StringBuilder(
                 "SELECT id, owner_id, doc_type, content, metadata::text AS metadata_json, conversation_id, created_at, " +
                         "1 - (embedding <=> ?::vector) AS score " +
-                        "FROM agent_semantic_memory WHERE owner_id = ? AND embedding IS NOT NULL");
+                        "FROM agent_semantic_memory WHERE owner_id = ? AND embedding IS NOT NULL " +
+                        "AND (expires_at IS NULL OR expires_at > NOW())");
         List<Object> params = new ArrayList<>();
         params.add(vectorLiteral);
         params.add(ownerId);
@@ -169,7 +184,9 @@ public class PgVectorMemoryRepository {
         StringBuilder sql = new StringBuilder(
                 "SELECT id, owner_id, doc_type, content, metadata::text AS metadata_json, conversation_id, created_at, " +
                         "similarity(content, ?) AS score " +
-                        "FROM agent_semantic_memory WHERE owner_id = ? AND (content ILIKE ? OR similarity(content, ?) > 0.1)");
+                        "FROM agent_semantic_memory WHERE owner_id = ? " +
+                        "AND (expires_at IS NULL OR expires_at > NOW()) " +
+                        "AND (content ILIKE ? OR similarity(content, ?) > 0.1)");
         List<Object> params = new ArrayList<>();
         params.add(query);
         params.add(ownerId);
@@ -255,8 +272,9 @@ public class PgVectorMemoryRepository {
         }
         try {
             return pgJdbcTemplate.queryForList(
-                    "SELECT id, owner_id, doc_type, content, metadata, conversation_id, created_at, latest_qa_created_at " +
-                            "FROM agent_semantic_memory WHERE owner_id = ? AND doc_type = ? ORDER BY created_at DESC LIMIT ?",
+                    "SELECT id, owner_id, doc_type, content, metadata::text AS metadata_json, conversation_id, created_at, latest_qa_created_at, expires_at " +
+                            "FROM agent_semantic_memory WHERE owner_id = ? AND doc_type = ? " +
+                            "AND (expires_at IS NULL OR expires_at > NOW()) ORDER BY created_at DESC LIMIT ?",
                     ownerId, docType, limit);
         } catch (Exception e) {
             log.warn("pgvector findByOwnerAndDocType failed ownerId={} docType={} errorType={}",
@@ -272,19 +290,26 @@ public class PgVectorMemoryRepository {
      */
     public boolean saveUserProfile(String ownerId, String memoryKey, String memoryType,
                                     String content, double confidence, String source) {
+        return saveUserProfile(ownerId, memoryKey, memoryType, content, confidence, source, null);
+    }
+
+    public boolean saveUserProfile(String ownerId, String memoryKey, String memoryType,
+                                   String content, double confidence, String source, Instant expiresAt) {
         if (StringUtils.isBlank(ownerId) || StringUtils.isBlank(memoryKey) || StringUtils.isBlank(content)) {
             return false;
         }
         try {
             pgJdbcTemplate.update(
-                    "INSERT INTO agent_user_profile (owner_id, memory_key, memory_type, content, confidence, source, created_at, updated_at) " +
-                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?) " +
+                    "INSERT INTO agent_user_profile (owner_id, memory_key, memory_type, content, confidence, source, created_at, updated_at, expires_at) " +
+                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) " +
                             "ON CONFLICT (owner_id, memory_key) DO UPDATE SET " +
                             "memory_type = EXCLUDED.memory_type, content = EXCLUDED.content, " +
-                            "confidence = EXCLUDED.confidence, source = EXCLUDED.source, updated_at = EXCLUDED.updated_at",
+                            "confidence = EXCLUDED.confidence, source = EXCLUDED.source, updated_at = EXCLUDED.updated_at, " +
+                            "expires_at = EXCLUDED.expires_at",
                     ownerId, memoryKey, StringUtils.defaultIfBlank(memoryType, "FACT"),
                     content, confidence, StringUtils.defaultIfBlank(source, "explicit-memory"),
-                    Timestamp.from(Instant.now()), Timestamp.from(Instant.now()));
+                    Timestamp.from(Instant.now()), Timestamp.from(Instant.now()),
+                    expiresAt == null ? null : Timestamp.from(expiresAt));
             return true;
         } catch (Exception e) {
             log.warn("pgvector saveUserProfile failed ownerId={} memoryKey={} errorType={}",
@@ -302,8 +327,9 @@ public class PgVectorMemoryRepository {
         }
         try {
             return pgJdbcTemplate.queryForList(
-                    "SELECT owner_id, memory_key, memory_type, content, confidence, source, created_at, updated_at " +
-                            "FROM agent_user_profile WHERE owner_id = ? ORDER BY updated_at DESC",
+                    "SELECT owner_id, memory_key, memory_type, content, confidence, source, created_at, updated_at, expires_at " +
+                            "FROM agent_user_profile WHERE owner_id = ? " +
+                            "AND (expires_at IS NULL OR expires_at > NOW()) ORDER BY updated_at DESC",
                     ownerId);
         } catch (Exception e) {
             log.warn("pgvector getUserProfile failed ownerId={} errorType={}", ownerId, e.getClass().getSimpleName());
@@ -327,6 +353,74 @@ public class PgVectorMemoryRepository {
             log.warn("pgvector deleteUserProfileKey failed ownerId={} memoryKey={} errorType={}",
                     ownerId, memoryKey, e.getClass().getSimpleName());
             return false;
+        }
+    }
+
+    public LongTermMemoryPreference getMemoryPreference(String ownerId) {
+        if (StringUtils.isBlank(ownerId)) {
+            return LongTermMemoryPreference.disabled(ownerId);
+        }
+        try {
+            List<LongTermMemoryPreference> values = pgJdbcTemplate.query(
+                    "SELECT owner_id, enabled, retention_days, updated_at FROM agent_user_memory_preference WHERE owner_id = ?",
+                    (rs, rowNum) -> new LongTermMemoryPreference(
+                            rs.getString("owner_id"), rs.getBoolean("enabled"),
+                            rs.getInt("retention_days"), rs.getTimestamp("updated_at").toInstant()),
+                    ownerId);
+            return values.isEmpty() ? LongTermMemoryPreference.disabled(ownerId) : values.getFirst().normalized();
+        } catch (Exception e) {
+            log.warn("pgvector getMemoryPreference failed ownerId={} errorType={}", ownerId, e.getClass().getSimpleName());
+            return LongTermMemoryPreference.disabled(ownerId);
+        }
+    }
+
+    public void upsertMemoryPreference(LongTermMemoryPreference preference) {
+        LongTermMemoryPreference normalized = preference.normalized();
+        pgJdbcTemplate.update(
+                "INSERT INTO agent_user_memory_preference (owner_id, enabled, retention_days, updated_at) " +
+                        "VALUES (?, ?, ?, NOW()) ON CONFLICT (owner_id) DO UPDATE SET " +
+                        "enabled = EXCLUDED.enabled, retention_days = EXCLUDED.retention_days, updated_at = NOW()",
+                normalized.ownerId(), normalized.enabled(), normalized.retentionDays());
+    }
+
+    public void applyRetention(String ownerId, int retentionDays) {
+        if (StringUtils.isBlank(ownerId)) {
+            return;
+        }
+        int boundedDays = Math.max(LongTermMemoryPreference.MIN_RETENTION_DAYS,
+                Math.min(LongTermMemoryPreference.MAX_RETENTION_DAYS, retentionDays));
+        pgJdbcTemplate.update(
+                "UPDATE agent_semantic_memory SET expires_at = created_at + (? * INTERVAL '1 day') WHERE owner_id = ?",
+                boundedDays, ownerId);
+        pgJdbcTemplate.update(
+                "UPDATE agent_user_profile SET expires_at = created_at + (? * INTERVAL '1 day') WHERE owner_id = ?",
+                boundedDays, ownerId);
+    }
+
+    public int purgeExpired(String ownerId) {
+        if (StringUtils.isBlank(ownerId)) {
+            return 0;
+        }
+        int semantic = pgJdbcTemplate.update(
+                "DELETE FROM agent_semantic_memory WHERE owner_id = ? AND expires_at IS NOT NULL AND expires_at <= NOW()", ownerId);
+        int profile = pgJdbcTemplate.update(
+                "DELETE FROM agent_user_profile WHERE owner_id = ? AND expires_at IS NOT NULL AND expires_at <= NOW()", ownerId);
+        return semantic + profile;
+    }
+
+    public List<Map<String, Object>> findMemoriesByOwner(String ownerId, int limit) {
+        if (StringUtils.isBlank(ownerId) || limit <= 0) {
+            return List.of();
+        }
+        try {
+            return pgJdbcTemplate.queryForList(
+                    "SELECT id, owner_id, doc_type, content, metadata::text AS metadata_json, conversation_id, created_at, expires_at " +
+                            "FROM agent_semantic_memory WHERE owner_id = ? " +
+                            "AND (expires_at IS NULL OR expires_at > NOW()) ORDER BY created_at DESC LIMIT ?",
+                    ownerId, Math.min(limit, 200));
+        } catch (Exception e) {
+            log.warn("pgvector findMemoriesByOwner failed ownerId={} errorType={}", ownerId, e.getClass().getSimpleName());
+            return List.of();
         }
     }
 
@@ -357,8 +451,9 @@ public class PgVectorMemoryRepository {
         }
         try {
             return pgJdbcTemplate.queryForList(
-                    "SELECT id, owner_id, doc_type, content, metadata, conversation_id, created_at, latest_qa_created_at " +
+                    "SELECT id, owner_id, doc_type, content, metadata::text AS metadata_json, conversation_id, created_at, latest_qa_created_at, expires_at " +
                             "FROM agent_semantic_memory WHERE owner_id = ? AND doc_type = ? AND conversation_id = ? " +
+                            "AND (expires_at IS NULL OR expires_at > NOW()) " +
                             "ORDER BY created_at DESC LIMIT ?",
                     ownerId, docType, conversationId, limit);
         } catch (Exception e) {
