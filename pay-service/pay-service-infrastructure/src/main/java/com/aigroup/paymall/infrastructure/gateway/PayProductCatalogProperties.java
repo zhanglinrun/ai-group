@@ -1,0 +1,52 @@
+package com.aigroup.paymall.infrastructure.gateway;
+
+import lombok.Data;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.stereotype.Component;
+
+import java.math.BigDecimal;
+import java.util.Collections;
+import java.util.Map;
+
+/**
+ * 支付侧商品目录（goodsId -> 名称/展示价）。
+ *
+ * <p>支付侧按额度包商品目录解析下单主题（subject）与展示金额（total_amount），
+ * 不同额度包使用各自的商品与价格。
+ * 与 member_db.product_sku、group_buy_market.sku 的 seed 保持一致。</p>
+ *
+ * 配置示例（application-dev.yml）：
+ * <pre>
+ * ai-group:
+ *   pay:
+ *     catalog:
+ *       products:
+ *         "9890002": { name: "轻量额度包（60）", price: 12.00 }
+ * </pre>
+ */
+@Data
+@Component
+@ConfigurationProperties(prefix = "ai-group.pay.catalog")
+public class PayProductCatalogProperties {
+
+    private Map<String, Item> products = Collections.emptyMap();
+    /** Local-development-only fallback when member-service is unavailable. */
+    private boolean fallbackEnabled;
+
+    public Item find(String goodsId) {
+        if (goodsId == null || products == null) {
+            return null;
+        }
+        return products.get(goodsId);
+    }
+
+    @Data
+    public static class Item {
+        private String name;
+        private BigDecimal price;
+        /** Trusted quota SKU code; browser input never overrides this value. */
+        private String productCode;
+        /** Whole credits granted by this package. */
+        private Long baseQuota;
+    }
+}

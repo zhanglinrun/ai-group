@@ -1,0 +1,14 @@
+.git
+.gitignore
+**/target
+**/node_modules
+**/dist
+**/.pytest_cache
+**/__pycache__
+**/.venv
+**/.idea
+**/.codegraph
+**/logs
+*.log
+*.db
+ai-group-legacy-*

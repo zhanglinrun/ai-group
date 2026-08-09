@@ -1,2 +1,0 @@
-{"id":"standard-arithmetic","input":"直接回答：37 加 58 等于几？","mode":"STANDARD","online":false,"expectedClaims":["95"],"maxLatencyMillis":120000,"offlineFixture":{"answer":"37 加 58 等于 95。","latencyMillis":5}}
-{"id":"standard-java-record","input":"用一句话说明 Java record 的用途。","mode":"STANDARD","online":false,"expectedClaims":["record","数据"],"maxLatencyMillis":120000,"offlineFixture":{"answer":"Java record 是用于声明不可变数据载体的简洁类型。","latencyMillis":5}}

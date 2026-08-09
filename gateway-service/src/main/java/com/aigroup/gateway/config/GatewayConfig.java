@@ -17,23 +17,20 @@ public class GatewayConfig {
             "Access-Control-Expose-Headers");
     static final String CORS_DEDUPE_STRATEGY = "RETAIN_FIRST";
 
-    @Value("${gateway.route.auth-uri:lb://auth}")
+    @Value("${gateway.route.auth-uri:lb://auth-service}")
     private String authUri;
 
-    @Value("${gateway.route.member-uri:lb://member}")
+    @Value("${gateway.route.member-uri:lb://member-service}")
     private String memberUri;
 
-    @Value("${gateway.route.bff-uri:lb://bff}")
+    @Value("${gateway.route.bff-uri:lb://bff-service}")
     private String bffUri;
 
-    @Value("${gateway.route.pay-uri:lb://pay}")
+    @Value("${gateway.route.pay-uri:lb://pay-service}")
     private String payUri;
 
-    @Value("${gateway.route.group-uri:lb://group}")
+    @Value("${gateway.route.group-uri:lb://group-service}")
     private String groupUri;
-
-    @Value("${gateway.route.agent-uri:lb://agent}")
-    private String agentUri;
 
     @Bean
     public RouteLocator customRouteLocator(RouteLocatorBuilder builder) {
@@ -56,25 +53,6 @@ public class GatewayConfig {
                 .route("group", r -> r.path("/api/group/**")
                         .filters(f -> f.dedupeResponseHeader(CORS_RESPONSE_HEADERS, CORS_DEDUPE_STRATEGY))
                         .uri(groupUri))
-                .route("agent-api", r -> r.path("/api/agent/**", "/api/v1/agent/**")
-                        .filters(f -> f
-                                .setResponseHeader("X-Accel-Buffering", "no")
-                                .dedupeResponseHeader(CORS_RESPONSE_HEADERS, CORS_DEDUPE_STRATEGY))
-                        .uri(agentUri))
-                // 运营端模型 Key 管理：agent 的 /api/v1/admin/**（agent 侧过滤器要求经网关请求必须 ADMIN 角色）
-                .route("agent-admin", r -> r.path("/api/v1/admin/**")
-                        .filters(f -> f.dedupeResponseHeader(CORS_RESPONSE_HEADERS, CORS_DEDUPE_STRATEGY))
-                        .uri(agentUri))
-                .route("agent-web", r -> r.path("/web/**")
-                        .filters(f -> f
-                                .setResponseHeader("X-Accel-Buffering", "no")
-                                .dedupeResponseHeader(CORS_RESPONSE_HEADERS, CORS_DEDUPE_STRATEGY))
-                        .uri(agentUri))
-                .route("agent-data", r -> r.path("/data/**")
-                        .filters(f -> f
-                                .setResponseHeader("X-Accel-Buffering", "no")
-                                .dedupeResponseHeader(CORS_RESPONSE_HEADERS, CORS_DEDUPE_STRATEGY))
-                        .uri(agentUri))
                 .build();
     }
 }

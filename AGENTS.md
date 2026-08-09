@@ -2,22 +2,22 @@
 
 ## Project Structure & Module Organization
 
-This repository is an AI group-membership platform composed of several services. The root `pom.xml` builds the platform services: `ai-group-common/`, `gateway-service/`, `auth-service/`, `member-service/`, and `bff-service/`. Existing business systems live beside them: `group/` for group-buying, `s-pay-mall-ddd-market/` for payment, and `ai-agent/` for the agent runtime. The platform frontend lives at the repository root under `web/`. Java source and tests follow the Maven layout under `src/main` and `src/test`. Frontend code, assets, and Vite configuration live under `web/`. Development operations files are in `docs/dev-ops/`; Trellis planning and specs are under `.trellis/`.
+This repository is the 熊博士 platform. Each Java microservice is a top-level Maven module built from the root `pom.xml`; shared Java code is under `ai-group-common/`. The Python LangGraph Agent is `agent-service/`, and the React frontend is `frontend/`. API/event contracts are under `contracts/`, while Docker Compose, database bootstrap and observability files are under `dev-ops/`.
 
 ## Build, Test, and Development Commands
 
 - `mvn clean install -DskipTests` builds the root platform modules.
 - `cd gateway-service && mvn test` runs Gateway tests.
-- `cd group && mvn test` runs group-buying tests.
-- `cd s-pay-mall-ddd-market && mvn test` runs payment tests.
-- `cd ai-agent && mvn test` runs agent runtime tests.
-- `cd web && pnpm install && pnpm dev` starts the Vite UI on port `5173`.
-- `cd web && pnpm build` type-checks and builds the production frontend.
-- `cd docs/dev-ops && ./start-full-stack.ps1` starts infrastructure and local services on Windows.
+- `cd group-service && mvn test` runs group-buying tests.
+- `cd pay-service && mvn test` runs payment tests.
+- `cd agent-service && python -m pytest -q` runs Agent tests.
+- `cd frontend && npm ci && npm run dev` starts the Vite UI on port `5173`.
+- `cd frontend && npm run build` type-checks and builds the production frontend.
+- `docker compose --env-file .env -f dev-ops/compose/docker-compose.full.yml up --build` starts the full stack.
 
 ## Coding Style & Naming Conventions
 
-Use Java 21 and Spring Boot conventions. Keep packages under the owning service namespace and follow layered module boundaries already present in `group`, payment, and agent modules. Prefer constructor injection, typed configuration properties, and clear DTO names such as `CreateOrderRequest` or `MemberQuotaResponse`. Frontend code uses TypeScript, React, Vite, ESLint, and Prettier; run `pnpm lint` or `pnpm fix` in `web` before submitting UI changes.
+Use Java 21 and Spring Boot conventions. Keep packages under the owning service namespace and follow layered module boundaries already present in `group-service`, `pay-service`, and `agent-service`. Prefer constructor injection, typed configuration properties, and clear DTO names such as `CreateOrderRequest` or `MemberQuotaResponse`. Frontend code uses TypeScript, React, Vite, ESLint, and Prettier; run `npm run lint` in `frontend` before submitting UI changes.
 
 ## Testing Guidelines
 
@@ -25,8 +25,8 @@ Backend tests use Maven/Surefire and Spring test tooling where needed. Name Java
 
 ## Commit & Pull Request Guidelines
 
-This checkout does not include local Git history, so no repository-specific commit pattern can be verified. Use short, imperative subjects with a scope when useful, for example `member: add quota ledger idempotency`. Pull requests should include a summary, linked Trellis task or issue, validation commands run, and screenshots for UI changes.
+This checkout does not include local Git history, so no repository-specific commit pattern can be verified. Use short, imperative subjects with a scope when useful, for example `member: add quota ledger idempotency`. Pull requests should include a summary, linked issue when applicable, validation commands run, and screenshots for UI changes.
 
 ## Security & Configuration Tips
 
-Keep secrets in `.env` and mirror only safe defaults in `.env.example`. Do not bypass Gateway identity headers or internal token checks. Before coding in a scoped area, read the relevant `.trellis/spec/` guidance and active task files under `.trellis/tasks/`.
+Keep secrets in `.env` and mirror only safe defaults in `.env.example`. Do not bypass Gateway identity headers or internal token checks. Before coding in a scoped area, inspect the relevant module and existing tests.

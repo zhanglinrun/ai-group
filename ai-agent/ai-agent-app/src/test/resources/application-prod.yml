@@ -1,9 +1,0 @@
-server:
-  forward-headers-strategy: framework
-
-autobots:
-  execution:
-    cors:
-      allowed-origins:
-        - https://www.owwzo.top
-        - https://owwzo.top

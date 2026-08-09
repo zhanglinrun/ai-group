@@ -1,0 +1,19 @@
+FROM public.ecr.aws/docker/library/maven:3.9-eclipse-temurin-21 AS build
+
+WORKDIR /workspace
+COPY . .
+
+ARG MODULE
+RUN mvn -pl "${MODULE}" -am clean package -Dmaven.test.skip=true --no-transfer-progress
+
+# Select the executable Spring Boot jar while the build filesystem is still
+# available. The runtime stage cannot read files from the build stage via RUN.
+ARG ARTIFACT
+RUN set -eux; jar_path="$(find "/workspace/${MODULE}/target" -maxdepth 1 -type f -name "${ARTIFACT}-*.jar" ! -name '*.original' | head -n 1)"; test -n "$jar_path"; cp "$jar_path" /tmp/app.jar
+
+FROM public.ecr.aws/docker/library/eclipse-temurin:21-jre
+WORKDIR /app
+COPY --from=build /tmp/app.jar /app/app.jar
+ENV JAVA_OPTS="-XX:MaxRAMPercentage=75 -Djava.security.egd=file:/dev/./urandom"
+EXPOSE 8080
+ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar /app/app.jar"]

@@ -1,1 +1,0 @@
-{"id":"todo-basic-1","suite":"tool","mode":"text","executionMode":"DEEP","query":"先用 todo_write 制定一个用 Java 实现命令行待办清单的可核验步骤，逐项完成后给出最小实现建议。","expect":["计划","步骤","Java"],"expectTools":["todo_write"],"minToolCalls":1}

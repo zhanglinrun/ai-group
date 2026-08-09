@@ -1,6 +1,5 @@
 package com.aigroup.auth.service.impl;
 
-import com.aigroup.auth.client.MemberClient;
 import com.aigroup.auth.mapper.UserMapper;
 import com.aigroup.auth.service.RefreshTokenStore;
 import com.aigroup.common.config.JwtProperties;
@@ -49,7 +48,7 @@ class AuthServiceImplLogoutTest {
                 jwtProperties,
                 mock(BCryptPasswordEncoder.class),
                 redisTemplate,
-                mock(MemberClient.class),
+                mock(com.aigroup.auth.service.AuthOutboxService.class),
                 refreshTokenStore
         );
     }

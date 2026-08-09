@@ -1,2 +1,0 @@
-{"id":"recovery-resume-run","input":"恢复被中断的研究 Run，不能重放已完成的安全步骤。","mode":"DEEP","online":false,"expectedClaims":["恢复","不重放"],"requireRecoveryResume":true,"maxLatencyMillis":120000,"offlineFixture":{"answer":"Run 已恢复，已完成的安全步骤不重放。","recoveryResumed":true,"latencyMillis":20}}
-{"id":"recovery-terminal-once","input":"说明恢复流程如何确保终态只写一次。","mode":"STANDARD","online":false,"expectedClaims":["终态","一次"],"maxLatencyMillis":120000,"offlineFixture":{"answer":"通过唯一约束和 fencing，终态只会写入一次。","latencyMillis":5}}

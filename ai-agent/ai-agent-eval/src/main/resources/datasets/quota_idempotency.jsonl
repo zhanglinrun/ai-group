@@ -1,2 +1,0 @@
-{"id":"quota-one-settlement","input":"冻结额度后完成一次模型调用并确认结算。","mode":"STANDARD","online":false,"expectedClaims":["冻结","结算"],"requireQuotaSettlement":true,"maxCostMicrocredits":100,"maxLatencyMillis":120000,"offlineFixture":{"answer":"先冻结额度，确认模型结果后仅结算一次。","quotaSettlementCount":1,"costMicrocredits":10,"latencyMillis":8}}
-{"id":"quota-unknown-reconcile","input":"当模型结果未知时说明额度处理。","mode":"STANDARD","online":false,"expectedClaims":["未知","对账"],"maxLatencyMillis":120000,"offlineFixture":{"answer":"模型结果未知时保留记录并等待对账，不进行猜测性结算。","latencyMillis":5}}

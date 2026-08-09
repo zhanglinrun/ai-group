@@ -1,6 +1,12 @@
 spring:
   application:
-    name: bff
+    name: bff-service
+  # Evidence pages return the complete, sanitized evidence list in one
+  # response.  A quick run can easily exceed WebClient's 256 KiB default
+  # in-memory limit, which previously made the BFF return an empty object even
+  # though the Agent and database still contained every evidence row.
+  codec:
+    max-in-memory-size: 16MB
   cloud:
     compatibility-verifier:
       enabled: false
@@ -29,3 +35,8 @@ ai-group:
   # 下游 URL 默认留空并走 Nacos；local profile 覆盖为固定端口直连。
   internal:
     token: ${AI_GROUP_INTERNAL_TOKEN:}
+  agent:
+    url: ${AGENT_SERVICE_URL:http://agent-service:8090}
+    connect-timeout-ms: ${AGENT_CONNECT_TIMEOUT_MS:2000}
+    read-timeout-ms: ${AGENT_READ_TIMEOUT_MS:45000}
+    write-timeout-ms: ${AGENT_WRITE_TIMEOUT_MS:10000}

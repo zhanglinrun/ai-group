@@ -15,7 +15,7 @@ public class ProductionSecurityValidator {
     @Value("${ai-group.internal.token:}")
     private String internalToken;
 
-    @Value("${ai-agent.debug-endpoints.enabled:false}")
+    @Value("${xiongdoctor.agent.debug-endpoints.enabled:false}")
     private boolean debugEndpointsEnabled;
 
     public ProductionSecurityValidator(Environment environment) {

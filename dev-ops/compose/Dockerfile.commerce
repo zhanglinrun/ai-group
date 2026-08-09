@@ -1,0 +1,14 @@
+FROM public.ecr.aws/docker/library/maven:3.9-eclipse-temurin-21 AS build
+
+WORKDIR /workspace
+COPY . .
+
+ARG POM_PATH
+RUN mvn -f "${POM_PATH}" clean package -Dmaven.test.skip=true --no-transfer-progress
+
+FROM public.ecr.aws/docker/library/eclipse-temurin:21-jre
+WORKDIR /app
+ARG ARTIFACT_PATH
+COPY --from=build /workspace/${ARTIFACT_PATH} /app/app.jar
+ENV JAVA_OPTS="-XX:MaxRAMPercentage=75 -Djava.security.egd=file:/dev/./urandom"
+ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar /app/app.jar"]

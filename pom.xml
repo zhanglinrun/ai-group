@@ -16,7 +16,7 @@
     <version>1.0.0</version>
     <packaging>pom</packaging>
     <name>ai-group</name>
-    <description>AI Group platform microservices (docAI-style root layout)</description>
+    <description>熊博士 AI research and group-purchase microservices</description>
 
     <properties>
         <java.version>21</java.version>
@@ -26,6 +26,7 @@
         <jjwt.version>0.11.5</jjwt.version>
         <mybatis-plus.version>3.5.14</mybatis-plus.version>
         <xxl-job.version>3.4.2</xxl-job.version>
+        <sa-token.version>1.39.0</sa-token.version>
     </properties>
 
     <dependencyManagement>
@@ -68,6 +69,8 @@
         <module>auth-service</module>
         <module>member-service</module>
         <module>bff-service</module>
+        <module>group-service</module>
+        <module>pay-service</module>
     </modules>
 
     <build>

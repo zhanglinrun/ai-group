@@ -1,0 +1,38 @@
+spring:
+  application:
+    name: pay-service
+  profiles:
+    active: dev
+  cloud:
+    compatibility-verifier:
+      enabled: false
+    nacos:
+      discovery:
+        server-addr: ${NACOS_HOST:127.0.0.1}:${NACOS_PORT:8848}
+        namespace: ${NACOS_NAMESPACE:public}
+        username: ${NACOS_USERNAME:nacos}
+        password: ${NACOS_PASSWORD:nacos}
+  rabbitmq:
+    host: ${RABBITMQ_HOST:127.0.0.1}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USERNAME:xiongdoctor}
+    password: ${RABBITMQ_PASSWORD:xiongdoctor_dev}
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    event-exchange: ${RABBITMQ_EVENT_EXCHANGE:xiongdoctor.events}
+    confirm-timeout-ms: ${RABBITMQ_CONFIRM_TIMEOUT_MS:5000}
+    routing:
+      order-pay-success: ${RABBITMQ_ORDER_PAY_SUCCESS:pay.order_pay_success}
+      member-benefit: ${RABBITMQ_MEMBER_BENEFIT:member.benefit.completed}
+      group-team-success: ${RABBITMQ_GROUP_TEAM_SUCCESS:group.team_success}
+      group-team-refund: ${RABBITMQ_GROUP_TEAM_REFUND:group.team_refund}
+    listener:
+      simple:
+        acknowledge-mode: auto
+        default-requeue-rejected: true
+        retry:
+          enabled: true
+          max-attempts: 3
+          initial-interval: 1000ms
+          max-interval: 10000ms
+          multiplier: 2.0

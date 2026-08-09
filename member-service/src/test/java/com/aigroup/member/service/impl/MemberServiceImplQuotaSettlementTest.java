@@ -61,7 +61,7 @@ class MemberServiceImplQuotaSettlementTest {
         when(quotaAccountMapper.freezeBalanceIfAvailable(1001L, 8_000L)).thenReturn(1);
 
         Map<String, Object> result = memberService.freeze(
-                1001L, 8_000L, 2_000L, " IMAGE ", "billing-1", " AI-Agent ", "trace-p130-1");
+                1001L, 8_000L, 2_000L, " IMAGE ", "billing-1", " Agent-Service ", "trace-p130-1");
 
         ArgumentCaptor<QuotaFreeze> captor = ArgumentCaptor.forClass(QuotaFreeze.class);
         verify(quotaFreezeMapper).insert(captor.capture());
@@ -72,7 +72,7 @@ class MemberServiceImplQuotaSettlementTest {
                 () -> assertEquals(8_000L, persisted.getRequestedAmount()),
                 () -> assertEquals(2_000L, persisted.getMinAmount()),
                 () -> assertEquals("image", persisted.getAbilityCode()),
-                () -> assertEquals("ai-agent", persisted.getOwnerService()),
+                () -> assertEquals("agent-service", persisted.getOwnerService()),
                 () -> assertEquals("trace-p130-1", persisted.getTraceId()),
                 () -> assertTrue(persisted.getRequestFingerprint().matches("[0-9a-f]{64}"))
         );
@@ -94,7 +94,7 @@ class MemberServiceImplQuotaSettlementTest {
         existing.setRequestedAmount(4_000L);
         existing.setMinAmount(2_000L);
         existing.setAbilityCode("deep-search");
-        existing.setOwnerService("ai-agent");
+        existing.setOwnerService("agent-service");
         existing.setTraceId("trace-p130-1");
         existing.setRequestFingerprint(null);
         when(quotaAccountMapper.selectForUpdateByUserId(1001L)).thenReturn(account(10_000L, 0L, 3_000L));
@@ -102,7 +102,7 @@ class MemberServiceImplQuotaSettlementTest {
                 .thenReturn(existing);
 
         Map<String, Object> result = memberService.freeze(
-                1001L, 4_000L, 2_000L, "deep-search", "billing-1", "AI-AGENT", "trace-p130-1");
+                1001L, 4_000L, 2_000L, "deep-search", "billing-1", "AGENT-SERVICE", "trace-p130-1");
 
         assertEquals("existing-freeze", result.get("freezeId"));
         verify(quotaAccountMapper, never()).freezeBalanceIfAvailable(any(), anyLong());
@@ -115,7 +115,7 @@ class MemberServiceImplQuotaSettlementTest {
         existing.setRequestedAmount(4_000L);
         existing.setMinAmount(2_000L);
         existing.setAbilityCode("deep-search");
-        existing.setOwnerService("ai-agent");
+        existing.setOwnerService("agent-service");
         existing.setTraceId("trace-p130-1");
         existing.setRequestFingerprint(null);
         when(quotaAccountMapper.selectForUpdateByUserId(1001L)).thenReturn(account(10_000L, 0L, 3_000L));
@@ -124,11 +124,11 @@ class MemberServiceImplQuotaSettlementTest {
 
         assertAll(
                 () -> assertThrows(BusinessException.class, () -> memberService.freeze(
-                        1001L, 4_001L, 2_000L, "deep-search", "billing-1", "ai-agent", "trace-p130-1")),
+                        1001L, 4_001L, 2_000L, "deep-search", "billing-1", "agent-service", "trace-p130-1")),
                 () -> assertThrows(BusinessException.class, () -> memberService.freeze(
-                        1001L, 4_000L, 2_001L, "deep-search", "billing-1", "ai-agent", "trace-p130-1")),
+                        1001L, 4_000L, 2_001L, "deep-search", "billing-1", "agent-service", "trace-p130-1")),
                 () -> assertThrows(BusinessException.class, () -> memberService.freeze(
-                        1001L, 4_000L, 2_000L, "image", "billing-1", "ai-agent", "trace-p130-1")),
+                        1001L, 4_000L, 2_000L, "image", "billing-1", "agent-service", "trace-p130-1")),
                 () -> assertThrows(BusinessException.class, () -> memberService.freeze(
                         1001L, 4_000L, 2_000L, "deep-search", "billing-1", "legacy", "trace-p130-1"))
         );
@@ -163,7 +163,7 @@ class MemberServiceImplQuotaSettlementTest {
     @Test
     void aiAgentReservationRejectsMissingOrMismatchedCorrelationOnReplay() {
         QuotaFreeze freeze = pendingFreeze(1_000L, 1_000L, 0L);
-        freeze.setOwnerService("ai-agent");
+        freeze.setOwnerService("agent-service");
         freeze.setRequestId("billing-1");
         freeze.setTraceId("trace-p130-1");
         when(quotaFreezeMapper.selectById("freeze-1")).thenReturn(freeze);
@@ -256,7 +256,7 @@ class MemberServiceImplQuotaSettlementTest {
         freeze.setStatus("CONFIRMED");
         freeze.setSettledAmount(2_500L);
         freeze.setRequestId("billing-1");
-        freeze.setOwnerService("ai-agent");
+        freeze.setOwnerService("agent-service");
         freeze.setTraceId("trace-p130-1");
         when(quotaFreezeMapper.selectById("freeze-1")).thenReturn(freeze);
         when(quotaFreezeMapper.selectByUserIdAndRequestId(1001L, "billing-1")).thenReturn(freeze);
@@ -272,7 +272,7 @@ class MemberServiceImplQuotaSettlementTest {
                 () -> assertEquals("billing-1", byRequest.getRequestId()),
                 () -> assertEquals("trace-p130-1", byRequest.getTraceId()),
                 () -> assertEquals("fingerprint-1", byRequest.getRequestFingerprint()),
-                () -> assertEquals("ai-agent", byRequest.getOwnerService())
+                () -> assertEquals("agent-service", byRequest.getOwnerService())
         );
     }
 

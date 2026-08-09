@@ -6,6 +6,8 @@ spring:
         enabled: false
 
 ai-group:
+  agent:
+    url: http://127.0.0.1:8090
   group:
     url: http://127.0.0.1:8091
   pay:

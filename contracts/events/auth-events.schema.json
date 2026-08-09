@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://xiongdoctor.local/contracts/auth-events.schema.json",
+  "type": "object",
+  "required": ["eventId", "eventType", "schemaVersion", "aggregateId", "traceId", "occurredAt", "payload"],
+  "properties": {
+    "eventId": {"type": "string"},
+    "eventType": {"enum": ["UserRegistered"]},
+    "schemaVersion": {"type": "integer", "minimum": 1},
+    "aggregateId": {"type": "string"},
+    "traceId": {"type": "string"},
+    "occurredAt": {"type": "string", "format": "date-time"},
+    "payload": {
+      "type": "object",
+      "required": ["userId"],
+      "properties": {
+        "userId": {"type": "integer", "format": "int64"},
+        "username": {"type": "string"},
+        "role": {"type": "string", "enum": ["USER", "ADMIN"]}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

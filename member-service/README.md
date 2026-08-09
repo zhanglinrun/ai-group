@@ -20,11 +20,11 @@ Agent 对话消耗配额，用的是类似「预授权 + 确认」的两阶段�
 
 - **预扣（freeze）**：每次 LLM 调用前按输入估算与最大输出冻结一笔上界额度。
 - **确认（confirm）**：成功调用按实际 usage（缺失时使用有界本地估算）扣减；失败调用只有已经观察到 provider usage 或真实部分输出时才结算，并自动释放未使用余量。
-- **释放（release）**：预留后未发起供应商调用，或供应商拒绝请求且没有 usage/输出证据时，释放整笔冻结。普通旧调用的僵尸冻结由 member 定时任务兜底；`ownerService=ai-agent` 的冻结由 Agent 的持久化结算命令负责恢复，member 只告警，绝不按超时自动释放，避免供应商已经消耗后被误判成免费调用。
+ - **释放（release）**：预留后未发起供应商调用，或供应商拒绝请求且没有 usage/输出证据时，释放整笔冻结。普通旧调用的僵尸冻结由 member 定时任务兜底；`ownerService=agent-service` 的冻结由 Agent 的持久化结算命令负责恢复，member 只告警，绝不按超时自动释放，避免供应商已经消耗后被误判成免费调用。
 
-`freeze` 的 `requestId` 是幂等键。同一用户用相同 `requestId` 重试时，请求额度上界、最小额度、能力编码和结算所有者必须完全一致；member 会保存服务端 SHA-256 指纹并拒绝参数漂移。结算所有者只接受 `legacy` 与 `ai-agent`，避免未知调用方制造无法自动释放的冻结。`confirm` 与 `release` 都返回冻结的真实终态以及原始请求参数，因此调用方能识别 `CONFIRMED` / `RELEASED` 冲突、核验找回的冻结，并处理网络响应不确定。
+ `freeze` 的 `requestId` 是幂等键。同一用户用相同 `requestId` 重试时，请求额度上界、最小额度、能力编码和结算所有者必须完全一致；member 会保存服务端 SHA-256 指纹并拒绝参数漂移。结算所有者只接受 `legacy` 与 `agent-service`，避免未知调用方制造无法自动释放的冻结。`confirm` 与 `release` 都返回冻结的真实终态以及原始请求参数，因此调用方能识别 `CONFIRMED` / `RELEASED` 冲突、核验找回的冻结，并处理网络响应不确定。
 
-客户端断开会阻止后续步骤，但已在途或已完成的供应商调用仍会按可得 usage 结算，并不承诺“断开即免费”。账户分为**免费额度**（每月重置为 5 credits）和**付费额度**（购买额度包获得、不按月清零），内部统一使用 `1 credit = 1,000,000 microcredits` 计量，变动记录在 `quota_ledger`。
+客户端断开会阻止后续步骤，但已在途或已完成的供应商调用仍会按可得 usage 结算，并不承诺“断开即免费”。账户分为**免费额度**（每月重置为 5 credits）和**付费额度**（购买额度包获得、不按月清零），内部统一使用 `1 credit = 1,000,000 microcredits` 计量，变动记录在 `quota_ledger`。Agent 当前按每百万 Token 输入 5 积分、输出 30 积分计费，仍按实际 Token 逐个结算，不按 1K Token 向上取整。
 
 ---
 
@@ -42,7 +42,7 @@ Agent 对话消耗配额，用的是类似「预授权 + 确认」的两阶段�
 
 | 接口 | 作用 |
 | --- | --- |
-| `POST /internal/members/init-free` | 给新注册用户开免费账户（auth 注册后调用） |
+| `POST /internal/members/init-free` | 内部补偿入口；正常注册通过 `UserRegistered` RabbitMQ 事件创建账户 |
 | `POST /internal/quota/freeze` | 预扣配额 |
 | `POST /internal/quota/confirm` | 确认扣减 |
 | `POST /internal/quota/release` | 释放冻结 |
@@ -59,13 +59,14 @@ Agent 对话消耗配额，用的是类似「预授权 + 确认」的两阶段�
 ## 两个定时任务
 
 - `MonthlyQuotaGrantJob`（月度免费额度发放）：每月将账户免费额度重置为 5 credits，付费额度保持不变。
-- `ExpiredFreezeReleaseJob`（过期冻结释放）：释放无持久化结算所有者的旧式僵尸冻结；对 `ai-agent` 托管冻结只记录告警，等待 Agent 的启动扫描和定时重试收敛。
+ - `ExpiredFreezeReleaseJob`（过期冻结释放）：释放无持久化结算所有者的旧式僵尸冻结；对 `agent-service` 托管冻结只记录告警，等待 Agent 的启动扫描和定时重试收敛。
 
 ---
 
 ## 消息消费
 
-`BenefitEventConsumer`（权益事件消费者）监听成团消息队列，收到后触发权益发放。消费失败会抛异常触发重试，最终进 `DLQ`（死信队列）人工兜底。
+`BenefitEventConsumer`（权益事件消费者）监听成团消息队列，收到后触发权益发放；
+`UserRegisteredEventConsumer` 监听注册事件并幂等开通免费账户。消费失败会抛异常触发重试，最终进 `DLQ`（死信队列）人工兜底。
 
 ---
 
@@ -83,7 +84,7 @@ Agent 对话消耗配额，用的是类似「预授权 + 确认」的两阶段�
 
 ## 本地运行
 
-依赖 `MySQL`（数据库，`member_db`）、`Redis`（缓存）、`Kafka`（消息队列）、`Nacos`（注册中心）。表结构在 `src/main/resources/schema.sql`。
+依赖 `MySQL`（数据库，`member_db`）、`Redis`（缓存）、`RabbitMQ`（Topic exchange 消息队列）、`Nacos`（注册中心）。表结构在 `src/main/resources/schema.sql`。
 
 跟平台一套启动脚本走：
 
@@ -113,5 +114,5 @@ cd member-service && mvn spring-boot:run
 ## 提醒
 
 - 权益发放和配额确认都要保持幂等，重复消息不能重复发、重复扣。
-- 两阶段扣减的 `confirm` / `release` 必须成对兜底。普通冻结由 `ExpiredFreezeReleaseJob` 清理；`ai-agent` 托管冻结必须由 Agent durable settlement 恢复任务收敛，不能改回 member 超时自动释放。
+ - 两阶段扣减的 `confirm` / `release` 必须成对兜底。普通冻结由 `ExpiredFreezeReleaseJob` 清理；`agent-service` 托管冻结必须由 Agent durable settlement 恢复任务收敛，不能改回 member 超时自动释放。
 - `/internal/**` 接口只走内部令牌，不要暴露给外部直连。

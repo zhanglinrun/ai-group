@@ -53,31 +53,30 @@ class GatewayApplicationContextTest {
     }
 
     @Test
-    void agentRoutesDedupeCorsResponseHeaders() {
+    void bffRoutesDedupeCorsResponseHeaders() {
         List<Route> routes = routeLocator.getRoutes().collectList().block();
-        assertRouteHasDedupe(routes, "agent-api");
-        assertRouteHasDedupe(routes, "agent-web");
+        assertRouteHasDedupe(routes, "bff");
     }
 
     @Test
-    void agentRouteIncludesVersionedApprovalApi() {
+    void bffAgentRouteIncludesRunApi() {
         Route route = routeLocator.getRoutes()
-                .filter(item -> "agent-api".equals(item.getId()))
+                .filter(item -> "bff".equals(item.getId()))
                 .blockFirst();
         MockServerWebExchange exchange = MockServerWebExchange.from(
-                MockServerHttpRequest.get("/api/v1/agent/runs/run-1/approvals/pending").build());
+                MockServerHttpRequest.get("/api/bff/agent/runs/run-1").build());
 
         assertNotNull(route);
         assertTrue(Boolean.TRUE.equals(Mono.from(route.getPredicate().apply(exchange)).block()));
     }
 
     @Test
-    void agentSseRouteMatchesReplayEndpointAndDeepRunTimeoutIsFiveMinutes() {
+    void bffSseRouteMatchesReplayEndpointAndDeepRunTimeoutIsFiveMinutes() {
         Route route = routeLocator.getRoutes()
-                .filter(item -> "agent-api".equals(item.getId()))
+                .filter(item -> "bff".equals(item.getId()))
                 .blockFirst();
         MockServerWebExchange exchange = MockServerWebExchange.from(
-                MockServerHttpRequest.get("/api/agent/runs/run-1/events")
+                MockServerHttpRequest.get("/api/bff/agent/runs/run-1/events")
                         .header("Last-Event-ID", "42").build());
 
         assertNotNull(route);

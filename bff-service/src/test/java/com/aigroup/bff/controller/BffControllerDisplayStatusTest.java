@@ -40,7 +40,7 @@ class BffControllerDisplayStatusTest {
                 new GroupMarketQueryCoordinator(0L));
         ReflectionTestUtils.setField(controller, "groupSource", "s01");
         ReflectionTestUtils.setField(controller, "groupChannel", "c01");
-        ReflectionTestUtils.setField(controller, "defaultGoodsId", "9890001");
+        ReflectionTestUtils.setField(controller, "defaultGoodsId", "9890002");
 
         org.springframework.mock.web.MockHttpServletRequest request = new org.springframework.mock.web.MockHttpServletRequest();
         request.addHeader("X-User-Id", "1001");
@@ -128,6 +128,35 @@ class BffControllerDisplayStatusTest {
         assertEquals(1, ledger.size());
         assertEquals("MONTHLY_GRANT", ledger.get(0).get("type"));
         assertEquals(List.of(), summary.get("pendingGroupOrders"));
+    }
+
+    @Test
+    void pricing_keepsMyTeamsSeparateFromTeamsForOtherUsers() {
+        Map<String, Object> sku = new HashMap<>();
+        sku.put("code", "QUOTA_LIGHT");
+        sku.put("name", "轻享额度包");
+        sku.put("price", 12);
+        sku.put("baseQuota", 60);
+        sku.put("groupGoodsId", "9890002");
+        when(memberFeignClient.listSkus()).thenReturn(Result.success(List.of(sku)));
+
+        Map<String, Object> ownTeam = Map.of("userId", "1001", "teamId", "team-own");
+        Map<String, Object> otherTeam = Map.of("userId", "2002", "teamId", "team-other");
+        Map<String, Object> market = new HashMap<>();
+        market.put("activityId", 100201L);
+        market.put("targetCount", 3);
+        market.put("goods", Map.of("payPrice", 10.8, "deductionPrice", 1.2, "originalPrice", 12));
+        market.put("teamList", List.of(ownTeam, otherTeam));
+        when(groupFeignClient.queryGroupBuyMarketConfig(any())).thenReturn(Map.of(
+                "code", "0000",
+                "data", market
+        ));
+
+        Map<String, Object> data = controller.pricing().getData();
+        Map<String, Object> groupBuy = (Map<String, Object>) data.get("groupBuy");
+
+        assertEquals(List.of(ownTeam), groupBuy.get("myTeamList"));
+        assertEquals(List.of(otherTeam), groupBuy.get("teamList"));
     }
 
     private Map<String, Object> payResponse(String status, String orderId) {

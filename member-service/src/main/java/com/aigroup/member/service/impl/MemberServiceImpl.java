@@ -60,7 +60,7 @@ public class MemberServiceImpl implements MemberService {
     private static final String LEDGER_MONTHLY_GRANT = "MONTHLY_GRANT";
     private static final String LEDGER_ADMIN_ADJUST = "ADMIN_ADJUST";
     private static final String OWNER_SERVICE_LEGACY = "legacy";
-    private static final String OWNER_SERVICE_AI_AGENT = "ai-agent";
+    private static final String OWNER_SERVICE_AI_AGENT = "agent-service";
     private static final DateTimeFormatter MONTH_FMT = DateTimeFormatter.ofPattern("yyyy-MM");
 
     private final ProductSkuMapper productSkuMapper;
@@ -78,7 +78,7 @@ public class MemberServiceImpl implements MemberService {
             throw new BusinessException(ErrorCodeEnum.PARAM_ERROR, "userId is required");
         }
         if (quotaAccountMapper.insertInitialAccount(userId, FREE_MONTHLY_QUOTA, currentMonth()) == 1) {
-            appendLedger(userId, LEDGER_GRANT, FREE_MONTHLY_QUOTA, null, "free", "initial monthly free quota");
+            appendLedger(userId, LEDGER_GRANT, FREE_MONTHLY_QUOTA, null, "free", "初始赠送月度免费额度");
         }
     }
 
@@ -217,7 +217,7 @@ public class MemberServiceImpl implements MemberService {
         freeze.setUpdatedAt(now);
         quotaFreezeMapper.insert(freeze);
         appendLedger(userId, LEDGER_FREEZE, amount, freeze.getFreezeId(), freeze.getAbilityCode(),
-                freeze.getTraceId(), "quota reserved");
+                freeze.getTraceId(), "额度已冻结");
         return freezeResult(freeze);
     }
 
@@ -298,7 +298,7 @@ public class MemberServiceImpl implements MemberService {
         freeze.setUpdatedAt(LocalDateTime.now());
         quotaFreezeMapper.updateById(freeze);
         appendLedger(freeze.getUserId(), LEDGER_CONFIRM, -actualAmount, freezeId,
-                freeze.getAbilityCode(), freeze.getTraceId(), "quota settled; unused reservation released");
+                freeze.getAbilityCode(), freeze.getTraceId(), "额度已结算，未使用的预留额度已释放");
         return toFreezeStatus(freeze);
     }
 
@@ -348,7 +348,7 @@ public class MemberServiceImpl implements MemberService {
         freeze.setUpdatedAt(LocalDateTime.now());
         quotaFreezeMapper.updateById(freeze);
         appendLedger(freeze.getUserId(), LEDGER_RELEASE, 0L, freezeId, freeze.getAbilityCode(),
-                freeze.getTraceId(), "reservation released");
+                freeze.getTraceId(), "额度预留已释放");
         return toFreezeStatus(freeze);
     }
 
@@ -448,7 +448,7 @@ public class MemberServiceImpl implements MemberService {
         quota.setLastFreeGrantMonth(month);
         quota.setUpdateTime(LocalDateTime.now());
         quotaAccountMapper.updateById(quota);
-        appendLedger(userId, LEDGER_MONTHLY_GRANT, delta, null, "free", "monthly free quota reset");
+        appendLedger(userId, LEDGER_MONTHLY_GRANT, delta, null, "free", "月度免费额度已刷新");
         return true;
     }
 
@@ -493,7 +493,7 @@ public class MemberServiceImpl implements MemberService {
         if (revokeTombstone != null) {
             insertBenefitEvent(event, "SKIPPED_REVOKED", idempotencyKey, 0L);
             appendLedger(event.getUserId(), LEDGER_REVOKE, 0L, null, event.getProductCode(),
-                    "grant skipped: order already revoked");
+                    "订单已撤销，跳过额度发放");
             return;
         }
         if (event.getBaseQuota() == null || event.getBaseQuota() <= 0) {
@@ -508,7 +508,7 @@ public class MemberServiceImpl implements MemberService {
         quota.setUpdateTime(LocalDateTime.now());
         quotaAccountMapper.updateById(quota);
         appendLedger(event.getUserId(), LEDGER_GRANT, granted, null, event.getProductCode(),
-                "paid quota granted from order snapshot");
+                "已根据订单快照发放购买额度");
         insertBenefitEvent(event, "GRANTED", idempotencyKey, granted);
     }
 
@@ -525,12 +525,12 @@ public class MemberServiceImpl implements MemberService {
         if (granted == null) {
             insertBenefitEvent(event, "REVOKED", idempotencyKey, 0L);
             appendLedger(event.getUserId(), LEDGER_REVOKE, 0L, null, event.getProductCode(),
-                    "order revoked before quota grant");
+                    "订单已撤销，未发放购买额度");
             return;
         }
         insertBenefitEvent(event, "REJECTED_GRANTED", idempotencyKey, 0L);
         appendLedger(event.getUserId(), LEDGER_REVOKE, 0L, null, event.getProductCode(),
-                "automatic revoke rejected: quota was already granted; admin review required");
+                "自动撤销未执行：额度已发放，请管理员处理");
     }
 
     private BenefitGrantEvent findBenefitByKey(String key) {
@@ -656,7 +656,7 @@ public class MemberServiceImpl implements MemberService {
         }
         if (!StringUtils.hasText(requestId) || !StringUtils.hasText(traceId)) {
             throw new BusinessException(ErrorCodeEnum.PARAM_ERROR,
-                    "ai-agent quota operations require requestId and traceId");
+                    "agent-service quota operations require requestId and traceId");
         }
     }
 

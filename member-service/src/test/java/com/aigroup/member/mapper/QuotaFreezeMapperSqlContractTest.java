@@ -16,13 +16,13 @@ class QuotaFreezeMapperSqlContractTest {
                 "selectExpiredPendingFreezeIds", java.time.LocalDateTime.class, int.class);
         String legacySql = String.join(" ", legacyScan.getAnnotation(Select.class).value());
 
-        assertTrue(legacySql.contains("owner_service <> 'ai-agent'"));
+        assertTrue(legacySql.contains("owner_service <> 'agent-service'"));
         assertFalse(legacySql.contains("&lt;&gt;"),
                 "Java annotation SQL is not XML and must not HTML-escape the <> operator");
 
         Method managedScan = QuotaFreezeMapper.class.getMethod(
                 "selectExpiredManagedPendingFreezeIds", java.time.LocalDateTime.class, int.class);
         String managedSql = String.join(" ", managedScan.getAnnotation(Select.class).value());
-        assertTrue(managedSql.contains("owner_service = 'ai-agent'"));
+        assertTrue(managedSql.contains("owner_service = 'agent-service'"));
     }
 }

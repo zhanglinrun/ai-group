@@ -1,25 +1,10 @@
+-- The MySQL entrypoint executes this file with the client default charset. Set
+-- it explicitly so Chinese SKU names are stored as UTF-8 instead of the
+-- classic latin1 mojibake ("轻" becoming "è½").
+SET NAMES utf8mb4;
 CREATE DATABASE IF NOT EXISTS `member_db` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE `member_db`;
 
--- One-time development reset from the obsolete period-quota / member-days schema. Re-running this file
--- after the reset preserves quota, order-benefit and ledger data.
-SET @legacy_member_schema = (
-    SELECT COUNT(*) FROM information_schema.columns
-    WHERE table_schema = 'member_db'
-      AND ((table_name = 'quota_account' AND column_name = 'period_quota_balance')
-        OR (table_name = 'product_sku' AND column_name = 'member_days'))
-);
-SET @ddl = IF(@legacy_member_schema > 0, 'DROP TABLE IF EXISTS benefit_grant_event', 'DO 0');
-PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
-SET @ddl = IF(@legacy_member_schema > 0, 'DROP TABLE IF EXISTS quota_freeze', 'DO 0');
-PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
-SET @ddl = IF(@legacy_member_schema > 0, 'DROP TABLE IF EXISTS quota_ledger', 'DO 0');
-PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
-SET @ddl = IF(@legacy_member_schema > 0, 'DROP TABLE IF EXISTS quota_account', 'DO 0');
-PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
-SET @ddl = IF(@legacy_member_schema > 0, 'DROP TABLE IF EXISTS product_sku', 'DO 0');
-PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
-DROP TABLE IF EXISTS `member_account`;
 
 CREATE TABLE IF NOT EXISTS `product_sku` (
     `id` BIGINT NOT NULL AUTO_INCREMENT,

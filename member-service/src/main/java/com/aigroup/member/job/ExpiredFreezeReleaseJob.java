@@ -12,7 +12,7 @@ import java.util.List;
  * 过期冻结兜底释放任务。调度由 XXL-JOB admin 集中管理（cron: 0 0/5 * * * ?）。
  *
  * <p>调用方按「预扣(freeze)→确认(confirm)/释放(release)」两阶段计费。当旧式、无持久化结算所有者的
- * 调用链崩溃时，本任务分钟级扫描其 PENDING 僵尸冻结并逐个释放。由 ai-agent durable command 托管的冻结
+ * 调用链崩溃时，本任务分钟级扫描其 PENDING 僵尸冻结并逐个释放。由 agent-service durable command 托管的冻结
  * 只告警、不自动释放，避免 provider 已经消耗而 confirm 尚在重试时被误释放。</p>
  */
 @Slf4j
@@ -37,7 +37,7 @@ public class ExpiredFreezeReleaseJob {
         List<String> managedFreezeIds = memberService.listExpiredManagedPendingFreezeIds(
                 timeoutMinutes, batchLimit);
         if (managedFreezeIds != null && !managedFreezeIds.isEmpty()) {
-            // ai-agent owns a durable settlement command for these rows. Releasing
+            // agent-service owns a durable settlement command for these rows. Releasing
             // them here can race a CONFIRM retry after provider usage was observed.
             log.warn("managed quota freezes await durable settlement, count={}, sample={}",
                     managedFreezeIds.size(), managedFreezeIds.stream().limit(10).toList());

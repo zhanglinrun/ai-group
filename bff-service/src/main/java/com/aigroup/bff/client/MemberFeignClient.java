@@ -8,7 +8,7 @@ import java.util.List;
 import java.util.Map;
 
 // url 为空时走 Nacos 服务发现（按 name=member 负载均衡）；local profile 设 ai-group.member.url 直连
-@FeignClient(name = "member", url = "${ai-group.member.url:}")
+@FeignClient(name = "member-service", url = "${ai-group.member.url:}")
 public interface MemberFeignClient {
 
     @GetMapping("/api/member/skus")

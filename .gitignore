@@ -1,62 +1,41 @@
-# Secrets / local env (keep .env.example tracked)
+# Local secrets
 .env
 .env.*
 !.env.example
+dev-ops/compose/.env
 
-# Build output
-target/
-build/
-dist/
-node_modules/
+# Java / Node / Python build output
+**/target/
+**/build/
+**/dist/
+**/node_modules/
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+**/__pycache__/
+**/.venv/
+*.py[cod]
 
-# Logs & local runtime data
+# Local runtime data and logs
 *.log
 logs/
+**/logs/
 /data/
-docs/evals/last-report.json
+agent-service/data/
+agent-service/demo_fixtures/generated/
 
 # IDE / tooling
 .vscode/
 .idea/
 *.iml
-
-# Local agent development assets
 .codegraph/
+*.tsbuildinfo
 
-# Local runtime and test artifacts
-autobots.db
-/runtime/
-ai-agent/runtime/tools/.p90-test-venv/
-ai-agent/runtime/tools/.venv/
-ai-agent/runtime/tools/.pytest_cache/
-ai-agent/runtime/tools/**/__pycache__/
+# Generated / retired source copies (the canonical code lives in the top-level service modules)
+RivalLens/
+frontend-legacy/
 
-# Local acceptance snapshots and evaluation outputs. Keep executable verification
-# scripts, SQL migrations, Compose files, and test datasets versioned.
+# Local acceptance output
 docs/acceptance/*.md
 docs/acceptance/*.json
 docs/acceptance/*.log
-docs/acceptance/p160-runtime-*/
-docs/acceptance/p190-verify-*/
-docs/evals/reports/
-docs/evals/annotations/
-docs/evals/baselines/
-docs/evals/README.md
-
-# Local delivery and interview narrative, not part of the product source commit.
-AGENTS.md
-README.md
-ai-agent/README.md
-2027_AUTUMN_RECRUITMENT_PROJECT_EXECUTION_PLAN.md
-docs/adr/
-docs/architecture/
-docs/implementation/
-docs/interview/
-docs/dev-ops/README.md
-
-study/
-
-# Private study notes and local-only documents
-ai-agent/project-docs/
-docs/research/
-

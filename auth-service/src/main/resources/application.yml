@@ -1,6 +1,6 @@
 spring:
   application:
-    name: auth
+    name: auth-service
   datasource:
     url: jdbc:mysql://${MYSQL_HOST:127.0.0.1}:${MYSQL_PORT:13306}/auth_db?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
     username: ${MYSQL_USER:root}
@@ -12,6 +12,16 @@ spring:
       port: ${REDIS_PORT:16379}
       password: ${REDIS_PASSWORD:}
       database: 0
+  rabbitmq:
+    host: ${RABBITMQ_HOST:127.0.0.1}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USERNAME:xiongdoctor}
+    password: ${RABBITMQ_PASSWORD:xiongdoctor_dev}
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    event-exchange: ${RABBITMQ_EVENT_EXCHANGE:xiongdoctor.events}
+    confirm-timeout-ms: ${RABBITMQ_CONFIRM_TIMEOUT_MS:5000}
+    outbox-dispatch-ms: ${AUTH_OUTBOX_DISPATCH_MS:1000}
   cloud:
     compatibility-verifier:
       enabled: false
@@ -40,7 +50,20 @@ management:
 jwt:
   secret: ${JWT_SECRET:}
 
+sa-token:
+  token-name: satoken
+  timeout: ${SA_TOKEN_TIMEOUT:2592000}
+  active-timeout: ${SA_TOKEN_ACTIVE_TIMEOUT:1800}
+  is-concurrent: false
+  is-share: false
+  is-read-header: true
+  is-read-cookie: true
+  is-write-header: false
+  cookie:
+    secure: ${SA_TOKEN_COOKIE_SECURE:false}
+  dao:
+    type: cn.dev33.satoken.dao.SaTokenDaoRedisJackson
+
 ai-group:
-  # member.url 留空：默认走 Nacos 服务发现调用 member；local profile 覆盖为直连
   internal:
     token: ${AI_GROUP_INTERNAL_TOKEN:}

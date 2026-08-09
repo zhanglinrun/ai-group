@@ -1,27 +1,32 @@
 spring:
   application:
-    name: member
+    name: member-service
   datasource:
     url: jdbc:mysql://${MYSQL_HOST:127.0.0.1}:${MYSQL_PORT:13306}/member_db?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
     username: ${MYSQL_USER:root}
     password: ${MYSQL_ROOT_PASSWORD:}
     driver-class-name: com.mysql.cj.jdbc.Driver
-  kafka:
-    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:127.0.0.1:9092}
-    consumer:
-      group-id: member-service
-      enable-auto-commit: false
-      auto-offset-reset: earliest
-      properties:
-        spring.json.trusted.packages: "*"
-    producer:
-      acks: all
-      properties:
-        enable.idempotence: true
-        request.timeout.ms: 5000
-        delivery.timeout.ms: 10000
+  rabbitmq:
+    host: ${RABBITMQ_HOST:127.0.0.1}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USERNAME:xiongdoctor}
+    password: ${RABBITMQ_PASSWORD:xiongdoctor_dev}
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    event-exchange: ${RABBITMQ_EVENT_EXCHANGE:xiongdoctor.events}
+    routing:
+      member-benefit: ${RABBITMQ_MEMBER_BENEFIT:member.benefit.completed}
+      member-user-registered: ${RABBITMQ_MEMBER_USER_REGISTERED:auth.user_registered}
     listener:
-      ack-mode: manual_immediate
+      simple:
+        acknowledge-mode: auto
+        default-requeue-rejected: true
+        retry:
+          enabled: true
+          max-attempts: 3
+          initial-interval: 1000ms
+          max-interval: 10000ms
+          multiplier: 2.0
   cloud:
     compatibility-verifier:
       enabled: false
@@ -56,8 +61,6 @@ jwt:
   secret: ${JWT_SECRET:}
 
 ai-group:
-  member:
-    benefit-topic: member.benefit.completed
   internal:
     token: ${AI_GROUP_INTERNAL_TOKEN:}
 

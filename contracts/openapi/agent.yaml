@@ -1,0 +1,149 @@
+openapi: 3.1.0
+info:
+  title: 熊博士 Agent 服务
+  version: 1.0.0
+servers:
+  - url: /api/bff/agent
+paths:
+  /runs:
+    post:
+      operationId: createRun
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CreateRunRequest'}
+      responses:
+        '202':
+          description: 已接受
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RunAccepted'}
+  /runs/{runId}:
+    get:
+      operationId: getRun
+      parameters: [{$ref: '#/components/parameters/runId'}]
+      responses:
+        '200':
+          description: 运行详情
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Run'}
+  /runs/{runId}/events:
+    get:
+      operationId: streamRunEvents
+      parameters: [{$ref: '#/components/parameters/runId'}]
+      responses:
+        '200':
+          description: SSE 事件流
+          content:
+            text/event-stream: {schema: {type: string}}
+  /runs/{runId}/plan/confirm:
+    post:
+      operationId: confirmPlan
+      parameters: [{$ref: '#/components/parameters/runId'}]
+      responses: {'202': {description: 已接受}}
+  /runs/{runId}/resume:
+    post:
+      operationId: resumeRun
+      parameters: [{$ref: '#/components/parameters/runId'}]
+      responses: {'202': {description: 已接受}}
+  /runs/{runId}/stop:
+    post:
+      operationId: stopRun
+      parameters: [{$ref: '#/components/parameters/runId'}]
+      responses: {'202': {description: 已接受}}
+  /runs/{runId}/report:
+    get:
+      operationId: getReport
+      parameters: [{$ref: '#/components/parameters/runId'}]
+      responses: {'200': {description: 报告}}
+  /runs/{runId}/evidence:
+    get:
+      operationId: getEvidence
+      parameters: [{$ref: '#/components/parameters/runId'}]
+      responses: {'200': {description: 证据}}
+  /runs/{runId}/trace:
+    get:
+      operationId: getTrace
+      parameters: [{$ref: '#/components/parameters/runId'}]
+      responses: {'200': {description: Trace}}
+  /runs/{runId}/metrics:
+    get:
+      operationId: getMetrics
+      parameters: [{$ref: '#/components/parameters/runId'}]
+      responses: {'200': {description: Token 与步骤指标}}
+  /runs/{runId}/knowledge:
+    get:
+      operationId: getKnowledge
+      parameters: [{$ref: '#/components/parameters/runId'}]
+      responses: {'200': {description: 结构化知识}}
+  /runs/{runId}/comparisons:
+    get:
+      operationId: getComparisons
+      parameters: [{$ref: '#/components/parameters/runId'}]
+      responses: {'200': {description: 对比矩阵}}
+  /runs/{runId}/diff:
+    get:
+      operationId: getDiff
+      parameters: [{$ref: '#/components/parameters/runId'}]
+      responses: {'200': {description: 运行差异}}
+  /watchlist:
+    get:
+      operationId: listWatchlists
+      responses: {'200': {description: 关注列表}}
+    post:
+      operationId: createWatchlist
+      responses: {'200': {description: 已创建关注列表}}
+  /watchlist/{watchId}:
+    patch:
+      operationId: updateWatchlist
+      parameters:
+        - name: watchId
+          in: path
+          required: true
+          schema: {type: string}
+      responses: {'200': {description: 已更新}}
+    delete:
+      operationId: deleteWatchlist
+      parameters:
+        - name: watchId
+          in: path
+          required: true
+          schema: {type: string}
+      responses: {'200': {description: 已删除}}
+components:
+  parameters:
+    runId:
+      name: runId
+      in: path
+      required: true
+      schema: {type: string}
+  schemas:
+    CreateRunRequest:
+      type: object
+      required: [user_query]
+      properties:
+        user_query: {type: string, minLength: 1}
+        competitors: {type: array, items: {type: string}}
+        report_depth: {type: string, enum: [debug, quick, deep]}
+        response_language: {type: string, enum: [zh, en]}
+        max_micro_points: {type: integer, format: int64, minimum: 1}
+        client_request_id: {type: string}
+    RunAccepted:
+      type: object
+      required: [run_id, status, reserved_micro_points]
+      properties:
+        run_id: {type: string}
+        status: {type: string}
+        reserved_micro_points: {type: integer, format: int64}
+    Run:
+      type: object
+      required: [run_id, status, user_query]
+      properties:
+        run_id: {type: string}
+        status: {type: string}
+        user_query: {type: string}
+        owner_user_id: {type: integer, format: int64}
+        reserved_micro_points: {type: integer, format: int64}
+        consumed_micro_points: {type: integer, format: int64}

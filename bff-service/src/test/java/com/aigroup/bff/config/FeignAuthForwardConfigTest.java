@@ -23,7 +23,7 @@ class FeignAuthForwardConfigTest {
     @Test
     void userScopedCallForwardsGatewayVerifiedContext() {
         bindUser();
-        RequestTemplate template = new RequestTemplate().uri("/api/v1/alipay/query_user_order_list");
+        RequestTemplate template = new RequestTemplate().uri("/api/pay/orders/page");
 
         interceptor.apply(template);
 

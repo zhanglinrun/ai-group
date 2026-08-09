@@ -6,9 +6,9 @@ import org.springframework.web.bind.annotation.RequestBody;
 
 import java.util.Map;
 
-@FeignClient(name = "group", url = "${ai-group.group.url:}")
+@FeignClient(name = "group-service", url = "${ai-group.group.url:}")
 public interface GroupFeignClient {
 
-    @PostMapping("/api/v1/gbm/index/query_group_buy_market_config")
+    @PostMapping("/api/group/activities")
     Map<String, Object> queryGroupBuyMarketConfig(@RequestBody Map<String, Object> request);
 }

@@ -1,0 +1,64 @@
+name: xiongdoctor-dev
+
+services:
+  mysql:
+    image: mysql:8.4
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-xiongdoctor_dev}
+    ports: ["${MYSQL_PUBLISH_PORT:-13306}:3306"]
+    volumes:
+      - dev_mysql_data:/var/lib/mysql
+      - ../mysql/init/00-databases.sql:/docker-entrypoint-initdb.d/00-databases.sql:ro
+      - ../../auth-service/src/main/resources/schema.sql:/docker-entrypoint-initdb.d/10-auth.sql:ro
+      - ../../member-service/src/main/resources/schema.sql:/docker-entrypoint-initdb.d/11-member.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysql -h localhost -uroot -p$${MYSQL_ROOT_PASSWORD} -e 'SELECT 1' >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+  redis:
+    image: redis:7.4-alpine
+    ports: ["${REDIS_PUBLISH_PORT:-16379}:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:-xiongdoctor}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:-xiongdoctor_dev}
+    ports: ["${RABBITMQ_PUBLISH_PORT:-15672}:15672", "${RABBITMQ_AMQP_PUBLISH_PORT:-5672}:5672"]
+  agent-postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${AGENT_POSTGRES_DB:-xiongdoctor_agent}
+      POSTGRES_USER: ${AGENT_POSTGRES_USER:-xiongdoctor}
+      POSTGRES_PASSWORD: ${AGENT_POSTGRES_PASSWORD:-xiongdoctor_dev}
+    ports: ["${AGENT_POSTGRES_PUBLISH_PORT:-15432}:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+  agent-service:
+    build:
+      context: ../../agent-service
+      dockerfile: app/Dockerfile
+    env_file:
+      - ../../.env
+    environment:
+      APP_PORT: 8090
+      POSTGRES_HOST: agent-postgres
+      POSTGRES_PORT: 5432
+    expose: ["8090"]
+    depends_on:
+      agent-postgres: {condition: service_healthy}
+  frontend:
+    image: node:20-alpine
+    working_dir: /workspace
+    command: ["sh", "-c", "npm ci --ignore-scripts && npm run dev -- --host 0.0.0.0"]
+    volumes:
+      - ../../frontend:/workspace
+      - dev_web_node_modules:/workspace/node_modules
+    ports: ["${WEB_PUBLISH_PORT:-5173}:5173"]
+
+volumes:
+  dev_mysql_data:
+  dev_web_node_modules:

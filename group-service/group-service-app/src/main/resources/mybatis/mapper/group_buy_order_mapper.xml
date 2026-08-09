@@ -1,0 +1,215 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.aigroup.groupbuy.infrastructure.dao.IGroupBuyOrderDao">
+
+    <resultMap id="dataMap" type="com.aigroup.groupbuy.infrastructure.dao.po.GroupBuyOrder">
+        <id column="id" property="id"/>
+        <result column="team_id" property="teamId"/>
+        <result column="activity_id" property="activityId"/>
+        <result column="source" property="source"/>
+        <result column="channel" property="channel"/>
+        <result column="original_price" property="originalPrice"/>
+        <result column="deduction_price" property="deductionPrice"/>
+        <result column="pay_price" property="payPrice"/>
+        <result column="target_count" property="targetCount"/>
+        <result column="tier_snapshot" property="tierSnapshot"/>
+        <result column="complete_count" property="completeCount"/>
+        <result column="lock_count" property="lockCount"/>
+        <result column="status" property="status"/>
+        <result column="valid_start_time" property="validStartTime"/>
+        <result column="valid_end_time" property="validEndTime"/>
+        <result column="notify_type" property="notifyType"/>
+        <result column="notify_url" property="notifyUrl"/>
+        <result column="create_time" property="createTime"/>
+        <result column="update_time" property="updateTime"/>
+    </resultMap>
+
+    <select id="queryExpiredProgressTeams" resultMap="dataMap">
+        <![CDATA[
+            select team_id, activity_id, target_count, tier_snapshot, complete_count, lock_count, status,
+            valid_start_time, valid_end_time, notify_type, notify_url
+            from group_buy_order
+            where status = 0
+              and complete_count > 0
+              and valid_end_time < now()
+              and tier_snapshot is not null
+              and tier_snapshot != ''
+            order by valid_end_time asc, id asc
+            limit 20
+        ]]>
+    </select>
+
+    <insert id="insert" parameterType="com.aigroup.groupbuy.infrastructure.dao.po.GroupBuyOrder">
+        insert into group_buy_order(
+        team_id, activity_id, source, channel, original_price,
+        deduction_price, pay_price, target_count, tier_snapshot, complete_count,
+        lock_count, status, valid_start_time, valid_end_time, notify_type, notify_url, create_time, update_time
+        ) values(
+        #{teamId}, #{activityId}, #{source}, #{channel}, #{originalPrice},
+        #{deductionPrice}, #{payPrice}, #{targetCount}, #{tierSnapshot}, #{completeCount},
+        #{lockCount}, 0, #{validStartTime}, #{validEndTime}, #{notifyType}, #{notifyUrl}, now(), now()
+        )
+    </insert>
+
+    <update id="updateAddLockCount" parameterType="java.lang.String">
+        <![CDATA[
+            update group_buy_order
+            set lock_count = lock_count + 1, update_time= now()
+            where team_id = #{teamId}
+              and lock_count < target_count
+              and status = 0
+              and valid_end_time > now()
+        ]]>
+    </update>
+
+    <!-- B2: "and status = 0" guards against settling into a finalized (complete/fail) team;
+         TradeRepository maps the 0-rows case to a recognizable "team finalized" error code -->
+    <update id="updateAddCompleteCount" parameterType="java.lang.String">
+        <![CDATA[
+            update group_buy_order
+            set complete_count = complete_count + 1, update_time= now()
+            where team_id = #{teamId} and complete_count < target_count and status = 0
+        ]]>
+    </update>
+
+    <update id="updateSubtractionLockCount" parameterType="java.lang.String">
+        update group_buy_order
+        set lock_count = lock_count - 1, update_time= now()
+        where team_id = #{teamId} and lock_count > 0
+    </update>
+
+    <update id="updateOrderStatus2COMPLETE" parameterType="java.lang.String">
+        update group_buy_order
+        set status = 1, update_time= now()
+        where team_id = #{teamId} and status = 0
+    </update>
+
+    <!--
+        仅供本地演示按钮使用：当前用户已完成模拟支付后，补齐剩余席位再封团，
+        避免把 1/3 的真实进度错误地标记为已成团。正式链路不会调用此更新。
+    -->
+    <update id="finalizeDemoTeam" parameterType="java.lang.String">
+        update group_buy_order
+        set complete_count = target_count,
+            lock_count = target_count,
+            status = 1,
+            update_time = now()
+        where team_id = #{teamId}
+          and status = 0
+          and complete_count > 0
+          and complete_count &lt; target_count
+    </update>
+
+    <select id="queryGroupBuyProgress" parameterType="java.lang.String" resultMap="dataMap">
+        select target_count, tier_snapshot, complete_count, lock_count from group_buy_order
+        where team_id = #{teamId}
+    </select>
+
+    <select id="queryGroupBuyTeamByTeamId" parameterType="java.lang.String" resultMap="dataMap">
+        select team_id, activity_id, target_count, tier_snapshot, complete_count, lock_count, status, valid_start_time, valid_end_time,
+        notify_type, notify_url
+        from group_buy_order where team_id = #{teamId}
+    </select>
+
+    <!-- Row-locked read used inside the paid&formed refund transaction to recompute
+         FAIL vs COMPLETE_FAIL from the fresh complete_count (removes the TOCTOU race). -->
+    <select id="queryGroupBuyTeamByTeamIdForUpdate" parameterType="java.lang.String" resultMap="dataMap">
+        select team_id, activity_id, target_count, tier_snapshot, complete_count, lock_count, status, valid_start_time, valid_end_time,
+        notify_type, notify_url
+        from group_buy_order where team_id = #{teamId} for update
+    </select>
+
+    <select id="queryGroupBuyTeamByTeamIds" parameterType="java.util.Set" resultMap="dataMap">
+        select team_id, activity_id, target_count, tier_snapshot, complete_count, lock_count, status, valid_start_time, valid_end_time,
+        notify_type, notify_url
+        from group_buy_order where team_id in
+        <foreach item="teamId" collection="teamIds" open="(" separator="," close=")">
+            #{teamId}
+        </foreach>
+    </select>
+
+    <select id="queryGroupBuyProgressByTeamIds" parameterType="java.util.Set" resultMap="dataMap">
+        select team_id, activity_id, target_count, tier_snapshot, complete_count, lock_count, status, valid_start_time, valid_end_time,
+        notify_type, notify_url
+        from group_buy_order
+        <!-- complete_count > 0：仅展示已有成员真实支付参团的队伍；仅锁单未支付(0人)的空壳团不进大厅 -->
+        where status = 0 and complete_count > 0 and target_count > lock_count and valid_end_time > now() and team_id in
+        <foreach item="teamId" collection="teamIds" open="(" separator="," close=")">
+            #{teamId}
+        </foreach>
+    </select>
+
+    <select id="queryGroupBuyProgressByTeamIdsForOwner" parameterType="java.util.Set" resultMap="dataMap">
+        select team_id, activity_id, target_count, tier_snapshot, complete_count, lock_count, status, valid_start_time, valid_end_time,
+        notify_type, notify_url
+        from group_buy_order
+        <!-- 自己的锁单队伍也要展示；支付完成前 complete_count 可能仍为 0。 -->
+        where status = 0 and target_count > lock_count and valid_end_time > now() and team_id in
+        <foreach item="teamId" collection="teamIds" open="(" separator="," close=")">
+            #{teamId}
+        </foreach>
+    </select>
+
+    <select id="queryAllTeamCount" parameterType="java.util.Set" resultType="java.lang.Integer">
+        select count(id) from group_buy_order
+        where team_id in
+        <foreach item="teamId" collection="teamIds" open="(" separator="," close=")">
+            #{teamId}
+        </foreach>
+    </select>
+
+    <select id="queryAllTeamCompleteCount" parameterType="java.util.Set" resultType="java.lang.Integer">
+        select count(id) from group_buy_order
+        where status = 1 and team_id in
+        <foreach item="teamId" collection="teamIds" open="(" separator="," close=")">
+            #{teamId}
+        </foreach>
+    </select>
+
+    <select id="queryAllUserCount" parameterType="java.util.Set" resultType="java.lang.Integer">
+        select sum(lock_count) from group_buy_order
+        where team_id in
+        <foreach item="teamId" collection="teamIds" open="(" separator="," close=")">
+            #{teamId}
+        </foreach>
+    </select>
+
+    <update id="unpaid2Refund" parameterType="com.aigroup.groupbuy.infrastructure.dao.po.GroupBuyOrder">
+        update group_buy_order
+        set lock_count = lock_count + #{lockCount}, update_time= now()
+        where
+        team_id = #{teamId} and
+        status = 0
+    </update>
+
+    <update id="paid2Refund" parameterType="com.aigroup.groupbuy.infrastructure.dao.po.GroupBuyOrder">
+        update group_buy_order
+        set lock_count = lock_count + #{lockCount},
+        complete_count = complete_count + #{completeCount},
+        update_time= now()
+        where
+        team_id = #{teamId} and
+        status = 0
+    </update>
+
+    <update id="paidTeam2Refund" parameterType="com.aigroup.groupbuy.infrastructure.dao.po.GroupBuyOrder">
+        update group_buy_order
+        set lock_count = lock_count + #{lockCount},
+        complete_count = complete_count + #{completeCount},
+        status = 3,
+        update_time = now()
+        where
+        team_id = #{teamId} and (status = 1 or status = 3) and complete_count > 1
+    </update>
+
+    <update id="paidTeam2RefundFail" parameterType="com.aigroup.groupbuy.infrastructure.dao.po.GroupBuyOrder">
+        update group_buy_order
+        set lock_count = lock_count + #{lockCount},
+        complete_count = complete_count + #{completeCount},
+        status = 2,
+        update_time= now()
+        where
+        team_id = #{teamId} and (status = 1 or status = 3) and complete_count = 1
+    </update>
+
+</mapper>

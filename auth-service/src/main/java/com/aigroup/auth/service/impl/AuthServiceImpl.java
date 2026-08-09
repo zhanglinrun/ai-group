@@ -1,19 +1,20 @@
 package com.aigroup.auth.service.impl;
 
-import com.aigroup.auth.client.MemberClient;
 import com.aigroup.auth.dto.LoginDTO;
 import com.aigroup.auth.dto.RegisterDTO;
 import com.aigroup.auth.entity.User;
 import com.aigroup.auth.mapper.UserMapper;
 import com.aigroup.auth.service.AuthService;
+import com.aigroup.auth.service.AuthOutboxService;
 import com.aigroup.auth.service.RefreshTokenStore;
 import com.aigroup.auth.vo.LoginVO;
 import com.aigroup.auth.vo.RefreshTokenVO;
 import com.aigroup.auth.vo.UserVO;
+import cn.dev33.satoken.stp.StpUtil;
+import cn.dev33.satoken.exception.SaTokenContextException;
 import com.aigroup.common.config.JwtProperties;
 import com.aigroup.common.constant.ErrorCodeEnum;
 import com.aigroup.common.exception.BusinessException;
-import com.aigroup.common.model.Result;
 import com.aigroup.common.utils.JwtUtils;
 import io.jsonwebtoken.Claims;
 import lombok.RequiredArgsConstructor;
@@ -26,7 +27,6 @@ import org.springframework.util.StringUtils;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
-import java.util.Map;
 import java.util.UUID;
 
 @Service
@@ -40,7 +40,7 @@ public class AuthServiceImpl implements AuthService {
     private final JwtProperties jwtProperties;
     private final BCryptPasswordEncoder passwordEncoder;
     private final StringRedisTemplate stringRedisTemplate;
-    private final MemberClient memberClient;
+    private final AuthOutboxService authOutboxService;
     private final RefreshTokenStore refreshTokenStore;
 
     @Override
@@ -79,10 +79,11 @@ public class AuthServiceImpl implements AuthService {
         user.setUpdateTime(LocalDateTime.now());
         userMapper.insert(user);
 
-        Result<Void> initResult = memberClient.initFree(Map.of("userId", user.getId()));
-        if (initResult == null || initResult.getCode() == null || initResult.getCode() != 200) {
-            throw new BusinessException("failed to initialize free quota account");
-        }
+        // Account creation crosses the Auth/Member database boundary.  The
+        // registration event is written to Auth's outbox in this transaction;
+        // Member consumes it asynchronously and INSERT IGNORE makes delivery
+        // retries idempotent.  Auth therefore never calls Member directly.
+        authOutboxService.enqueueUserRegistered(user);
 
         UserVO userVO = new UserVO();
         BeanUtils.copyProperties(user, userVO);
@@ -103,7 +104,13 @@ public class AuthServiceImpl implements AuthService {
     @Override
     public RefreshTokenVO refresh(String refreshToken) {
         if (!StringUtils.hasText(refreshToken)) {
-            throw new BusinessException(ErrorCodeEnum.TOKEN_ERROR);
+            if (!StpUtil.isLogin()) {
+                throw new BusinessException(ErrorCodeEnum.TOKEN_ERROR);
+            }
+            RefreshTokenVO session = new RefreshTokenVO();
+            session.setAccessToken(StpUtil.getTokenValue());
+            session.setRefreshToken("");
+            return session;
         }
         Claims refreshClaims = jwtUtils.parseRefreshToken(refreshToken);
         Long userId = jwtUtils.getUserId(refreshClaims);
@@ -137,6 +144,14 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     public void logout(String accessToken) {
+        // HTTP requests have a Sa-Token context.  The token blacklist path is
+        // also used by background jobs and unit tests, where no servlet
+        // context exists, so invalidating the optional session is best effort.
+        try {
+            StpUtil.logout();
+        } catch (SaTokenContextException ignored) {
+            // no request context; continue with explicit token revocation
+        }
         if (!StringUtils.hasText(accessToken)) {
             return;
         }
@@ -158,12 +173,16 @@ public class AuthServiceImpl implements AuthService {
     }
 
     private LoginVO buildLoginVO(User user) {
+        StpUtil.login(user.getId());
+        // SaLoginModel extras are not persisted by every Sa-Token DAO mode;
+        // token-session fields are explicit and therefore available to the
+        // Gateway when it validates the browser cookie.
+        StpUtil.getTokenSession().set("username", user.getUsername());
+        StpUtil.getTokenSession().set("role", user.getRole());
+        String saToken = StpUtil.getTokenValue();
         LoginVO loginVO = new LoginVO();
-        loginVO.setAccessToken(jwtUtils.generateToken(user.getId(), user.getUsername(), user.getRole()));
-        String jti = UUID.randomUUID().toString().replace("-", "");
-        String refreshToken = jwtUtils.generateRefreshToken(user.getId(), jti);
-        refreshTokenStore.store(user.getId(), jti, Duration.ofMillis(jwtProperties.getRefreshExpirationMs()));
-        loginVO.setRefreshToken(refreshToken);
+        loginVO.setAccessToken(saToken);
+        loginVO.setRefreshToken("");
         UserVO userVO = new UserVO();
         BeanUtils.copyProperties(user, userVO);
         loginVO.setUser(userVO);

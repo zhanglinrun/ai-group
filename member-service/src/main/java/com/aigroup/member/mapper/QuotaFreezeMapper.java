@@ -32,12 +32,12 @@ public interface QuotaFreezeMapper extends BaseMapper<QuotaFreeze> {
 
     /** Scan only legacy/unmanaged PENDING freezes that member may safely release. */
     @Select("SELECT freeze_id FROM quota_freeze WHERE status = 'PENDING' "
-            + "AND (owner_service IS NULL OR owner_service <> 'ai-agent') AND created_at < #{cutoff} "
+            + "AND (owner_service IS NULL OR owner_service <> 'agent-service') AND created_at < #{cutoff} "
             + "ORDER BY created_at ASC LIMIT #{limit}")
     List<String> selectExpiredPendingFreezeIds(@Param("cutoff") LocalDateTime cutoff, @Param("limit") int limit);
 
     @Select("SELECT freeze_id FROM quota_freeze WHERE status = 'PENDING' "
-            + "AND owner_service = 'ai-agent' AND created_at < #{cutoff} "
+            + "AND owner_service = 'agent-service' AND created_at < #{cutoff} "
             + "ORDER BY created_at ASC LIMIT #{limit}")
     List<String> selectExpiredManagedPendingFreezeIds(@Param("cutoff") LocalDateTime cutoff,
                                                       @Param("limit") int limit);

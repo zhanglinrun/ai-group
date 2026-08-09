@@ -44,7 +44,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
         webEnvironment = SpringBootTest.WebEnvironment.NONE,
         properties = {
                 "spring.cloud.nacos.discovery.enabled=false",
-                "spring.kafka.consumer.auto-offset-reset=earliest",
+                "spring.rabbitmq.listener.simple.auto-startup=false",
                 "spring.task.scheduling.enabled=false"
         }
 )
@@ -282,7 +282,7 @@ class QuotaConcurrencyBenchmarkIT {
         List<String> managedFreezeIds = new ArrayList<>();
         for (int index = 0; index < MANAGED_ABANDONED_FREEZES; index++) {
             managedFreezeIds.add(memberService.freeze(
-                    USER_ID, 1L, 1L, "llm", "bench-managed-" + index, "ai-agent")
+                    USER_ID, 1L, 1L, "llm", "bench-managed-" + index, "agent-service")
                     .get("freezeId").toString());
         }
         jdbcTemplate.update("""
@@ -296,7 +296,7 @@ class QuotaConcurrencyBenchmarkIT {
                 WHERE user_id = ? AND request_id LIKE 'bench-managed-%' AND status = 'PENDING'
                 """, USER_ID);
         assertEquals(MANAGED_ABANDONED_FREEZES, pendingManagedFreezes,
-                "ai-agent managed reservations must be reconciled by its durable settlement owner");
+                "agent-service managed reservations must be reconciled by its durable settlement owner");
         assertEquals(MANAGED_ABANDONED_FREEZES, frozenBalance());
         for (String managedFreezeId : managedFreezeIds) {
             memberService.release(managedFreezeId);
@@ -371,7 +371,7 @@ class QuotaConcurrencyBenchmarkIT {
         results.put("benefitRaceGrantedOrders", grantedBenefitOrders);
         results.put("finalFrozenBalance", frozenBalance());
         report.put("results", results);
-        report.put("methodology", "Calls the transactional MemberService proxy against an isolated MySQL schema. Concurrent phases share one account to exercise row locks and the (user_id, request_id) unique guard. COMPLETED/REVOKED pairs start concurrently and must serialize on quota_account before reading opposite event state. The production ExpiredFreezeReleaseJob is invoked after aging both legacy and ai-agent-managed rows; only legacy rows may be released automatically.");
+        report.put("methodology", "Calls the transactional MemberService proxy against an isolated MySQL schema. Concurrent phases share one account to exercise row locks and the (user_id, request_id) unique guard. COMPLETED/REVOKED pairs start concurrently and must serialize on quota_account before reading opposite event state. The production ExpiredFreezeReleaseJob is invoked after aging both legacy and agent-service-managed rows; only legacy rows may be released automatically.");
         writeReport(report);
     }
 

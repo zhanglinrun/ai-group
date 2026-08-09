@@ -38,7 +38,7 @@ public class BffController {
     @Value("${ai-group.group.default-channel:c01}")
     private String groupChannel;
 
-    @Value("${ai-group.group.default-goods-id:9890001}")
+    @Value("${ai-group.group.default-goods-id:9890002}")
     private String defaultGoodsId;
 
     @GetMapping("/pricing")
@@ -108,7 +108,8 @@ public class BffController {
         try {
             Long userId = requireUserId();
             return normalizeGroupMarket(groupMarketQueryCoordinator.query(userId, goodsId,
-                    () -> groupFeignClient.queryGroupBuyMarketConfig(buildGroupMarketRequest(userId, goodsId))));
+                    () -> groupFeignClient.queryGroupBuyMarketConfig(buildGroupMarketRequest(userId, goodsId))),
+                    String.valueOf(userId));
         } catch (Exception ex) {
             degrade.add("group", "GROUP_MARKET_UNAVAILABLE", ex.getMessage());
             return Map.of("unavailable", true);
@@ -166,25 +167,26 @@ public class BffController {
             if (activityId != null) {
                 sku.put("groupActivityId", activityId);
             }
-            // 阶梯额度拼团：把该 SKU 活动的档位阶梯与活动类型附加到 SKU，供前端渲染"额度阶梯"
-            Object tiers = market.get("tiers");
-            if (tiers != null) {
-                sku.put("groupTiers", tiers);
+            Object targetCount = market.get("targetCount");
+            if (targetCount != null) {
+                sku.put("groupTeamSize", targetCount);
             }
-            Object activityType = market.get("activityType");
-            if (activityType != null) {
-                sku.put("groupActivityType", activityType);
-            }
+            // Current quota packages use one fixed amount per SKU. Do not
+            // expose the legacy activity-tier payload to the browser; the
+            // activity still returns team progress and its configured cash
+            // promotion through groupPayPrice/groupDeductionPrice.
         }
     }
 
     /**
      * 聚合大厅视图：合并所有拼团商品的进行中队伍（Team 自带 activityId 供前端归属 SKU），
-     * 顶层 activityId/goods 取第一个可用商品，保持前端旧字段兼容。
+     * 同时保留当前用户自己的队伍到 myTeamList；顶层 activityId/goods 取第一个可用商品，
+     * 保持前端旧字段兼容。
      */
     private Map<String, Object> buildAggregatedGroupBuy(List<Map<String, Object>> skus, Map<String, Map<String, Object>> marketByGoods) {
         Map<String, Object> aggregated = null;
         List<Object> mergedTeams = new ArrayList<>();
+        List<Object> mergedMyTeams = new ArrayList<>();
         // 按 SKU 顺序聚合，保证顶层默认取第一个额度包的活动。
         List<String> orderedGoods = new ArrayList<>();
         for (Map<String, Object> sku : skus) {
@@ -208,11 +210,16 @@ public class BffController {
             if (teams instanceof List<?> teamList) {
                 mergedTeams.addAll(teamList);
             }
+            Object myTeams = market.get("myTeamList");
+            if (myTeams instanceof List<?> myTeamList) {
+                mergedMyTeams.addAll(myTeamList);
+            }
         }
         if (aggregated == null) {
             return Map.of("unavailable", true);
         }
         aggregated.put("teamList", mergedTeams);
+        aggregated.put("myTeamList", mergedMyTeams);
         return aggregated;
     }
 
@@ -234,7 +241,7 @@ public class BffController {
     }
 
     @SuppressWarnings("unchecked")
-    private Map<String, Object> normalizeGroupMarket(Map<String, Object> response) {
+    private Map<String, Object> normalizeGroupMarket(Map<String, Object> response, String currentUserId) {
         if (response == null) {
             return Map.of("unavailable", true);
         }
@@ -245,13 +252,67 @@ public class BffController {
         Object payload = response.get("data");
         if (!(payload instanceof Map<?, ?> raw)) {
             if (response.containsKey("activityId") || response.containsKey("goods")) {
-                return new HashMap<>((Map<String, Object>) response);
+                Map<String, Object> normalized = new HashMap<>((Map<String, Object>) response);
+                return splitCurrentUserTeams(normalized, currentUserId);
             }
             return Map.of("unavailable", true);
         }
         Map<String, Object> normalized = new HashMap<>();
         raw.forEach((key, value) -> normalized.put(String.valueOf(key), value));
-        return normalized;
+        return splitCurrentUserTeams(normalized, currentUserId);
+    }
+
+    /**
+     * The market service intentionally returns the current user's open teams first so that
+     * order pages can render them. The public hall has a different meaning: its list is only
+     * the teams that this user can join. Keep both views in the response so the UI can show
+     * "我的进行中拼团" separately without allowing a user to join their own team.
+     */
+    private Map<String, Object> splitCurrentUserTeams(Map<String, Object> market, String currentUserId) {
+        Object teams = market.get("teamList");
+        if (!(teams instanceof List<?> teamList)) {
+            return market;
+        }
+        // The group service returns the current user's memberships in
+        // `myTeamList`, while `teamList` is the public list and may still
+        // contain the same team (usually under its owner's userId).  Keep
+        // the membership list authoritative and remove those teams from the
+        // joinable list; otherwise a user who has joined a team sees it in
+        // both sections and can attempt to join the same team again.
+        List<Object> currentUserTeams = new ArrayList<>();
+        java.util.Set<String> currentTeamIds = new java.util.HashSet<>();
+        Object existingMine = market.get("myTeamList");
+        if (existingMine instanceof List<?> mineList) {
+            for (Object item : mineList) {
+                if (!(item instanceof Map<?, ?> team)) {
+                    continue;
+                }
+                String teamId = stringValue(team.get("teamId"));
+                if (teamId != null && !teamId.isBlank() && currentTeamIds.add(teamId)) {
+                    currentUserTeams.add(item);
+                }
+            }
+        }
+        List<Object> visibleTeams = new ArrayList<>();
+        for (Object item : teamList) {
+            if (!(item instanceof Map<?, ?> team)) {
+                visibleTeams.add(item);
+                continue;
+            }
+            String teamId = stringValue(team.get("teamId"));
+            Object ownerId = team.get("userId");
+            if ((teamId != null && currentTeamIds.contains(teamId))
+                    || (ownerId != null && currentUserId != null && currentUserId.equals(String.valueOf(ownerId)))) {
+                if (teamId == null || currentTeamIds.add(teamId)) {
+                    currentUserTeams.add(item);
+                }
+            } else {
+                visibleTeams.add(item);
+            }
+        }
+        market.put("myTeamList", currentUserTeams);
+        market.put("teamList", visibleTeams);
+        return market;
     }
 
     private List<Map<String, Object>> listUserOrders() {
@@ -458,6 +519,17 @@ public class BffController {
 
     private String stringValue(Object value) {
         return value == null ? null : String.valueOf(value);
+    }
+
+    private int integerValue(Object value) {
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        try {
+            return value == null ? 0 : Integer.parseInt(String.valueOf(value));
+        } catch (NumberFormatException ex) {
+            return 0;
+        }
     }
 
     private boolean isGroupBuyMarket(Object marketType) {

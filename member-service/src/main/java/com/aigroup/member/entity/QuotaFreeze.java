@@ -28,7 +28,7 @@ public class QuotaFreeze {
     private String traceId;
     /** Stable hash of the canonical reservation request. */
     private String requestFingerprint;
-    /** Service that durably owns terminal settlement; e.g. ai-agent. */
+    /** Service that durably owns terminal settlement; e.g. agent-service. */
     private String ownerService;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;

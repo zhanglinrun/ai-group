@@ -1,0 +1,71 @@
+- id: comp_cursor
+  display_name: Cursor
+  aliases: ["Cursor AI", "Cursor Editor"]
+  official_url: https://cursor.com
+  category: ai_coding_assistant
+
+- id: comp_windsurf
+  display_name: Windsurf
+  aliases: ["Codeium Windsurf", "Windsurf IDE"]
+  official_url: https://windsurf.com
+  category: ai_coding_assistant
+
+- id: comp_github_copilot
+  display_name: GitHub Copilot
+  aliases: ["Copilot", "GitHub AI pair programmer"]
+  official_url: https://github.com/features/copilot
+  category: ai_coding_assistant
+
+- id: comp_claude_code
+  display_name: Claude Code
+  aliases: ["Anthropic Claude Code"]
+  official_url: https://www.anthropic.com/claude-code
+  category: ai_coding_assistant
+
+- id: comp_notion
+  display_name: Notion
+  aliases: ["Notion App", "Notion Docs"]
+  official_url: https://www.notion.so/product
+  category: knowledge_management
+
+- id: comp_obsidian
+  display_name: Obsidian
+  aliases: ["Obsidian Notes"]
+  official_url: https://obsidian.md
+  category: knowledge_management
+
+- id: comp_clickup
+  display_name: ClickUp
+  aliases: ["Click Up"]
+  official_url: https://clickup.com
+  category: project_management
+
+- id: comp_asana
+  display_name: Asana
+  aliases: ["Asana PM"]
+  official_url: https://asana.com
+  category: project_management
+
+- id: comp_hubspot
+  display_name: HubSpot CRM
+  aliases: ["HubSpot"]
+  official_url: https://www.hubspot.com/products/crm
+  category: crm
+
+- id: comp_salesforce
+  display_name: Salesforce
+  aliases: ["Salesforce CRM"]
+  official_url: https://www.salesforce.com
+  category: crm
+
+- id: comp_linear
+  display_name: Linear
+  aliases: ["Linear App"]
+  official_url: https://linear.app
+  category: issue_tracking
+
+- id: comp_jira
+  display_name: Jira
+  aliases: ["Atlassian Jira"]
+  official_url: https://www.atlassian.com/software/jira
+  category: issue_tracking

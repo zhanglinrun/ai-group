@@ -1,0 +1,151 @@
+server:
+  port: 8070
+
+# 应用配置
+app:
+  config:
+    # 版本，方便通过接口版本升级
+    api-version: v1
+    # 跨域，开发阶段可以设置为 * 不限制
+    cross-origin: '*'
+    # SC 渠道配置 - 拼团对接渠道值、回调通知
+    group-service:
+      api-url: ${GROUP_BUY_API_URL:http://127.0.0.1:8091}
+      notify-url: ${GROUP_BUY_NOTIFY_URL:http://127.0.0.1:8070/api/pay/group/notify}
+      source: s01
+      chanel: c01
+    member-service:
+      api-url: ${MEMBER_SERVICE_URL:http://127.0.0.1:18082}
+
+# 线程池配置
+thread:
+  pool:
+    executor:
+      config:
+        core-pool-size: 20
+        max-pool-size: 50
+        keep-alive-time: 5000
+        block-queue-size: 5000
+        policy: CallerRunsPolicy
+
+# 数据库配置；启动时配置数据库资源信息
+spring:
+  datasource:
+    username: ${MYSQL_USER:root}
+    password: ${MYSQL_ROOT_PASSWORD:}
+    url: jdbc:mysql://${MYSQL_HOST:127.0.0.1}:${MYSQL_PORT:13306}/s_pay_mall_ddd_market?useUnicode=true&characterEncoding=utf8&autoReconnect=true&zeroDateTimeBehavior=convertToNull&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  hikari:
+    pool-name: Retail_HikariCP
+    minimum-idle: 15 #最小空闲连接数量
+    idle-timeout: 180000 #空闲连接存活最大时间，默认600000（10分钟）
+    maximum-pool-size: 25 #连接池最大连接数，默认是10
+    auto-commit: true  #此属性控制从池返回的连接的默认自动提交行为,默认值：true
+    max-lifetime: 1800000 #此属性控制池中连接的最长生命周期，值0表示无限生命周期，默认1800000即30分钟
+    connection-timeout: 30000 #数据库连接超时时间,默认30秒，即30000
+    connection-test-query: SELECT 1
+  type: com.zaxxer.hikari.HikariDataSource
+  rabbitmq:
+    host: ${RABBITMQ_HOST:127.0.0.1}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USERNAME:xiongdoctor}
+    password: ${RABBITMQ_PASSWORD:xiongdoctor_dev}
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    event-exchange: ${RABBITMQ_EVENT_EXCHANGE:xiongdoctor.events}
+    confirm-timeout-ms: ${RABBITMQ_CONFIRM_TIMEOUT_MS:5000}
+    routing:
+      order-pay-success: ${RABBITMQ_ORDER_PAY_SUCCESS:pay.order_pay_success}
+      member-benefit: ${RABBITMQ_MEMBER_BENEFIT:member.benefit.completed}
+      group-team-success: ${RABBITMQ_GROUP_TEAM_SUCCESS:group.team_success}
+      group-team-refund: ${RABBITMQ_GROUP_TEAM_REFUND:group.team_refund}
+
+# MyBatis 配置【如需使用记得打开】
+mybatis:
+  mapper-locations: classpath:/mybatis/mapper/*.xml
+  config-location:  classpath:/mybatis/config/mybatis-config.xml
+
+# 微信公众号对接（已禁用，统一走 auth-service + 支付宝）
+weixin:
+  enabled: false
+  config:
+    originalid: ${WEIXIN_ORIGINAL_ID:}
+    token: ${WEIXIN_TOKEN:}
+    app-id: ${WEIXIN_APP_ID:}
+    app-secret: ${WEIXIN_APP_SECRET:}
+    template_id: ${WEIXIN_TEMPLATE_ID:}
+
+# 支付宝支付 - 沙箱；密钥从根目录 .env 注入（start-full-stack.ps1 会设置环境变量）
+alipay:
+  enabled: ${ALIPAY_ENABLED:false}
+  strict: ${ALIPAY_STRICT:false}
+  app_id: ${ALIPAY_APP_ID:9021000163648430}
+  merchant_private_key: ${ALIPAY_MERCHANT_PRIVATE_KEY:}
+  alipay_public_key: ${ALIPAY_PUBLIC_KEY:}
+  notify_url: ${ALIPAY_NOTIFY_URL:http://127.0.0.1:8080/api/pay/alipay/notify}
+  return_url: ${ALIPAY_RETURN_URL:http://127.0.0.1:5173/pricing?tab=orders&paymentReturn=1}
+  gatewayUrl: ${ALIPAY_GATEWAY_URL:https://openapi-sandbox.dl.alipaydev.com/gateway.do}
+
+# SC 渠道配置 - 拼团对接渠道值
+sc:
+  group:
+    buy:
+      market:
+        source: s01
+        chanel: c01
+
+# 日志
+logging:
+  level:
+    root: info
+  config: classpath:logback-spring.xml
+
+ai-group:
+  internal:
+    token: ${AI_GROUP_INTERNAL_TOKEN:}
+  pay:
+    # 本地开发联调专用：开启后注册 dev-only 模拟支付入口；生产 profile 没有该路由。
+    demo-complete-enabled: ${AI_GROUP_DEMO_PAYMENT_ENABLED:false}
+    # 小额实收开关：>0 时实际向支付宝只收该金额（真实支付通道演示用）；<=0 按套餐价全额收取。
+    # 当前走支付宝沙箱（假钱），默认全额收取使收银台金额与页面价格一致；
+    # 若切换到真实支付通道又只想花几分钱演示，设 AI_GROUP_PAY_SANDBOX_AMOUNT=0.01 即可。
+    sandbox-amount: ${AI_GROUP_PAY_SANDBOX_AMOUNT:0}
+    # 商品目录（goodsId -> 名称/展示价），与 member_db.product_sku、group_buy_market.sku 对齐
+    catalog:
+      # Only local development may use the static fallback when member-service is down.
+      fallback-enabled: true
+      products:
+        "9890002":
+          name: "轻量额度包（60）"
+          price: 12.00
+          product-code: "QUOTA_LIGHT"
+          base-quota: 60
+        "9890003":
+          name: "标准额度包（300）"
+          price: 60.00
+          product-code: "QUOTA_STANDARD"
+          base-quota: 300
+        "9890004":
+          name: "大额额度包（700）"
+          price: 140.00
+          product-code: "QUOTA_LARGE"
+          base-quota: 700
+
+# XXL-JOB 执行器配置
+xxl:
+  job:
+    admin:
+      addresses: ${XXL_JOB_ADMIN_ADDRESSES:http://127.0.0.1:18081}
+    accessToken: ${XXL_JOB_ACCESS_TOKEN:default_token}
+    executor:
+      logpath: ${XXL_JOB_LOGPATH:./logs/xxl-job/pay}
+      logretentiondays: 30
+
+pay:
+  outbox:
+    # Compose runs one Pay instance without an XXL-JOB admin. Production can
+    # leave this false and invoke the same handler from XXL-JOB instead.
+    local-scheduler-enabled: ${PAY_OUTBOX_LOCAL_SCHEDULER_ENABLED:false}
+    publish-interval-ms: ${PAY_OUTBOX_PUBLISH_INTERVAL_MS:1000}
+    publish-initial-delay-ms: ${PAY_OUTBOX_PUBLISH_INITIAL_DELAY_MS:1000}
+

@@ -1,0 +1,313 @@
+name: xiongdoctor
+
+services:
+  mysql:
+    image: mysql:8.4
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-xiongdoctor_dev}
+      TZ: Asia/Shanghai
+    ports:
+      - "${MYSQL_PUBLISH_PORT:-13306}:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ../mysql/init/00-databases.sql:/docker-entrypoint-initdb.d/00-databases.sql:ro
+      - ../../auth-service/src/main/resources/schema.sql:/docker-entrypoint-initdb.d/10-auth.sql:ro
+      - ../../member-service/src/main/resources/schema.sql:/docker-entrypoint-initdb.d/11-member.sql:ro
+      - ../../group-service/docs/dev-ops/mysql/sql/2-29-group_buy_market.sql:/docker-entrypoint-initdb.d/20-group.sql:ro
+      - ../../group-service/docs/dev-ops/mysql/sql/3-01-per-sku-groupbuy-migrate.sql:/docker-entrypoint-initdb.d/21-group-sku.sql:ro
+      - ../../group-service/docs/dev-ops/mysql/sql/3-02-groupbuy-tier-migrate.sql:/docker-entrypoint-initdb.d/22-group-tier.sql:ro
+      - ../../group-service/docs/dev-ops/mysql/sql/3-03-groupbuy-tier-settlement-migrate.sql:/docker-entrypoint-initdb.d/23-group-settlement.sql:ro
+      - ../../group-service/docs/dev-ops/mysql/sql/3-04-identifier-width-migrate.sql:/docker-entrypoint-initdb.d/24-group-identifiers.sql:ro
+      - ../../pay-service/docs/dev-ops/mysql/sql/pay-service.sql:/docker-entrypoint-initdb.d/30-pay.sql:ro
+      - ../../pay-service/docs/dev-ops/mysql/sql/V3_benefit_event.sql:/docker-entrypoint-initdb.d/31-pay-benefit.sql:ro
+      - ../../pay-service/docs/dev-ops/mysql/sql/V4_settlement_notified.sql:/docker-entrypoint-initdb.d/32-pay-settlement.sql:ro
+      - ../../pay-service/docs/dev-ops/mysql/sql/V5_transactional_outbox.sql:/docker-entrypoint-initdb.d/33-pay-outbox.sql:ro
+      - ../../pay-service/docs/dev-ops/mysql/sql/V6_pay_order_idempotency.sql:/docker-entrypoint-initdb.d/34-pay-idempotency.sql:ro
+      - ../../pay-service/docs/dev-ops/mysql/sql/V7-order-identifier-width.sql:/docker-entrypoint-initdb.d/35-pay-identifiers.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysql -h localhost -uroot -p$${MYSQL_ROOT_PASSWORD} -e 'SELECT 1' >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  redis:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "${REDIS_PUBLISH_PORT:-16379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:-xiongdoctor}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:-xiongdoctor_dev}
+    ports:
+      - "${RABBITMQ_PUBLISH_PORT:-15672}:15672"
+      - "${RABBITMQ_AMQP_PUBLISH_PORT:-5672}:5672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  nacos:
+    image: nacos/nacos-server:v2.4.2
+    environment:
+      MODE: standalone
+      PREFER_HOST_MODE: hostname
+      NACOS_AUTH_ENABLE: "false"
+      TZ: Asia/Shanghai
+    ports:
+      - "${NACOS_PUBLISH_PORT:-8848}:8848"
+      - "${NACOS_GRPC_PUBLISH_PORT:-9848}:9848"
+    volumes:
+      - nacos_logs:/home/nacos/logs
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8848/nacos/actuator/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  agent-postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${AGENT_POSTGRES_DB:-xiongdoctor_agent}
+      POSTGRES_USER: ${AGENT_POSTGRES_USER:-xiongdoctor}
+      POSTGRES_PASSWORD: ${AGENT_POSTGRES_PASSWORD:-xiongdoctor_dev}
+      TZ: Asia/Shanghai
+    ports:
+      - "${AGENT_POSTGRES_PUBLISH_PORT:-15432}:5432"
+    volumes:
+      - agent_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  minio:
+    image: minio/minio:RELEASE.2025-02-28T09-55-16Z
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-xiongdoctor}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-xiongdoctor_dev}
+    ports:
+      - "${MINIO_PUBLISH_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PUBLISH_PORT:-9001}:9001"
+    volumes:
+      - minio_data:/data
+
+  gateway-service:
+    build:
+      context: ../..
+      dockerfile: dev-ops/compose/Dockerfile.platform
+      args:
+        MODULE: gateway-service
+        ARTIFACT: gateway-service
+    environment: &java-common
+      SPRING_PROFILES_ACTIVE: default
+      NACOS_HOST: nacos
+      NACOS_PORT: 8848
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ""
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USERNAME: ${RABBITMQ_DEFAULT_USER:-xiongdoctor}
+      RABBITMQ_PASSWORD: ${RABBITMQ_DEFAULT_PASS:-xiongdoctor_dev}
+      RABBITMQ_EVENT_EXCHANGE: ${RABBITMQ_EVENT_EXCHANGE:-xiongdoctor.events}
+      AI_GROUP_INTERNAL_TOKEN: ${AI_GROUP_INTERNAL_TOKEN:-change-me-internal}
+      AI_GROUP_IDENTITY_SIGNING_SECRET: ${AI_GROUP_IDENTITY_SIGNING_SECRET:-change-me-signing-secret}
+      # The local full stack does not ship an XXL-JOB admin. Pay uses its local
+      # outbox scheduler instead; the optional executor is enabled in production.
+      XXL_JOB_ENABLED: ${XXL_JOB_ENABLED:-false}
+      JWT_SECRET: ${JWT_SECRET:-legacy-only-not-used-by-sa-token-change-me}
+      SA_TOKEN_COOKIE_SECURE: ${SA_TOKEN_COOKIE_SECURE:-false}
+    ports:
+      - "${GATEWAY_PUBLISH_PORT:-8080}:8080"
+    depends_on:
+      redis: {condition: service_healthy}
+      nacos: {condition: service_healthy}
+
+  auth-service:
+    build:
+      context: ../..
+      dockerfile: dev-ops/compose/Dockerfile.platform
+      args:
+        MODULE: auth-service
+        ARTIFACT: auth-service
+    environment:
+      <<: *java-common
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_USER: root
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-xiongdoctor_dev}
+    expose: ["8081"]
+    depends_on:
+      mysql: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      rabbitmq: {condition: service_healthy}
+      nacos: {condition: service_healthy}
+
+  member-service:
+    build:
+      context: ../..
+      dockerfile: dev-ops/compose/Dockerfile.platform
+      args:
+        MODULE: member-service
+        ARTIFACT: member-service
+    environment:
+      <<: *java-common
+      SERVER_PORT: 8082
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_USER: root
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-xiongdoctor_dev}
+    expose: ["8082"]
+    depends_on:
+      mysql: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      nacos: {condition: service_healthy}
+
+  bff-service:
+    build:
+      context: ../..
+      dockerfile: dev-ops/compose/Dockerfile.platform
+      args:
+        MODULE: bff-service
+        ARTIFACT: bff-service
+    environment:
+      <<: *java-common
+      AGENT_SERVICE_URL: http://agent-service:8090
+    expose: ["8083"]
+    depends_on:
+      nacos: {condition: service_healthy}
+      agent-service: {condition: service_started}
+
+  group-service:
+    build:
+      context: ../..
+      dockerfile: dev-ops/compose/Dockerfile.commerce
+      args:
+        POM_PATH: group-service/pom.xml
+        ARTIFACT_PATH: group-service/group-service-app/target/group-service-app.jar
+    environment:
+      <<: *java-common
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_USER: root
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-xiongdoctor_dev}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      SERVER_PORT: 8091
+      SPRING_PROFILES_ACTIVE: dev
+      AI_GROUP_DEMO_PAYMENT_ENABLED: ${AI_GROUP_DEMO_PAYMENT_ENABLED:-false}
+    expose: ["8091"]
+    depends_on:
+      mysql: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      rabbitmq: {condition: service_healthy}
+      nacos: {condition: service_healthy}
+
+  pay-service:
+    build:
+      context: ../..
+      dockerfile: dev-ops/compose/Dockerfile.commerce
+      args:
+        POM_PATH: pay-service/pom.xml
+        ARTIFACT_PATH: pay-service/pay-service-app/target/pay-service-app.jar
+    environment:
+      <<: *java-common
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_USER: root
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-xiongdoctor_dev}
+      SERVER_PORT: 8070
+      SPRING_PROFILES_ACTIVE: dev
+      GROUP_BUY_API_URL: http://group-service:8091
+      GROUP_BUY_NOTIFY_URL: http://pay-service:8070/api/pay/group/notify
+      MEMBER_SERVICE_URL: http://member-service:8082
+      PAY_OUTBOX_LOCAL_SCHEDULER_ENABLED: ${PAY_OUTBOX_LOCAL_SCHEDULER_ENABLED:-true}
+      ALIPAY_ENABLED: ${ALIPAY_ENABLED:-false}
+      ALIPAY_STRICT: ${ALIPAY_STRICT:-false}
+      ALIPAY_APP_ID: ${ALIPAY_APP_ID:-}
+      ALIPAY_MERCHANT_PRIVATE_KEY: ${ALIPAY_MERCHANT_PRIVATE_KEY:-}
+      ALIPAY_PUBLIC_KEY: ${ALIPAY_PUBLIC_KEY:-}
+      ALIPAY_GATEWAY_URL: ${ALIPAY_GATEWAY_URL:-https://openapi-sandbox.dl.alipaydev.com/gateway.do}
+      ALIPAY_NOTIFY_URL: ${ALIPAY_NOTIFY_URL:-http://localhost:8080/api/pay/alipay/notify}
+      ALIPAY_RETURN_URL: ${ALIPAY_RETURN_URL:-http://localhost:5173/pricing?tab=orders&paymentReturn=1}
+      AI_GROUP_PAY_SANDBOX_AMOUNT: ${AI_GROUP_PAY_SANDBOX_AMOUNT:-0}
+      AI_GROUP_DEMO_PAYMENT_ENABLED: ${AI_GROUP_DEMO_PAYMENT_ENABLED:-false}
+    expose: ["8070"]
+    depends_on:
+      mysql: {condition: service_healthy}
+      rabbitmq: {condition: service_healthy}
+      nacos: {condition: service_healthy}
+
+  agent-service:
+    build:
+      context: ../../agent-service
+      dockerfile: app/Dockerfile
+    environment:
+      APP_PORT: 8090
+      ENVIRONMENT: ${AGENT_ENVIRONMENT:-development}
+      POSTGRES_HOST: agent-postgres
+      POSTGRES_PORT: 5432
+      DATABASE_URL: postgresql+asyncpg://${AGENT_POSTGRES_USER:-xiongdoctor}:${AGENT_POSTGRES_PASSWORD:-xiongdoctor_dev}@agent-postgres:5432/${AGENT_POSTGRES_DB:-xiongdoctor_agent}
+      DATABASE_URL_SYNC: postgresql+psycopg2://${AGENT_POSTGRES_USER:-xiongdoctor}:${AGENT_POSTGRES_PASSWORD:-xiongdoctor_dev}@agent-postgres:5432/${AGENT_POSTGRES_DB:-xiongdoctor_agent}
+      LANGGRAPH_CHECKPOINT_DSN: postgresql://${AGENT_POSTGRES_USER:-xiongdoctor}:${AGENT_POSTGRES_PASSWORD:-xiongdoctor_dev}@agent-postgres:5432/${AGENT_POSTGRES_DB:-xiongdoctor_agent}
+      LLM_ACTIVE_PROVIDER: ${LLM_ACTIVE_PROVIDER:-openai}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-${AGENT_GROUP_LLM_API_KEY:-change-me}}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-${AGENT_GROUP_LLM_BASE_URL:-https://api.openai.com/v1}}
+      # Keep the Agent's model settings in sync with the project-level
+      # AGENT_GROUP_LLM_CHAT_MODEL configuration.  OPENAI_* still wins when
+      # explicitly supplied, which keeps the compose file compatible with a
+      # standard OpenAI-compatible .env file.
+      OPENAI_DEFAULT_MODEL: ${OPENAI_DEFAULT_MODEL:-${AGENT_GROUP_LLM_CHAT_MODEL:-gpt-4o-mini}}
+      OPENAI_MODEL_BALANCED: ${OPENAI_MODEL_BALANCED:-${AGENT_GROUP_LLM_CHAT_MODEL:-gpt-4o-mini}}
+      BILLING_INPUT_MICRO_POINTS_PER_TOKEN: ${BILLING_INPUT_MICRO_POINTS_PER_TOKEN:-5}
+      BILLING_OUTPUT_MICRO_POINTS_PER_TOKEN: ${BILLING_OUTPUT_MICRO_POINTS_PER_TOKEN:-30}
+      BILLING_DEFAULT_RESERVATION_MICRO_POINTS: ${BILLING_DEFAULT_RESERVATION_MICRO_POINTS:-500000}
+      # Search providers are runtime settings too.  The full-stack compose file
+      # must forward them explicitly because the repository-level .env file is
+      # not mounted into the agent image.
+      TAVILY_API_KEY: ${TAVILY_API_KEY:-}
+      SERPER_API_KEY: ${SERPER_API_KEY:-}
+      BOCHA_API_KEY: ${BOCHA_API_KEY:-}
+      BOCHA_BASE_URL: ${BOCHA_BASE_URL:-https://api.bochaai.com/v1}
+      INTERNAL_TOKEN: ${AI_GROUP_INTERNAL_TOKEN:-change-me-internal}
+      IDENTITY_SIGNING_SECRET: ${AI_GROUP_IDENTITY_SIGNING_SECRET:-change-me-signing-secret}
+      ALLOW_ANONYMOUS_DEV: "false"
+      MEMBER_SERVICE_URL: http://member-service:8082
+      CORS_ALLOW_ORIGINS: http://localhost:5173,http://localhost
+    expose: ["8090"]
+    depends_on:
+      agent-postgres: {condition: service_healthy}
+      member-service: {condition: service_started}
+
+  frontend:
+    build:
+      context: ../..
+      dockerfile: frontend/Dockerfile
+    ports:
+      - "${WEB_PUBLISH_PORT:-5173}:80"
+    depends_on:
+      gateway-service: {condition: service_started}
+
+volumes:
+  mysql_data:
+  redis_data:
+  rabbitmq_data:
+  nacos_logs:
+  agent_postgres_data:
+  minio_data:

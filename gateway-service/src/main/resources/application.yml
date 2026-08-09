@@ -1,6 +1,6 @@
 spring:
   application:
-    name: gateway
+    name: gateway-service
   main:
     web-application-type: reactive
   cloud:
@@ -40,19 +40,34 @@ management:
 jwt:
   secret: ${JWT_SECRET:}
 
+sa-token:
+  token-name: satoken
+  timeout: ${SA_TOKEN_TIMEOUT:2592000}
+  active-timeout: ${SA_TOKEN_ACTIVE_TIMEOUT:1800}
+  is-concurrent: false
+  is-share: false
+  is-read-header: true
+  is-read-cookie: true
+  is-write-header: false
+  cookie:
+    secure: ${SA_TOKEN_COOKIE_SECURE:false}
+  dao:
+    type: cn.dev33.satoken.dao.SaTokenDaoRedisJackson
+
 gateway:
   route:
     # 平台服务与 agent 经 Nacos 服务发现 + 负载均衡（lb://服务名）；local profile 覆盖为直连
-    auth-uri: lb://auth
-    member-uri: lb://member
-    bff-uri: lb://bff
-    agent-uri: lb://agent
-    pay-uri: lb://pay
-    group-uri: lb://group
+    auth-uri: lb://auth-service
+    member-uri: lb://member-service
+    bff-uri: lb://bff-service
+    pay-uri: lb://pay-service
+    group-uri: lb://group-service
 
 ai-group:
   internal:
     token: ${AI_GROUP_INTERNAL_TOKEN:}
+  identity:
+    signing-secret: ${AI_GROUP_IDENTITY_SIGNING_SECRET:}
 
 logging:
   level:

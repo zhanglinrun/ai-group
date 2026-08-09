@@ -17,7 +17,11 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.AntPathMatcher;
 import org.springframework.util.StringUtils;
 import org.springframework.web.server.ServerWebExchange;
+import org.springframework.beans.factory.annotation.Value;
 import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
+import cn.dev33.satoken.stp.StpUtil;
+import cn.dev33.satoken.session.SaSession;
 
 import java.util.List;
 import io.jsonwebtoken.Claims;
@@ -36,7 +40,7 @@ public class AuthGlobalFilter implements GlobalFilter, Ordered {
             "/api/auth/register",
             "/api/auth/refresh",
             "/api/v1/alipay/alipay_notify_url",
-            "/web/health"
+            "/api/pay/alipay/notify"
     );
 
     /**
@@ -45,7 +49,9 @@ public class AuthGlobalFilter implements GlobalFilter, Ordered {
      */
     private static final List<String> INTERNAL_CALLBACK_PATHS = List.of(
             "/api/v1/alipay/group_buy_notify",
-            "/api/v1/alipay/active_pay_notify"
+            "/api/v1/alipay/active_pay_notify",
+            "/api/pay/group/notify",
+            "/api/pay/orders/reconcile/**"
     );
 
     /** Gateway's own actuator surface is for authenticated operations, never browser traffic. */
@@ -54,6 +60,9 @@ public class AuthGlobalFilter implements GlobalFilter, Ordered {
     private final JwtUtils jwtUtils;
     private final ReactiveStringRedisTemplate reactiveStringRedisTemplate;
     private final InternalTokenProperties internalTokenProperties;
+
+    @Value("${ai-group.identity.signing-secret:}")
+    private String identitySigningSecret;
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
@@ -84,6 +93,57 @@ public class AuthGlobalFilter implements GlobalFilter, Ordered {
             return chain.filter(exchange.mutate().request(downstream).build());
         }
 
+        boolean cookieToken = request.getCookies().getFirst("satoken") != null;
+        String saToken = cookieToken
+                ? request.getCookies().getFirst("satoken").getValue()
+                : null;
+        if (!StringUtils.hasText(saToken)) {
+            String authorization = request.getHeaders().getFirst(HttpHeaders.AUTHORIZATION);
+            if (StringUtils.hasText(authorization) && authorization.startsWith(CommonConstant.TOKEN_PREFIX)) {
+                saToken = authorization.substring(CommonConstant.TOKEN_PREFIX.length()).trim();
+            }
+        }
+        if (StringUtils.hasText(saToken) && saToken.length() <= JwtUtils.MAX_TOKEN_LENGTH) {
+            String candidate = saToken;
+            return Mono.fromCallable(() -> {
+                        Object loginId = StpUtil.getLoginIdByToken(candidate);
+                        // StpUtil.isLogin(Object) checks a login id, not a
+                        // token. Resolve the token first so a browser cookie
+                        // is validated against the shared Sa-Token store.
+                        if (loginId == null || "0".equals(String.valueOf(loginId))) {
+                            return null;
+                        }
+                        return Long.valueOf(String.valueOf(loginId));
+                    })
+                    .subscribeOn(Schedulers.boundedElastic())
+                    .flatMap(userId -> {
+                        SaSession tokenSession = StpUtil.getTokenSessionByToken(candidate);
+                        String username = tokenSession == null ? null
+                                : stringValue(tokenSession.get("username"));
+                        String role = tokenSession == null ? null
+                                : stringValue(tokenSession.get("role"));
+                        ServerHttpRequest downstream = GatewayIdentityHeaderSupport.withVerifiedIdentity(
+                                request, userId, username, role == null ? "USER" : role,
+                                internalTokenProperties.getToken(), identitySigningSecret);
+                        return chain.filter(exchange.mutate().request(downstream).build());
+                    })
+                    // A browser cookie is always a Sa-Token session. Bearer is
+                    // retained only as a bounded migration path for older API
+                    // clients; failed Sa-Token validation falls through to the
+                    // legacy JWT verifier instead of returning 401 early.
+                    .switchIfEmpty(cookieToken
+                            ? Mono.defer(() -> unauthorized(exchange))
+                            : validateLegacyJwt(exchange, chain, request, path));
+        }
+
+        return validateLegacyJwt(exchange, chain, request, path);
+    }
+
+    private Mono<Void> validateLegacyJwt(
+            ServerWebExchange exchange,
+            GatewayFilterChain chain,
+            ServerHttpRequest request,
+            String path) {
         String authHeader = request.getHeaders().getFirst(HttpHeaders.AUTHORIZATION);
         if (authHeader == null || !authHeader.startsWith(CommonConstant.TOKEN_PREFIX)) {
             return unauthorized(exchange);
@@ -118,7 +178,7 @@ public class AuthGlobalFilter implements GlobalFilter, Ordered {
                         String username = claims.get(CommonConstant.TOKEN_CLAIM_USERNAME, String.class);
                         String role = claims.get(CommonConstant.TOKEN_CLAIM_ROLE, String.class);
                         ServerHttpRequest downstream = GatewayIdentityHeaderSupport.withVerifiedIdentity(
-                                request, userId, username, role, internalTokenProperties.getToken());
+                                request, userId, username, role, internalTokenProperties.getToken(), identitySigningSecret);
                         if (log.isDebugEnabled()) {
                             log.debug("Forwarding verified identity path={}", path);
                         }
@@ -159,6 +219,10 @@ public class AuthGlobalFilter implements GlobalFilter, Ordered {
         ServerHttpResponse response = exchange.getResponse();
         response.setStatusCode(HttpStatus.FORBIDDEN);
         return response.setComplete();
+    }
+
+    private String stringValue(Object value) {
+        return value == null ? null : String.valueOf(value);
     }
 
     @Override

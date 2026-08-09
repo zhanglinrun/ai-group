@@ -3,12 +3,14 @@ package com.aigroup.member.config;
 import com.xxl.job.core.executor.impl.XxlJobSpringExecutor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /** XXL-JOB 执行器配置。 */
 @Slf4j
 @Configuration
+@ConditionalOnProperty(name = "xxl.job.enabled", havingValue = "true", matchIfMissing = true)
 public class XxlJobConfig {
 
     @Value("${xxl.job.admin.addresses:http://127.0.0.1:18081}")

@@ -65,6 +65,14 @@ public class MemberController {
                 userId, amount, minAmount, abilityCode, requestId, ownerService, traceId));
     }
 
+    /** Canonical Agent contract. The legacy /internal/quota/* aliases remain
+     * temporarily for existing commerce callbacks, but new clients use the
+     * resource-shaped reservation paths below. */
+    @PostMapping("/internal/member/quota/reservations")
+    public Result<Map<String, Object>> createReservation(@RequestBody Map<String, Object> body) {
+        return freeze(body);
+    }
+
     @PostMapping("/internal/quota/confirm")
     public Result<QuotaFreezeStatusVO> confirm(@RequestBody Map<String, Object> body) {
         String freezeId = requiredString(body, "freezeId");
@@ -74,10 +82,31 @@ public class MemberController {
                 optionalString(body, "requestId"), optionalString(body, "traceId")));
     }
 
+    @PostMapping("/internal/member/quota/reservations/{reservationId}/confirm")
+    public Result<QuotaFreezeStatusVO> confirmReservation(@PathVariable String reservationId,
+                                                            @RequestBody(required = false) Map<String, Object> body) {
+        Map<String, Object> normalized = body == null ? new java.util.HashMap<>() : body;
+        normalized.putIfAbsent("freezeId", reservationId);
+        return confirm(normalized);
+    }
+
     @PostMapping("/internal/quota/release")
     public Result<QuotaFreezeStatusVO> release(@RequestBody Map<String, Object> body) {
         return Result.success(memberService.releaseWithStatus(requiredString(body, "freezeId"),
                 optionalString(body, "requestId"), optionalString(body, "traceId")));
+    }
+
+    @PostMapping("/internal/member/quota/reservations/{reservationId}/release")
+    public Result<QuotaFreezeStatusVO> releaseReservation(@PathVariable String reservationId,
+                                                            @RequestBody(required = false) Map<String, Object> body) {
+        Map<String, Object> normalized = body == null ? new java.util.HashMap<>() : body;
+        normalized.putIfAbsent("freezeId", reservationId);
+        return release(normalized);
+    }
+
+    @GetMapping("/internal/member/quota/{userId}")
+    public Result<MemberSummaryVO> quota(@PathVariable Long userId) {
+        return Result.success(memberService.summary(userId));
     }
 
     @GetMapping("/internal/quota/freezes/{freezeId}")
