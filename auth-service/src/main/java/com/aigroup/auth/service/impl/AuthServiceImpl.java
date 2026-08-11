@@ -6,42 +6,28 @@ import com.aigroup.auth.entity.User;
 import com.aigroup.auth.mapper.UserMapper;
 import com.aigroup.auth.service.AuthService;
 import com.aigroup.auth.service.AuthOutboxService;
-import com.aigroup.auth.service.RefreshTokenStore;
 import com.aigroup.auth.vo.LoginVO;
-import com.aigroup.auth.vo.RefreshTokenVO;
 import com.aigroup.auth.vo.UserVO;
 import cn.dev33.satoken.stp.StpUtil;
 import cn.dev33.satoken.exception.SaTokenContextException;
-import com.aigroup.common.config.JwtProperties;
 import com.aigroup.common.constant.ErrorCodeEnum;
 import com.aigroup.common.exception.BusinessException;
-import com.aigroup.common.utils.JwtUtils;
-import io.jsonwebtoken.Claims;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.BeanUtils;
-import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
-import java.time.Duration;
 import java.time.LocalDateTime;
-import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
 public class AuthServiceImpl implements AuthService {
 
-    private static final String BLACKLIST_PREFIX = "jwt:blacklist:";
-
     private final UserMapper userMapper;
-    private final JwtUtils jwtUtils;
-    private final JwtProperties jwtProperties;
     private final BCryptPasswordEncoder passwordEncoder;
-    private final StringRedisTemplate stringRedisTemplate;
     private final AuthOutboxService authOutboxService;
-    private final RefreshTokenStore refreshTokenStore;
 
     @Override
     public LoginVO login(LoginDTO loginDTO) {
@@ -102,73 +88,13 @@ public class AuthServiceImpl implements AuthService {
     }
 
     @Override
-    public RefreshTokenVO refresh(String refreshToken) {
-        if (!StringUtils.hasText(refreshToken)) {
-            if (!StpUtil.isLogin()) {
-                throw new BusinessException(ErrorCodeEnum.TOKEN_ERROR);
-            }
-            RefreshTokenVO session = new RefreshTokenVO();
-            session.setAccessToken(StpUtil.getTokenValue());
-            session.setRefreshToken("");
-            return session;
-        }
-        Claims refreshClaims = jwtUtils.parseRefreshToken(refreshToken);
-        Long userId = jwtUtils.getUserId(refreshClaims);
-        String jti = jwtUtils.getJti(refreshClaims);
-        if (userId == null || !StringUtils.hasText(jti)) {
-            throw new BusinessException(ErrorCodeEnum.TOKEN_ERROR);
-        }
-        User user = userMapper.selectById(userId);
-        if (user == null) {
-            throw new BusinessException(ErrorCodeEnum.USER_NOT_FOUND);
-        }
-        if (user.getStatus() != null && user.getStatus() == 0) {
-            throw new BusinessException(ErrorCodeEnum.PERMISSION_ERROR);
-        }
-        // Atomically validate + revoke the presented refresh token. A replayed token
-        // (already rotated) fails here because the first refresh consumed it.
-        if (!refreshTokenStore.consume(userId, jti)) {
-            throw new BusinessException(ErrorCodeEnum.TOKEN_ERROR, "refresh token revoked or expired");
-        }
-
-        String nextJti = UUID.randomUUID().toString().replace("-", "");
-        String nextRefresh = jwtUtils.generateRefreshToken(userId, nextJti);
-        refreshTokenStore.store(userId, nextJti, Duration.ofMillis(jwtProperties.getRefreshExpirationMs()));
-
-        String access = jwtUtils.generateToken(user.getId(), user.getUsername(), user.getRole());
-        RefreshTokenVO vo = new RefreshTokenVO();
-        vo.setAccessToken(access);
-        vo.setRefreshToken(nextRefresh);
-        return vo;
-    }
-
-    @Override
-    public void logout(String accessToken) {
-        // HTTP requests have a Sa-Token context.  The token blacklist path is
-        // also used by background jobs and unit tests, where no servlet
-        // context exists, so invalidating the optional session is best effort.
+    public void logout() {
+        // HTTP requests have a Sa-Token context. Background jobs / unit tests
+        // may call logout without a servlet context, so this is best effort.
         try {
             StpUtil.logout();
         } catch (SaTokenContextException ignored) {
-            // no request context; continue with explicit token revocation
-        }
-        if (!StringUtils.hasText(accessToken)) {
-            return;
-        }
-        try {
-            Claims claims = jwtUtils.parseAccessToken(accessToken);
-            Long userId = jwtUtils.getUserId(claims);
-            long ttlMs = jwtUtils.remainingTtlMillis(claims, jwtProperties.getAccessExpirationMs());
-            stringRedisTemplate.opsForValue().set(
-                    BLACKLIST_PREFIX + jwtUtils.blacklistKey(accessToken),
-                    "1",
-                    Duration.ofMillis(ttlMs)
-            );
-            if (userId != null) {
-                refreshTokenStore.revokeAllForUser(userId);
-            }
-        } catch (Exception ignore) {
-            // Invalid, expired or non-access tokens are not persisted or revoked.
+            // no request context
         }
     }
 
@@ -179,10 +105,8 @@ public class AuthServiceImpl implements AuthService {
         // Gateway when it validates the browser cookie.
         StpUtil.getTokenSession().set("username", user.getUsername());
         StpUtil.getTokenSession().set("role", user.getRole());
-        String saToken = StpUtil.getTokenValue();
         LoginVO loginVO = new LoginVO();
-        loginVO.setAccessToken(saToken);
-        loginVO.setRefreshToken("");
+        loginVO.setAuthenticated(true);
         UserVO userVO = new UserVO();
         BeanUtils.copyProperties(user, userVO);
         loginVO.setUser(userVO);

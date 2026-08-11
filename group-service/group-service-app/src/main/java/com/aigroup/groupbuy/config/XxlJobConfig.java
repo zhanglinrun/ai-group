@@ -13,7 +13,7 @@ import org.springframework.context.annotation.Configuration;
 @ConditionalOnProperty(name = "xxl.job.enabled", havingValue = "true", matchIfMissing = true)
 public class XxlJobConfig {
 
-    @Value("${xxl.job.admin.addresses:http://127.0.0.1:18081}")
+    @Value("${xxl.job.admin.addresses:http://127.0.0.1:18081/xxl-job-admin}")
     private String adminAddresses;
 
     @Value("${xxl.job.accessToken:default_token}")

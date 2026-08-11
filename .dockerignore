@@ -1,14 +1,48 @@
+# VCS / editor meta
 .git
 .gitignore
+.vscode
+.idea
+*.iml
+.codegraph
+*.tsbuildinfo
+
+# Secrets — never send local credentials into build context
+# (platform/commerce Dockerfiles do COPY . .)
+.env
+.env.*
+!.env.example
+!**/.env.example
+
+# Java / Node / Python build output (rebuilt inside the image)
 **/target
-**/node_modules
+**/build
 **/dist
+**/node_modules
 **/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
 **/__pycache__
 **/.venv
-**/.idea
-**/.codegraph
-**/logs
+*.py[cod]
+
+# Test / coverage artifacts
+.coverage
+.coverage.*
+htmlcov
+**/coverage
+*.cover
+.nyc_output
+
+# Local runtime data and logs
 *.log
+**/logs
+/data
+agent-service/data
+agent-service/demo_fixtures/generated
 *.db
-ai-group-legacy-*
+
+# OS junk
+.DS_Store
+Thumbs.db
+Desktop.ini

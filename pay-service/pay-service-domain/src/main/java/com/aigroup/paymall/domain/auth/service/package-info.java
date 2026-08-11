@@ -1,1 +1,0 @@
-package com.aigroup.paymall.domain.auth.service;

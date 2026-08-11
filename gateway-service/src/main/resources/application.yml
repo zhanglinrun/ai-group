@@ -37,9 +37,6 @@ management:
       exposure:
         include: health,info,prometheus
 
-jwt:
-  secret: ${JWT_SECRET:}
-
 sa-token:
   token-name: satoken
   timeout: ${SA_TOKEN_TIMEOUT:2592000}

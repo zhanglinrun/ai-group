@@ -43,11 +43,12 @@ Agent 对话消耗配额，用的是类似「预授权 + 确认」的两阶段�
 | 接口 | 作用 |
 | --- | --- |
 | `POST /internal/members/init-free` | 内部补偿入口；正常注册通过 `UserRegistered` RabbitMQ 事件创建账户 |
-| `POST /internal/quota/freeze` | 预扣配额 |
-| `POST /internal/quota/confirm` | 确认扣减 |
-| `POST /internal/quota/release` | 释放冻结 |
-| `GET /internal/quota/freezes/{freezeId}` | 按冻结 ID 查询真实终态 |
-| `GET /internal/quota/freezes/by-request?userId=...&requestId=...` | 在预扣响应丢失时按幂等键找回冻结 |
+| `POST /internal/member/quota/reservations` | 预扣配额（Agent 合同） |
+| `POST /internal/member/quota/reservations/{reservationId}/confirm` | 确认扣减 |
+| `POST /internal/member/quota/reservations/{reservationId}/release` | 释放冻结 |
+| `GET /internal/member/quota/reservations/{reservationId}` | 按预留 ID 查询真实终态 |
+| `GET /internal/member/quota/reservations/by-request?userId=...&requestId=...` | 在预扣响应丢失时按幂等键找回冻结 |
+| `GET /internal/member/quota/{userId}` | 内部查用户额度摘要 |
 | `GET /internal/benefits/orders/{orderId}/status` | 查某订单的权益发放状态 |
 
 ### 运营端（`/api/member/admin/**`，需要 `ADMIN` 角色）

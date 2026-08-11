@@ -134,8 +134,9 @@ ai-group:
 # XXL-JOB 执行器配置
 xxl:
   job:
+    enabled: ${XXL_JOB_ENABLED:true}
     admin:
-      addresses: ${XXL_JOB_ADMIN_ADDRESSES:http://127.0.0.1:18081}
+      addresses: ${XXL_JOB_ADMIN_ADDRESSES:http://127.0.0.1:18081/xxl-job-admin}
     accessToken: ${XXL_JOB_ACCESS_TOKEN:default_token}
     executor:
       logpath: ${XXL_JOB_LOGPATH:./logs/xxl-job/pay}
@@ -143,8 +144,8 @@ xxl:
 
 pay:
   outbox:
-    # Compose runs one Pay instance without an XXL-JOB admin. Production can
-    # leave this false and invoke the same handler from XXL-JOB instead.
+    # Prefer XXL-JOB outboxEventPublishJob when Admin is available. Set true only
+    # as a fallback when XXL_JOB_ENABLED=false.
     local-scheduler-enabled: ${PAY_OUTBOX_LOCAL_SCHEDULER_ENABLED:false}
     publish-interval-ms: ${PAY_OUTBOX_PUBLISH_INTERVAL_MS:1000}
     publish-initial-delay-ms: ${PAY_OUTBOX_PUBLISH_INITIAL_DELAY_MS:1000}

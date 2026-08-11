@@ -2,7 +2,7 @@
 .env
 .env.*
 !.env.example
-dev-ops/compose/.env
+!**/.env.example
 
 # Java / Node / Python build output
 **/target/
@@ -16,6 +16,14 @@ dev-ops/compose/.env
 **/.venv/
 *.py[cod]
 
+# Test / coverage artifacts
+.coverage
+.coverage.*
+htmlcov/
+**/coverage/
+*.cover
+.nyc_output/
+
 # Local runtime data and logs
 *.log
 logs/
@@ -24,6 +32,11 @@ logs/
 agent-service/data/
 agent-service/demo_fixtures/generated/
 
+# OS junk
+.DS_Store
+Thumbs.db
+Desktop.ini
+
 # IDE / tooling
 .vscode/
 .idea/
@@ -31,11 +44,4 @@ agent-service/demo_fixtures/generated/
 .codegraph/
 *.tsbuildinfo
 
-# Generated / retired source copies (the canonical code lives in the top-level service modules)
-RivalLens/
-frontend-legacy/
-
-# Local acceptance output
-docs/acceptance/*.md
-docs/acceptance/*.json
-docs/acceptance/*.log
+/study/

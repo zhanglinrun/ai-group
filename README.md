@@ -1,10 +1,37 @@
 # 熊博士：拼团积分驱动的 AI 深度调研平台
 
-熊博士是用于秋招展示的全栈微服务项目：Java 负责高并发边界和交易一致性，Python 负责 LangGraph Agent 编排、证据链和 Token 计费。浏览器只访问 Gateway，不直接暴露 Agent。
+# AI Group (Xiong Doctor)
+
+## 项目简介
+
+熊博士是一套全栈微服务平台：用户通过拼团购买积分，再用积分驱动 AI 深度调研 Agent。Java 侧负责身份、高并发拼团、现金支付与积分账本；Python 侧负责 LangGraph 研究编排、证据链、报告产出与 Token 计费。浏览器只访问 Gateway，不直接暴露 Agent。
+
+平台提供拼团活动配置、库存抢占、成团结算、支付宝沙箱支付、Member 两阶段额度（冻结/确认/释放）、Agent Run/SSE 事件与 LLM Token 精确结算等能力，适合作为「交易一致性 + Agent 编排」一体化工程实践。
+
+## 系统架构
+
+### 架构特点
+
+- **微服务架构**：Gateway / Auth / BFF / Member / Group / Pay / Agent / Frontend 独立部署
+- **双栈分工**：Java 处理交易边界与一致性；Python 处理 LangGraph 与模型调用
+- **DDD 设计**：Group / Pay 沿用领域分层（api / domain / infrastructure / trigger / app）
+- **最终一致性**：本地消息表（Outbox）+ RabbitMQ + 定时补偿
+- **身份边界**：Sa-Token 会话权威；Gateway 签发短期 HMAC 身份信封给下游与 Python Agent
+- **合同先行**：`contracts/` 中 OpenAPI 与事件 Schema 为唯一接口来源
+
+### 核心领域
+
+- **身份与入口（Auth / Gateway / BFF）**：登录会话、路由鉴权、页面 DTO 聚合、Agent SSE 透传
+- **拼团域（Group）**：活动配置、规则试算、库存抢占、成团结算、退款与通知任务
+- **支付域（Pay）**：现金订单、支付宝沙箱回调、退款与 Outbox 事件
+- **积分域（Member）**：积分账户唯一权威；冻结 / 确认 / 释放幂等账本
+- **研究域（Agent）**：LangGraph 编排、证据与报告、LLM Provider 路由、Token 计费
+
+### 请求链路
 
 ```mermaid
 flowchart LR
-  WEB[熊博士 React 前端] --> GW[Spring Cloud Gateway]
+  WEB[React 前端] --> GW[Spring Cloud Gateway]
   GW --> AUTH[Auth / Sa-Token]
   GW --> BFF[BFF 页面聚合]
   GW --> MEMBER[Member 积分账本]
@@ -17,41 +44,259 @@ flowchart LR
   PAY -. RabbitMQ Outbox .-> MEMBER
 ```
 
-## 目录
+### 模块结构
 
-| 目录 | 责任 |
-|---|---|
-| `gateway-service` | 路由、Sa-Token 校验、限流、请求/身份签名 |
-| `auth-service` | 用户、角色、登录会话、注册与退出 |
-| `bff-service` | 页面 DTO 聚合与 Agent SSE 透传 |
-| `member-service` | 积分账户、冻结/确认/释放、不可变账本 |
-| `group-service` | 拼团活动、库存、阶梯折扣、成团与退款事件 |
-| `pay-service` | 现金订单、支付宝沙箱、回调、退款和补偿 |
-| `agent-service` | Python + FastAPI + LangGraph、证据、报告、Token 计费 |
-| `frontend` | 熊博士 React + TypeScript 工作台、拼团、支付和管理员页面 |
-| `ai-group-common` | Java 共享安全头、统一响应和基础配置 |
-| `contracts` | OpenAPI 与事件 JSON Schema 唯一合同来源 |
-| `dev-ops` | Docker Compose、数据库初始化、消息中间件和可观测性配置 |
-| `docs` | 架构、数据库、运行手册和面试材料 |
-| `eval` | 面向 Gateway 的黑盒验收与回归入口 |
-| `scripts` | 合同校验、演示数据和产物清理脚本 |
+```
+ai-group/
+├── gateway-service/           # 路由、Sa-Token 校验、限流、身份签名
+├── auth-service/              # 用户、角色、登录会话、注册与退出
+├── bff-service/               # 页面 DTO 聚合与 Agent SSE 透传
+├── member-service/            # 积分账户、冻结/确认/释放、不可变账本
+├── group-service/             # 拼团 DDD 服务（活动/标签/交易）
+│   ├── group-service-api/
+│   ├── group-service-app/
+│   ├── group-service-domain/
+│   ├── group-service-infrastructure/
+│   ├── group-service-trigger/
+│   └── group-service-types/
+├── pay-service/               # 支付 DDD 服务（订单/回调/退款/Outbox）
+│   ├── pay-service-api/
+│   ├── pay-service-app/
+│   ├── pay-service-domain/
+│   ├── pay-service-infrastructure/
+│   ├── pay-service-trigger/
+│   └── pay-service-types/
+├── agent-service/             # Python FastAPI + LangGraph Agent
+│   └── app/                   # router / agents / service / models / alembic
+├── frontend/                  # React + TypeScript + Vite 工作台
+├── ai-group-common/           # Java 共享安全头、统一响应与基础配置
+├── contracts/                 # OpenAPI 与事件 JSON Schema
+├── dev-ops/                   # Docker Compose、数据库初始化、中间件
+├── eval/                      # Gateway 黑盒冒烟与回归入口
+└── scripts/                   # 合同校验、演示数据、产物清理
+```
 
-## 本地启动
+## 核心功能
 
-1. 复制 `.env.example` 为 `.env`，至少修改 `AI_GROUP_INTERNAL_TOKEN`、`AI_GROUP_IDENTITY_SIGNING_SECRET` 和 Agent 的 LLM Key。
-2. 启动完整环境：
+### 1. 拼团活动与高并发交易
+
+- **活动配置**：拼团活动、阶梯折扣、库存与限购
+- **规则试算**：活动有效性、人群与优惠策略组合过滤
+- **无锁化抢占**：CAS / 乐观锁思路支撑高并发库存扣减
+- **成团结算与退款**：本地消息表 + MQ / 定时任务保证最终一致性
+
+### 2. 现金支付与权益发放
+
+- **支付宝沙箱**：下单、回调、退款链路
+- **Outbox 事件**：支付成功后异步通知 Group / Member
+- **可关闭沙箱**：本地可用模拟回调完成联调
+
+### 3. Member 积分账本
+
+- **两阶段额度**：创建 Agent Run 时冻结，结束后按实际 Token 确认并释放余量
+- **幂等结算**：`requestId` / 冻结号关联，流水只追加不更新
+- **微单位计价**：金额、Token 费用与积分使用整数微单位，避免浮点误差
+
+### 4. AI 深度调研 Agent
+
+- **LangGraph 编排**：规划 / 研究 / 写作 / QA 等节点与 checkpoint
+- **多 Provider 路由**：OpenAI 兼容接口，支持 doubao / openai / qwen 等配置
+- **证据与报告**：检索、证据链与结构化产出；SSE 推送运行进度
+- **Token 计费**：按模型返回的输入 / 输出 Token 精确结算，不按 1K 向上取整
+
+### 5. 身份与页面聚合
+
+- **HttpOnly Cookie + Sa-Token**：浏览器会话不落 Agent
+- **HMAC 身份信封**：Gateway 校验后签发短期身份上下文
+- **BFF 聚合**：前端只调 Gateway；Agent 地址不写入前端环境变量
+
+## 技术栈
+
+### Java 后端
+
+- **语言 / 运行时**：JDK 21
+- **框架**：Spring Boot 3.5、Spring Cloud 2025、Spring Cloud Alibaba
+- **网关 / 会话**：Spring Cloud Gateway、Sa-Token
+- **ORM**：MyBatis-Plus
+- **数据库**：MySQL 8.0+
+- **缓存 / 锁**：Redis（会话、锁、短缓存）
+- **消息队列**：RabbitMQ（Outbox / 领域事件）
+- **任务调度**：XXL-JOB 3.4.2（Admin + pay/group/member 执行器；本地 Compose 已内置）
+- **服务发现**：Nacos
+- **构建**：Maven
+
+### Python Agent
+
+- **语言**：Python 3.11+
+- **Web**：FastAPI、Uvicorn、Pydantic v2
+- **编排**：LangGraph、langchain-core、Postgres Checkpoint
+- **持久化**：SQLAlchemy（asyncio）、asyncpg、Alembic、PostgreSQL
+- **LLM / 检索**：OpenAI 兼容 SDK、Tavily 等工具链
+- **可观测**：structlog
+- **测试**：pytest、pytest-asyncio
+
+### 前端
+
+- **框架**：React 18、TypeScript、Vite
+- **路由 / 数据**：React Router、TanStack Query、Axios
+- **样式**：Tailwind CSS
+- **可视化**：React Flow（Agent 运行图等）
+
+### 工程与运维
+
+- **合同**：OpenAPI YAML、事件 JSON Schema（`contracts/`）
+- **容器**：Docker Compose（`dev-ops/compose/`）
+- **日志**：Logback（Java）、structlog（Python）
+
+## 技术亮点
+
+### 1. Java + Python 边界清晰
+
+交易、支付、积分与身份留在 Java；模型 SDK、异步研究与图编排留在 Python。两边通过 OpenAPI、事件 Schema 与 HMAC 身份协议协作，不共享数据库或 SDK。
+
+### 2. DDD 拼团 / 支付领域落地
+
+Group / Pay 采用 api、domain、infrastructure、trigger、app 分层，用聚合与领域服务承载锁单、结算、退款等复杂流程，保持高内聚、低耦合。
+
+### 3. 分布式事务最终一致性
+
+支付与拼团结算落地本地消息任务，异步投递 MQ；定时任务 + 分布式锁做多实例幂等抢占与失败重试，保证支付成功、成团通知与积分发放可靠触达。
+
+### 4. 积分驱动的 Agent 计费闭环
+
+创建 Run → Member 冻结 → LangGraph 记录每次 LLM Token 与价格版本 → 按费率确认扣费并释放剩余冻结。额度权威在 Member，Agent 只消费额度契约。
+
+### 5. 可恢复的 Agent 运行面
+
+Run / Event 持久化，SSE 支持断线后按事件游标回放；LangGraph Checkpoint 落 Postgres，避免把运行状态绑死在浏览器长连接上。
+
+### 6. 合同与冒烟门禁
+
+接口与事件以 `contracts/` 为唯一来源；`scripts/validate-contracts.ps1` 与 `eval/http-smoke.ps1` 提供合同校验和 Gateway 黑盒冒烟。
+
+## 环境要求
+
+- **JDK**：21+
+- **Maven**：3.9+
+- **Python**：3.11+
+- **Node.js**：18+（前端）
+- **MySQL**：8.0+
+- **PostgreSQL**：14+（Agent Checkpoint / 运行数据）
+- **Redis**：5.0+
+- **RabbitMQ**：3.8+
+- **Nacos**：2.x（Compose 内可一键拉起）
+- **Docker / Docker Compose**（推荐全栈启动）
+
+## 快速开始
+
+### 1. 环境准备
+
+复制环境变量模板并填写密钥：
+
+```powershell
+Copy-Item .env.example .env
+```
+
+至少修改：
+
+- `AI_GROUP_INTERNAL_TOKEN`
+- `AI_GROUP_IDENTITY_SIGNING_SECRET`
+- Agent 的 LLM Key（如 `OPENAI_API_KEY`）
+
+### 2. 一键启动全栈（推荐）
 
 ```powershell
 docker compose --env-file .env -f dev-ops/compose/docker-compose.full.yml up --build
 ```
 
-3. 打开 <http://localhost:5173>。Gateway 地址为 <http://localhost:8080>，RabbitMQ 管理台为 <http://localhost:15672>。
+启动后访问：
 
-没有 Docker 时，可以分别启动 Java 服务、`agent-service` 和 `frontend`；开发 Compose 只启动 MySQL、Redis、RabbitMQ、Postgres、Agent 和 Vite：
+- 前端：<http://localhost:5173>
+- Gateway：<http://localhost:8080>
+- RabbitMQ 管理台：<http://localhost:15672>
+- XXL-JOB Admin：<http://localhost:18081/xxl-job-admin>（默认账号 `admin` / `123456`）
+
+### 3. 仅启动依赖（本地分别跑服务）
 
 ```powershell
 docker compose --env-file .env -f dev-ops/compose/docker-compose.dev.yml up
 ```
+
+该模式通常只拉起 MySQL、Redis、RabbitMQ、Postgres、Agent 与 Vite 等开发依赖，Java 服务可本地 `mvn` 启动。
+
+### 4. 编译 Java 模块
+
+```powershell
+mvn clean install -DskipTests
+```
+
+### 5. 单独启动 Agent / 前端
+
+```powershell
+# Agent
+cd agent-service
+python -m pip install -r app/requirements.txt
+$env:PYTHONPATH = "app"
+alembic -c app/alembic.ini upgrade head
+uvicorn main:app --host 0.0.0.0 --port 8090
+
+# Frontend
+cd frontend
+npm ci
+npm run dev
+```
+
+## 项目结构说明
+
+### Gateway / Auth / BFF
+
+- **gateway-service**：统一入口、鉴权、限流、HMAC 身份注入
+- **auth-service**：账号体系与 Sa-Token 会话
+- **bff-service**：页面级聚合与 Agent SSE 代理（浏览器永不直连 Agent）
+
+### Member
+
+积分账户唯一权威。对外提供冻结 / 确认 / 释放接口，流水只追加；Agent 计费以此为结算终点。
+
+### Group / Pay（DDD）
+
+- **api**：对外接口与 DTO
+- **domain**：活动、交易、退款等核心业务
+- **infrastructure**：持久化与外部适配
+- **trigger**：HTTP、MQ 监听与定时任务
+- **app**：Spring Boot 启动与应用编排
+
+### Agent（Python）
+
+- **router**：FastAPI 入站协议与 SSE
+- **agents**：LangGraph 状态、节点与子图
+- **service**：Run、事件总线、LLM 路由、计费、证据与关注列表
+- **models / alembic**：Postgres Schema 与迁移
+- **security**：Gateway HMAC 身份校验
+
+### contracts / frontend / dev-ops
+
+- **contracts**：OpenAPI 与事件 Schema
+- **frontend**：研究工作台、拼团、支付与管理页
+- **dev-ops**：Compose、库表初始化与中间件配置
+
+## 部署说明
+
+### Docker 部署
+
+仓库提供完整 Compose 方案：
+
+- `dev-ops/compose/docker-compose.full.yml`：全栈（中间件 + Java + Agent + Web）
+- `dev-ops/compose/docker-compose.dev.yml`：开发依赖为主
+
+数据库初始化脚本与中间件配置位于 `dev-ops/`。
+
+### 生产环境建议
+
+- 轮换并妥善保管 `AI_GROUP_INTERNAL_TOKEN`、`AI_GROUP_IDENTITY_SIGNING_SECRET` 与 LLM / 支付密钥
+- JVM 按机器规格设置堆与 GC（例如 G1）
+- MySQL / Redis / RabbitMQ / Postgres 开启持久化与高可用
+- Agent 与 Member 之间网络隔离，禁止浏览器直连 Agent
 
 ## 验证
 
@@ -63,7 +308,7 @@ powershell -ExecutionPolicy Bypass -File scripts/validate-contracts.ps1
 powershell -ExecutionPolicy Bypass -File eval/http-smoke.ps1
 ```
 
-`pytest` 的 API 场景会使用 Agent Compose 提供的 Postgres checkpoint；只跑离线单元测试时可执行：
+离线 Agent 单元测试示例（不连外部库或 LLM）：
 
 ```powershell
 cd agent-service
@@ -72,8 +317,16 @@ python -m pytest -q app/tests/test_billing.py app/tests/test_contracts.py app/te
 cd ..
 ```
 
-`test_run_metrics.py` 和完整 API 场景需要运行中的 Postgres checkpoint，随 Docker Compose 一起执行；离线单元测试不连接外部数据库或 LLM。
+完整 API 场景与 `test_run_metrics.py` 依赖运行中的 Postgres Checkpoint，建议随 Docker Compose 一起执行。
 
-Agent 的计费链路是：创建 Run → Member 冻结积分 → LangGraph 记录每次 LLM Token → 按价格版本计算实际积分 → Member 确认并释放剩余冻结。浏览器 Cookie 为 HttpOnly，Python 只接受 Gateway 生成的短期 HMAC 身份信封。
+## 开发规范
 
-> 参考项目的工作台与 Agent 思路已重构进本仓库，不保留第二份源码副本。若项目公开或商用，应先确认参考项目许可证和作者授权。
+- Java 遵循 Spring Boot / 分层模块既有约定；优先构造器注入与明确 DTO 命名
+- Agent 使用 Python 3.11+、Ruff / pytest；包边界见 `agent-service/app`
+- 前端提交前执行 `npm run lint` / `npm run build`
+- 不绕过 Gateway 身份头与内部 Token 校验
+- 密钥只放 `.env`，`.env.example` 仅保留安全默认占位
+
+---
+
+参考项目的拼团与工作台思路已重构进本仓库；若对外公开或商用，请先确认参考项目许可证与作者授权。参考写法见：[group-buy-market README](https://github.com/CorgiBoyG/group-buy-market/blob/master/README.md)。

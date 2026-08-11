@@ -54,12 +54,6 @@ paths:
           content:
             application/json:
               schema: {$ref: '#/components/schemas/ApiResponseUser'}
-  /refresh:
-    post:
-      operationId: refresh
-      tags: [auth]
-      responses:
-        '200': {description: 会话已刷新}
 components:
   securitySchemes:
     saToken:

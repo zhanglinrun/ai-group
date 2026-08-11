@@ -66,6 +66,46 @@ paths:
         - {$ref: '#/components/parameters/reservationId'}
       responses:
         '200': {description: 已释放}
+  /internal/member/quota/reservations/{reservationId}:
+    get:
+      operationId: getReservation
+      security: [{internalToken: []}]
+      parameters:
+        - {$ref: '#/components/parameters/reservationId'}
+        - name: requestId
+          in: query
+          schema: {type: string}
+        - name: traceId
+          in: query
+          schema: {type: string}
+      responses:
+        '200':
+          description: 预留终态
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Reservation'}
+  /internal/member/quota/reservations/by-request:
+    get:
+      operationId: getReservationByRequest
+      security: [{internalToken: []}]
+      parameters:
+        - name: userId
+          in: query
+          required: true
+          schema: {type: integer, format: int64}
+        - name: requestId
+          in: query
+          required: true
+          schema: {type: string}
+        - name: traceId
+          in: query
+          schema: {type: string}
+      responses:
+        '200':
+          description: 按幂等键找回预留
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Reservation'}
 components:
   parameters:
     reservationId:

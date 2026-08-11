@@ -13,7 +13,8 @@ import jakarta.annotation.Resource;
  * Independently publishes committed payment outbox rows. Business transactions
  * only insert rows; this poller plus consumer idempotency provides at-least-once
  * delivery without sending MQ messages before the database commit succeeds.
- * 调度由 XXL-JOB admin 集中管理（fixed-rate 1s），天然单实例分片。
+ * Prefer XXL-JOB admin scheduling ({@code outboxEventPublishJob}); enable
+ * {@code pay.outbox.local-scheduler-enabled} only as a no-Admin fallback.
  */
 @Slf4j
 @Component
@@ -23,9 +24,8 @@ public class OutboxEventPublishJob {
     private IBenefitEventService benefitEventService;
 
     /**
-     * The full local Compose profile does not ship an XXL-JOB admin. Keep the
-     * production XXL-JOB handler, but allow a single service instance to poll
-     * its own committed outbox when that profile explicitly enables it.
+     * Prefer XXL-JOB for production and full Compose. Keep this Spring
+     * {@code @Scheduled} path as an explicit fallback when Admin is unavailable.
      */
     @Value("${pay.outbox.local-scheduler-enabled:false}")
     private boolean localSchedulerEnabled;

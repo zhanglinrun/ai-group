@@ -57,9 +57,6 @@ management:
     health:
       show-details: when_authorized
 
-jwt:
-  secret: ${JWT_SECRET:}
-
 ai-group:
   internal:
     token: ${AI_GROUP_INTERNAL_TOKEN:}
@@ -67,8 +64,9 @@ ai-group:
 # XXL-JOB 执行器配置
 xxl:
   job:
+    enabled: ${XXL_JOB_ENABLED:true}
     admin:
-      addresses: ${XXL_JOB_ADMIN_ADDRESSES:http://127.0.0.1:18081}
+      addresses: ${XXL_JOB_ADMIN_ADDRESSES:http://127.0.0.1:18081/xxl-job-admin}
     accessToken: ${XXL_JOB_ACCESS_TOKEN:default_token}
     executor:
       logpath: ${XXL_JOB_LOGPATH:./logs/xxl-job/member}

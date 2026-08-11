@@ -332,7 +332,7 @@ public class GroupBuyAdminController {
     }
 
     /**
-     * 管理端信任模型：必须经网关（X-Gateway-Request=true 且内部令牌一致）且 JWT 角色为 ADMIN。
+     * 管理端信任模型：必须经网关（X-Gateway-Request=true 且内部令牌一致）且角色为 ADMIN。
      */
     private boolean isAdmin(HttpServletRequest request) {
         if (!"true".equalsIgnoreCase(request.getHeader(HEADER_GATEWAY_REQUEST))) {

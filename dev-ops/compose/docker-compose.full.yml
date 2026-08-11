@@ -107,6 +107,42 @@ services:
     volumes:
       - minio_data:/data
 
+  # XXL-JOB Admin（对齐 pay/group/member 的 xxl-job-core 3.4.2；结构参考 know-engine）
+  xxl-job-mysql:
+    image: mysql:8.0
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
+    environment:
+      MYSQL_DATABASE: xxl_job
+      MYSQL_USER: ${XXL_JOB_MYSQL_USER:-xxl_job}
+      MYSQL_PASSWORD: ${XXL_JOB_MYSQL_PASSWORD:-xxl_job_dev}
+      MYSQL_ROOT_PASSWORD: ${XXL_JOB_MYSQL_ROOT_PASSWORD:-xxl_job_root_dev}
+      TZ: Asia/Shanghai
+    volumes:
+      - xxl_job_mysql_data:/var/lib/mysql
+      - ../xxl-job/tables_xxl_job.sql:/docker-entrypoint-initdb.d/01-tables_xxl_job.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -p$${MYSQL_ROOT_PASSWORD} >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  xxl-job-admin:
+    image: xuxueli/xxl-job-admin:3.4.2
+    environment:
+      TZ: Asia/Shanghai
+      PARAMS: >-
+        --spring.datasource.url=jdbc:mysql://xxl-job-mysql:3306/xxl_job?useUnicode=true&characterEncoding=UTF-8&autoReconnect=true&serverTimezone=Asia/Shanghai
+        --spring.datasource.username=${XXL_JOB_MYSQL_USER:-xxl_job}
+        --spring.datasource.password=${XXL_JOB_MYSQL_PASSWORD:-xxl_job_dev}
+        --xxl.job.accessToken=${XXL_JOB_ACCESS_TOKEN:-default_token}
+    ports:
+      - "${XXL_JOB_ADMIN_PUBLISH_PORT:-18081}:8080"
+    volumes:
+      - xxl_job_admin_logs:/data/applogs
+    depends_on:
+      xxl-job-mysql: {condition: service_healthy}
+    restart: unless-stopped
+
   gateway-service:
     build:
       context: ../..
@@ -128,10 +164,11 @@ services:
       RABBITMQ_EVENT_EXCHANGE: ${RABBITMQ_EVENT_EXCHANGE:-xiongdoctor.events}
       AI_GROUP_INTERNAL_TOKEN: ${AI_GROUP_INTERNAL_TOKEN:-change-me-internal}
       AI_GROUP_IDENTITY_SIGNING_SECRET: ${AI_GROUP_IDENTITY_SIGNING_SECRET:-change-me-signing-secret}
-      # The local full stack does not ship an XXL-JOB admin. Pay uses its local
-      # outbox scheduler instead; the optional executor is enabled in production.
-      XXL_JOB_ENABLED: ${XXL_JOB_ENABLED:-false}
-      JWT_SECRET: ${JWT_SECRET:-legacy-only-not-used-by-sa-token-change-me}
+      # Enable XXL-JOB executors against the Compose admin; disable local Outbox
+      # polling on Pay to avoid double-dispatch of the same handler.
+      XXL_JOB_ENABLED: ${XXL_JOB_ENABLED:-true}
+      XXL_JOB_ADMIN_ADDRESSES: ${XXL_JOB_ADMIN_ADDRESSES:-http://xxl-job-admin:8080/xxl-job-admin}
+      XXL_JOB_ACCESS_TOKEN: ${XXL_JOB_ACCESS_TOKEN:-default_token}
       SA_TOKEN_COOKIE_SECURE: ${SA_TOKEN_COOKIE_SECURE:-false}
     ports:
       - "${GATEWAY_PUBLISH_PORT:-8080}:8080"
@@ -173,11 +210,12 @@ services:
       MYSQL_PORT: 3306
       MYSQL_USER: root
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-xiongdoctor_dev}
-    expose: ["8082"]
+    expose: ["8082", "9997"]
     depends_on:
       mysql: {condition: service_healthy}
       redis: {condition: service_healthy}
       nacos: {condition: service_healthy}
+      xxl-job-admin: {condition: service_started}
 
   bff-service:
     build:
@@ -212,12 +250,13 @@ services:
       SERVER_PORT: 8091
       SPRING_PROFILES_ACTIVE: dev
       AI_GROUP_DEMO_PAYMENT_ENABLED: ${AI_GROUP_DEMO_PAYMENT_ENABLED:-false}
-    expose: ["8091"]
+    expose: ["8091", "9999"]
     depends_on:
       mysql: {condition: service_healthy}
       redis: {condition: service_healthy}
       rabbitmq: {condition: service_healthy}
       nacos: {condition: service_healthy}
+      xxl-job-admin: {condition: service_started}
 
   pay-service:
     build:
@@ -237,7 +276,8 @@ services:
       GROUP_BUY_API_URL: http://group-service:8091
       GROUP_BUY_NOTIFY_URL: http://pay-service:8070/api/pay/group/notify
       MEMBER_SERVICE_URL: http://member-service:8082
-      PAY_OUTBOX_LOCAL_SCHEDULER_ENABLED: ${PAY_OUTBOX_LOCAL_SCHEDULER_ENABLED:-true}
+      # With XXL-JOB enabled, Outbox is driven by outboxEventPublishJob — not @Scheduled.
+      PAY_OUTBOX_LOCAL_SCHEDULER_ENABLED: ${PAY_OUTBOX_LOCAL_SCHEDULER_ENABLED:-false}
       ALIPAY_ENABLED: ${ALIPAY_ENABLED:-false}
       ALIPAY_STRICT: ${ALIPAY_STRICT:-false}
       ALIPAY_APP_ID: ${ALIPAY_APP_ID:-}
@@ -248,11 +288,12 @@ services:
       ALIPAY_RETURN_URL: ${ALIPAY_RETURN_URL:-http://localhost:5173/pricing?tab=orders&paymentReturn=1}
       AI_GROUP_PAY_SANDBOX_AMOUNT: ${AI_GROUP_PAY_SANDBOX_AMOUNT:-0}
       AI_GROUP_DEMO_PAYMENT_ENABLED: ${AI_GROUP_DEMO_PAYMENT_ENABLED:-false}
-    expose: ["8070"]
+    expose: ["8070", "9998"]
     depends_on:
       mysql: {condition: service_healthy}
       rabbitmq: {condition: service_healthy}
       nacos: {condition: service_healthy}
+      xxl-job-admin: {condition: service_started}
 
   agent-service:
     build:
@@ -311,3 +352,5 @@ volumes:
   nacos_logs:
   agent_postgres_data:
   minio_data:
+  xxl_job_mysql_data:
+  xxl_job_admin_logs:

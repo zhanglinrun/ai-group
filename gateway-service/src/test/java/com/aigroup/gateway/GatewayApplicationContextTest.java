@@ -25,7 +25,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @TestPropertySource(properties = {
         "spring.profiles.active=local",
         "spring.cloud.nacos.discovery.enabled=false",
-        "jwt.secret=0123456789abcdef0123456789abcdef",
         "ai-group.internal.token=test-internal-token-for-local-regression-012345678901234567890"
 })
 class GatewayApplicationContextTest {

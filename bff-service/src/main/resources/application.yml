@@ -28,9 +28,6 @@ management:
     health:
       show-details: when_authorized
 
-jwt:
-  secret: ${JWT_SECRET:}
-
 ai-group:
   # 下游 URL 默认留空并走 Nacos；local profile 覆盖为固定端口直连。
   internal:

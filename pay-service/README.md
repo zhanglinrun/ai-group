@@ -47,8 +47,8 @@
 - 发布器采用 RabbitMQ topic exchange + publisher confirm，同步等待 Broker ACK。
 - 只有 Broker 确认接收，才把 `event_published` 更新为 `1`。
 - 超时、失败或中断都会保留未发布状态，由发布轮询任务重试。
-- 生产环境默认由 XXL-JOB 调度 `outboxEventPublishJob`；完整 Compose 不启动 XXL-JOB admin，
-  因此通过 `PAY_OUTBOX_LOCAL_SCHEDULER_ENABLED=true` 启用同一发布器的 Spring 定时兜底。
+- 默认由 XXL-JOB 调度 `outboxEventPublishJob`（full Compose 已内置 Admin，默认 `XXL_JOB_ENABLED=true`）。
+- 仅在没有 Admin 时，才设 `PAY_OUTBOX_LOCAL_SCHEDULER_ENABLED=true`，用同一发布器的 Spring `@Scheduled` 兜底；二者不要同时开启，避免双调度。
 - 交付语义为至少一次；member 权益消费和订单履约更新必须保持幂等。
 
 相关迁移：
@@ -64,8 +64,8 @@
 - pay 服务默认端口：`8070`
 - member-service 默认地址：`http://127.0.0.1:18082`
 - RabbitMQ 发布确认超时：`RABBITMQ_CONFIRM_TIMEOUT_MS`，默认 `5000`
-- outbox 扫描：生产使用 XXL-JOB admin 的 `outboxEventPublishJob`；Compose 使用
-  `PAY_OUTBOX_LOCAL_SCHEDULER_ENABLED=true` 的本地定时兜底。扫描间隔由
+- outbox 扫描：优先 XXL-JOB `outboxEventPublishJob`（Admin：`http://localhost:18081/xxl-job-admin`）。
+  无 Admin 时再用 `PAY_OUTBOX_LOCAL_SCHEDULER_ENABLED=true`；本地定时间隔由
   `PAY_OUTBOX_PUBLISH_INTERVAL_MS` 控制，默认 `1000` 毫秒。
 
 ## 测试

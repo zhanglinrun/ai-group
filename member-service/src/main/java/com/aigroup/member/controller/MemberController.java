@@ -12,7 +12,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -50,8 +50,8 @@ public class MemberController {
         return Result.success();
     }
 
-    @PostMapping("/internal/quota/freeze")
-    public Result<Map<String, Object>> freeze(@RequestBody Map<String, Object> body) {
+    @PostMapping("/internal/member/quota/reservations")
+    public Result<Map<String, Object>> createReservation(@RequestBody Map<String, Object> body) {
         Long userId = requiredLong(body, "userId");
         long amount = requiredLong(body, "amount");
         long minAmount = Long.parseLong(body.getOrDefault("minAmount", amount).toString());
@@ -65,43 +65,37 @@ public class MemberController {
                 userId, amount, minAmount, abilityCode, requestId, ownerService, traceId));
     }
 
-    /** Canonical Agent contract. The legacy /internal/quota/* aliases remain
-     * temporarily for existing commerce callbacks, but new clients use the
-     * resource-shaped reservation paths below. */
-    @PostMapping("/internal/member/quota/reservations")
-    public Result<Map<String, Object>> createReservation(@RequestBody Map<String, Object> body) {
-        return freeze(body);
-    }
-
-    @PostMapping("/internal/quota/confirm")
-    public Result<QuotaFreezeStatusVO> confirm(@RequestBody Map<String, Object> body) {
-        String freezeId = requiredString(body, "freezeId");
-        Object actualAmount = body.get("actualAmount");
-        return Result.success(memberService.confirmWithStatus(freezeId,
-                actualAmount == null ? -1L : Long.parseLong(actualAmount.toString()),
-                optionalString(body, "requestId"), optionalString(body, "traceId")));
-    }
-
     @PostMapping("/internal/member/quota/reservations/{reservationId}/confirm")
     public Result<QuotaFreezeStatusVO> confirmReservation(@PathVariable String reservationId,
                                                             @RequestBody(required = false) Map<String, Object> body) {
-        Map<String, Object> normalized = body == null ? new java.util.HashMap<>() : body;
-        normalized.putIfAbsent("freezeId", reservationId);
-        return confirm(normalized);
-    }
-
-    @PostMapping("/internal/quota/release")
-    public Result<QuotaFreezeStatusVO> release(@RequestBody Map<String, Object> body) {
-        return Result.success(memberService.releaseWithStatus(requiredString(body, "freezeId"),
-                optionalString(body, "requestId"), optionalString(body, "traceId")));
+        Map<String, Object> payload = body == null ? Map.of() : body;
+        Object actualAmount = payload.get("actualAmount");
+        return Result.success(memberService.confirmWithStatus(reservationId,
+                actualAmount == null ? -1L : Long.parseLong(actualAmount.toString()),
+                optionalString(payload, "requestId"), optionalString(payload, "traceId")));
     }
 
     @PostMapping("/internal/member/quota/reservations/{reservationId}/release")
     public Result<QuotaFreezeStatusVO> releaseReservation(@PathVariable String reservationId,
                                                             @RequestBody(required = false) Map<String, Object> body) {
-        Map<String, Object> normalized = body == null ? new java.util.HashMap<>() : body;
-        normalized.putIfAbsent("freezeId", reservationId);
-        return release(normalized);
+        Map<String, Object> payload = body == null ? Map.of() : body;
+        return Result.success(memberService.releaseWithStatus(reservationId,
+                optionalString(payload, "requestId"), optionalString(payload, "traceId")));
+    }
+
+    @GetMapping("/internal/member/quota/reservations/by-request")
+    public Result<QuotaFreezeStatusVO> reservationStatusByRequest(
+            @RequestParam Long userId,
+            @RequestParam String requestId,
+            @RequestParam(required = false) String traceId) {
+        return Result.success(memberService.queryFreezeByRequest(userId, requestId, traceId));
+    }
+
+    @GetMapping("/internal/member/quota/reservations/{reservationId}")
+    public Result<QuotaFreezeStatusVO> reservationStatus(@PathVariable String reservationId,
+                                                          @RequestParam(required = false) String requestId,
+                                                          @RequestParam(required = false) String traceId) {
+        return Result.success(memberService.queryFreeze(reservationId, requestId, traceId));
     }
 
     @GetMapping("/internal/member/quota/{userId}")
@@ -109,23 +103,8 @@ public class MemberController {
         return Result.success(memberService.summary(userId));
     }
 
-    @GetMapping("/internal/quota/freezes/{freezeId}")
-    public Result<QuotaFreezeStatusVO> freezeStatus(@PathVariable String freezeId,
-                                                     @org.springframework.web.bind.annotation.RequestParam(required = false) String requestId,
-                                                     @org.springframework.web.bind.annotation.RequestParam(required = false) String traceId) {
-        return Result.success(memberService.queryFreeze(freezeId, requestId, traceId));
-    }
-
-    @GetMapping("/internal/quota/freezes/by-request")
-    public Result<QuotaFreezeStatusVO> freezeStatusByRequest(
-            @org.springframework.web.bind.annotation.RequestParam Long userId,
-            @org.springframework.web.bind.annotation.RequestParam String requestId,
-            @org.springframework.web.bind.annotation.RequestParam(required = false) String traceId) {
-        return Result.success(memberService.queryFreezeByRequest(userId, requestId, traceId));
-    }
-
     @GetMapping("/internal/benefits/orders/{orderId}/status")
-    public Result<Map<String, String>> benefitStatus(@org.springframework.web.bind.annotation.PathVariable String orderId) {
+    public Result<Map<String, String>> benefitStatus(@PathVariable String orderId) {
         return Result.success(Map.of("status", memberService.benefitGrantStatusForOrder(orderId)));
     }
 
@@ -135,14 +114,6 @@ public class MemberController {
             throw new com.aigroup.common.exception.BusinessException(key + " is required");
         }
         return Long.valueOf(String.valueOf(value));
-    }
-
-    private String requiredString(Map<String, Object> body, String key) {
-        Object value = body.get(key);
-        if (value == null || String.valueOf(value).isBlank()) {
-            throw new com.aigroup.common.exception.BusinessException(key + " is required");
-        }
-        return String.valueOf(value).trim();
     }
 
     private String optionalString(Map<String, Object> body, String key) {
