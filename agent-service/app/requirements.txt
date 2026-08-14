@@ -5,6 +5,7 @@ python-multipart==0.0.12
 pydantic>=2.7,<3.0
 pydantic-settings==2.6.1
 httpx==0.28.1
+PyJWT==2.10.1
 
 # Persistence
 sqlalchemy[asyncio]==2.0.36

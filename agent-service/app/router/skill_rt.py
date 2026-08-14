@@ -3,13 +3,14 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 
 from db.engine import get_session_factory
 from exceptions.base import APIException
 from models.skill_candidate import SkillCandidateRecord
+from security.identity import require_identity
 from service.skill_promotion import (
     PromotionRuleValidationError,
     PromotionWriteError,
@@ -17,7 +18,7 @@ from service.skill_promotion import (
 )
 from utils.logger import get_logger
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_identity)])
 log = get_logger("router.skill_rt")
 
 

@@ -15,6 +15,9 @@ public class ProductionSecurityValidator {
     @Value("${ai-group.internal.token:}")
     private String internalToken;
 
+    @Value("${ai-group.identity.signing-secret:}")
+    private String identitySigningSecret;
+
     @Value("${xiongdoctor.agent.debug-endpoints.enabled:false}")
     private boolean debugEndpointsEnabled;
 
@@ -30,6 +33,11 @@ public class ProductionSecurityValidator {
         if (StringUtils.hasText(internalToken)
                 && (internalToken.length() < 32 || internalToken.contains("change-in-prod"))) {
             throw new IllegalStateException("Internal token must be a random value of at least 32 characters");
+        }
+        if (StringUtils.hasText(identitySigningSecret)
+                && (identitySigningSecret.length() < 32 || identitySigningSecret.contains("change-in-prod"))) {
+            throw new IllegalStateException(
+                    "Identity signing secret must be a random value of at least 32 characters");
         }
         if (debugEndpointsEnabled) {
             throw new IllegalStateException("Agent debug endpoints must be disabled outside local profiles");

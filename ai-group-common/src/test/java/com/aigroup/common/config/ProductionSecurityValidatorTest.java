@@ -45,6 +45,13 @@ class ProductionSecurityValidatorTest {
     }
 
     @Test
+    void nonLocalProfilesRejectShortIdentitySigningSecret() {
+        ProductionSecurityValidator validator = validator("prod", "abcdef0123456789abcdef0123456789");
+        ReflectionTestUtils.setField(validator, "identitySigningSecret", "short");
+        assertThrows(IllegalStateException.class, validator::validate);
+    }
+
+    @Test
     void nonLocalProfilesRejectShortInternalToken() {
         ProductionSecurityValidator validator = validator("prod", "short");
         assertThrows(IllegalStateException.class, validator::validate);

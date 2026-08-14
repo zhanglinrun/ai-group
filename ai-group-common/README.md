@@ -21,10 +21,11 @@
 
 ### 服务间安全
 
-- `GatewayUserContextFilter`（网关身份上下文过滤器）：下游服务用它读取网关注入的身份头。只有确认请求确实来自网关（带正确的内部令牌）时，才会把身份绑定到上下文，防止有人伪造身份头直连下游。
+- `GatewayUserContextFilter`（网关身份上下文过滤器）：确认内部令牌后，验 `X-Internal-Jwt`（HS256），用 JWT claims 绑定用户，不以裸 `X-User-Id` 为准。
+- `InternalIdentityJwt`：Gateway 签发、下游验签的短时效内部 JWT。
 - `InternalApiAuthFilter`（内部接口鉴权过滤器）：保护 `/internal/**` 这类只允许服务间调用的接口，校验共享的内部令牌。
 - `InternalTokenProperties`（内部令牌配置属性）：服务之间互信用的共享令牌配置。
-- `ProductionSecurityValidator`（生产安全校验器）：启动时检查生产环境下的安全配置（比如内部令牌不能用默认值），不合规就拦下。
+- `ProductionSecurityValidator`（生产安全校验器）：启动时检查生产环境下的安全配置（内部令牌与 identity signing secret 不能过短），不合规就拦下。
 
 ### 缓存
 
@@ -37,7 +38,7 @@
 平台层的 `gateway-service`、`auth-service`、`member-service`、`bff-service` 都依赖它。两条主要用途：
 
 - **统一表达**：返回结构、异常、错误码保持一致。
-- **身份互信**：网关校验完 Sa-Token 会话后，通过请求头把身份传给下游；下游用这里的过滤器确认「这确实是网关放行的请求」，再信任其中的用户信息。
+- **身份互信**：网关校验完 Sa-Token 会话后签发 HS256 内部 JWT；下游过滤器验签后再信任用户信息。
 
 ---
 

@@ -16,7 +16,7 @@
 - **双栈分工**：Java 处理交易边界与一致性；Python 处理 LangGraph 与模型调用
 - **DDD 设计**：Group / Pay 沿用领域分层（api / domain / infrastructure / trigger / app）
 - **最终一致性**：本地消息表（Outbox）+ RabbitMQ + 定时补偿
-- **身份边界**：Sa-Token 会话权威；Gateway 签发短期 HMAC 身份信封给下游与 Python Agent
+- **身份边界**：Sa-Token 管浏览器会话；Gateway 验完后签发 60 秒 HS256 内部 JWT，Java/Python 用同一密钥验签。JWT 不是用户登录态，浏览器拿不到。
 - **合同先行**：`contracts/` 中 OpenAPI 与事件 Schema 为唯一接口来源
 
 ### 核心领域
@@ -106,9 +106,9 @@ ai-group/
 
 ### 5. 身份与页面聚合
 
-- **HttpOnly Cookie + Sa-Token**：浏览器会话不落 Agent
-- **HMAC 身份信封**：Gateway 校验后签发短期身份上下文
-- **BFF 聚合**：前端只调 Gateway；Agent 地址不写入前端环境变量
+- **HttpOnly Cookie + Sa-Token**：浏览器会话不落 Agent，可在 Redis 撤销
+- **HS256 内部 JWT**：Gateway 校验会话后签发约 60 秒内部身份；Python 用 PyJWT 验签，不接 Sa-Token
+- **BFF 聚合**：前端只调 Gateway；Agent 地址不写入前端环境变量；BFF 原样转发 JWT，不重造 userId
 
 ## 技术栈
 
@@ -152,7 +152,7 @@ ai-group/
 
 ### 1. Java + Python 边界清晰
 
-交易、支付、积分与身份留在 Java；模型 SDK、异步研究与图编排留在 Python。两边通过 OpenAPI、事件 Schema 与 HMAC 身份协议协作，不共享数据库或 SDK。
+交易、支付、积分与身份留在 Java；模型 SDK、异步研究与图编排留在 Python。两边通过 OpenAPI、事件 Schema 与 HS256 内部 JWT 协作，不共享数据库或 SDK。
 
 ### 2. DDD 拼团 / 支付领域落地
 
@@ -250,7 +250,7 @@ npm run dev
 
 ### Gateway / Auth / BFF
 
-- **gateway-service**：统一入口、鉴权、限流、HMAC 身份注入
+- **gateway-service**：统一入口、鉴权、限流、HS256 内部 JWT 签发
 - **auth-service**：账号体系与 Sa-Token 会话
 - **bff-service**：页面级聚合与 Agent SSE 代理（浏览器永不直连 Agent）
 
@@ -272,7 +272,7 @@ npm run dev
 - **agents**：LangGraph 状态、节点与子图
 - **service**：Run、事件总线、LLM 路由、计费、证据与关注列表
 - **models / alembic**：Postgres Schema 与迁移
-- **security**：Gateway HMAC 身份校验
+- **security**：Gateway HS256 内部 JWT 校验
 
 ### contracts / frontend / dev-ops
 
@@ -294,6 +294,8 @@ npm run dev
 ### 生产环境建议
 
 - 轮换并妥善保管 `AI_GROUP_INTERNAL_TOKEN`、`AI_GROUP_IDENTITY_SIGNING_SECRET` 与 LLM / 支付密钥
+- 身份三层：Sa-Token 浏览器会话（可撤销）/ Gateway HS256 内部 JWT（约 60s，不是登录态）/ `X-Internal-Token` 服务凭证
+- 已知边界：拼团/支付模块本轮仍信网关隔离 + `X-User-Id`，未验 JWT；内部 JWT 不存 nonce 黑名单；密钥为对称共享
 - JVM 按机器规格设置堆与 GC（例如 G1）
 - MySQL / Redis / RabbitMQ / Postgres 开启持久化与高可用
 - Agent 与 Member 之间网络隔离，禁止浏览器直连 Agent

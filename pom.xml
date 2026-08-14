@@ -26,6 +26,7 @@
         <mybatis-plus.version>3.5.14</mybatis-plus.version>
         <xxl-job.version>3.4.2</xxl-job.version>
         <sa-token.version>1.39.0</sa-token.version>
+        <nimbus-jose-jwt.version>9.47</nimbus-jose-jwt.version>
     </properties>
 
     <dependencyManagement>

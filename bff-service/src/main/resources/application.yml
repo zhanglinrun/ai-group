@@ -32,6 +32,8 @@ ai-group:
   # 下游 URL 默认留空并走 Nacos；local profile 覆盖为固定端口直连。
   internal:
     token: ${AI_GROUP_INTERNAL_TOKEN:}
+  identity:
+    signing-secret: ${AI_GROUP_IDENTITY_SIGNING_SECRET:}
   agent:
     url: ${AGENT_SERVICE_URL:http://agent-service:8090}
     connect-timeout-ms: ${AGENT_CONNECT_TIMEOUT_MS:2000}

@@ -43,7 +43,7 @@ BFF 里有个 `DegradeContext`（降级上下文）。它的作用是：如果�
 
 调 member 走 `Nacos`（注册中心）服务发现，调 group / pay 默认按配置的地址直连（本地可配 URL）。对应代码在 `MemberFeignClient`、`GroupFeignClient`、`PayFeignClient`。
 
-身份方面，BFF 自己不校验登录——请求经过网关时已经校验过了。BFF 用共享库里的 `GatewayUserContextFilter`（网关身份上下文过滤器）读取网关注入的用户身份，再带着这个身份去调下游（`FeignAuthForwardConfig` 负责把身份往下透传）。
+身份方面，BFF 自己不校验登录——请求经过网关时已经校验过了。BFF 用共享库里的 `GatewayUserContextFilter` 验 `X-Internal-Jwt` 后绑定用户，再把入站 JWT **原样转发**给下游（`FeignAuthForwardConfig` / Agent 代理），不按 ThreadLocal 重造 userId。
 
 ---
 

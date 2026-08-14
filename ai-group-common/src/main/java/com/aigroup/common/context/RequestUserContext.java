@@ -28,6 +28,12 @@ public final class RequestUserContext {
         ROLE.set(request.getHeader(CommonConstant.HEADER_ROLE));
     }
 
+    public static void bind(long userId, String username, String role) {
+        USER_ID.set(userId);
+        USERNAME.set(username);
+        ROLE.set(role);
+    }
+
     public static Long getUserId() {
         return USER_ID.get();
     }

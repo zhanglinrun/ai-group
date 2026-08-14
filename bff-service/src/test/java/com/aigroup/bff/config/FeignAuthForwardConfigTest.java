@@ -1,28 +1,32 @@
 package com.aigroup.bff.config;
 
 import com.aigroup.common.constant.CommonConstant;
-import com.aigroup.common.context.RequestUserContext;
 import com.aigroup.common.config.InternalTokenProperties;
 import feign.RequestInterceptor;
 import feign.RequestTemplate;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
 class FeignAuthForwardConfigTest {
 
+    private static final String JWT = "header.payload.signature";
+
     private final RequestInterceptor interceptor = new FeignAuthForwardConfig().authForwardInterceptor(internalTokenProperties());
 
     @AfterEach
     void clearContext() {
-        RequestUserContext.clear();
+        RequestContextHolder.resetRequestAttributes();
     }
 
     @Test
-    void userScopedCallForwardsGatewayVerifiedContext() {
-        bindUser();
+    void userScopedCallForwardsInboundJwtWithoutReforgingUserId() {
+        bindInboundRequest();
         RequestTemplate template = new RequestTemplate().uri("/api/pay/orders/page");
 
         interceptor.apply(template);
@@ -33,6 +37,7 @@ class FeignAuthForwardConfigTest {
         assertEquals("internal-token", template.headers().get(CommonConstant.HEADER_INTERNAL_TOKEN).iterator().next());
         assertEquals("tester", template.headers().get(CommonConstant.HEADER_USERNAME).iterator().next());
         assertEquals("USER", template.headers().get(CommonConstant.HEADER_ROLE).iterator().next());
+        assertEquals(JWT, template.headers().get(CommonConstant.HEADER_INTERNAL_JWT).iterator().next());
     }
 
     @Test
@@ -51,14 +56,18 @@ class FeignAuthForwardConfigTest {
         RequestTemplate template = new RequestTemplate().uri("/api/member/summary");
         interceptor.apply(template);
         assertNull(template.headers().get(CommonConstant.HEADER_USER_ID));
+        assertNull(template.headers().get(CommonConstant.HEADER_INTERNAL_JWT));
     }
 
-    private void bindUser() {
-        org.springframework.mock.web.MockHttpServletRequest request = new org.springframework.mock.web.MockHttpServletRequest();
+    private void bindInboundRequest() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.addHeader(CommonConstant.HEADER_INTERNAL_JWT, JWT);
         request.addHeader(CommonConstant.HEADER_USER_ID, "42");
         request.addHeader(CommonConstant.HEADER_USERNAME, "tester");
         request.addHeader(CommonConstant.HEADER_ROLE, "USER");
-        RequestUserContext.bind(request);
+        request.addHeader(CommonConstant.HEADER_GATEWAY_REQUEST, "true");
+        request.addHeader(CommonConstant.HEADER_INTERNAL_TOKEN, "internal-token");
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
     }
 
     private InternalTokenProperties internalTokenProperties() {

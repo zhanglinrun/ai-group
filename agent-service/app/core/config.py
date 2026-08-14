@@ -182,6 +182,9 @@ class Settings(BaseSettings):
     MEMBER_SERVICE_URL: str = "http://member-service:8082"
     INTERNAL_TOKEN: str | None = None
     IDENTITY_SIGNING_SECRET: str | None = None
+    IDENTITY_JWT_SECRET: str | None = None
+    IDENTITY_JWT_ISSUER: str = "ai-group-gateway"
+    IDENTITY_JWT_AUDIENCE: str = "ai-group-internal"
     IDENTITY_MAX_AGE_SECONDS: int = 60
     ALLOW_ANONYMOUS_DEV: bool = True
 

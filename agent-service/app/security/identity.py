@@ -5,9 +5,10 @@ from dataclasses import dataclass
 import hashlib
 import hmac
 import re
-import time
 
+import jwt
 from fastapi import Header, HTTPException, Request
+from jwt import InvalidTokenError
 
 from core.config import settings
 
@@ -30,54 +31,48 @@ class IdentityContext:
 _identity_ctx: ContextVar[IdentityContext | None] = ContextVar("xiongdoctor_identity", default=None)
 
 
-def _signed_payload(request: Request, *, user_id: str, role: str, timestamp: str, nonce: str) -> str:
-    # The Gateway signs the browser-facing route, while the BFF rewrites it to
-    # the internal Agent route. Bind the envelope to the verified identity and
-    # freshness, not to a path that legitimately changes at a proxy boundary.
-    return ".".join((user_id, role, timestamp, nonce))
+def _jwt_secret() -> str:
+    return (settings.IDENTITY_JWT_SECRET or settings.IDENTITY_SIGNING_SECRET or "").strip()
 
 
-def _verify_signature(
-    request: Request,
-    *,
-    user_id: str,
-    role: str,
-    timestamp: str | None,
-    nonce: str | None,
-    signature: str | None,
-) -> bool:
-    secret = (settings.IDENTITY_SIGNING_SECRET or "").strip()
+def _hmac_key(secret: str) -> bytes:
+    return hashlib.sha256(secret.encode("utf-8")).digest()
+
+
+def _decode_identity_jwt(token: str) -> IdentityContext:
+    secret = _jwt_secret()
     if not secret:
-        return False
-    if not timestamp or not nonce or not signature:
-        return False
+        raise HTTPException(status_code=401, detail="invalid identity signature")
     try:
-        timestamp_number = int(timestamp)
-    except ValueError:
-        return False
-    if abs(int(time.time()) - timestamp_number) > settings.IDENTITY_MAX_AGE_SECONDS:
-        return False
-    expected = hmac.new(
-        secret.encode("utf-8"),
-        _signed_payload(request, user_id=user_id, role=role, timestamp=timestamp, nonce=nonce).encode(
-            "utf-8"
-        ),
-        hashlib.sha256,
-    ).hexdigest()
-    return hmac.compare_digest(expected, signature)
+        payload = jwt.decode(
+            token,
+            _hmac_key(secret),
+            algorithms=["HS256"],
+            audience=settings.IDENTITY_JWT_AUDIENCE,
+            issuer=settings.IDENTITY_JWT_ISSUER,
+        )
+    except InvalidTokenError as exc:
+        raise HTTPException(status_code=401, detail="invalid identity signature") from exc
+    subject = payload.get("sub")
+    try:
+        user_id = int(subject)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=401, detail="invalid user id") from exc
+    role = str(payload.get("role") or "USER").upper()
+    username = payload.get("username")
+    return IdentityContext(
+        user_id=user_id,
+        username=str(username) if username is not None else None,
+        role=role,
+    )
 
 
 async def require_identity(
     request: Request,
-    x_user_id: str | None = Header(default=None),
-    x_username: str | None = Header(default=None),
-    x_role: str | None = Header(default=None),
     x_internal_token: str | None = Header(default=None),
-    x_auth_timestamp: str | None = Header(default=None),
-    x_auth_nonce: str | None = Header(default=None),
-    x_auth_signature: str | None = Header(default=None),
+    x_internal_jwt: str | None = Header(default=None),
 ) -> IdentityContext:
-    """Validate the Gateway identity envelope.
+    """Validate the Gateway HS256 identity JWT.
 
     Development-only anonymous mode keeps local unit tests and the isolated
     Agent demo usable. Compose/production sets ALLOW_ANONYMOUS_DEV=false and a
@@ -87,28 +82,14 @@ async def require_identity(
     if configured_internal and not hmac.compare_digest(configured_internal, x_internal_token or ""):
         raise HTTPException(status_code=401, detail="invalid internal service credential")
 
-    if x_user_id is None:
+    if not x_internal_jwt:
         if settings.ALLOW_ANONYMOUS_DEV:
             identity = IdentityContext(user_id=0, username="local-dev", role="USER")
             _identity_ctx.set(identity)
             return identity
         raise HTTPException(status_code=401, detail="gateway identity is required")
 
-    try:
-        user_id = int(x_user_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=401, detail="invalid user id") from exc
-    role = (x_role or "USER").upper()
-    if settings.IDENTITY_SIGNING_SECRET and not _verify_signature(
-        request,
-        user_id=x_user_id,
-        role=role,
-        timestamp=x_auth_timestamp,
-        nonce=x_auth_nonce,
-        signature=x_auth_signature,
-    ):
-        raise HTTPException(status_code=401, detail="invalid identity signature")
-    identity = IdentityContext(user_id=user_id, username=x_username, role=role)
+    identity = _decode_identity_jwt(x_internal_jwt)
     _identity_ctx.set(identity)
     await _assert_run_owner(request, identity)
     return identity

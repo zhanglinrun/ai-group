@@ -106,4 +106,18 @@ class AuthGlobalFilterTest {
         assertEquals(HttpStatus.UNAUTHORIZED, exchange.getResponse().getStatusCode());
     }
 
+    @Test
+    void whitelist_stripsForgedInternalJwt() {
+        ServerWebExchange exchange = MockServerWebExchange.from(MockServerHttpRequest
+                .post("/api/auth/login")
+                .header(CommonConstant.HEADER_INTERNAL_JWT, "forged.jwt.token")
+                .header(CommonConstant.HEADER_USER_ID, "999")
+                .build());
+
+        StepVerifier.create(filter.filter(exchange, ex -> {
+            assertNull(ex.getRequest().getHeaders().getFirst(CommonConstant.HEADER_INTERNAL_JWT));
+            assertNull(ex.getRequest().getHeaders().getFirst(CommonConstant.HEADER_USER_ID));
+            return Mono.empty();
+        })).verifyComplete();
+    }
 }

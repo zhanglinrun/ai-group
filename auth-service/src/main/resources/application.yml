@@ -64,3 +64,5 @@ sa-token:
 ai-group:
   internal:
     token: ${AI_GROUP_INTERNAL_TOKEN:}
+  identity:
+    signing-secret: ${AI_GROUP_IDENTITY_SIGNING_SECRET:}

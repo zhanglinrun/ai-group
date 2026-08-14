@@ -163,7 +163,7 @@ services:
       RABBITMQ_PASSWORD: ${RABBITMQ_DEFAULT_PASS:-xiongdoctor_dev}
       RABBITMQ_EVENT_EXCHANGE: ${RABBITMQ_EVENT_EXCHANGE:-xiongdoctor.events}
       AI_GROUP_INTERNAL_TOKEN: ${AI_GROUP_INTERNAL_TOKEN:-change-me-internal}
-      AI_GROUP_IDENTITY_SIGNING_SECRET: ${AI_GROUP_IDENTITY_SIGNING_SECRET:-change-me-signing-secret}
+      AI_GROUP_IDENTITY_SIGNING_SECRET: ${AI_GROUP_IDENTITY_SIGNING_SECRET:-change-me-signing-secret-32bytes-ok}
       # Enable XXL-JOB executors against the Compose admin; disable local Outbox
       # polling on Pay to avoid double-dispatch of the same handler.
       XXL_JOB_ENABLED: ${XXL_JOB_ENABLED:-true}
@@ -327,7 +327,8 @@ services:
       BOCHA_API_KEY: ${BOCHA_API_KEY:-}
       BOCHA_BASE_URL: ${BOCHA_BASE_URL:-https://api.bochaai.com/v1}
       INTERNAL_TOKEN: ${AI_GROUP_INTERNAL_TOKEN:-change-me-internal}
-      IDENTITY_SIGNING_SECRET: ${AI_GROUP_IDENTITY_SIGNING_SECRET:-change-me-signing-secret}
+      IDENTITY_SIGNING_SECRET: ${AI_GROUP_IDENTITY_SIGNING_SECRET:-change-me-signing-secret-32bytes-ok}
+      IDENTITY_JWT_SECRET: ${AI_GROUP_IDENTITY_SIGNING_SECRET:-change-me-signing-secret-32bytes-ok}
       ALLOW_ANONYMOUS_DEV: "false"
       MEMBER_SERVICE_URL: http://member-service:8082
       CORS_ALLOW_ORIGINS: http://localhost:5173,http://localhost

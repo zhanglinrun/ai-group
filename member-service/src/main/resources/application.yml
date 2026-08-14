@@ -60,6 +60,8 @@ management:
 ai-group:
   internal:
     token: ${AI_GROUP_INTERNAL_TOKEN:}
+  identity:
+    signing-secret: ${AI_GROUP_IDENTITY_SIGNING_SECRET:}
 
 # XXL-JOB 执行器配置
 xxl:

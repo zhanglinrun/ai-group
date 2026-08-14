@@ -159,9 +159,7 @@ public class AgentProxyController {
                 CommonConstant.HEADER_ROLE,
                 CommonConstant.HEADER_GATEWAY_REQUEST,
                 CommonConstant.HEADER_INTERNAL_TOKEN,
-                CommonConstant.HEADER_AUTH_TIMESTAMP,
-                CommonConstant.HEADER_AUTH_NONCE,
-                CommonConstant.HEADER_AUTH_SIGNATURE,
+                CommonConstant.HEADER_INTERNAL_JWT,
         }) {
             String value = request.getHeader(name);
             if (value != null && !value.isBlank()) {
