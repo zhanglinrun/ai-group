@@ -150,7 +150,8 @@ INSERT INTO xxl_job_group(id, pp_name, 	itle, ddress_type, ddress_list, updat
 VALUES
   (1, 'pay', 'Pay 执行器', 0, NULL, now()),
   (2, 'group', 'Group 执行器', 0, NULL, now()),
-  (3, 'member', 'Member 执行器', 0, NULL, now());
+  (3, 'member', 'Member 执行器', 0, NULL, now()),
+  (4, 'auth', 'Auth 执行器', 0, NULL, now());
 
 INSERT INTO xxl_job_info(id, job_group, job_desc, dd_time, update_time, uthor, larm_email,
                            schedule_type, schedule_conf, misfire_strategy, executor_route_strategy,
@@ -184,6 +185,9 @@ VALUES
    now(), '', 1, 0, 0),
   (9, 3, 'Member 月度额度发放', now(), now(), 'xiongdoctor', '', 'CRON', '0 0 1 1 * ?',
    'DO_NOTHING', 'FIRST', 'monthlyQuotaGrantJob', '', 'SERIAL_EXECUTION', 0, 0, 'BEAN', '', 'GLUE代码初始化',
+   now(), '', 1, 0, 0),
+  (10, 4, 'Auth Outbox 投递', now(), now(), 'xiongdoctor', '', 'CRON', '0/1 * * * * ?',
+   'DO_NOTHING', 'FIRST', 'authOutboxPublishJob', '', 'SERIAL_EXECUTION', 0, 0, 'BEAN', '', 'GLUE代码初始化',
    now(), '', 1, 0, 0);
 
 -- admin / 123456 (SHA256)

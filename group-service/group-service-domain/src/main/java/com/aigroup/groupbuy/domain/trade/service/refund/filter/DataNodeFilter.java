@@ -19,7 +19,6 @@ import jakarta.annotation.Resource;
 /**
  * 数据节点
  *
- * @author xiaofuge bugstack.cn @小傅哥
  * 2025/7/30 09:58
  */
 @Slf4j

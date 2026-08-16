@@ -6,7 +6,6 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 /**
- * @author Fuzhengwei bugstack.cn @小傅哥
  * @description 拼团交易命令实体
  * @create 2025-01-25 09:09
  */

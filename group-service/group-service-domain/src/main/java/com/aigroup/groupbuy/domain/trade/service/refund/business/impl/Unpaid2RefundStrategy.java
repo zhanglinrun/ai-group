@@ -12,7 +12,6 @@ import org.springframework.stereotype.Service;
 /**
  * 未支付，未成团；发起退单（未支付），锁单量-1、组队订单状态更新
  *
- * @author xiaofuge bugstack.cn @小傅哥
  * 2025/7/8 07:41
  */
 @Slf4j

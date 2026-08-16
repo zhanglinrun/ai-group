@@ -62,7 +62,7 @@ public class AliPayTest {
         request.setReturnUrl(return_url);
 
         Map<String, Object> bizContent = new LinkedHashMap<>();
-        bizContent.put("out_trade_no", "xfg000091001902");  // 我们自己生成的订单编号
+        bizContent.put("out_trade_no", "demo-order-000091001902");
         bizContent.put("total_amount", "0.01"); // 订单的总金额
         bizContent.put("subject", "测试商品");   // 支付的名称
         bizContent.put("product_code", "FAST_INSTANT_TRADE_PAY");  // 固定配置

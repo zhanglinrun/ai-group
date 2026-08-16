@@ -4,7 +4,6 @@ import com.aigroup.groupbuy.domain.trade.model.entity.*;
 import com.aigroup.groupbuy.domain.trade.model.valobj.GroupBuyProgressVO;
 
 /**
- * @author Fuzhengwei bugstack.cn @小傅哥
  * @description 拼团交易锁单服务接口
  * @create 2025-01-05 16:42
  */

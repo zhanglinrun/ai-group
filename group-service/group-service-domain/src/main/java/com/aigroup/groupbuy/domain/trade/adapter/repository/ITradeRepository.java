@@ -13,7 +13,6 @@ import com.aigroup.groupbuy.domain.trade.model.valobj.GroupBuyProgressVO;
 import java.util.List;
 
 /**
- * @author Fuzhengwei bugstack.cn @小傅哥
  * @description 交易仓储服务接口
  * @create 2025-01-11 09:07
  */

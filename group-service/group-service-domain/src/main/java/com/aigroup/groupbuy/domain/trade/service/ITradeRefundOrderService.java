@@ -10,7 +10,6 @@ import java.util.List;
 /**
  * 退单，逆向流程接口
  *
- * @author xiaofuge bugstack.cn @小傅哥
  * 2025/7/8 07:24
  */
 public interface ITradeRefundOrderService {

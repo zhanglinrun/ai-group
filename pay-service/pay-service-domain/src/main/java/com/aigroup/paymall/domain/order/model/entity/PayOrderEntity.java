@@ -9,7 +9,6 @@ import lombok.NoArgsConstructor;
 import java.math.BigDecimal;
 
 /**
- * @author Fuzhengwei bugstack.cn @小傅哥
  * @description
  * @create 2024-10-03 07:45
  */

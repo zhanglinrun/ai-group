@@ -12,6 +12,7 @@ import org.springframework.mock.web.MockHttpServletResponse;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
 class GatewayUserContextFilterTest {
@@ -64,18 +65,39 @@ class GatewayUserContextFilterTest {
     }
 
     @Test
-    void doesNotBindWhenJwtIsMissing() throws Exception {
+    void rejectsGatewayProofWhenJwtIsMissing() throws Exception {
         GatewayUserContextFilter filter = filter();
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/member/summary");
         request.addHeader(CommonConstant.HEADER_USER_ID, "42");
         request.addHeader(CommonConstant.HEADER_GATEWAY_REQUEST, "true");
         request.addHeader(CommonConstant.HEADER_INTERNAL_TOKEN, INTERNAL_TOKEN);
-        AtomicReference<Long> ownerSeenInChain = new AtomicReference<>();
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        AtomicReference<Boolean> chainInvoked = new AtomicReference<>(false);
 
-        filter.doFilter(request, new MockHttpServletResponse(),
-                (ignoredRequest, ignoredResponse) -> ownerSeenInChain.set(RequestUserContext.getUserId()));
+        filter.doFilter(request, response,
+                (ignoredRequest, ignoredResponse) -> chainInvoked.set(true));
 
-        assertNull(ownerSeenInChain.get());
+        assertEquals(401, response.getStatus());
+        assertFalse(chainInvoked.get());
+        assertNull(RequestUserContext.getUserId());
+    }
+
+    @Test
+    void rejectsGatewayProofWhenJwtIsInvalid() throws Exception {
+        GatewayUserContextFilter filter = filter();
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/member/summary");
+        request.addHeader(CommonConstant.HEADER_GATEWAY_REQUEST, "true");
+        request.addHeader(CommonConstant.HEADER_INTERNAL_TOKEN, INTERNAL_TOKEN);
+        request.addHeader(CommonConstant.HEADER_INTERNAL_JWT, "forged.jwt.token");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        AtomicReference<Boolean> chainInvoked = new AtomicReference<>(false);
+
+        filter.doFilter(request, response,
+                (ignoredRequest, ignoredResponse) -> chainInvoked.set(true));
+
+        assertEquals(401, response.getStatus());
+        assertFalse(chainInvoked.get());
+        assertNull(RequestUserContext.getUserId());
     }
 
     private GatewayUserContextFilter filter() {

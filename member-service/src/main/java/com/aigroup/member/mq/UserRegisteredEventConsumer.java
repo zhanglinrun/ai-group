@@ -6,7 +6,10 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import com.rabbitmq.client.Channel;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
+import org.springframework.amqp.support.AmqpHeaders;
+import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.stereotype.Component;
 
 /** Creates the initial quota account without coupling Auth to Member's database. */
@@ -18,7 +21,13 @@ public class UserRegisteredEventConsumer {
     private final MemberService memberService;
     private final ObjectMapper objectMapper;
 
-    @RabbitListener(queues = "member-service.user-registered")
+    @RabbitListener(queues = "member-service.user-registered", ackMode = "MANUAL")
+    public void consumeUserRegistered(String message, Channel channel,
+                                     @Header(AmqpHeaders.DELIVERY_TAG) long tag) throws Exception {
+        onUserRegistered(message);
+        channel.basicAck(tag, false);
+    }
+
     public void onUserRegistered(String message) {
         try {
             JsonNode envelope = objectMapper.readTree(message);

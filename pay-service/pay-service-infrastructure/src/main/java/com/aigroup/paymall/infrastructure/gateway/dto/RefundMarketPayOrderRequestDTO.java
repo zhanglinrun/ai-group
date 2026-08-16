@@ -6,7 +6,6 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 /**
- * @author Fuzhengwei bugstack.cn @小傅哥
  * @description 营销拼团退单请求对象
  * @create 2025-01-01 00:00
  */

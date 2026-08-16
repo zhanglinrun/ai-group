@@ -36,10 +36,6 @@ class MemberAdminAuthorizationTest {
     }
 
     private void bind(String role) {
-        org.springframework.mock.web.MockHttpServletRequest request = new org.springframework.mock.web.MockHttpServletRequest();
-        request.addHeader("X-User-Id", "1");
-        request.addHeader("X-Username", "admin");
-        request.addHeader("X-Role", role);
-        RequestUserContext.bind(request);
+        RequestUserContext.bind(1L, "admin", role);
     }
 }

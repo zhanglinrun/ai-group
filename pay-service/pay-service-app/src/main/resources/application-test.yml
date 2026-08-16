@@ -91,3 +91,9 @@ logging:
   level:
     root: info
   config: classpath:logback-spring.xml
+
+ai-group:
+  identity:
+    signing-secret: unit-test-identity-signing-secret!
+  internal:
+    token: test-internal-token

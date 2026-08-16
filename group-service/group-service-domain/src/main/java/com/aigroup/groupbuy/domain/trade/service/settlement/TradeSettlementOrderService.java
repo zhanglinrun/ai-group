@@ -22,7 +22,6 @@ import java.util.*;
 import java.util.concurrent.ThreadPoolExecutor;
 
 /**
- * @author Fuzhengwei bugstack.cn @小傅哥
  * @description 拼团交易结算服务
  * @create 2025-01-26 15:22
  */

@@ -5,7 +5,6 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 /**
- * @author Fuzhengwei bugstack.cn @小傅哥
  * @description 回调方式枚举
  * @create 2025-03-16 15:47
  */

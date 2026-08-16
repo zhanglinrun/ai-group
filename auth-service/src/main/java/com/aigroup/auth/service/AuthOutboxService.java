@@ -10,7 +10,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.connection.CorrelationData;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -71,8 +70,7 @@ public class AuthOutboxService {
         }
     }
 
-    /** A single Auth instance owns this dispatcher; the claim update is still atomic. */
-    @Scheduled(fixedDelayString = "${spring.rabbitmq.outbox-dispatch-ms:1000}")
+    /** Claim-and-publish loop. Invoked by XXL-JOB or the local scheduler fallback. */
     public void dispatchPending() {
         List<AuthOutboxEvent> pending = outboxMapper.selectPending();
         for (AuthOutboxEvent event : pending) {

@@ -13,7 +13,6 @@ import jakarta.annotation.Resource;
 
 @Slf4j
 @RestController()
-@CrossOrigin("*")
 @ConditionalOnProperty(name = "weixin.enabled", havingValue = "true")
 @RequestMapping("/api/v1/login/")
 public class LoginController implements IAuthService {
@@ -22,8 +21,7 @@ public class LoginController implements IAuthService {
     private ILoginService loginService;
 
     /**
-     * http://xfg-studio.natapp1.cc/api/v1/login/weixin_qrcode_ticket
-     * @return
+     * GET /api/v1/login/weixin_qrcode_ticket
      */
     @RequestMapping(value = "weixin_qrcode_ticket", method = RequestMethod.GET)
     @Override
@@ -46,8 +44,7 @@ public class LoginController implements IAuthService {
     }
 
     /**
-     * http://xfg-studio.natapp1.cc/api/v1/login/weixin_qrcode_ticket_scene?sceneStr=
-     * @return
+     * GET /api/v1/login/weixin_qrcode_ticket_scene?sceneStr=
      */
     @RequestMapping(value = "weixin_qrcode_ticket_scene", method = RequestMethod.GET)
     @Override
@@ -70,7 +67,7 @@ public class LoginController implements IAuthService {
     }
 
     /**
-     * http://xfg-studio.natapp1.cc/api/v1/login/check_login
+     * GET /api/v1/login/check_login
      */
     @RequestMapping(value = "check_login", method = RequestMethod.GET)
     @Override

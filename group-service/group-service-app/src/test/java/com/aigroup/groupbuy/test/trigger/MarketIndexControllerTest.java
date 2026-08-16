@@ -14,7 +14,6 @@ import org.springframework.test.context.junit4.SpringRunner;
 import jakarta.annotation.Resource;
 
 /**
- * @author Fuzhengwei bugstack.cn @小傅哥
  * @description 营销首页服务
  * @create 2025-02-02 16:05
  */
@@ -31,7 +30,7 @@ public class MarketIndexControllerTest {
         GoodsMarketRequestDTO requestDTO = new GoodsMarketRequestDTO();
         requestDTO.setSource("s01");
         requestDTO.setChannel("c01");
-        requestDTO.setUserId("xfg01");
+        requestDTO.setUserId("demo-user-01");
         requestDTO.setGoodsId("9890001");
 
         Response<GoodsMarketResponseDTO> response = marketIndexController.queryGroupBuyMarketConfig(requestDTO);

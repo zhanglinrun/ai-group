@@ -13,7 +13,6 @@ import org.springframework.stereotype.Service;
 import jakarta.annotation.Resource;
 
 /**
- * @author Fuzhengwei bugstack.cn @小傅哥
  * @description 交易订单服务
  * @create 2025-01-11 08:07
  */

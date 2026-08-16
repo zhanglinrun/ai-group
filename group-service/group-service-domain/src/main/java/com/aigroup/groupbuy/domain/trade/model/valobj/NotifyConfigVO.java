@@ -6,7 +6,6 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 /**
- * @author Fuzhengwei bugstack.cn @小傅哥
  * @description 回调配置值对象
  * @create 2025-03-16 16:10
  */

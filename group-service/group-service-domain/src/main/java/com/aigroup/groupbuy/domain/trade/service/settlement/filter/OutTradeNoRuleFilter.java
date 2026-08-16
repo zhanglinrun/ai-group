@@ -15,7 +15,6 @@ import org.springframework.stereotype.Service;
 import jakarta.annotation.Resource;
 
 /**
- * @author Fuzhengwei bugstack.cn @小傅哥
  * @description 外部交易单号过滤；外部交易单号是否为退单或不存在
  * @create 2025-01-29 09:37
  */

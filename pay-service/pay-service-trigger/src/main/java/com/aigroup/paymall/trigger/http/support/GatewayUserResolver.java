@@ -1,25 +1,27 @@
 package com.aigroup.paymall.trigger.http.support;
 
+import com.aigroup.common.constant.CommonConstant;
+import com.aigroup.common.security.InternalIdentityJwt;
 import jakarta.servlet.http.HttpServletRequest;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 /**
- * Resolves authenticated user id from Gateway-injected headers only.
+ * Resolves authenticated user id from the Gateway-minted JWT only.
  *
- * <p>To prevent header spoofing when services are reachable directly, identity headers are trusted
- * only when accompanied by a shared internal token injected by gateway.</p>
+ * <p>Gateway proof (flag + internal token) is still required so a leaked JWT
+ * cannot be replayed against a directly reachable Pay instance. Body
+ * {@code userId} may only match the JWT subject.</p>
  */
 @Component
 public class GatewayUserResolver {
 
-    private static final String HEADER_USER_ID = "X-User-Id";
-    private static final String HEADER_GATEWAY_REQUEST = "X-Gateway-Request";
-    private static final String HEADER_INTERNAL_TOKEN = "X-Internal-Token";
-
     @Value("${ai-group.internal.token:}")
     private String internalToken;
+
+    @Value("${ai-group.identity.signing-secret:}")
+    private String identitySigningSecret;
 
     public GatewayUserResolver() {
     }
@@ -31,11 +33,12 @@ public class GatewayUserResolver {
         if (!isValidInternalToken(request)) {
             throw new IllegalArgumentException("pay API missing or invalid internal token");
         }
-        String gatewayUserId = request.getHeader(HEADER_USER_ID);
-        if (StringUtils.isBlank(gatewayUserId)) {
+        InternalIdentityJwt.Claims claims = InternalIdentityJwt.verify(
+                identitySigningSecret, request.getHeader(CommonConstant.HEADER_INTERNAL_JWT));
+        if (claims == null) {
             throw new IllegalArgumentException("missing authenticated user");
         }
-        String resolved = gatewayUserId.trim();
+        String resolved = String.valueOf(claims.userId());
         if (StringUtils.isNotBlank(bodyUserId) && !resolved.equals(bodyUserId.trim())) {
             throw new IllegalArgumentException("user identity mismatch");
         }
@@ -43,14 +46,14 @@ public class GatewayUserResolver {
     }
 
     private boolean isGatewayRequest(HttpServletRequest request) {
-        return request != null && "true".equalsIgnoreCase(request.getHeader(HEADER_GATEWAY_REQUEST));
+        return request != null && "true".equalsIgnoreCase(request.getHeader(CommonConstant.HEADER_GATEWAY_REQUEST));
     }
 
     private boolean isValidInternalToken(HttpServletRequest request) {
         if (request == null || StringUtils.isBlank(internalToken)) {
             return false;
         }
-        String provided = request.getHeader(HEADER_INTERNAL_TOKEN);
+        String provided = request.getHeader(CommonConstant.HEADER_INTERNAL_TOKEN);
         return internalToken.equals(provided);
     }
 }

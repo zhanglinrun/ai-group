@@ -1,6 +1,6 @@
 openapi: 3.1.0
 info:
-  title: 熊博士认证服务
+  title: ai-group 认证服务
   version: 1.0.0
 servers:
   - url: /api/auth

@@ -69,6 +69,8 @@ logging:
   config: classpath:logback-spring.xml
 
 ai-group:
+  identity:
+    signing-secret: ${AI_GROUP_IDENTITY_SIGNING_SECRET}
   pay:
     catalog:
       fallback-enabled: false

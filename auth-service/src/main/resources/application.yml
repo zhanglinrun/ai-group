@@ -66,3 +66,19 @@ ai-group:
     token: ${AI_GROUP_INTERNAL_TOKEN:}
   identity:
     signing-secret: ${AI_GROUP_IDENTITY_SIGNING_SECRET:}
+
+auth:
+  outbox:
+    local-scheduler-enabled: ${AUTH_OUTBOX_LOCAL_SCHEDULER_ENABLED:false}
+
+xxl:
+  job:
+    enabled: ${XXL_JOB_ENABLED:true}
+    admin:
+      addresses: ${XXL_JOB_ADMIN_ADDRESSES:http://127.0.0.1:18081/xxl-job-admin}
+    accessToken: ${XXL_JOB_ACCESS_TOKEN:default_token}
+    executor:
+      appname: auth
+      port: 9996
+      logpath: ${XXL_JOB_LOGPATH:./logs/xxl-job/auth}
+      logretentiondays: 30

@@ -6,7 +6,6 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 /**
- * @author Fuzhengwei bugstack.cn @小傅哥
  * @description 结算应答对象
  * @create 2025-02-02 16:09
  */

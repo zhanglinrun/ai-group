@@ -20,7 +20,6 @@ import jakarta.annotation.Resource;
  */
 @Slf4j
 @RestController()
-@CrossOrigin("*")
 @ConditionalOnProperty(name = "weixin.enabled", havingValue = "true")
 @RequestMapping("/api/v1/weixin/portal/")
 public class WeixinPortalController {

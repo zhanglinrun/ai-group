@@ -7,7 +7,6 @@ import org.springframework.stereotype.Repository;
 import jakarta.annotation.Resource;
 
 /**
- * @author Fuzhengwei bugstack.cn @灏忓倕鍝?
  * @description 缁撶畻浠撳偍鏈嶅姟
  * @create 2025-02-15 09:13
  */

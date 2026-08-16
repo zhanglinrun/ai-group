@@ -3,7 +3,6 @@ package com.aigroup.common.context;
 import com.aigroup.common.exception.BusinessException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.mock.web.MockHttpServletRequest;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -16,15 +15,13 @@ class RequestUserContextTest {
     }
 
     @Test
-    void requiresAUserBoundByGatewayHeaders() {
+    void requiresAUserBoundFromJwtClaims() {
         assertThrows(BusinessException.class, RequestUserContext::requireUserId);
 
-        MockHttpServletRequest request = new MockHttpServletRequest();
-        request.addHeader("X-User-Id", "42");
-        request.addHeader("X-Username", "tester");
-        request.addHeader("X-Role", "USER");
-        RequestUserContext.bind(request);
+        RequestUserContext.bind(42L, "tester", "USER");
 
         assertEquals(42L, RequestUserContext.requireUserId());
+        assertEquals("tester", RequestUserContext.getUsername());
+        assertEquals("USER", RequestUserContext.getRole());
     }
 }

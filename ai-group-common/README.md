@@ -21,7 +21,7 @@
 
 ### 服务间安全
 
-- `GatewayUserContextFilter`（网关身份上下文过滤器）：确认内部令牌后，验 `X-Internal-Jwt`（HS256），用 JWT claims 绑定用户，不以裸 `X-User-Id` 为准。
+- `GatewayUserContextFilter`（网关身份上下文过滤器）：确认网关证明后验 `X-Internal-Jwt`（HS256），用 JWT claims 绑定用户；JWT 缺失或无效直接 401，不以裸 `X-User-Id` 为准。
 - `InternalIdentityJwt`：Gateway 签发、下游验签的短时效内部 JWT。
 - `InternalApiAuthFilter`（内部接口鉴权过滤器）：保护 `/internal/**` 这类只允许服务间调用的接口，校验共享的内部令牌。
 - `InternalTokenProperties`（内部令牌配置属性）：服务之间互信用的共享令牌配置。

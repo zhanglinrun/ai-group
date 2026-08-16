@@ -9,7 +9,6 @@ import jakarta.annotation.Resource;
 import java.math.BigDecimal;
 
 /**
- * @author Fuzhengwei bugstack.cn @小傅哥
  * @description 折扣计算服务抽象类
  * @create 2024-12-22 12:32
  */

@@ -6,7 +6,6 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 /**
- * @author Fuzhengwei bugstack.cn @小傅哥
  * @description 营销商品实体信息，通过这样一个信息获取商品优惠信息
  * @create 2024-12-14 13:46
  */

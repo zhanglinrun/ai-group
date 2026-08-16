@@ -11,7 +11,6 @@ import java.util.Date;
 import java.util.Objects;
 
 /**
- * @author Fuzhengwei bugstack.cn @小傅哥
  * @description 拼团活动营销配置值对象
  * @create 2024-12-21 09:39
  */

@@ -9,7 +9,6 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 
 /**
- * @author Fuzhengwei bugstack.cn @小傅哥
  * @description N 元购
  * @create 2024-12-22 12:12
  */

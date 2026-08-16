@@ -14,7 +14,7 @@
 
 ### 2. 注入可信身份头，剥离伪造身份头
 
-会话校验通过后，网关签发约 60 秒的 HS256 内部 JWT（`X-Internal-Jwt`），并继续注入 `X-User-Id` / `X-Username` / `X-Role`、内部令牌。白名单请求会主动剥掉外部可能伪造的身份头（含伪造 JWT）。平台 Java 服务验 JWT 后再绑定用户；拼团/支付模块本轮仍主要信网关隔离 + `X-User-Id`。
+会话校验通过后，网关签发约 60 秒的 HS256 内部 JWT（`X-Internal-Jwt`），并继续注入 `X-User-Id` / `X-Username` / `X-Role`、内部令牌。白名单请求会主动剥掉外部可能伪造的身份头（含伪造 JWT）。用户 API（Auth / Member / BFF / Group 查询与锁单 / Pay 下单）验 JWT 后再绑定用户；支付宝回调和补偿 Job 只认内部令牌。
 
 ### 3. 放行白名单和内部回调
 
@@ -30,7 +30,8 @@
 ## 端口与路由
 
 - 服务端口：`8080`
-- 路由和下游服务通过 `Nacos`（注册中心）发现，转发到 auth、member、bff、group、pay、agent 等服务。
+- 路由和下游服务通过 `Nacos`（注册中心）发现，转发到 auth、member、bff、group、pay。Agent 不进网关，只由 BFF 代理。
+- 网关不做全局限流；拼团热点限流在 Group 的 Redis 固定窗口（`RateLimiterAOP`）。
 
 核心代码：
 

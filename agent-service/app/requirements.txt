@@ -32,6 +32,9 @@ aiolimiter
 # Observability
 structlog==24.4.0
 
+# Service discovery (HTTP Naming, compatible with Nacos 2.x)
+nacos-sdk-python==1.0.0
+
 # Test
 pytest==8.3.4
 pytest-asyncio==0.24.0

@@ -19,7 +19,6 @@ import java.util.concurrent.ThreadPoolExecutor;
 /**
  * 交易任务（MT/HTTP）服务
  *
- * @author xiaofuge bugstack.cn @小傅哥
  * 2025/7/12 21:15
  */
 @Slf4j

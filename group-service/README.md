@@ -1,24 +1,14 @@
 # `group-service`（拼团交易服务）
 
-这是一个围绕团购活动的营销交易项目。它管理的是一场团购从开始到结束的完整过程：活动展示、优惠试算、锁单占位、支付结算、退款回补、通知补偿。
+ai-group 的拼团交易服务：活动展示、优惠试算、锁单占位、支付后结算、退款回补、通知补偿。`bff-service` 调它的营销配置接口拼装拼团价；Pay 在锁单和成团回调上与它协作。
 
-它现在也是 `ai-group`（平台层）下的一个子服务，`bff-service`（前端聚合层）会调它的营销配置接口来拼装拼团价格。但抛开平台不谈，它本身就是一个可以独立运行、独立学习的团购交易系统。
-
-如果你在学 `Java`（编程语言）业务项目，这个仓库适合用来练几件事：
-
-- 看懂一条真实的团购交易主线是怎么走的。
-- 理解 `DDD`（领域驱动设计）在工程里怎么分层落地。
-- 明白规则链、策略、仓储、消息、定时补偿这些写法为什么会出现在业务系统里。
-
----
-
-## 一句话理解业务
-
-它在管理“用户参加团购活动”这件事的全过程。这条主线大致是：
+主线是：
 
 `进入活动页` → `试算`（算价格和资格）→ `锁单`（先占住名额）→ `支付成功` → `结算`（推进拼团状态）→ `退款或补偿`（处理超时、失败、逆向场景）
 
 这里最容易被忽略、但最关键的一步是`锁单`。团购不是“谁付款成功谁算数”那么简单，如果不先占位，并发下很容易出现重复参团、名额超卖、支付后才发现团满、事后大量退款这些问题。所以系统要在支付之前先把资格和名额占住。
+
+口径：活动查询和锁单的 `userId` 以网关 JWT `sub` 为准，不以 body 为准；结算/退款是回调和 Job，只认内部令牌 + 订单里的 userId。热点库存是 Redis Lua 一次占用（保持 `INCR + 1` 语义），不是 MySQL CAS。限流是拼团侧 Redis 固定窗口，不是网关 `RequestRateLimiter`。MQ 监听器手动 ACK，失败有限重试再入队，没有独立 DLQ。
 
 ---
 
@@ -77,8 +67,6 @@
 
 ## 几个关键业务概念
 
-这几点是新手最容易看漏、但最能帮你建立业务感觉的地方。
-
 - **锁单是先占位，不是下单完成。** 锁单会先校验活动是否生效、用户是否超出参与次数、团队是否还有名额、外部单号是否重复，然后占住资格和团状态，但这还不算最终成交。
 - **结算是在推动团状态变化。** 支付成功后不只是把订单改成“已支付”，还要判断这单属于哪个团、团里完成了多少、是否刚好成团、要不要生成回调任务。本质是在推动“拼团是否成功”。
 - **退款不止一种。** 至少有三种场景：下单没支付超时退、已支付但没成团、已支付且已成团后又退款。不同场景恢复的数据和触发的动作都不一样，所以用了不同退款策略。
@@ -109,9 +97,10 @@
 - `Maven`（构建工具）、`MyBatis`（持久层框架）
 - `MySQL`（数据库）、`Redis`（缓存）、`Redisson`（分布式锁）
 - `RabbitMQ`（Topic exchange 消息队列）
-- `Prometheus`（监控采集）+ `Grafana`（监控展示）+ `Logstash`（日志采集）
+- `Nacos`（服务发现）、`XXL-JOB`（补偿任务）
+- 动态配置与限流组件的配置键仍是库前缀 `xfg.wrench`（不是网关 `RequestRateLimiter`）
 
-它不是纯演示项目，把监控、日志、任务、消息这些接近真实业务系统的东西也带上了。
+观测栈在仓库 `dev-ops/observability`，不是本服务启动依赖。
 
 ---
 
@@ -125,65 +114,25 @@
 
 ### 启动步骤
 
-1. **起中间件。** 使用根目录 `dev-ops/compose/docker-compose.full.yml` 准备 MySQL、Redis、RabbitMQ：
+1. **起中间件。** 在仓库根目录：
 
-```bash
-docker-compose -f docs/dev-ops/docker-compose-environment.yml up -d
+```powershell
+docker compose --env-file .env -f dev-ops/compose/docker-compose.dev.yml up
 ```
 
-2. **初始化数据库。** 用一套完整脚本导入，不要混用不同版本：
+全栈也可用 `dev-ops/compose/docker-compose.full.yml`。库表初始化走 Compose 挂载的 `group-service/docs/dev-ops/mysql/sql/2-29-group_buy_market.sql`。
 
-```
-docs/tag/v3.0/mysql/sql/group_buy_market.sql
-```
+2. **改开发配置。** 检查 `group-service-app/src/main/resources/application-dev.yml`：数据源、RabbitMQ、Redis，以及动态配置注册键 `xfg.wrench.config.register`（组件库前缀，不要改成别的名字）。
 
-3. **改开发配置。** 检查 `group-service-app/src/main/resources/application-dev.yml`，确认这几类能连通本地：`spring.datasource`（数据库）、`spring.rabbitmq`（消息队列）、`redis.sdk.config`（缓存）、`xfg.wrench.config.register`（动态配置注册）。
-
-4. **构建。** 在仓库根目录执行：
+3. **构建并启动。** 在仓库根目录：
 
 ```bash
 mvn clean install -DskipTests
+mvn -pl group-service/group-service-app -am spring-boot:run
 ```
 
-5. **启动。** 二选一：
-
-```bash
-mvn -pl group-service-app -am spring-boot:run
-```
-
-或在 `IDEA`（开发工具）里直接运行主启动类 `com.aigroup.groupbuy.Application`。默认端口 `8091`。
+默认端口 `8091`。主启动类 `com.aigroup.groupbuy.Application`。
 
 ### 启动后最小验证
 
-按 `活动页查询 → 锁单 → 结算 → 退款` 的顺序各调一次接口，确认主线和逆向流程都能走通。不想手写请求，可以先看 `docs/ui/html`（静态示例页）。
-
----
-
-## 建议的阅读顺序
-
-第一次看这个项目，不建议从头硬啃所有类，按下面顺序更稳：
-
-1. 先读本 README 的“一句话理解业务”和“几个关键业务概念”，把主线装进脑子。
-2. 看 `trigger`（入口层），知道请求从哪进来。
-3. 看 `domain`（领域层），重点跟 `trade`（交易域）的锁单、结算、退款。
-4. 再看 `infrastructure`（基础设施层），了解具体怎么查库、占库存、发消息。
-5. 最后回头看 `app`（启动配置），补线程池、配置加载这些工程细节。
-
-一个实用建议：测试类往往比主链路更短，很适合当阅读入口。想快速上手可以先看这几个：
-
-- 入口层：`MarketIndexControllerTest`、`MarketTradeControllerTest`、`DCCControllerTest`
-- 领域层：`IIndexGroupBuyMarketServiceTest`（试算）、`ITradeLockOrderServiceTest`（锁单）、`TradeSettlementOrderServiceTest`（结算）、`ITradeRefundOrderServiceTest`（退款）
-- 基础设施：`GroupBuyActivityDaoTest`、`GroupBuyDiscountDaoTest`、`GroupBuyNotifyServiceTest`
-- 整链路：`Link01Test`、`Link02Test`
-
----
-
-## 目录速查
-
-| 目录 | 用途 |
-| --- | --- |
-| `docs/dev-ops` | 本地环境、部署、监控相关文件（Docker 编排、Grafana、Prometheus、Logstash 等配置） |
-| `docs/tag` | 不同版本的演示资源和数据库脚本 |
-| `docs/ui` | 界面示例 |
-
-想先把项目跑起来，优先看 `docs/dev-ops`。
+按 `活动页查询 → 锁单 → 结算 → 退款` 走一遍；身份口径见上文：用户 API 验 JWT，回调/Job 只认内部令牌。

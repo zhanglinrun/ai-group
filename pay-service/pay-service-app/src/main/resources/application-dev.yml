@@ -75,7 +75,7 @@ weixin:
     app-secret: ${WEIXIN_APP_SECRET:}
     template_id: ${WEIXIN_TEMPLATE_ID:}
 
-# 支付宝支付 - 沙箱；密钥从根目录 .env 注入（start-full-stack.ps1 会设置环境变量）
+# 支付宝沙箱；密钥从仓库根目录 .env / Compose 注入
 alipay:
   enabled: ${ALIPAY_ENABLED:false}
   strict: ${ALIPAY_STRICT:false}
@@ -101,6 +101,8 @@ logging:
   config: classpath:logback-spring.xml
 
 ai-group:
+  identity:
+    signing-secret: ${AI_GROUP_IDENTITY_SIGNING_SECRET:}
   internal:
     token: ${AI_GROUP_INTERNAL_TOKEN:}
   pay:

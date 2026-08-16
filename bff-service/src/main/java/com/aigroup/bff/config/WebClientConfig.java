@@ -4,10 +4,12 @@ import io.netty.channel.ChannelOption;
 import io.netty.handler.timeout.ReadTimeoutHandler;
 import io.netty.handler.timeout.WriteTimeoutHandler;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.web.reactive.function.client.ExchangeStrategies;
+import org.springframework.cloud.client.loadbalancer.LoadBalanced;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
 import org.springframework.http.client.reactive.ReactorClientHttpConnector;
+import org.springframework.web.reactive.function.client.ExchangeStrategies;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.netty.http.client.HttpClient;
 
@@ -21,6 +23,7 @@ public class WebClientConfig {
     private static final int MAX_IN_MEMORY_SIZE = 16 * 1024 * 1024;
 
     @Bean
+    @Primary
     WebClient.Builder agentWebClientBuilder(
             @Value("${ai-group.agent.connect-timeout-ms:2000}") int connectTimeoutMs,
             @Value("${ai-group.agent.read-timeout-ms:45000}") int readTimeoutMs,
@@ -37,5 +40,14 @@ public class WebClientConfig {
         return WebClient.builder()
                 .clientConnector(new ReactorClientHttpConnector(httpClient))
                 .exchangeStrategies(exchangeStrategies);
+    }
+
+    @Bean
+    @LoadBalanced
+    WebClient.Builder loadBalancedAgentWebClientBuilder(
+            @Value("${ai-group.agent.connect-timeout-ms:2000}") int connectTimeoutMs,
+            @Value("${ai-group.agent.read-timeout-ms:45000}") int readTimeoutMs,
+            @Value("${ai-group.agent.write-timeout-ms:10000}") int writeTimeoutMs) {
+        return agentWebClientBuilder(connectTimeoutMs, readTimeoutMs, writeTimeoutMs);
     }
 }

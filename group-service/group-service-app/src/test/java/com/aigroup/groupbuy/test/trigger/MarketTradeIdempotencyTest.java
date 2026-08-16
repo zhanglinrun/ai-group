@@ -13,6 +13,8 @@ import com.aigroup.groupbuy.domain.trade.service.ITradeLockOrderService;
 import com.aigroup.groupbuy.trigger.http.MarketTradeController;
 import com.aigroup.groupbuy.types.enums.ResponseCode;
 import com.aigroup.groupbuy.types.exception.AppException;
+import com.aigroup.common.context.RequestUserContext;
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -35,6 +37,7 @@ public class MarketTradeIdempotencyTest {
 
     @Before
     public void setUp() {
+        RequestUserContext.bind(1L, "u1", "USER");
         controller = new MarketTradeController();
         tradeService = mock(ITradeLockOrderService.class);
         marketService = mock(IIndexGroupBuyMarketService.class);
@@ -42,9 +45,14 @@ public class MarketTradeIdempotencyTest {
         ReflectionTestUtils.setField(controller, "indexGroupBuyMarketService", marketService);
     }
 
+    @After
+    public void tearDown() {
+        RequestUserContext.clear();
+    }
+
     @Test
     public void repeatedLockReturnsOriginalTeamAndCurrentStatus() throws Exception {
-        when(tradeService.queryMarketPayOrderByBusinessKey("u1", "s01", "c01", "pay-1"))
+        when(tradeService.queryMarketPayOrderByBusinessKey("1", "s01", "c01", "pay-1"))
                 .thenReturn(existing(TradeOrderStatusEnumVO.COMPLETE));
 
         Response<LockMarketPayOrderResponseDTO> response = controller.lockMarketPayOrder(lockRequest());
@@ -58,10 +66,10 @@ public class MarketTradeIdempotencyTest {
 
     @Test
     public void queryResultUsesFullDatabaseBusinessKey() {
-        when(tradeService.queryMarketPayOrderByBusinessKey("u1", "s01", "c01", "pay-1"))
+        when(tradeService.queryMarketPayOrderByBusinessKey("1", "s01", "c01", "pay-1"))
                 .thenReturn(existing(TradeOrderStatusEnumVO.CREATE));
         QueryMarketPayOrderRequestDTO request = new QueryMarketPayOrderRequestDTO();
-        request.setUserId("u1");
+        request.setUserId("1");
         request.setSource("s01");
         request.setChannel("c01");
         request.setOutTradeNo("pay-1");
@@ -71,12 +79,12 @@ public class MarketTradeIdempotencyTest {
         assertEquals("0000", response.getCode());
         assertEquals("group-order-1", response.getData().getOrderId());
         assertEquals("team-1", response.getData().getTeamId());
-        verify(tradeService).queryMarketPayOrderByBusinessKey("u1", "s01", "c01", "pay-1");
+        verify(tradeService).queryMarketPayOrderByBusinessKey("1", "s01", "c01", "pay-1");
     }
 
     @Test
     public void uniqueKeyRaceReturnsCommittedWinner() throws Exception {
-        when(tradeService.queryMarketPayOrderByBusinessKey("u1", "s01", "c01", "pay-1"))
+        when(tradeService.queryMarketPayOrderByBusinessKey("1", "s01", "c01", "pay-1"))
                 .thenReturn(null, null, existing(TradeOrderStatusEnumVO.CREATE));
         when(marketService.indexMarketTrial(any())).thenReturn(trial());
         when(tradeService.lockMarketPayOrder(any(), any(), any()))
@@ -87,12 +95,12 @@ public class MarketTradeIdempotencyTest {
         assertEquals("0000", response.getCode());
         assertEquals("team-1", response.getData().getTeamId());
         verify(tradeService, times(3))
-                .queryMarketPayOrderByBusinessKey("u1", "s01", "c01", "pay-1");
+                .queryMarketPayOrderByBusinessKey("1", "s01", "c01", "pay-1");
     }
 
     private LockMarketPayOrderRequestDTO lockRequest() {
         LockMarketPayOrderRequestDTO request = new LockMarketPayOrderRequestDTO();
-        request.setUserId("u1");
+        request.setUserId("1");
         request.setActivityId(100201L);
         request.setGoodsId("9890002");
         request.setOrderPrice(new BigDecimal("12.00"));

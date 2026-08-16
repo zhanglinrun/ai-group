@@ -5,7 +5,7 @@ import java.lang.annotation.*;
 /**
  * 限流注解，标记需要限流的方法。
  * <p>
- * 配合 {@code RateLimiterAOP} 切面实现基于 Guava RateLimiter 的令牌桶限流，
+ * 配合 {@code RateLimiterAOP} 切面实现基于 Redis 固定窗口的集群限流，
  * 支持按字段限流标识、黑名单拦截和超频次降级。
  */
 @Retention(RetentionPolicy.RUNTIME)

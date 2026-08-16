@@ -77,6 +77,16 @@
             <artifactId>spring-cloud-starter-alibaba-nacos-discovery</artifactId>
         </dependency>
 
+        <dependency>
+            <groupId>com.aigroup</groupId>
+            <artifactId>ai-group-common</artifactId>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.springframework.boot</groupId>
+                    <artifactId>spring-boot-starter-data-redis</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
     <!-- 工程模块；启动依赖 trigger->domain, infrastructure-->
         <dependency>
             <groupId>com.aigroup.paymall</groupId>

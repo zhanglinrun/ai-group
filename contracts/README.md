@@ -1,4 +1,4 @@
-# 熊博士服务合同
+# ai-group 服务合同
 
 `openapi/` 和 `events/` 是跨服务通信的唯一来源。Java、Python 和前端都只能围绕这些合同实现适配器，不在 BFF 或 Controller 中通过动态 Map 继续扩散隐式字段。
 

@@ -5,7 +5,6 @@ import com.aigroup.groupbuy.api.dto.GoodsMarketResponseDTO;
 import com.aigroup.groupbuy.api.response.Response;
 
 /**
- * @author Fuzhengwei bugstack.cn @小傅哥
  * @description 营销首页服务接口
  * @create 2025-02-02 16:02
  */

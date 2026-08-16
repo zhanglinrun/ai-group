@@ -1,11 +1,10 @@
 package com.aigroup.common.context;
 
-import com.aigroup.common.constant.CommonConstant;
 import com.aigroup.common.exception.BusinessException;
-import jakarta.servlet.http.HttpServletRequest;
-import org.springframework.util.StringUtils;
 
-/** Request-scoped user context populated by the Gateway. */
+/**
+ * Request-scoped user context bound from Gateway JWT claims, not from {@code X-User-Id}.
+ */
 public final class RequestUserContext {
 
     private static final ThreadLocal<Long> USER_ID = new ThreadLocal<>();
@@ -13,19 +12,6 @@ public final class RequestUserContext {
     private static final ThreadLocal<String> ROLE = new ThreadLocal<>();
 
     private RequestUserContext() {
-    }
-
-    public static void bind(HttpServletRequest request) {
-        String userId = request.getHeader(CommonConstant.HEADER_USER_ID);
-        if (StringUtils.hasText(userId)) {
-            try {
-                USER_ID.set(Long.parseLong(userId));
-            } catch (NumberFormatException ignored) {
-                // A malformed Gateway header is treated as an unauthenticated request.
-            }
-        }
-        USERNAME.set(request.getHeader(CommonConstant.HEADER_USERNAME));
-        ROLE.set(request.getHeader(CommonConstant.HEADER_ROLE));
     }
 
     public static void bind(long userId, String username, String role) {

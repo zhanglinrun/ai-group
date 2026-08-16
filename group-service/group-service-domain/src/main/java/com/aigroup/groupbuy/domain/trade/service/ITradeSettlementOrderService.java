@@ -7,7 +7,6 @@ import com.aigroup.groupbuy.domain.trade.model.entity.TradePaySuccessEntity;
 import java.util.Map;
 
 /**
- * @author Fuzhengwei bugstack.cn @小傅哥
  * @description 拼团交易结算服务接口
  * @create 2025-01-26 14:34
  */

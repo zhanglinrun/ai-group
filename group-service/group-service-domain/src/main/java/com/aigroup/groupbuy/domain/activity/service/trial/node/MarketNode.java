@@ -24,7 +24,6 @@ import java.util.concurrent.*;
 import java.util.function.Supplier;
 
 /**
- * @author Fuzhengwei bugstack.cn @小傅哥
  * @description 营销优惠节点
  * @create 2024-12-14 14:30
  */
@@ -34,9 +33,6 @@ public class MarketNode extends AbstractGroupBuyMarketSupport<MarketProductEntit
 
     @Resource
     private ThreadPoolExecutor threadPoolExecutor;
-    /**
-     * <a href="https://bugstack.cn/md/road-map/spring-dependency-injection.html">Spring 注入详细说明</a>
-     */
     @Resource
     private Map<String, IDiscountCalculateService> discountCalculateServiceMap;
     @Resource

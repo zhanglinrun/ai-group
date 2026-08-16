@@ -11,7 +11,6 @@ import java.util.concurrent.TimeUnit;
 /**
  * Redis 服务
  *
- * @author Fuzhengwei bugstack.cn @小傅哥
  */
 public interface IRedisService {
 
@@ -270,6 +269,8 @@ public interface IRedisService {
     Boolean setNx(String key);
 
     Boolean setNx(String key, long expired, TimeUnit timeUnit);
+
+    Long evalLong(String script, java.util.List<String> keys, java.util.List<String> args);
 
     RBitSet getBitSet(String key);
 

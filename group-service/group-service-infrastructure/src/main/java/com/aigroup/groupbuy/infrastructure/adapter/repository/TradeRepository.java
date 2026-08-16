@@ -42,7 +42,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 /**
- * @author Fuzhengwei bugstack.cn @小傅哥
  * @description 交易仓储服务
  * @create 2025-01-11 09:17
  */
@@ -655,40 +654,19 @@ public class TradeRepository implements ITradeRepository {
     }
 
     /**
-     * 占用库存
-     * <p>
-     * 关于 Redis 独占锁和无锁化设计；<a href="https://bugstack.cn/md/road-map/redis.html">Redis 缓存、加锁(独占/分段)、发布/订阅，常用特性的使用和高级编码操作</a>
+     * Occupies one team seat with a single Redis Lua script: read recovery,
+     * INCR, compare against target + recovery using the historical INCR+1
+     * semantics, then SET NX the slot lock. Overflow or slot collision rolls
+     * the counter back in the same script.
      */
     @Override
     public boolean occupyTeamStock(String teamStockKey, String recoveryTeamStockKey, Integer target, Integer validTime) {
-        // 失败恢复量
-        Long recoveryCount = redisService.getAtomicLong(recoveryTeamStockKey);
-        recoveryCount = null == recoveryCount ? 0 : recoveryCount;
-
-        // 1. incr 得到值，与总量和恢复量做对比。恢复量为系统失败时候记录的量。
-        // 2. 从有组队量开始，相当于已经有了一个占用量，所以要 +1
-        long occupy = redisService.incr(teamStockKey) + 1;
-
-        if (occupy > target + recoveryCount) {
-            // 超出库存限制时，需要将已经增加的库存减回去，避免库存泄漏
-            redisService.decr(teamStockKey);
-            return false;
+        boolean occupied = com.aigroup.groupbuy.infrastructure.redis.TeamStockOccupyScript.occupy(
+                redisService, teamStockKey, recoveryTeamStockKey, target, validTime);
+        if (!occupied) {
+            log.info("组队库存占用失败 teamStockKey={} recoveryKey={}", teamStockKey, recoveryTeamStockKey);
         }
-
-        // 1. 给每个产生的值加锁为兜底设计，虽然incr操作是原子的，基本不会产生一样的值。但在实际生产中，遇到过集群的运维配置问题，以及业务运营配置数据问题，导致incr得到的值相同。
-        // 2. validTime + 60分钟，是一个延后时间的设计，让数据保留时间稍微长一些，便于排查问题。
-        String lockKey = teamStockKey + Constants.UNDERLINE + occupy;
-        Boolean lock = redisService.setNx(lockKey, validTime + 60, TimeUnit.MINUTES);
-
-        if (!lock) {
-            log.info("组队库存加锁失败 {}", lockKey);
-            // The atomic counter was already incremented above. Roll it back when
-            // the slot marker cannot be created, otherwise a transient Redis/key
-            // collision permanently consumes one team seat.
-            redisService.decr(teamStockKey);
-        }
-
-        return lock;
+        return occupied;
     }
 
     @Override

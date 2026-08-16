@@ -95,18 +95,6 @@ services:
       timeout: 5s
       retries: 30
 
-  minio:
-    image: minio/minio:RELEASE.2025-02-28T09-55-16Z
-    command: server /data --console-address ":9001"
-    environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-xiongdoctor}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-xiongdoctor_dev}
-    ports:
-      - "${MINIO_PUBLISH_PORT:-9000}:9000"
-      - "${MINIO_CONSOLE_PUBLISH_PORT:-9001}:9001"
-    volumes:
-      - minio_data:/data
-
   # XXL-JOB Admin（对齐 pay/group/member 的 xxl-job-core 3.4.2；结构参考 know-engine）
   xxl-job-mysql:
     image: mysql:8.0
@@ -189,12 +177,14 @@ services:
       MYSQL_PORT: 3306
       MYSQL_USER: root
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-xiongdoctor_dev}
-    expose: ["8081"]
+      AUTH_OUTBOX_LOCAL_SCHEDULER_ENABLED: ${AUTH_OUTBOX_LOCAL_SCHEDULER_ENABLED:-false}
+    expose: ["8081", "9996"]
     depends_on:
       mysql: {condition: service_healthy}
       redis: {condition: service_healthy}
       rabbitmq: {condition: service_healthy}
       nacos: {condition: service_healthy}
+      xxl-job-admin: {condition: service_started}
 
   member-service:
     build:
@@ -226,7 +216,7 @@ services:
         ARTIFACT: bff-service
     environment:
       <<: *java-common
-      AGENT_SERVICE_URL: http://agent-service:8090
+      AGENT_SERVICE_URL: ${AGENT_SERVICE_URL:-}
     expose: ["8083"]
     depends_on:
       nacos: {condition: service_healthy}
@@ -328,6 +318,9 @@ services:
       BOCHA_BASE_URL: ${BOCHA_BASE_URL:-https://api.bochaai.com/v1}
       INTERNAL_TOKEN: ${AI_GROUP_INTERNAL_TOKEN:-change-me-internal}
       IDENTITY_SIGNING_SECRET: ${AI_GROUP_IDENTITY_SIGNING_SECRET:-change-me-signing-secret-32bytes-ok}
+      NACOS_DISCOVERY_ENABLED: "true"
+      NACOS_SERVER_ADDR: nacos:8848
+      NACOS_SERVICE_NAME: agent-service
       IDENTITY_JWT_SECRET: ${AI_GROUP_IDENTITY_SIGNING_SECRET:-change-me-signing-secret-32bytes-ok}
       ALLOW_ANONYMOUS_DEV: "false"
       MEMBER_SERVICE_URL: http://member-service:8082
@@ -336,6 +329,7 @@ services:
     depends_on:
       agent-postgres: {condition: service_healthy}
       member-service: {condition: service_started}
+      nacos: {condition: service_healthy}
 
   frontend:
     build:
@@ -352,6 +346,5 @@ volumes:
   rabbitmq_data:
   nacos_logs:
   agent_postgres_data:
-  minio_data:
   xxl_job_mysql_data:
   xxl_job_admin_logs:

@@ -19,15 +19,11 @@
             <artifactId>commons-lang3</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.google.guava</groupId>
-            <artifactId>guava</artifactId>
-        </dependency>
-        <dependency>
             <groupId>commons-codec</groupId>
             <artifactId>commons-codec</artifactId>
         </dependency>
 
-        <!-- 扳手工程；设计模式框架 -->
+        <!-- 责任链 / 动态配置组件（Maven 坐标仍为 cn.bugstack.wrench） -->
         <dependency>
             <groupId>cn.bugstack.wrench</groupId>
             <artifactId>xfg-wrench-starter-design-framework</artifactId>

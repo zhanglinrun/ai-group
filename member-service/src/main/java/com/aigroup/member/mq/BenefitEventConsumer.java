@@ -5,7 +5,10 @@ import com.aigroup.member.service.MemberService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import com.rabbitmq.client.Channel;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
+import org.springframework.amqp.support.AmqpHeaders;
+import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.stereotype.Component;
 
 @Slf4j
@@ -16,7 +19,13 @@ public class BenefitEventConsumer {
     private final MemberService memberService;
     private final ObjectMapper objectMapper;
 
-    @RabbitListener(queues = "member-service.benefit")
+    @RabbitListener(queues = "member-service.benefit", ackMode = "MANUAL")
+    public void consumeTradeCompleted(String payload, Channel channel,
+                                     @Header(AmqpHeaders.DELIVERY_TAG) long tag) throws Exception {
+        onTradeCompleted(payload);
+        channel.basicAck(tag, false);
+    }
+
     public void onTradeCompleted(String payload) {
         try {
             TradeCompletedEvent event = objectMapper.readValue(payload, TradeCompletedEvent.class);

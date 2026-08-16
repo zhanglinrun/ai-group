@@ -1,4 +1,4 @@
-"""ASGI entrypoint for the 熊博士 Agent service."""
+"""ASGI entrypoint for the ai-group Agent service."""
 
 from app_main import app
 

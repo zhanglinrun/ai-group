@@ -34,9 +34,11 @@ public class GatewayUserContextFilter extends OncePerRequestFilter {
             if (isGatewayVerified(request)) {
                 InternalIdentityJwt.Claims claims = InternalIdentityJwt.verify(
                         identitySigningSecret, request.getHeader(CommonConstant.HEADER_INTERNAL_JWT));
-                if (claims != null) {
-                    RequestUserContext.bind(claims.userId(), claims.username(), claims.role());
+                if (claims == null) {
+                    response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                    return;
                 }
+                RequestUserContext.bind(claims.userId(), claims.username(), claims.role());
             }
             filterChain.doFilter(request, response);
         } finally {

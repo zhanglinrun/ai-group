@@ -10,7 +10,6 @@ import com.aigroup.groupbuy.api.dto.SettlementMarketPayOrderResponseDTO;
 import com.aigroup.groupbuy.api.response.Response;
 
 /**
- * @author Fuzhengwei bugstack.cn @小傅哥
  * @description 营销交易服务接口
  * @create 2025-01-11 13:49
  */

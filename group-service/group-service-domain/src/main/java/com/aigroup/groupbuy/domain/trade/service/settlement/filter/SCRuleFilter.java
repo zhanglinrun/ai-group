@@ -13,7 +13,6 @@ import org.springframework.stereotype.Service;
 import jakarta.annotation.Resource;
 
 /**
- * @author Fuzhengwei bugstack.cn @小傅哥
  * @description SC 渠道来源过滤 - 当某个签约渠道下架后，则不会记账
  * @create 2025-01-29 09:16
  */

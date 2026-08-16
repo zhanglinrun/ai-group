@@ -21,7 +21,6 @@ import java.util.concurrent.CountDownLatch;
 /**
  * 锁单、恢复的锁单
  *
- * @author xiaofuge bugstack.cn @小傅哥
  * 2025/7/29 10:34
  */
 @Slf4j

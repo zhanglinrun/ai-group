@@ -8,7 +8,6 @@ import lombok.NoArgsConstructor;
 import java.util.Date;
 
 /**
- * @author Fuzhengwei bugstack.cn @小傅哥
  * @description 渠道商品活动配置关联表
  * @create 2025-01-01 09:27
  */

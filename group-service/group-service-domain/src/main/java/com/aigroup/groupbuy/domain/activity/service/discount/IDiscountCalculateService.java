@@ -5,7 +5,6 @@ import com.aigroup.groupbuy.domain.activity.model.valobj.GroupBuyActivityDiscoun
 import java.math.BigDecimal;
 
 /**
- * @author Fuzhengwei bugstack.cn @小傅哥
  * @description 折扣计算服务
  * @create 2024-12-22 09:17
  */

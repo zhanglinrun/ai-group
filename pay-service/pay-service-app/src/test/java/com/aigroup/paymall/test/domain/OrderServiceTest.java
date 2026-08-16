@@ -24,7 +24,7 @@ public class OrderServiceTest {
     @Test
     public void test_createOrder_NO_MARKET() throws Exception {
         ShopCartEntity shopCartEntity = new ShopCartEntity();
-        shopCartEntity.setUserId("xiaofuge01");
+        shopCartEntity.setUserId("demo-user-01");
         shopCartEntity.setProductId("9890001");
         shopCartEntity.setTeamId(null);
         shopCartEntity.setActivityId(100123L);
@@ -39,7 +39,7 @@ public class OrderServiceTest {
     @Test
     public void test_createOrder_GROUP_BUY_MARKET() throws Exception {
         ShopCartEntity shopCartEntity = new ShopCartEntity();
-        shopCartEntity.setUserId("xiaofuge20");
+        shopCartEntity.setUserId("demo-user-20");
         shopCartEntity.setProductId("9890001");
         shopCartEntity.setTeamId(null);
         shopCartEntity.setActivityId(100123L);

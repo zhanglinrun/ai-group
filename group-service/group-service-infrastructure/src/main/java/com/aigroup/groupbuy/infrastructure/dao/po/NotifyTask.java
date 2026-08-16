@@ -8,7 +8,6 @@ import lombok.NoArgsConstructor;
 import java.util.Date;
 
 /**
- * @author Fuzhengwei bugstack.cn @小傅哥
  * @description 通知回调任务
  * @create 2025-01-26 18:19
  */

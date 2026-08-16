@@ -6,7 +6,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 /**
- * @author Fuzhengwei bugstack.cn @小傅哥
  * @description
  * @create 2025-01-18 09:18
  */
@@ -18,7 +17,7 @@ public class RuleLogic202 implements ILogicHandler<String, Rule02TradeRuleFactor
 
         log.info("link model02 RuleLogic202");
 
-        return new XxxResponse("hi 小傅哥！");
+        return new XxxResponse("ok");
     }
 
 }

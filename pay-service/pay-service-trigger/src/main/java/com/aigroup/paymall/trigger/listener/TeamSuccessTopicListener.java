@@ -4,7 +4,10 @@ import com.aigroup.paymall.api.dto.NotifyRequestDTO;
 import com.aigroup.paymall.domain.order.service.IOrderService;
 import com.aigroup.paymall.types.common.JsonUtils;
 import lombok.extern.slf4j.Slf4j;
+import com.rabbitmq.client.Channel;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
+import org.springframework.amqp.support.AmqpHeaders;
+import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.stereotype.Component;
 
 import jakarta.annotation.Resource;
@@ -20,7 +23,13 @@ public class TeamSuccessTopicListener {
     @Resource
     private IOrderService orderService;
 
-    @RabbitListener(queues = "pay-service.team-success")
+    @RabbitListener(queues = "pay-service.team-success", ackMode = "MANUAL")
+    public void consume(String message, Channel channel,
+                        @Header(AmqpHeaders.DELIVERY_TAG) long tag) throws Exception {
+        listener(message);
+        channel.basicAck(tag, false);
+    }
+
     public void listener(String message) {
         try {
             NotifyRequestDTO requestDTO = JsonUtils.parseObject(message, NotifyRequestDTO.class);

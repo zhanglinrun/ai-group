@@ -5,12 +5,13 @@ import org.springframework.stereotype.Service;
 
 import jakarta.annotation.Resource;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 /**
  * Redis 服务 - Redisson
  *
- * @author Fuzhengwei bugstack.cn @小傅哥
  */
 @Service("redissonService")
 public class RedissonService implements IRedisService {
@@ -176,6 +177,17 @@ public class RedissonService implements IRedisService {
     public Boolean setNx(String key, long expired, TimeUnit timeUnit) {
         return redissonClient.getBucket(key)
                 .setIfAbsent("lock", Duration.of(expired, timeUnit.toChronoUnit()));
+    }
+
+    @Override
+    public Long evalLong(String script, List<String> keys, List<String> args) {
+        List<Object> keyObjects = new ArrayList<>(keys);
+        return redissonClient.getScript().eval(
+                RScript.Mode.READ_WRITE,
+                script,
+                RScript.ReturnType.INTEGER,
+                keyObjects,
+                args.toArray());
     }
 
     @Override

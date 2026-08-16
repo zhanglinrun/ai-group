@@ -1,8 +1,7 @@
 # 基础镜像
 FROM openjdk:8-jre-slim
 
-# 作者
-MAINTAINER xiaofuge
+LABEL org.opencontainers.image.title="pay-service"
 
 # 配置
 ENV PARAMS=""

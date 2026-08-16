@@ -11,7 +11,6 @@ import lombok.NoArgsConstructor;
 /**
  * 拼团退单聚合
  *
- * @author xiaofuge bugstack.cn @小傅哥
  * 2025/7/11 19:30
  */
 @Data

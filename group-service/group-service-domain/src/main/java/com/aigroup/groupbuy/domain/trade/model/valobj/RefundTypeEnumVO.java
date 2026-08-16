@@ -11,7 +11,6 @@ import java.util.Arrays;
 /**
  * 退单类型枚举
  *
- * @author xiaofuge bugstack.cn @小傅哥
  * 2025/7/11 18:59
  */
 @Getter

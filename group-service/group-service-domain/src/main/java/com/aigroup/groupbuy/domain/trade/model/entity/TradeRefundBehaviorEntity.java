@@ -5,7 +5,6 @@ import lombok.*;
 /**
  * 退单行动
  *
- * @author xiaofuge bugstack.cn @小傅哥
  * 2025/7/12 07:50
  */
 @Data

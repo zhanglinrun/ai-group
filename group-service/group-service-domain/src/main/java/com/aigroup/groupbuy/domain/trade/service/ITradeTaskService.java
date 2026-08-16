@@ -7,7 +7,6 @@ import java.util.Map;
 /**
  * 交易任务（MT/HTTP）服务接口
  * 
- * @author xiaofuge bugstack.cn @小傅哥
  * 2025/7/12 21:15
  */
 public interface ITradeTaskService {

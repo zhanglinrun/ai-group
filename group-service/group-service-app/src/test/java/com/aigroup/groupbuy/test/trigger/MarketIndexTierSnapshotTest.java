@@ -10,6 +10,9 @@ import com.aigroup.groupbuy.domain.activity.model.valobj.TeamStatisticVO;
 import com.aigroup.groupbuy.domain.activity.service.IIndexGroupBuyMarketService;
 import com.aigroup.groupbuy.trigger.http.MarketIndexController;
 import com.aigroup.groupbuy.types.common.JsonUtils;
+import com.aigroup.common.context.RequestUserContext;
+import org.junit.After;
+import org.junit.Before;
 import org.junit.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -24,6 +27,16 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 public class MarketIndexTierSnapshotTest {
+
+    @Before
+    public void bindUser() {
+        RequestUserContext.bind(1L, "user-1", "USER");
+    }
+
+    @After
+    public void clearUser() {
+        RequestUserContext.clear();
+    }
 
     @Test
     public void shouldExposeTeamSnapshotInsteadOfEditedLiveTiers() throws Exception {
@@ -49,7 +62,7 @@ public class MarketIndexTierSnapshotTest {
         List<GoodsMarketResponseDTO.Tier> snapshotTiers = List.of(
                 responseTier(1, 3, 6), responseTier(2, 5, 12), responseTier(3, 10, 18));
         Date now = new Date();
-        when(marketService.queryInProgressUserGroupBuyOrderDetailList(100201L, "user-1", 3, 10))
+        when(marketService.queryInProgressUserGroupBuyOrderDetailList(100201L, "1", 3, 10))
                 .thenReturn(List.of(UserGroupBuyOrderDetailEntity.builder()
                         .userId("user-1")
                         .teamId("team-1")
@@ -68,7 +81,7 @@ public class MarketIndexTierSnapshotTest {
                 .build());
 
         GoodsMarketRequestDTO request = new GoodsMarketRequestDTO();
-        request.setUserId("user-1");
+        request.setUserId("1");
         request.setSource("s01");
         request.setChannel("c01");
         request.setGoodsId("9890002");

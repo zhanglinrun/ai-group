@@ -16,7 +16,6 @@ import jakarta.annotation.Resource;
 import java.util.concurrent.CountDownLatch;
 
 /**
- * @author Fuzhengwei bugstack.cn @小傅哥
  * @description 营销交易服务
  * @create 2025-01-11 14:20
  */
@@ -31,7 +30,7 @@ public class MarketTradeControllerTest {
     @Test
     public void test_lockMarketPayOrder_mq() throws InterruptedException {
         LockMarketPayOrderRequestDTO lockMarketPayOrderRequestDTO = new LockMarketPayOrderRequestDTO();
-        lockMarketPayOrderRequestDTO.setUserId("xfg01");
+        lockMarketPayOrderRequestDTO.setUserId("demo-user-01");
         lockMarketPayOrderRequestDTO.setTeamId(null);
         lockMarketPayOrderRequestDTO.setActivityId(100123L);
         lockMarketPayOrderRequestDTO.setGoodsId("9890001");
@@ -48,7 +47,7 @@ public class MarketTradeControllerTest {
     @Test
     public void test_lockMarketPayOrder() {
         LockMarketPayOrderRequestDTO lockMarketPayOrderRequestDTO = new LockMarketPayOrderRequestDTO();
-        lockMarketPayOrderRequestDTO.setUserId("xfg03");
+        lockMarketPayOrderRequestDTO.setUserId("demo-user-03");
         lockMarketPayOrderRequestDTO.setTeamId(null);
         lockMarketPayOrderRequestDTO.setActivityId(100123L);
         lockMarketPayOrderRequestDTO.setGoodsId("9890001");
@@ -65,7 +64,7 @@ public class MarketTradeControllerTest {
     @Test
     public void test_lockMarketPayOrder_teamId_not_null() {
         LockMarketPayOrderRequestDTO lockMarketPayOrderRequestDTO = new LockMarketPayOrderRequestDTO();
-        lockMarketPayOrderRequestDTO.setUserId("xfg04");
+        lockMarketPayOrderRequestDTO.setUserId("demo-user-04");
         lockMarketPayOrderRequestDTO.setTeamId("29487599");
         lockMarketPayOrderRequestDTO.setActivityId(100123L);
         lockMarketPayOrderRequestDTO.setGoodsId("9890001");
@@ -83,7 +82,7 @@ public class MarketTradeControllerTest {
     public void test_lockMarketPayOrder_list() {
         for (int i = 1; i < 2; i++) {
             LockMarketPayOrderRequestDTO lockMarketPayOrderRequestDTO = new LockMarketPayOrderRequestDTO();
-            lockMarketPayOrderRequestDTO.setUserId("xfg0" + i);
+            lockMarketPayOrderRequestDTO.setUserId("demo-user-0" + i);
             lockMarketPayOrderRequestDTO.setTeamId(null);
             lockMarketPayOrderRequestDTO.setActivityId(100123L);
             lockMarketPayOrderRequestDTO.setGoodsId("9890001");

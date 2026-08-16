@@ -1,6 +1,6 @@
 openapi: 3.1.0
 info:
-  title: 熊博士 Agent 服务
+  title: ai-group Agent 服务
   version: 1.0.0
 servers:
   - url: /api/bff/agent

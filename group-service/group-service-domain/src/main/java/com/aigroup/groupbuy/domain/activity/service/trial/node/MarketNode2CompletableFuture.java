@@ -15,7 +15,6 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeoutException;
 
 /**
- * @author Fuzhengwei bugstack.cn @小傅哥
  * @description 线程案例举例
  * @create 2025-04-03 07:44
  */

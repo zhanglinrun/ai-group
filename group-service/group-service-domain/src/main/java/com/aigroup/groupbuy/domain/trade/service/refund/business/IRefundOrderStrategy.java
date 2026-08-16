@@ -9,7 +9,6 @@ import com.aigroup.groupbuy.domain.trade.model.valobj.TeamRefundSuccess;
  * 未成团，UnformedTeam
  * 已成团，AlreadyFormedTeam
  *
- * @author xiaofuge bugstack.cn @小傅哥
  * 2025/7/8 07:37
  */
 public interface IRefundOrderStrategy {

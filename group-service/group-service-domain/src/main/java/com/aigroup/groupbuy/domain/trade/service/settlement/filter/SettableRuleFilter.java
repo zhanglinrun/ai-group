@@ -17,7 +17,6 @@ import jakarta.annotation.Resource;
 import java.util.Date;
 
 /**
- * @author Fuzhengwei (bugstack.cn)
  * @description 拼团交易结算可执行规则过滤器
  * @create 2025-01-29 09:38
  */

@@ -1,4 +1,4 @@
-"""Phase 2 planner integration test: real XiongDoctor graph + AsyncPostgresSaver + Fake LLM.
+"""Phase 2 planner integration test: real ai-group graph + AsyncPostgresSaver + Fake LLM.
 
 Locks the planner-stage invariants before the API endpoint depends on them:
 

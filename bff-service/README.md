@@ -41,7 +41,7 @@ BFF 里有个 `DegradeContext`（降级上下文）。它的作用是：如果�
 - 调 `group`（拼团服务）：拼团营销配置、进行中的队伍。
 - 调 `pay`（支付服务）：用户订单列表。
 
-调 member 走 `Nacos`（注册中心）服务发现，调 group / pay 默认按配置的地址直连（本地可配 URL）。对应代码在 `MemberFeignClient`、`GroupFeignClient`、`PayFeignClient`。
+调 member / group / pay 走 `Nacos` 服务发现（local profile 可改成固定 URL）。Agent 默认也走 Nacos（`http://agent-service`）；`ai-group.agent.url` 有值时直连，local profile 用 `127.0.0.1:8090`。对应代码在 `MemberFeignClient`、`GroupFeignClient`、`PayFeignClient`、`AgentProxyController`。
 
 身份方面，BFF 自己不校验登录——请求经过网关时已经校验过了。BFF 用共享库里的 `GatewayUserContextFilter` 验 `X-Internal-Jwt` 后绑定用户，再把入站 JWT **原样转发**给下游（`FeignAuthForwardConfig` / Agent 代理），不按 ThreadLocal 重造 userId。
 
@@ -51,10 +51,10 @@ BFF 里有个 `DegradeContext`（降级上下文）。它的作用是：如果�
 
 依赖 `Nacos`（注册中心），以及它聚合的 member / group / pay 三个服务。
 
-跟平台一套启动脚本走：
+在仓库根目录跟平台一起起：
 
 ```powershell
-pwsh -NoProfile -ExecutionPolicy Bypass -File docs/dev-ops/start-full-stack.ps1
+docker compose --env-file .env -f dev-ops/compose/docker-compose.full.yml up --build
 ```
 
 单独跑（先确认 Nacos 和下游服务就绪）：

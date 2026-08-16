@@ -17,7 +17,6 @@ import java.util.concurrent.ThreadPoolExecutor;
  * 退单策略抽象基类
  * 提供共用的依赖注入和MQ消息发送功能
  *
- * @author xiaofuge bugstack.cn @小傅哥
  * @create 2025-01-01 00:00
  */
 @Slf4j

@@ -1,6 +1,7 @@
 package com.aigroup.groupbuy.config;
 
 import com.aigroup.groupbuy.infrastructure.rate.limiter.RateLimiterAOP;
+import com.aigroup.groupbuy.infrastructure.redis.IRedisService;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -12,7 +13,7 @@ import org.springframework.context.annotation.Configuration;
 public class RateLimiterAutoConfig {
 
     @Bean
-    public RateLimiterAOP rateLimiterAOP() {
-        return new RateLimiterAOP();
+    public RateLimiterAOP rateLimiterAOP(IRedisService redisService) {
+        return new RateLimiterAOP(redisService);
     }
 }

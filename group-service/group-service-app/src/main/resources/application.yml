@@ -26,7 +26,7 @@ spring:
       group-team-refund: ${RABBITMQ_GROUP_TEAM_REFUND:group.team_refund}
     listener:
       simple:
-        acknowledge-mode: auto
+        acknowledge-mode: manual
         default-requeue-rejected: true
         retry:
           enabled: true
@@ -34,3 +34,7 @@ spring:
           initial-interval: 1000ms
           max-interval: 10000ms
           multiplier: 2.0
+
+ai-group:
+  identity:
+    signing-secret: ${AI_GROUP_IDENTITY_SIGNING_SECRET:}

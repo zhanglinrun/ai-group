@@ -7,7 +7,6 @@ import com.aigroup.groupbuy.domain.activity.model.valobj.SCSkuActivityVO;
 import java.util.concurrent.Callable;
 
 /**
- * @author Fuzhengwei bugstack.cn @小傅哥
  * @description 查询营销配置任务
  * @create 2024-12-21 09:46
  */

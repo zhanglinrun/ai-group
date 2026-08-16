@@ -13,7 +13,7 @@ import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 
-/** Typed page contracts for the new 熊博士 screens.
+/** Typed page contracts for ai-group screens.
  *
  * The legacy coordinator is kept as a compatibility adapter for old commerce
  * callbacks, but browser-facing pages use these stable DTOs rather than leaking

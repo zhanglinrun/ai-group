@@ -5,7 +5,6 @@ import lombok.Data;
 import java.util.List;
 
 /**
- * @author Fuzhengwei bugstack.cn @小傅哥
  * @description 回调请求对象
  * @create 2025-01-31 10:08
  */

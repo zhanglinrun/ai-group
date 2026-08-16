@@ -16,6 +16,7 @@ import com.aigroup.groupbuy.domain.trade.model.valobj.NotifyTypeEnumVO;
 import com.aigroup.groupbuy.domain.trade.service.ITradeLockOrderService;
 import com.aigroup.groupbuy.domain.trade.service.ITradeRefundOrderService;
 import com.aigroup.groupbuy.domain.trade.service.ITradeSettlementOrderService;
+import com.aigroup.groupbuy.trigger.http.support.GatewayUserBinder;
 import com.aigroup.groupbuy.types.enums.ResponseCode;
 import com.aigroup.groupbuy.types.exception.AppException;
 import com.aigroup.groupbuy.types.common.JsonUtils;
@@ -30,13 +31,11 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * @author Fuzhengwei bugstack.cn @小傅哥
  * @description 营销交易服务
  * @create 2025-01-11 14:01
  */
 @Slf4j
 @RestController()
-@CrossOrigin("*")
 @RequestMapping("/api/v1/gbm/trade/")
 public class MarketTradeController implements IMarketTradeService {
 
@@ -62,6 +61,7 @@ public class MarketTradeController implements IMarketTradeService {
             if (requestDTO == null) {
                 return illegalLockRequest();
             }
+            requestDTO.setUserId(GatewayUserBinder.requireUserId(requestDTO.getUserId()));
             // 参数
             String userId = requestDTO.getUserId();
             String source = requestDTO.getSource();
@@ -174,6 +174,12 @@ public class MarketTradeController implements IMarketTradeService {
 
             // 返回结果
             return successfulLockResponse(marketPayOrderEntity);
+        } catch (IllegalStateException | IllegalArgumentException e) {
+            log.warn("营销交易锁单拒绝: {}", e.getMessage());
+            return Response.<LockMarketPayOrderResponseDTO>builder()
+                    .code(ResponseCode.ILLEGAL_PARAMETER.getCode())
+                    .info(e.getMessage())
+                    .build();
         } catch (AppException e) {
             // Concurrent requests with the same idempotency key can both pass the pre-read. The unique
             // index selects a winner; after the losing transaction rolls back, resolve and return it.
@@ -203,7 +209,18 @@ public class MarketTradeController implements IMarketTradeService {
     @RequestMapping(value = "query_market_pay_order", method = RequestMethod.POST)
     @Override
     public Response<LockMarketPayOrderResponseDTO> queryMarketPayOrder(@RequestBody QueryMarketPayOrderRequestDTO requestDTO) {
-        if (requestDTO == null || StringUtils.isAnyBlank(requestDTO.getUserId(), requestDTO.getSource(),
+        try {
+            if (requestDTO == null) {
+                return illegalLockRequest();
+            }
+            requestDTO.setUserId(GatewayUserBinder.requireUserId(requestDTO.getUserId()));
+        } catch (IllegalStateException | IllegalArgumentException e) {
+            return Response.<LockMarketPayOrderResponseDTO>builder()
+                    .code(ResponseCode.ILLEGAL_PARAMETER.getCode())
+                    .info(e.getMessage())
+                    .build();
+        }
+        if (StringUtils.isAnyBlank(requestDTO.getUserId(), requestDTO.getSource(),
                 requestDTO.getChannel(), requestDTO.getOutTradeNo())) {
             return illegalLockRequest();
         }

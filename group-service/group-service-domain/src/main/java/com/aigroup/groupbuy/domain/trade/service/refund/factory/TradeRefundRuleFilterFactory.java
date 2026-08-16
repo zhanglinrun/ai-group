@@ -21,7 +21,6 @@ import org.springframework.stereotype.Service;
 /**
  * 交易退单工程
  *
- * @author xiaofuge bugstack.cn @小傅哥
  * 2025/7/30 09:58
  */
 @Slf4j

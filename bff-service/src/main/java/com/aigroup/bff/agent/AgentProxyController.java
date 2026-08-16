@@ -2,7 +2,8 @@ package com.aigroup.bff.agent;
 
 import com.aigroup.common.constant.CommonConstant;
 import jakarta.servlet.http.HttpServletRequest;
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.core.ParameterizedTypeReference;
@@ -25,13 +26,25 @@ import java.time.Duration;
 /** Thin page-level proxy: the browser never receives the Agent service address. */
 @RestController
 @RequestMapping("/api/bff/agent")
-@RequiredArgsConstructor
 public class AgentProxyController {
 
-    private final WebClient.Builder webClientBuilder;
+    private static final String DISCOVERED_AGENT_URL = "http://agent-service";
 
-    @Value("${ai-group.agent.url:http://agent-service:8090}")
-    private String agentUrl;
+    private final WebClient.Builder webClientBuilder;
+    private final String agentUrl;
+
+    public AgentProxyController(
+            WebClient.Builder agentWebClientBuilder,
+            @Qualifier("loadBalancedAgentWebClientBuilder") ObjectProvider<WebClient.Builder> loadBalancedBuilder,
+            @Value("${ai-group.agent.url:}") String agentUrl) {
+        if (agentUrl == null || agentUrl.isBlank()) {
+            this.webClientBuilder = loadBalancedBuilder.getObject();
+            this.agentUrl = DISCOVERED_AGENT_URL;
+        } else {
+            this.webClientBuilder = agentWebClientBuilder;
+            this.agentUrl = trimTrailingSlash(agentUrl);
+        }
+    }
 
     @PostMapping("/runs")
     public ResponseEntity<String> createRun(@RequestBody String body, HttpServletRequest request) {
@@ -166,5 +179,9 @@ public class AgentProxyController {
                 headers.set(name, value);
             }
         }
+    }
+
+    private static String trimTrailingSlash(String url) {
+        return url.endsWith("/") ? url.substring(0, url.length() - 1) : url;
     }
 }

@@ -187,6 +187,14 @@ class Settings(BaseSettings):
     IDENTITY_JWT_AUDIENCE: str = "ai-group-internal"
     IDENTITY_MAX_AGE_SECONDS: int = 60
     ALLOW_ANONYMOUS_DEV: bool = True
+    NACOS_DISCOVERY_ENABLED: bool = False
+    NACOS_SERVER_ADDR: str | None = None
+    NACOS_NAMESPACE: str = "public"
+    NACOS_USERNAME: str | None = None
+    NACOS_PASSWORD: str | None = None
+    NACOS_SERVICE_NAME: str = "agent-service"
+    NACOS_IP: str | None = None
+    NACOS_HEARTBEAT_INTERVAL_SECONDS: int = 5
 
     # Prices are immutable configuration snapshots for this application build.
     # Values use the Member service's micro-credit unit (1 credit = 1,000,000).

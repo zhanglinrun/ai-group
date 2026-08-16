@@ -14,6 +14,7 @@ from sqlalchemy import select, update
 
 from agents.graph import compile_graph
 from core.config import settings
+from core.nacos_discovery import NacosRegistration
 from core.tiers import resolve_tier_profile
 from db.engine import dispose_engine, get_session_factory, init_engine
 from exceptions.base import APIException
@@ -133,9 +134,15 @@ async def lifespan(app: FastAPI):
             refresher_task.add_done_callback(background_tasks.discard)
 
             log.info("service_start", service=settings.SERVICE_NAME, environment=settings.ENVIRONMENT)
+            nacos_registration = NacosRegistration(settings)
+            nacos_registration.start()
+            app.state.nacos_registration = nacos_registration
             yield
     finally:
         log.info("service_stop.cleanup.start")
+        nacos_registration = getattr(app.state, "nacos_registration", None)
+        if nacos_registration is not None:
+            nacos_registration.stop()
         pending_tasks = list(background_tasks)
         for task in pending_tasks:
             task.cancel()
@@ -153,8 +160,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="熊博士 Agent API",
-    description="熊博士 LangGraph research and token-metering service.",
+    title="ai-group Agent API",
+    description="ai-group LangGraph research and token-metering service.",
     version="1.0.0",
     lifespan=lifespan,
     default_response_class=UTF8JSONResponse,

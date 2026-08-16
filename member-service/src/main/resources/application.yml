@@ -19,7 +19,7 @@ spring:
       member-user-registered: ${RABBITMQ_MEMBER_USER_REGISTERED:auth.user_registered}
     listener:
       simple:
-        acknowledge-mode: auto
+        acknowledge-mode: manual
         default-requeue-rejected: true
         retry:
           enabled: true

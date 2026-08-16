@@ -9,7 +9,6 @@ import java.math.BigDecimal;
 import java.util.Date;
 
 /**
- * @author Fuzhengwei bugstack.cn @小傅哥
  * @description 用户拼单
  * @create 2025-01-11 10:29
  */

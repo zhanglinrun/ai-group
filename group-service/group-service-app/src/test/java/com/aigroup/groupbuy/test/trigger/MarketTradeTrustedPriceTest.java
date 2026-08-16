@@ -13,6 +13,9 @@ import com.aigroup.groupbuy.domain.trade.model.entity.UserEntity;
 import com.aigroup.groupbuy.domain.trade.model.valobj.TradeOrderStatusEnumVO;
 import com.aigroup.groupbuy.domain.trade.service.ITradeLockOrderService;
 import com.aigroup.groupbuy.trigger.http.MarketTradeController;
+import com.aigroup.common.context.RequestUserContext;
+import org.junit.After;
+import org.junit.Before;
 import org.junit.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -27,6 +30,16 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 public class MarketTradeTrustedPriceTest {
+
+    @Before
+    public void bindUser() {
+        RequestUserContext.bind(1L, "u1", "USER");
+    }
+
+    @After
+    public void clearUser() {
+        RequestUserContext.clear();
+    }
 
     @Test
     public void quotaGroupUsesTrustedPayOrderPriceInsteadOfStaleGroupSkuPrice() throws Exception {
@@ -102,7 +115,7 @@ public class MarketTradeTrustedPriceTest {
 
     private LockMarketPayOrderRequestDTO request() {
         LockMarketPayOrderRequestDTO request = new LockMarketPayOrderRequestDTO();
-        request.setUserId("u1");
+        request.setUserId("1");
         request.setActivityId(100201L);
         request.setGoodsId("9890002");
         request.setOrderPrice(new BigDecimal("12.00"));

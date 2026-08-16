@@ -36,16 +36,18 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Opt-in MySQL benchmark. It is intentionally named *IT so the normal unit
- * suite stays infrastructure-free. Use docs/evals/run-quota-benchmark.ps1,
- * which provisions a dedicated schema before invoking this test.
+ * suite stays infrastructure-free. Use eval/run-quota-benchmark.ps1, which starts local MySQL/RabbitMQ
+ * and then invokes this test against member_db.
  */
 @SpringBootTest(
         classes = MemberApplication.class,
         webEnvironment = SpringBootTest.WebEnvironment.NONE,
         properties = {
+                "spring.profiles.active=test",
                 "spring.cloud.nacos.discovery.enabled=false",
                 "spring.rabbitmq.listener.simple.auto-startup=false",
-                "spring.task.scheduling.enabled=false"
+                "spring.task.scheduling.enabled=false",
+                "xxl.job.enabled=false"
         }
 )
 class QuotaConcurrencyBenchmarkIT {
@@ -282,7 +284,7 @@ class QuotaConcurrencyBenchmarkIT {
         List<String> managedFreezeIds = new ArrayList<>();
         for (int index = 0; index < MANAGED_ABANDONED_FREEZES; index++) {
             managedFreezeIds.add(memberService.freeze(
-                    USER_ID, 1L, 1L, "llm", "bench-managed-" + index, "agent-service")
+                    USER_ID, 1L, 1L, "llm", "bench-managed-" + index, "agent-service", "trace-managed-" + index)
                     .get("freezeId").toString());
         }
         jdbcTemplate.update("""
@@ -298,8 +300,11 @@ class QuotaConcurrencyBenchmarkIT {
         assertEquals(MANAGED_ABANDONED_FREEZES, pendingManagedFreezes,
                 "agent-service managed reservations must be reconciled by its durable settlement owner");
         assertEquals(MANAGED_ABANDONED_FREEZES, frozenBalance());
-        for (String managedFreezeId : managedFreezeIds) {
-            memberService.release(managedFreezeId);
+        for (int index = 0; index < managedFreezeIds.size(); index++) {
+            memberService.releaseWithStatus(
+                    managedFreezeIds.get(index),
+                    "bench-managed-" + index,
+                    "trace-managed-" + index);
         }
         assertEquals(0, frozenBalance());
 

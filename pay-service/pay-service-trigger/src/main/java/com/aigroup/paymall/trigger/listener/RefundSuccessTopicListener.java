@@ -7,7 +7,10 @@ import com.aigroup.paymall.types.exception.AppException;
 import com.aigroup.paymall.types.common.JsonUtils;
 import com.alipay.api.AlipayApiException;
 import lombok.extern.slf4j.Slf4j;
+import com.rabbitmq.client.Channel;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
+import org.springframework.amqp.support.AmqpHeaders;
+import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.stereotype.Component;
 
 import jakarta.annotation.Resource;
@@ -23,7 +26,13 @@ public class RefundSuccessTopicListener {
     @Resource
     private IOrderService orderService;
 
-    @RabbitListener(queues = "pay-service.team-refund")
+    @RabbitListener(queues = "pay-service.team-refund", ackMode = "MANUAL")
+    public void consume(String message, Channel channel,
+                        @Header(AmqpHeaders.DELIVERY_TAG) long tag) throws Exception {
+        listener(message);
+        channel.basicAck(tag, false);
+    }
+
     public void listener(String message) {
         try {
             log.info("team refund callback, start refund {}", message);

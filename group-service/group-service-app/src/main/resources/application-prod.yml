@@ -73,7 +73,7 @@ redis:
       ping-interval: 60000
       keep-alive: true
 
-# 扳手工程；通用配置组件「配置中心、设计模式框架、限流服务」
+# 动态配置与限流（配置键前缀由组件库固定为 xfg.wrench）
 xfg:
   wrench:
     config:
@@ -110,6 +110,8 @@ logging:
   config: classpath:logback-spring.xml
 
 ai-group:
+  identity:
+    signing-secret: ${AI_GROUP_IDENTITY_SIGNING_SECRET}
   internal:
     token: ${AI_GROUP_INTERNAL_TOKEN}
     auth-enabled: ${AI_GROUP_INTERNAL_AUTH_ENABLED:true}

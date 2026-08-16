@@ -13,7 +13,6 @@ import org.springframework.test.context.junit4.SpringRunner;
 import jakarta.annotation.Resource;
 
 /**
- * @author Fuzhengwei bugstack.cn @小傅哥
  * @description 首页营销服务接口测试
  * @create 2024-12-21 11:08
  */
@@ -31,7 +30,7 @@ public class IIndexGroupBuyMarketServiceTest {
     @Test
     public void test_indexMarketTrial() throws Exception {
         MarketProductEntity marketProductEntity = new MarketProductEntity();
-        marketProductEntity.setUserId("xiaofuge");
+        marketProductEntity.setUserId("demo-user");
         marketProductEntity.setSource("s01");
         marketProductEntity.setChannel("c01");
         marketProductEntity.setGoodsId("9890001");
@@ -57,7 +56,7 @@ public class IIndexGroupBuyMarketServiceTest {
     @Test
     public void test_indexMarketTrial_error() throws Exception {
         MarketProductEntity marketProductEntity = new MarketProductEntity();
-        marketProductEntity.setUserId("xiaofuge");
+        marketProductEntity.setUserId("demo-user");
         marketProductEntity.setSource("s01");
         marketProductEntity.setChannel("c01");
         marketProductEntity.setGoodsId("9890002");

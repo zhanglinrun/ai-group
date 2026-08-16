@@ -10,7 +10,6 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 
 /**
- * @author Fuzhengwei bugstack.cn @小傅哥
  * @description 直减
  * @create 2024-12-22 09:24
  */

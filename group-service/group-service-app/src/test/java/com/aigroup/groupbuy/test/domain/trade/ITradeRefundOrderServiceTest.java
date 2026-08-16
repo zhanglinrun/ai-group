@@ -18,7 +18,6 @@ import java.util.concurrent.CountDownLatch;
 /**
  * 逆向流程单测
  *
- * @author xiaofuge bugstack.cn @小傅哥
  * 2025/7/12 09:07
  */
 @Slf4j
@@ -32,7 +31,7 @@ public class ITradeRefundOrderServiceTest {
     @Test
     public void test_refundOrder() throws Exception {
         TradeRefundCommandEntity tradeRefundCommandEntity = TradeRefundCommandEntity.builder()
-                .userId("xfg02")
+                .userId("demo-user-02")
                 .outTradeNo("061974054911")
                 .source("s01")
                 .channel("c01")
@@ -50,7 +49,7 @@ public class ITradeRefundOrderServiceTest {
     @Test
     public void test_refundOrder_01() throws Exception {
         TradeRefundCommandEntity tradeRefundCommandEntity = TradeRefundCommandEntity.builder()
-                .userId("xfg04")
+                .userId("demo-user-04")
                 .outTradeNo("727869517356")
                 .source("s01")
                 .channel("c01")
@@ -68,7 +67,7 @@ public class ITradeRefundOrderServiceTest {
     @Test
     public void test_refundOrder_02() throws Exception {
         TradeRefundCommandEntity tradeRefundCommandEntity = TradeRefundCommandEntity.builder()
-                .userId("xfg01")
+                .userId("demo-user-01")
                 .outTradeNo("441842218120")
                 .source("s01")
                 .channel("c01")
@@ -86,7 +85,7 @@ public class ITradeRefundOrderServiceTest {
     @Test
     public void test_refundOrder_03() throws Exception {
         TradeRefundCommandEntity tradeRefundCommandEntity = TradeRefundCommandEntity.builder()
-                .userId("xfg02")
+                .userId("demo-user-02")
                 .outTradeNo("061974054911")
                 .source("s01")
                 .channel("c01")

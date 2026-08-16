@@ -15,7 +15,6 @@ import java.util.Date;
 import java.util.concurrent.CountDownLatch;
 
 /**
- * @author Fuzhengwei bugstack.cn @小傅哥
  * @description 拼团交易结算服务测试
  * @create 2025-01-26 18:59
  */
@@ -32,7 +31,7 @@ public class TradeSettlementOrderServiceTest {
         TradePaySuccessEntity tradePaySuccessEntity = new TradePaySuccessEntity();
         tradePaySuccessEntity.setSource("s01");
         tradePaySuccessEntity.setChannel("c01");
-        tradePaySuccessEntity.setUserId("xfg01");
+        tradePaySuccessEntity.setUserId("demo-user-01");
         tradePaySuccessEntity.setOutTradeNo("303596099292");
         tradePaySuccessEntity.setOutTradeTime(new Date());
         TradePaySettlementEntity tradePaySettlementEntity = tradeSettlementOrderService.settlementMarketPayOrder(tradePaySuccessEntity);

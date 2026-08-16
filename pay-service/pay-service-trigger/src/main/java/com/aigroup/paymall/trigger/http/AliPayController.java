@@ -47,7 +47,6 @@ import java.util.stream.Collectors;
 
 @Slf4j
 @RestController()
-@CrossOrigin("*")
 @RequestMapping({"/api/v1/alipay/", "/api/pay/"})
 public class AliPayController {
 
@@ -215,7 +214,7 @@ public class AliPayController {
     }
 
     /**
-     * http://xfg-studio.natapp1.cc/api/v1/alipay/alipay_notify_url
+     * POST /api/v1/alipay/alipay_notify_url
      */
     @RequestMapping(value = {"alipay_notify_url", "alipay/notify"}, method = RequestMethod.POST)
     public String payNotify(HttpServletRequest request) throws AlipayApiException, ParseException {
@@ -360,7 +359,7 @@ public class AliPayController {
      * http://localhost:8080/api/v1/alipay/refund_order
      * <p>
      * {
-     * "userId": "xfg02",
+     * "userId": "demo-user-02",
      * "orderId": "928263928388"
      * }
      */

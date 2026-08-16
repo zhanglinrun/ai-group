@@ -1,4 +1,4 @@
-"""Phase 1b intake integration test: real XiongDoctor graph + AsyncPostgresSaver + Fake LLM.
+"""Phase 1b intake integration test: real ai-group graph + AsyncPostgresSaver + Fake LLM.
 
 This is the safety net for Phase 1b before any endpoint or DB column change:
 

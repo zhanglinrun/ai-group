@@ -11,7 +11,6 @@ import retrofit2.http.POST;
 import retrofit2.http.Query;
 
 /**
- * @author Fuzhengwei bugstack.cn @小傅哥
  * @description 微信API服务 retrofit2
  * @create 2024-09-28 13:30
  */

@@ -2,6 +2,8 @@
 
 该工程负责额度商品下单、支付宝支付、拼团结算、退款，以及支付结果到付费额度发放之间的可靠事件交付。
 
+Java 包名 `com.aigroup.paymall`、库名 `s_pay_mall_ddd_market` 是历史保留，运行时服务名是 `pay-service`。内部同步调用走 OpenFeign；Retrofit 只用于微信等外部 API。
+
 ## 模块
 
 - `pay-service-app`：Spring Boot 启动、配置、MyBatis 映射与测试。
@@ -9,6 +11,10 @@
 - `pay-service-infrastructure`：MySQL、RabbitMQ、支付宝、拼团服务和 member-service 适配。
 - `pay-service-trigger`：HTTP 接口、MQ 消费者和定时补偿任务。
 - `pay-service-api` / `pay-service-types`：跨层 DTO、事件和公共类型。
+
+## 身份边界
+
+用户 API（创建订单、列表、退款）验 Gateway 签发的 `X-Internal-Jwt`，`userId` 取 JWT `sub`；body / `X-User-Id` 只能对照，不能当身份。Pay → Group 锁单时 Feign 转发 JWT + 内部令牌。支付宝 notify、成团 notify、补偿 Job 只认内部令牌，`userId` 来自已落库订单。
 
 ## 主要链路
 

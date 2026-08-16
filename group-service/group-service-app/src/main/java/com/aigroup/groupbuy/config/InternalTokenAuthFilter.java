@@ -25,8 +25,12 @@ public class InternalTokenAuthFilter extends OncePerRequestFilter implements Ini
 
     /** Ops-only endpoints always require the token. */
     private static final String[] ALWAYS_PROTECTED_PREFIXES = {"/api/v1/gbm/dcc/"};
-    /** Service-to-service endpoints: protected when auth is enabled. */
-    private static final String[] OPT_IN_PROTECTED_PREFIXES = {"/api/v1/gbm/trade/"};
+    /** Service-to-service and user-facing endpoints: protected when auth is enabled. */
+    private static final String[] OPT_IN_PROTECTED_PREFIXES = {
+            "/api/v1/gbm/trade/",
+            "/api/v1/gbm/index/",
+            "/api/group/"
+    };
 
     @Value("${ai-group.internal.auth-enabled:true}")
     private boolean authEnabled;

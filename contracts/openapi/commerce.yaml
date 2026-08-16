@@ -1,6 +1,6 @@
 openapi: 3.1.0
 info:
-  title: 熊博士拼团与支付服务
+  title: ai-group 拼团与支付服务
   version: 1.0.0
 servers:
   - url: /api

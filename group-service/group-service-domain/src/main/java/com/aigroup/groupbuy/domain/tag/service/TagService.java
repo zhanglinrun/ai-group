@@ -9,7 +9,6 @@ import jakarta.annotation.Resource;
 import java.util.List;
 
 /**
- * @author Fuzhengwei bugstack.cn @小傅哥
  * @description 人群标签服务
  * @create 2024-12-28 12:51
  */

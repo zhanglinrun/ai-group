@@ -1,10 +1,8 @@
-# 熊博士：拼团积分驱动的 AI 深度调研平台
-
-# AI Group (Xiong Doctor)
+# ai-group：拼团积分驱动的 AI 深度调研平台
 
 ## 项目简介
 
-熊博士是一套全栈微服务平台：用户通过拼团购买积分，再用积分驱动 AI 深度调研 Agent。Java 侧负责身份、高并发拼团、现金支付与积分账本；Python 侧负责 LangGraph 研究编排、证据链、报告产出与 Token 计费。浏览器只访问 Gateway，不直接暴露 Agent。
+ai-group 是一套全栈微服务平台：用户通过拼团购买积分，再用积分驱动 AI 深度调研 Agent。Java 侧负责身份、高并发拼团、现金支付与积分账本；Python 侧负责 LangGraph 研究编排、证据链、报告产出与 Token 计费。浏览器只访问 Gateway，不直接暴露 Agent。前端产品品牌仍是熊博士，工程与文档一律称 ai-group。
 
 平台提供拼团活动配置、库存抢占、成团结算、支付宝沙箱支付、Member 两阶段额度（冻结/确认/释放）、Agent Run/SSE 事件与 LLM Token 精确结算等能力，适合作为「交易一致性 + Agent 编排」一体化工程实践。
 
@@ -16,7 +14,7 @@
 - **双栈分工**：Java 处理交易边界与一致性；Python 处理 LangGraph 与模型调用
 - **DDD 设计**：Group / Pay 沿用领域分层（api / domain / infrastructure / trigger / app）
 - **最终一致性**：本地消息表（Outbox）+ RabbitMQ + 定时补偿
-- **身份边界**：Sa-Token 管浏览器会话；Gateway 验完后签发 60 秒 HS256 内部 JWT，Java/Python 用同一密钥验签。JWT 不是用户登录态，浏览器拿不到。
+- **身份边界**：Sa-Token 管浏览器会话；Gateway 验完后签发 60 秒 HS256 内部 JWT。用户 API（含 Group 查询/锁单、Pay 下单）验 JWT，不以 body / `X-User-Id` 当身份；支付宝回调和补偿 Job 只认内部令牌，userId 来自已落库订单。JWT 不是用户登录态，浏览器拿不到。
 - **合同先行**：`contracts/` 中 OpenAPI 与事件 Schema 为唯一接口来源
 
 ### 核心领域
@@ -48,7 +46,7 @@ flowchart LR
 
 ```
 ai-group/
-├── gateway-service/           # 路由、Sa-Token 校验、限流、身份签名
+├── gateway-service/           # 路由、Sa-Token 校验、内部 JWT 签发
 ├── auth-service/              # 用户、角色、登录会话、注册与退出
 ├── bff-service/               # 页面 DTO 聚合与 Agent SSE 透传
 ├── member-service/            # 积分账户、冻结/确认/释放、不可变账本
@@ -82,7 +80,7 @@ ai-group/
 
 - **活动配置**：拼团活动、阶梯折扣、库存与限购
 - **规则试算**：活动有效性、人群与优惠策略组合过滤
-- **无锁化抢占**：CAS / 乐观锁思路支撑高并发库存扣减
+- **Redis Lua 占座**：一条脚本完成 INCR、超限回滚和槽位锁，不是 MySQL CAS，也不是整行分布式锁
 - **成团结算与退款**：本地消息表 + MQ / 定时任务保证最终一致性
 
 ### 2. 现金支付与权益发放
@@ -119,9 +117,10 @@ ai-group/
 - **网关 / 会话**：Spring Cloud Gateway、Sa-Token
 - **ORM**：MyBatis-Plus
 - **数据库**：MySQL 8.0+
-- **缓存 / 锁**：Redis（会话、锁、短缓存）
-- **消息队列**：RabbitMQ（Outbox / 领域事件）
-- **任务调度**：XXL-JOB 3.4.2（Admin + pay/group/member 执行器；本地 Compose 已内置）
+- **内部调用**：OpenFeign + Nacos；Retrofit 只留给微信等外部 API
+- **缓存 / 锁**：Redis（会话、拼团 Lua 占座、拼团侧固定窗口限流、短缓存）
+- **消息队列**：RabbitMQ（Outbox / 领域事件；手动 ACK + 有限重试再入队，没有独立 DLQ）
+- **任务调度**：XXL-JOB 3.4.2（Admin + auth/pay/group/member 执行器；本地 Compose 已内置）
 - **服务发现**：Nacos
 - **构建**：Maven
 
@@ -132,6 +131,7 @@ ai-group/
 - **编排**：LangGraph、langchain-core、Postgres Checkpoint
 - **持久化**：SQLAlchemy（asyncio）、asyncpg、Alembic、PostgreSQL
 - **LLM / 检索**：OpenAI 兼容 SDK、Tavily 等工具链
+- **服务发现**：nacos-sdk-python（注册为 `agent-service`，BFF 按服务名发现）
 - **可观测**：structlog
 - **测试**：pytest、pytest-asyncio
 
@@ -164,7 +164,7 @@ Group / Pay 采用 api、domain、infrastructure、trigger、app 分层，用聚
 
 ### 4. 积分驱动的 Agent 计费闭环
 
-创建 Run → Member 冻结 → LangGraph 记录每次 LLM Token 与价格版本 → 按费率确认扣费并释放剩余冻结。额度权威在 Member，Agent 只消费额度契约。
+创建 Run 时一笔冻结（`requestId=agent:{run_id}`）→ LangGraph 累计每次 LLM 的 Token 与价格版本 → 终态按费率 confirm 并释放剩余冻结。额度权威在 Member，Agent 只消费额度契约。
 
 ### 5. 可恢复的 Agent 运行面
 
@@ -250,9 +250,9 @@ npm run dev
 
 ### Gateway / Auth / BFF
 
-- **gateway-service**：统一入口、鉴权、限流、HS256 内部 JWT 签发
+- **gateway-service**：统一入口、鉴权、HS256 内部 JWT 签发（限流在拼团侧 Redis，不在网关）
 - **auth-service**：账号体系与 Sa-Token 会话
-- **bff-service**：页面级聚合与 Agent SSE 代理（浏览器永不直连 Agent）
+- **bff-service**：页面级聚合与 Agent SSE 代理（浏览器永不直连 Agent；`ai-group.agent.url` 空则 `lb://agent-service`，local 直连）
 
 ### Member
 
@@ -273,6 +273,7 @@ npm run dev
 - **service**：Run、事件总线、LLM 路由、计费、证据与关注列表
 - **models / alembic**：Postgres Schema 与迁移
 - **security**：Gateway HS256 内部 JWT 校验
+- **发现**：Compose 下注册 Nacos（`agent-service`）；失败只打日志，不把进程打死
 
 ### contracts / frontend / dev-ops
 
@@ -295,7 +296,10 @@ npm run dev
 
 - 轮换并妥善保管 `AI_GROUP_INTERNAL_TOKEN`、`AI_GROUP_IDENTITY_SIGNING_SECRET` 与 LLM / 支付密钥
 - 身份三层：Sa-Token 浏览器会话（可撤销）/ Gateway HS256 内部 JWT（约 60s，不是登录态）/ `X-Internal-Token` 服务凭证
-- 已知边界：拼团/支付模块本轮仍信网关隔离 + `X-User-Id`，未验 JWT；内部 JWT 不存 nonce 黑名单；密钥为对称共享
+- 已知边界：内部 JWT 不存 nonce 黑名单；密钥为对称共享；回调/Job 没有用户 JWT，只认内部令牌 + 订单里的 userId
+- 限流在 Group 的 Redis，网关没有落地 `RequestRateLimiter`
+- 观测栈（ELK 等）在 `dev-ops/observability`，不是启动依赖
+- Group / Pay 的 Java 包名和库名有历史保留（`com.aigroup.paymall`、`group_buy_market`、`s_pay_mall_ddd_market`），运行时服务名以本文模块结构为准
 - JVM 按机器规格设置堆与 GC（例如 G1）
 - MySQL / Redis / RabbitMQ / Postgres 开启持久化与高可用
 - Agent 与 Member 之间网络隔离，禁止浏览器直连 Agent
@@ -331,4 +335,4 @@ cd ..
 
 ---
 
-参考项目的拼团与工作台思路已重构进本仓库；若对外公开或商用，请先确认参考项目许可证与作者授权。参考写法见：[group-buy-market README](https://github.com/CorgiBoyG/group-buy-market/blob/master/README.md)。
+Group / Pay 的领域分层沿用既有拼团与支付工程结构；包名、库名未做运行时重命名。对外品牌、身份口径和计费口径以本文及各服务 README 为准。

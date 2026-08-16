@@ -1,6 +1,6 @@
 # `member-service`（额度账户服务）
 
-这是 `ai-group` 里管理「免费额度 + 付费额度」的钱包服务。用户注册后获得每月免费额度，购买额度包并完成拼团后获得付费额度；Agent 的每次 LLM 调用按 `预留 → 结算/释放` 的方式消费额度。
+这是 `ai-group` 里管理「免费额度 + 付费额度」的钱包服务。用户注册后获得每月免费额度，购买额度包并完成拼团后获得付费额度。Agent 创建 Run 时冻结一笔上界，图内多次 LLM 只累计 usage，终态再 `confirm` / `release`。
 
 它默认运行在端口 `18082`，数据存储在 `member_db`（额度库，工程库名历史保留），持久层使用 `MyBatis-Plus`。
 
@@ -16,11 +16,11 @@
 
 ### 2. 对话配额（两阶段扣减）
 
-Agent 对话消耗配额，用的是类似「预授权 + 确认」的两阶段方式：
+Agent 消耗配额用「预授权 + 确认」两阶段，**当前是一个 Run 一笔冻结**，不是每次 LLM 各冻一笔：
 
-- **预扣（freeze）**：每次 LLM 调用前按输入估算与最大输出冻结一笔上界额度。
-- **确认（confirm）**：成功调用按实际 usage（缺失时使用有界本地估算）扣减；失败调用只有已经观察到 provider usage 或真实部分输出时才结算，并自动释放未使用余量。
- - **释放（release）**：预留后未发起供应商调用，或供应商拒绝请求且没有 usage/输出证据时，释放整笔冻结。普通旧调用的僵尸冻结由 member 定时任务兜底；`ownerService=agent-service` 的冻结由 Agent 的持久化结算命令负责恢复，member 只告警，绝不按超时自动释放，避免供应商已经消耗后被误判成免费调用。
+- **预扣（freeze）**：创建 Run 时按输入估算与最大输出冻结一笔上界，`requestId=agent:{run_id}`。
+- **确认（confirm）**：Run 终态按累计真实 Token usage 扣减（缺失时使用有界本地估算），并释放未使用余量。
+- **释放（release）**：预留后未发起供应商调用，或供应商拒绝且没有 usage/输出证据时，释放整笔冻结。普通旧调用的僵尸冻结由 member 定时任务兜底；`ownerService=agent-service` 的冻结由 Agent 的持久化结算命令负责恢复，member 只告警，绝不按超时自动释放，避免供应商已经消耗后被误判成免费调用。
 
  `freeze` 的 `requestId` 是幂等键。同一用户用相同 `requestId` 重试时，请求额度上界、最小额度、能力编码和结算所有者必须完全一致；member 会保存服务端 SHA-256 指纹并拒绝参数漂移。结算所有者只接受 `legacy` 与 `agent-service`，避免未知调用方制造无法自动释放的冻结。`confirm` 与 `release` 都返回冻结的真实终态以及原始请求参数，因此调用方能识别 `CONFIRMED` / `RELEASED` 冲突、核验找回的冻结，并处理网络响应不确定。
 
@@ -67,7 +67,7 @@ Agent 对话消耗配额，用的是类似「预授权 + 确认」的两阶段�
 ## 消息消费
 
 `BenefitEventConsumer`（权益事件消费者）监听成团消息队列，收到后触发权益发放；
-`UserRegisteredEventConsumer` 监听注册事件并幂等开通免费账户。消费失败会抛异常触发重试，最终进 `DLQ`（死信队列）人工兜底。
+`UserRegisteredEventConsumer` 监听注册事件并幂等开通免费账户。监听器手动 ACK：成功 `basicAck`，失败抛出让现有 `retry.max-attempts=3` 生效，耗尽后按 `default-requeue-rejected: true` 重入队。仓库没有独立死信交换机。
 
 ---
 
@@ -87,10 +87,10 @@ Agent 对话消耗配额，用的是类似「预授权 + 确认」的两阶段�
 
 依赖 `MySQL`（数据库，`member_db`）、`Redis`（缓存）、`RabbitMQ`（Topic exchange 消息队列）、`Nacos`（注册中心）。表结构在 `src/main/resources/schema.sql`。
 
-跟平台一套启动脚本走：
+在仓库根目录跟平台一起起：
 
 ```powershell
-pwsh -NoProfile -ExecutionPolicy Bypass -File docs/dev-ops/start-full-stack.ps1
+docker compose --env-file .env -f dev-ops/compose/docker-compose.full.yml up --build
 ```
 
 单独跑（先确认中间件就绪）：
@@ -99,7 +99,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File docs/dev-ops/start-full-stack.ps1
 cd member-service && mvn spring-boot:run
 ```
 
-权益链路可以用平台自带脚本验证：`docs/dev-ops/smoke-benefit-event.ps1`（模拟成团消息 → 发放付费额度）。
+权益与账本回归用模块测试和 `eval/http-smoke.ps1`，不要找已删除的独立 smoke 脚本。
 
 ---
 

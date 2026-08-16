@@ -13,7 +13,6 @@ import org.springframework.stereotype.Service;
 import jakarta.annotation.Resource;
 
 /**
- * @author Fuzhengwei bugstack.cn @小傅哥
  * @description 人群标签判断
  * @create 2025-01-02 10:36
  */

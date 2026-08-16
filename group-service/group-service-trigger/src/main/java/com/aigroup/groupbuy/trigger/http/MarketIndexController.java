@@ -11,6 +11,7 @@ import com.aigroup.groupbuy.domain.activity.model.valobj.GroupBuyActivityDiscoun
 import com.aigroup.groupbuy.domain.activity.model.valobj.TeamStatisticVO;
 import com.aigroup.groupbuy.domain.activity.service.IIndexGroupBuyMarketService;
 import com.aigroup.groupbuy.types.enums.ResponseCode;
+import com.aigroup.groupbuy.trigger.http.support.GatewayUserBinder;
 import com.aigroup.groupbuy.types.annotations.RateLimiterAccessInterceptor;
 import com.aigroup.groupbuy.types.common.JsonUtils;
 import lombok.extern.slf4j.Slf4j;
@@ -24,13 +25,11 @@ import java.util.Date;
 import java.util.List;
 
 /**
- * @author Fuzhengwei (bugstack.cn)
  * @description 拼团市场首页接口
  * @create 2025-02-02 16:03
  */
 @Slf4j
 @RestController()
-@CrossOrigin("*")
 @RequestMapping({"/api/v1/gbm/index/", "/api/group/"})
 public class MarketIndexController implements IMarketIndexService {
 
@@ -43,6 +42,7 @@ public class MarketIndexController implements IMarketIndexService {
     @Override
     public Response<GoodsMarketResponseDTO> queryGroupBuyMarketConfig(@RequestBody GoodsMarketRequestDTO requestDTO) {
         try {
+            requestDTO.setUserId(GatewayUserBinder.requireUserId(requestDTO.getUserId()));
             log.info("查询拼团市场配置，userId:{} goodsId:{}", requestDTO.getUserId(), requestDTO.getGoodsId());
 
             if (StringUtils.isBlank(requestDTO.getUserId()) || StringUtils.isBlank(requestDTO.getSource()) || StringUtils.isBlank(requestDTO.getChannel()) || StringUtils.isBlank(requestDTO.getGoodsId())) {
@@ -173,6 +173,12 @@ public class MarketIndexController implements IMarketIndexService {
             log.info("拼团市场配置查询成功，userId:{} goodsId:{} response:{}", requestDTO.getUserId(), requestDTO.getGoodsId(), JsonUtils.toJson(response));
 
             return response;
+        } catch (IllegalStateException | IllegalArgumentException e) {
+            log.warn("拼团市场配置查询拒绝: {}", e.getMessage());
+            return Response.<GoodsMarketResponseDTO>builder()
+                    .code(ResponseCode.ILLEGAL_PARAMETER.getCode())
+                    .info(e.getMessage())
+                    .build();
         } catch (Exception e) {
             log.error("拼团市场配置查询失败，userId:{} goodsId:{}", requestDTO.getUserId(), requestDTO.getGoodsId(), e);
             return Response.<GoodsMarketResponseDTO>builder()
@@ -193,7 +199,7 @@ public class MarketIndexController implements IMarketIndexService {
     /** Browser/BFF-friendly canonical read variant; POST remains for legacy Feign callers. */
     @GetMapping("activities")
     public Response<GoodsMarketResponseDTO> listActivities(
-            @RequestParam(defaultValue = "demo-user") String userId,
+            @RequestParam(required = false) String userId,
             @RequestParam(defaultValue = "s01") String source,
             @RequestParam(defaultValue = "c01") String channel,
             @RequestParam(defaultValue = "9890002") String goodsId) {

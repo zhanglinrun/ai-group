@@ -14,7 +14,6 @@ import org.springframework.stereotype.Service;
 import jakarta.annotation.Resource;
 
 /**
- * @author Fuzhengwei bugstack.cn @小傅哥
  * @description 用户参与限制，规则过滤
  * @create 2025-01-25 09:19
  */

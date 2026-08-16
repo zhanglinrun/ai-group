@@ -1,6 +1,6 @@
 # `auth-service`（认证服务）
 
-这是熊博士平台里管「账号」的服务：注册、登录、登出、查当前用户都归它。用户身份的源头在这里，浏览器会话由 Sa-Token 保存到 Redis。
+这是 ai-group 里管「账号」的服务：注册、登录、登出、查当前用户都归它。用户身份的源头在这里，浏览器会话由 Sa-Token 保存到 Redis。
 
 它跑在端口 `8081`，账号数据存在 `auth_db`（认证库）。
 
@@ -60,6 +60,7 @@ cd auth-service && mvn spring-boot:run
 - `AuthController`（认证接口）：登录 / 注册 / 登出 / 资料入口。
 - `AuthServiceImpl`（认证服务实现）：注册、登录、登出的主逻辑。
 - `AuthOutboxService`（注册事件可靠投递）：事务外盒、Rabbit publisher confirm 和失败重试。
+- `AuthOutboxPublishJob`：XXL-JOB `authOutboxPublishJob` 扫描 Outbox；本地 `@Scheduled` 仅作无 Admin 兜底。
 - `SecurityConfig`（安全配置）：密码加密、请求放行规则。
 - `User`（用户实体）、`UserMapper`（用户数据访问）。
 

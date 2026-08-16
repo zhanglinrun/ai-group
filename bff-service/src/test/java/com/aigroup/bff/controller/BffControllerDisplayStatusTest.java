@@ -42,11 +42,7 @@ class BffControllerDisplayStatusTest {
         ReflectionTestUtils.setField(controller, "groupChannel", "c01");
         ReflectionTestUtils.setField(controller, "defaultGoodsId", "9890002");
 
-        org.springframework.mock.web.MockHttpServletRequest request = new org.springframework.mock.web.MockHttpServletRequest();
-        request.addHeader("X-User-Id", "1001");
-        request.addHeader("X-Username", "tester");
-        request.addHeader("X-Role", "USER");
-        RequestUserContext.bind(request);
+        RequestUserContext.bind(1001L, "tester", "USER");
     }
 
     @AfterEach

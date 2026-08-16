@@ -1,10 +1,10 @@
 package com.aigroup.groupbuy.infrastructure.rate.limiter;
 
+import com.aigroup.common.context.RequestUserContext;
+import com.aigroup.groupbuy.infrastructure.redis.IRedisService;
+import com.aigroup.groupbuy.infrastructure.redis.RedisRateLimitScript;
 import com.aigroup.groupbuy.types.annotations.DCCValue;
 import com.aigroup.groupbuy.types.annotations.RateLimiterAccessInterceptor;
-import com.google.common.cache.Cache;
-import com.google.common.cache.CacheBuilder;
-import com.google.common.util.concurrent.RateLimiter;
 import org.apache.commons.lang3.StringUtils;
 import org.aspectj.lang.JoinPoint;
 import org.aspectj.lang.ProceedingJoinPoint;
@@ -22,29 +22,24 @@ import java.lang.reflect.Method;
 import java.util.concurrent.TimeUnit;
 
 /**
- * 限流切面：基于 Guava RateLimiter 令牌桶算法实现方法级限流。
- * <p>
- * 支持按字段提取限流标识（如 userId）、黑名单拦截（24h）和超频次降级回调。
- * 限流开关通过 {@code @DCCValue("rateLimiterSwitch:open")} 动态注入，
- * 可通过 DCC 接口实时开关限流策略而无需重启。
+ * Method-level limiter backed by Redis so every Group instance shares one bucket.
+ * {@code key=userId} prefers the Gateway JWT binding over a request-body field.
  */
 @Aspect
 public class RateLimiterAOP {
 
+    private static final long WINDOW_MS = 1000L;
+    private static final long BLACKLIST_TTL_SECONDS = TimeUnit.HOURS.toSeconds(24);
+
     private final Logger log = LoggerFactory.getLogger(RateLimiterAOP.class);
+    private final IRedisService redisService;
 
     @DCCValue("rateLimiterSwitch:open")
     private String rateLimiterSwitch;
 
-    /** 个人限频记录 1 秒过期 */
-    private final Cache<String, RateLimiter> loginRecord = CacheBuilder.newBuilder()
-            .expireAfterWrite(1, TimeUnit.SECONDS)
-            .build();
-
-    /** 个人限频黑名单 24h 过期 */
-    private final Cache<String, Long> blacklist = CacheBuilder.newBuilder()
-            .expireAfterWrite(24, TimeUnit.HOURS)
-            .build();
+    public RateLimiterAOP(IRedisService redisService) {
+        this.redisService = redisService;
+    }
 
     @Pointcut("@annotation(com.aigroup.groupbuy.types.annotations.RateLimiterAccessInterceptor)")
     public void aopPoint() {
@@ -52,53 +47,54 @@ public class RateLimiterAOP {
 
     @Around("aopPoint() && @annotation(rateLimiterAccessInterceptor)")
     public Object doRouter(ProceedingJoinPoint jp, RateLimiterAccessInterceptor rateLimiterAccessInterceptor) throws Throwable {
-
-        // 1. 限流开关检查
         if (StringUtils.isBlank(rateLimiterSwitch) || "close".equals(rateLimiterSwitch)) {
             return jp.proceed();
         }
 
-        // 2. 获取限流 key
         String key = rateLimiterAccessInterceptor.key();
         if (StringUtils.isBlank(key)) {
             throw new RuntimeException("annotation RateLimiter key is null!");
         }
 
-        // 3. 从方法参数中提取限流标识值
-        String keyAttr = getAttrValue(key, jp.getArgs());
+        String keyAttr = resolveKey(key, jp.getArgs());
         log.info("aop attr {}", keyAttr);
 
-        // 4. 黑名单拦截
-        if (!"all".equals(keyAttr) &&
-                rateLimiterAccessInterceptor.blacklistCount() != 0 &&
-                null != blacklist.getIfPresent(keyAttr) &&
-                blacklist.getIfPresent(keyAttr) > rateLimiterAccessInterceptor.blacklistCount()) {
+        if (!"all".equals(keyAttr)
+                && rateLimiterAccessInterceptor.blacklistCount() != 0
+                && RedisRateLimitScript.blacklistCount(redisService, blacklistKey(keyAttr))
+                > rateLimiterAccessInterceptor.blacklistCount()) {
             log.info("限流-黑名单拦截(24h)：{}", keyAttr);
             return fallbackMethodResult(jp, rateLimiterAccessInterceptor.fallbackMethod());
         }
 
-        // 5. 获取或创建限流器
-        RateLimiter rateLimiter = loginRecord.getIfPresent(keyAttr);
-        if (null == rateLimiter) {
-            rateLimiter = RateLimiter.create(rateLimiterAccessInterceptor.permitsPerSecond());
-            loginRecord.put(keyAttr, rateLimiter);
-        }
-
-        // 6. 限流拦截检查
-        if (!rateLimiter.tryAcquire()) {
-            if (rateLimiterAccessInterceptor.blacklistCount() != 0) {
-                if (null == blacklist.getIfPresent(keyAttr)) {
-                    blacklist.put(keyAttr, 1L);
-                } else {
-                    blacklist.put(keyAttr, blacklist.getIfPresent(keyAttr) + 1L);
-                }
+        int limit = Math.max(1, (int) Math.ceil(rateLimiterAccessInterceptor.permitsPerSecond()));
+        if (!RedisRateLimitScript.tryAcquire(redisService, windowKey(keyAttr), limit, WINDOW_MS)) {
+            if (rateLimiterAccessInterceptor.blacklistCount() != 0 && !"all".equals(keyAttr)) {
+                RedisRateLimitScript.bumpBlacklist(redisService, blacklistKey(keyAttr), BLACKLIST_TTL_SECONDS);
             }
             log.info("限流-超频次拦截：{}", keyAttr);
             return fallbackMethodResult(jp, rateLimiterAccessInterceptor.fallbackMethod());
         }
 
-        // 7. 通过限流，执行原方法
         return jp.proceed();
+    }
+
+    String resolveKey(String attr, Object[] args) {
+        if ("userId".equals(attr)) {
+            Long bound = RequestUserContext.getUserId();
+            if (bound != null) {
+                return String.valueOf(bound);
+            }
+        }
+        return getAttrValue(attr, args);
+    }
+
+    private String windowKey(String keyAttr) {
+        return "group:rate:" + keyAttr;
+    }
+
+    private String blacklistKey(String keyAttr) {
+        return "group:rate:blacklist:" + keyAttr;
     }
 
     private Object fallbackMethodResult(JoinPoint jp, String fallbackMethod) throws NoSuchMethodException,

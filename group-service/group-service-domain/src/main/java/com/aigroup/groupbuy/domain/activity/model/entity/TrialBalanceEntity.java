@@ -10,7 +10,6 @@ import java.math.BigDecimal;
 import java.util.Date;
 
 /**
- * @author Fuzhengwei bugstack.cn @小傅哥
  * @description 试算结果实体对象（给用户展示拼团可获得的优惠信息）
  * @create 2024-12-14 13:45
  */

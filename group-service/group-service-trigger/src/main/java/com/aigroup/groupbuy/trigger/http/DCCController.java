@@ -11,7 +11,6 @@ import org.springframework.web.bind.annotation.*;
 import jakarta.annotation.Resource;
 
 /**
- * @author Fuzhengwei bugstack.cn @小傅哥
  * @description 动态配置管理
  * @create 2025-01-03 19:16
  */

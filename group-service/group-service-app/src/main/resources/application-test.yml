@@ -17,7 +17,7 @@ thread:
 #  datasource:
 #    username: root
 #    password: 123456
-#    url: jdbc:mysql://127.0.0.1:3306/xfg_frame_archetype?useUnicode=true&characterEncoding=utf8&autoReconnect=true&zeroDateTimeBehavior=convertToNull&serverTimezone=UTC&useSSL=true
+#    url: jdbc:mysql://127.0.0.1:3306/group_buy_market?useUnicode=true&characterEncoding=utf8&autoReconnect=true&zeroDateTimeBehavior=convertToNull&serverTimezone=UTC&useSSL=true
 #    driver-class-name: com.mysql.cj.jdbc.Driver
 #  hikari:
 #    pool-name: Retail_HikariCP
@@ -41,6 +41,8 @@ logging:
   config: classpath:logback-spring.xml
 
 ai-group:
+  identity:
+    signing-secret: unit-test-identity-signing-secret!
   internal:
     token: test-internal-token
     auth-enabled: true

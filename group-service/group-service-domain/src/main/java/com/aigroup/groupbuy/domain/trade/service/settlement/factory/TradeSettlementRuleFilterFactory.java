@@ -19,7 +19,6 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.stereotype.Service;
 
 /**
- * @author Fuzhengwei bugstack.cn @小傅哥
  * @description 交易结算规则过滤工厂
  * @create 2025-01-29 09:17
  */

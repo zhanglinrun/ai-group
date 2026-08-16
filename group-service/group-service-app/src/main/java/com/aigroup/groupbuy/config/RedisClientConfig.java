@@ -17,7 +17,6 @@ import org.springframework.context.annotation.Primary;
 /**
  * Redis 客户端，使用 Redisson <a href="https://github.com/redisson/redisson">Redisson</a>
  *
- * @author Fuzhengwei bugstack.cn @小傅哥
  */
 @Configuration
 @EnableConfigurationProperties(RedisClientConfigProperties.class)

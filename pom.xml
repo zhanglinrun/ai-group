@@ -16,7 +16,7 @@
     <version>1.0.0</version>
     <packaging>pom</packaging>
     <name>ai-group</name>
-    <description>熊博士 AI research and group-purchase microservices</description>
+    <description>ai-group AI research and group-purchase microservices</description>
 
     <properties>
         <java.version>21</java.version>

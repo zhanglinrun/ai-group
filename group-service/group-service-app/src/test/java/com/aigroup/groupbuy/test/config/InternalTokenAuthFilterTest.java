@@ -48,10 +48,13 @@ public class InternalTokenAuthFilterTest {
     }
 
     @Test
-    public void shouldNotProtectNonTradeWhenAuthEnabled() throws Exception {
+    public void shouldProtectIndexAndGroupWhenAuthEnabled() throws Exception {
         InternalTokenAuthFilter filter = newFilter(true, "secret");
         filter.afterPropertiesSet();
-        assertEquals(200, statusFor(filter, "/api/v1/gbm/index/query_group_buy_market_config", null));
+        assertEquals(403, statusFor(filter, "/api/v1/gbm/index/query_group_buy_market_config", null));
+        assertEquals(403, statusFor(filter, "/api/group/activities", null));
+        assertEquals(200, statusFor(filter, "/api/v1/gbm/index/query_group_buy_market_config", "secret"));
+        assertEquals(200, statusFor(filter, "/api/group/activities", "secret"));
     }
 
     @Test

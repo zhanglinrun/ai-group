@@ -14,7 +14,6 @@ import org.springframework.test.context.junit4.SpringRunner;
 import jakarta.annotation.Resource;
 
 /**
- * @author Fuzhengwei bugstack.cn @小傅哥
  * @description 动态配置管理测试
  * @create 2025-01-03 19:43
  */
@@ -44,7 +43,7 @@ public class DCCControllerTest {
 
         // 营销验证
         MarketProductEntity marketProductEntity = new MarketProductEntity();
-        marketProductEntity.setUserId("xiaofuge");
+        marketProductEntity.setUserId("demo-user");
         marketProductEntity.setSource("s01");
         marketProductEntity.setChannel("c01");
         marketProductEntity.setGoodsId("9890001");
