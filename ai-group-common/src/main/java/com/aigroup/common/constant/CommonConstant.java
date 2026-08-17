@@ -25,9 +25,6 @@ public final class CommonConstant {
     public static final String HEADER_INTERNAL_TOKEN = "X-Internal-Token";
     /** Gateway-minted HS256 identity JWT; not the browser Sa-Token. */
     public static final String HEADER_INTERNAL_JWT = "X-Internal-Jwt";
-    public static final String HEADER_AUTH_TIMESTAMP = "X-Auth-Timestamp";
-    public static final String HEADER_AUTH_NONCE = "X-Auth-Nonce";
-    public static final String HEADER_AUTH_SIGNATURE = "X-Auth-Signature";
     public static final String EVENT_GROUP_BUY_COMPLETED = "GROUP_BUY_COMPLETED";
     public static final String EVENT_GROUP_BUY_REVOKED = "GROUP_BUY_REVOKED";
 

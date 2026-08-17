@@ -21,15 +21,25 @@ class ProductionSecurityValidatorTest {
     }
 
     @Test
-    void nonLocalProfilesAllowBlankInternalTokenWhenTheServiceHasNoInternalEndpoint() {
-        assertDoesNotThrow(validator("prod", "")::validate);
+    void nonLocalProfilesRejectBlankInternalToken() {
+        assertThrows(IllegalStateException.class, validator("prod", "")::validate);
+    }
+
+    @Test
+    void nonLocalProfilesRejectBlankIdentitySigningSecret() {
+        ProductionSecurityValidator validator = validator(
+                "prod",
+                "abcdef0123456789abcdef0123456789"
+        );
+        ReflectionTestUtils.setField(validator, "identitySigningSecret", "");
+        assertThrows(IllegalStateException.class, validator::validate);
     }
 
     @Test
     void nonLocalProfilesRejectEnabledAgentDebugEndpoints() {
         ProductionSecurityValidator validator = validator(
                 "prod",
-                ""
+                "abcdef0123456789abcdef0123456789"
         );
         ReflectionTestUtils.setField(validator, "debugEndpointsEnabled", true);
 
@@ -66,6 +76,7 @@ class ProductionSecurityValidatorTest {
         environment.setActiveProfiles(profiles);
         ProductionSecurityValidator validator = new ProductionSecurityValidator(environment);
         ReflectionTestUtils.setField(validator, "internalToken", internalToken);
+        ReflectionTestUtils.setField(validator, "identitySigningSecret", "abcdef0123456789abcdef0123456789");
         return validator;
     }
 }

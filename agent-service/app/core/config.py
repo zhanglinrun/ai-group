@@ -182,11 +182,9 @@ class Settings(BaseSettings):
     MEMBER_SERVICE_URL: str = "http://member-service:8082"
     INTERNAL_TOKEN: str | None = None
     IDENTITY_SIGNING_SECRET: str | None = None
-    IDENTITY_JWT_SECRET: str | None = None
     IDENTITY_JWT_ISSUER: str = "ai-group-gateway"
     IDENTITY_JWT_AUDIENCE: str = "ai-group-internal"
-    IDENTITY_MAX_AGE_SECONDS: int = 60
-    ALLOW_ANONYMOUS_DEV: bool = True
+    ALLOW_ANONYMOUS_DEV: bool = False
     NACOS_DISCOVERY_ENABLED: bool = False
     NACOS_SERVER_ADDR: str | None = None
     NACOS_NAMESPACE: str = "public"
@@ -207,6 +205,8 @@ class Settings(BaseSettings):
     BILLING_INPUT_MICRO_POINTS_PER_TOKEN: int = 5
     BILLING_OUTPUT_MICRO_POINTS_PER_TOKEN: int = 30
     BILLING_DEFAULT_RESERVATION_MICRO_POINTS: int = 500000
+    BILLING_SETTLEMENT_INTERVAL_SECONDS: int = 60
+    BILLING_SETTLEMENT_BATCH_LIMIT: int = 50
 
     @property
     def llm_prompt_char_budget(self) -> int:
@@ -316,6 +316,10 @@ class Settings(BaseSettings):
             raise ValueError("LLM_CHARS_PER_TOKEN must be positive.")
         if self.ORPHAN_RUN_SWEEP_GRACE_SECONDS < 0:
             raise ValueError("ORPHAN_RUN_SWEEP_GRACE_SECONDS cannot be negative.")
+        if self.BILLING_SETTLEMENT_INTERVAL_SECONDS < 1:
+            raise ValueError("BILLING_SETTLEMENT_INTERVAL_SECONDS must be at least 1.")
+        if self.BILLING_SETTLEMENT_BATCH_LIMIT < 1:
+            raise ValueError("BILLING_SETTLEMENT_BATCH_LIMIT must be at least 1.")
         if self.LLM_MAX_RETRIES < 0:
             raise ValueError("LLM_MAX_RETRIES cannot be negative.")
         if self.LLM_RETRY_BASE_SECONDS < 0:

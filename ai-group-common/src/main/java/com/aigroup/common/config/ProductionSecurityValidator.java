@@ -30,12 +30,14 @@ public class ProductionSecurityValidator {
         if (isLocalProfile()) {
             return;
         }
-        if (StringUtils.hasText(internalToken)
-                && (internalToken.length() < 32 || internalToken.contains("change-in-prod"))) {
+        if (!StringUtils.hasText(internalToken)
+                || internalToken.length() < 32
+                || internalToken.contains("change-in-prod")) {
             throw new IllegalStateException("Internal token must be a random value of at least 32 characters");
         }
-        if (StringUtils.hasText(identitySigningSecret)
-                && (identitySigningSecret.length() < 32 || identitySigningSecret.contains("change-in-prod"))) {
+        if (!StringUtils.hasText(identitySigningSecret)
+                || identitySigningSecret.length() < 32
+                || identitySigningSecret.contains("change-in-prod")) {
             throw new IllegalStateException(
                     "Identity signing secret must be a random value of at least 32 characters");
         }

@@ -55,6 +55,11 @@ from service.conclusion import load_conclusions_for_run
 from service.diff.comparator import compute_diff
 from service.event_bus import EventBus, RunEventType, emit_run_event
 from service.billing import Reservation, default_reservation_amount, quota_client
+from service.billing_settlement import (
+    is_unsettled_billing,
+    settle_if_needed_for_delete,
+    settle_run_billing,
+)
 from security.identity import get_identity, require_identity
 from service.knowledge import load_knowledge_for_run
 from service.locale import resolve_report_language
@@ -777,7 +782,7 @@ async def _mark_run_failed_and_emit(
             run.status = "failed"
             run.finished_at = datetime.now(timezone.utc)
             await session.commit()
-    await _settle_run_billing(run_id=run_id, terminal_status="failed")
+    await settle_run_billing(run_id=run_id, terminal_status="failed")
     await emit_run_event(
         run_id=run_id,
         event_type=RunEventType.RUN_FINISH,
@@ -816,12 +821,12 @@ async def _handle_graph_cancelled(*, run_id: str, log_event: str) -> None:
         if run.status != "running":
             with bind_run(run_id):
                 log.info(log_event, status=run.status, branch="already_terminal")
-            await _settle_run_billing(run_id=run_id, terminal_status=str(run.status))
+            await settle_run_billing(run_id=run_id, terminal_status=str(run.status))
             return
         run.status = "failed"
         run.finished_at = datetime.now(timezone.utc)
         await session.commit()
-    await _settle_run_billing(run_id=run_id, terminal_status="failed")
+    await settle_run_billing(run_id=run_id, terminal_status="failed")
     with bind_run(run_id):
         log.warning(log_event, status="failed", branch="unexpected_cancel")
     await emit_run_event(
@@ -1501,7 +1506,7 @@ async def _execute_run_graph(
                 run.competitors = final_competitors
             await session.commit()
             final_status = run.status
-        await _settle_run_billing(run_id=run_id, terminal_status=final_status)
+        await settle_run_billing(run_id=run_id, terminal_status=final_status)
         await emit_run_event(
             run_id=run_id,
             event_type=RunEventType.RUN_FINISH,
@@ -1521,73 +1526,6 @@ async def _execute_run_graph(
         background_tasks.add(curator_task)
         curator_task.add_done_callback(background_tasks.discard)
         log.info("api.run.execute.finish", status=final_status)
-
-
-async def _settle_run_billing(*, run_id: str, terminal_status: str) -> None:
-    """Close a Member reservation once and persist the usage snapshot."""
-    session_factory = get_session_factory()
-    async with session_factory() as session:
-        run = await session.get(Run, run_id)
-        if run is None or run.billing_status == "SETTLED":
-            return
-        llm_rows = (
-            await session.execute(
-                select(LLMCall)
-                .join(Step, LLMCall.step_id == Step.step_id)
-                .where(Step.run_id == run_id)
-            )
-        ).scalars().all()
-        # Supervisor state gates and QA guardrails also emit trace-only pseudo
-        # records.  They intentionally have no token usage and must not keep a
-        # real Member reservation in pending reconciliation.  Only records with
-        # a non-pseudo prompt hash represent an actual provider call.
-        billable_llm_rows = [row for row in llm_rows if row.prompt_hash != "pseudo_response"]
-        actual = sum(max(0, int(row.charged_micro_points or 0)) for row in billable_llm_rows)
-        unknown_usage_count = sum(
-            1
-            for row in billable_llm_rows
-            if not row.error
-            and (row.prompt_tokens is None or row.completion_tokens is None)
-        )
-        reservation = Reservation(
-            reservation_id=run.reservation_id or run_id,
-            amount_micro_points=max(0, int(run.reserved_micro_points or 0)),
-            request_id=f"agent:{run_id}",
-            user_id=int(run.owner_user_id or 0),
-        )
-        if unknown_usage_count:
-            # A provider that omits usage must never be charged from an estimate.
-            # Keep the reservation open for a later reconciliation job instead of
-            # silently confirming zero or a partial amount.
-            run.consumed_micro_points = actual
-            run.billing_status = "PENDING_RECONCILIATION"
-            run.billing_error = (
-                f"{unknown_usage_count} successful LLM call(s) did not return token usage"
-            )
-            await session.commit()
-            log.warning(
-                "billing.usage_missing",
-                run_id=run_id,
-                status=terminal_status,
-                unknown_usage_count=unknown_usage_count,
-            )
-            return
-        try:
-            await quota_client.confirm(reservation, actual_micro_points=actual, trace_id=run_id)
-            run.consumed_micro_points = actual
-            run.billing_status = "SETTLED"
-            run.billing_error = None
-        except Exception as exc:
-            run.consumed_micro_points = actual
-            run.billing_status = "PENDING_RECONCILIATION"
-            run.billing_error = str(exc)[:2000]
-            log.warning(
-                "billing.settlement.pending",
-                run_id=run_id,
-                status=terminal_status,
-                error=str(exc),
-            )
-        await session.commit()
 
 
 async def _compute_and_persist_diffs(*, run_id: str) -> None:
@@ -2024,7 +1962,7 @@ async def _start_intake_graph_in_background(
                 if isinstance(final_competitors, list) and final_competitors:
                     run.competitors = final_competitors
                 await session.commit()
-        await _settle_run_billing(run_id=run_id, terminal_status=run_status)
+        await settle_run_billing(run_id=run_id, terminal_status=run_status)
         await emit_run_event(
             run_id=run_id,
             event_type=RunEventType.RUN_FINISH,
@@ -2089,7 +2027,7 @@ async def _resume_plan_graph_in_background(
                     run.competitors = final_competitors
             await session.commit()
             final_status = run.status
-        await _settle_run_billing(run_id=run_id, terminal_status=final_status)
+        await settle_run_billing(run_id=run_id, terminal_status=final_status)
         await emit_run_event(
             run_id=run_id,
             event_type=RunEventType.RUN_FINISH,
@@ -3134,6 +3072,8 @@ class BatchDeleteRequest(BaseModel):
 class BatchDeleteResponse(BaseModel):
     deleted_count: int
     not_found: list[str]
+    skipped_unsettled_count: int = 0
+    skipped_unsettled: list[str] = Field(default_factory=list)
 
 
 ClearRunsStatus = Literal["all", "completed", "degraded", "failed", "cancelled", "running"]
@@ -3157,6 +3097,7 @@ class ClearRunsResponse(BaseModel):
     deleted_count: int
     deleted_run_ids: list[str]
     skipped_running_count: int
+    skipped_unsettled_count: int = 0
     pruned_skill_candidate_refs: int
 
 
@@ -3181,9 +3122,38 @@ async def _prune_supporting_run_refs(
     return pruned_refs
 
 
+async def _ensure_settled_for_delete(*, run_id: str, status: str, billing_status: str) -> None:
+    next_status = await settle_if_needed_for_delete(
+        run_id=run_id,
+        status=status,
+        billing_status=billing_status,
+    )
+    if is_unsettled_billing(next_status):
+        raise APIException(
+            status_code=409,
+            error_code="RUN_BILLING_PENDING",
+            message=f"run_id={run_id} still has an unsettled Member reservation",
+        )
+
+
 @router.delete("/api/runs/{run_id}", response_model=RunDeleteResponse)
 async def delete_run(run_id: str) -> RunDeleteResponse:
     session_factory = get_session_factory()
+    async with session_factory() as session:
+        run = await session.get(Run, run_id)
+        if run is None:
+            raise APIException(
+                status_code=404,
+                error_code="RUN_NOT_FOUND",
+                message=f"run_id={run_id} does not exist",
+            )
+        status = run.status
+        billing_status = run.billing_status
+    await _ensure_settled_for_delete(
+        run_id=run_id,
+        status=status,
+        billing_status=billing_status,
+    )
     async with session_factory() as session:
         run = await session.get(Run, run_id)
         if run is None:
@@ -3234,7 +3204,7 @@ async def patch_run(
     if should_cancel_tasks:
         # The graph task can be cancelled before it reaches its normal finalizer.
         # Settle the usage snapshot before publishing the terminal event.
-        await _settle_run_billing(run_id=run_id, terminal_status="cancelled")
+        await settle_run_billing(run_id=run_id, terminal_status="cancelled")
         background_tasks = getattr(request.app.state, "background_tasks", None)
         cancelled_count = _cancel_background_tasks_for_run(
             background_tasks=background_tasks if isinstance(background_tasks, set) else None,
@@ -3263,37 +3233,75 @@ async def patch_run(
 async def batch_delete_runs(payload: BatchDeleteRequest) -> BatchDeleteResponse:
     session_factory = get_session_factory()
     not_found: list[str] = []
-    deleted_count = 0
+    skipped_unsettled: list[str] = []
+    deletable: list[str] = []
+    snapshots: list[tuple[str, str, str]] = []
     async with session_factory() as session:
         for rid in payload.run_ids:
             run = await session.get(Run, rid)
             if run is None:
                 not_found.append(rid)
             else:
-                await session.delete(run)
-                deleted_count += 1
+                snapshots.append((rid, run.status, run.billing_status))
+    for rid, status, billing_status in snapshots:
+        next_status = await settle_if_needed_for_delete(
+            run_id=rid,
+            status=status,
+            billing_status=billing_status,
+        )
+        if is_unsettled_billing(next_status):
+            skipped_unsettled.append(rid)
+        else:
+            deletable.append(rid)
+    async with session_factory() as session:
+        for rid in deletable:
+            run = await session.get(Run, rid)
+            if run is None:
+                not_found.append(rid)
+                continue
+            await session.delete(run)
         await session.commit()
-    return BatchDeleteResponse(deleted_count=deleted_count, not_found=not_found)
+    return BatchDeleteResponse(
+        deleted_count=len(deletable),
+        not_found=not_found,
+        skipped_unsettled_count=len(skipped_unsettled),
+        skipped_unsettled=skipped_unsettled,
+    )
 
 
 @router.post("/api/runs/clear", response_model=ClearRunsResponse)
 async def clear_runs(payload: ClearRunsRequest) -> ClearRunsResponse:
     session_factory = get_session_factory()
+    snapshots: list[tuple[str, str, str]] = []
     async with session_factory() as session:
-        query = select(Run.run_id, Run.status)
+        query = select(Run.run_id, Run.status, Run.billing_status)
         if payload.status != "all":
             query = query.where(Run.status == payload.status)
         if payload.keyword is not None:
             query = query.where(Run.user_query.ilike(f"%{payload.keyword}%"))
-        rows = (await session.execute(query)).all()
+        snapshots = [
+            (str(run_id), str(status), str(billing_status))
+            for run_id, status, billing_status in (await session.execute(query)).all()
+        ]
 
-        run_ids_to_delete: list[str] = []
-        skipped_running_count = 0
-        for run_id, status in rows:
-            if status == "running" and not payload.include_running:
-                skipped_running_count += 1
-                continue
-            run_ids_to_delete.append(run_id)
+    run_ids_to_delete: list[str] = []
+    skipped_running_count = 0
+    skipped_unsettled_count = 0
+    for run_id, status, billing_status in snapshots:
+        if status == "running" and not payload.include_running:
+            skipped_running_count += 1
+            continue
+        next_status = await settle_if_needed_for_delete(
+            run_id=run_id,
+            status=status,
+            billing_status=billing_status,
+        )
+        if is_unsettled_billing(next_status):
+            skipped_unsettled_count += 1
+            continue
+        run_ids_to_delete.append(run_id)
+
+    async with session_factory() as session:
         deleted_run_ids_set = set(run_ids_to_delete)
         pruned_skill_candidate_refs = await _prune_supporting_run_refs(
             session=session,
@@ -3306,6 +3314,7 @@ async def clear_runs(payload: ClearRunsRequest) -> ClearRunsResponse:
         deleted_count=len(run_ids_to_delete),
         deleted_run_ids=run_ids_to_delete,
         skipped_running_count=skipped_running_count,
+        skipped_unsettled_count=skipped_unsettled_count,
         pruned_skill_candidate_refs=pruned_skill_candidate_refs,
     )
 

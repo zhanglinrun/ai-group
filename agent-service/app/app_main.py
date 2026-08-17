@@ -20,6 +20,7 @@ from db.engine import dispose_engine, get_session_factory, init_engine
 from exceptions.base import APIException
 from models.run import Run
 from router import health_rt, run_rt, skill_rt
+from service.billing_settlement import settle_run_ids, start_loop as start_billing_settlement_loop
 from service.event_bus import EventBus, RunEventType, emit_run_event, set_event_bus
 from service.skill_store import get_skill_store
 from service.watchlist.refresher import WatchlistRefresher
@@ -34,7 +35,7 @@ class UTF8JSONResponse(JSONResponse):
     media_type = "application/json; charset=utf-8"
 
 
-async def _sweep_orphan_running_runs() -> None:
+async def _sweep_orphan_running_runs() -> list[str]:
     """Reconcile runs left as `running` after a previous service crash.
 
     Without this, a server restart silently abandons every in-flight task —
@@ -51,7 +52,7 @@ async def _sweep_orphan_running_runs() -> None:
         )
         orphan_ids = [row[0] for row in result.all()]
         if not orphan_ids:
-            return
+            return []
         await session.execute(
             update(Run)
             .where(Run.run_id.in_(orphan_ids))
@@ -77,6 +78,7 @@ async def _sweep_orphan_running_runs() -> None:
                 "error_message": "服务重启时此任务正在执行，已标记为失败。请重新发起分析。",
             },
         )
+    return orphan_ids
 
 
 @asynccontextmanager
@@ -89,7 +91,9 @@ async def lifespan(app: FastAPI):
     await event_bus.start()
     app.state.event_bus = event_bus
     set_event_bus(event_bus)
-    await _sweep_orphan_running_runs()
+    orphan_ids = await _sweep_orphan_running_runs()
+    if orphan_ids:
+        await settle_run_ids(orphan_ids, terminal_status="failed")
     checkpoint_dsn = settings.LANGGRAPH_CHECKPOINT_DSN
     if checkpoint_dsn is None:
         raise RuntimeError("LANGGRAPH_CHECKPOINT_DSN must be configured before service startup.")
@@ -132,6 +136,12 @@ async def lifespan(app: FastAPI):
             refresher_task = asyncio.create_task(refresher.start_loop(), name="watchlist_refresher")
             background_tasks.add(refresher_task)
             refresher_task.add_done_callback(background_tasks.discard)
+            settlement_task = asyncio.create_task(
+                start_billing_settlement_loop(),
+                name="billing_settlement",
+            )
+            background_tasks.add(settlement_task)
+            settlement_task.add_done_callback(background_tasks.discard)
 
             log.info("service_start", service=settings.SERVICE_NAME, environment=settings.ENVIRONMENT)
             nacos_registration = NacosRegistration(settings)

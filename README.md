@@ -15,7 +15,7 @@ ai-group 是一套全栈微服务平台：用户通过拼团购买积分，再�
 - **DDD 设计**：Group / Pay 沿用领域分层（api / domain / infrastructure / trigger / app）
 - **最终一致性**：本地消息表（Outbox）+ RabbitMQ + 定时补偿
 - **身份边界**：Sa-Token 管浏览器会话；Gateway 验完后签发 60 秒 HS256 内部 JWT。用户 API（含 Group 查询/锁单、Pay 下单）验 JWT，不以 body / `X-User-Id` 当身份；支付宝回调和补偿 Job 只认内部令牌，userId 来自已落库订单。JWT 不是用户登录态，浏览器拿不到。
-- **合同先行**：`contracts/` 中 OpenAPI 与事件 Schema 为唯一接口来源
+- **接口草图**：`contracts/` 中 OpenAPI 与事件 Schema 是手写对照稿；`scripts/validate-contracts.ps1` 只检查文件存在、可解析且非空，没有 codegen
 
 ### 核心领域
 
@@ -80,13 +80,13 @@ ai-group/
 
 - **活动配置**：拼团活动、阶梯折扣、库存与限购
 - **规则试算**：活动有效性、人群与优惠策略组合过滤
-- **Redis Lua 占座**：一条脚本完成 INCR、超限回滚和槽位锁，不是 MySQL CAS，也不是整行分布式锁
+- **Redis 占库存 + MySQL `lock_count` CAS**：开团不走 Redis。加入先 `INCR+1` 对照活动 target 和 recovery，再 `SET NX` 兜底；同一请求里同步写 `lock_count` 和明细。落库失败或未成团退款给 recovery +1。权威闸门仍是 MySQL CAS，打满返回 `E0005`
 - **成团结算与退款**：本地消息表 + MQ / 定时任务保证最终一致性
 
 ### 2. 现金支付与权益发放
 
 - **支付宝沙箱**：下单、回调、退款链路
-- **Outbox 事件**：支付成功后异步通知 Group / Member
+- **Outbox 事件**：直购在回调事务里写 Outbox 再发权益；拼团在回调线程同步 Feign 通知 Group 结算，丢了靠 `settlement_notified` 补偿，成团后再走 Outbox 发券
 - **可关闭沙箱**：本地可用模拟回调完成联调
 
 ### 3. Member 积分账本
@@ -117,8 +117,8 @@ ai-group/
 - **网关 / 会话**：Spring Cloud Gateway、Sa-Token
 - **ORM**：MyBatis-Plus
 - **数据库**：MySQL 8.0+
-- **内部调用**：OpenFeign + Nacos；Retrofit 只留给微信等外部 API
-- **缓存 / 锁**：Redis（会话、拼团 Lua 占座、拼团侧固定窗口限流、短缓存）
+- **内部调用**：OpenFeign + Nacos；BFF 调 Agent 用 WebClient
+- **缓存 / 锁**：Redis（会话、拼团占库存 / recovery、拼团侧固定窗口限流、短缓存）
 - **消息队列**：RabbitMQ（Outbox / 领域事件；手动 ACK + 有限重试再入队，没有独立 DLQ）
 - **任务调度**：XXL-JOB 3.4.2（Admin + auth/pay/group/member 执行器；本地 Compose 已内置）
 - **服务发现**：Nacos
@@ -170,9 +170,9 @@ Group / Pay 采用 api、domain、infrastructure、trigger、app 分层，用聚
 
 Run / Event 持久化，SSE 支持断线后按事件游标回放；LangGraph Checkpoint 落 Postgres，避免把运行状态绑死在浏览器长连接上。
 
-### 6. 合同与冒烟门禁
+### 6. 合同草图与冒烟门禁
 
-接口与事件以 `contracts/` 为唯一来源；`scripts/validate-contracts.ps1` 与 `eval/http-smoke.ps1` 提供合同校验和 Gateway 黑盒冒烟。
+`contracts/` 是手写对照稿，不是 codegen 唯一来源；`scripts/validate-contracts.ps1` 只检查文件非空/可解析，`eval/http-smoke.ps1` 做 Gateway 黑盒冒烟。
 
 ## 环境要求
 

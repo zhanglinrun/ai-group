@@ -63,6 +63,7 @@ redis:
     config:
       host: ${REDIS_HOST:127.0.0.1}
       port: ${REDIS_PORT:16379}
+      database: ${REDIS_DATABASE:1}
       password: ${REDIS_PASSWORD:}
       pool-size: 10
       min-idle-size: 5

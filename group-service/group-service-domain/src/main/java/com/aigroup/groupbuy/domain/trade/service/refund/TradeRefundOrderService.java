@@ -8,7 +8,6 @@ import com.aigroup.groupbuy.domain.trade.model.valobj.TaskNotifyCategoryEnumVO;
 import com.aigroup.groupbuy.domain.trade.model.valobj.TeamRefundSuccess;
 import com.aigroup.groupbuy.domain.trade.model.valobj.TradeOrderStatusEnumVO;
 import com.aigroup.groupbuy.domain.trade.service.ITradeRefundOrderService;
-import com.aigroup.groupbuy.domain.trade.service.lock.factory.TradeLockRuleFilterFactory;
 import com.aigroup.groupbuy.domain.trade.service.refund.business.IRefundOrderStrategy;
 import com.aigroup.groupbuy.domain.trade.service.refund.factory.TradeRefundRuleFilterFactory;
 import com.aigroup.groupbuy.types.enums.GroupBuyOrderEnumVO;

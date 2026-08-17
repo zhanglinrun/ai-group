@@ -18,4 +18,9 @@ class AuthControllerAuthorizationTest {
     void profileRejectsDirectCallWithoutVerifiedIdentity() {
         assertThrows(BusinessException.class, () -> new AuthController(null).profile());
     }
+
+    @Test
+    void meRejectsDirectCallWithoutVerifiedIdentity() {
+        assertThrows(BusinessException.class, () -> new AuthController(null).me());
+    }
 }

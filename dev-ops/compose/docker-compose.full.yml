@@ -155,7 +155,9 @@ services:
       # Enable XXL-JOB executors against the Compose admin; disable local Outbox
       # polling on Pay to avoid double-dispatch of the same handler.
       XXL_JOB_ENABLED: ${XXL_JOB_ENABLED:-true}
-      XXL_JOB_ADMIN_ADDRESSES: ${XXL_JOB_ADMIN_ADDRESSES:-http://xxl-job-admin:8080/xxl-job-admin}
+      # Compose-internal Admin. Do not interpolate host .env (127.0.0.1:18081).
+      # xuxueli/xxl-job-admin:3.4.2 serves at context path /.
+      XXL_JOB_ADMIN_ADDRESSES: http://xxl-job-admin:8080
       XXL_JOB_ACCESS_TOKEN: ${XXL_JOB_ACCESS_TOKEN:-default_token}
       SA_TOKEN_COOKIE_SECURE: ${SA_TOKEN_COOKIE_SECURE:-false}
     ports:
@@ -216,7 +218,8 @@ services:
         ARTIFACT: bff-service
     environment:
       <<: *java-common
-      AGENT_SERVICE_URL: ${AGENT_SERVICE_URL:-}
+      # Direct Docker DNS when Agent is not in Nacos (Python registration is best-effort).
+      AGENT_SERVICE_URL: ${AGENT_SERVICE_URL:-http://agent-service:8090}
     expose: ["8083"]
     depends_on:
       nacos: {condition: service_healthy}
@@ -321,7 +324,6 @@ services:
       NACOS_DISCOVERY_ENABLED: "true"
       NACOS_SERVER_ADDR: nacos:8848
       NACOS_SERVICE_NAME: agent-service
-      IDENTITY_JWT_SECRET: ${AI_GROUP_IDENTITY_SIGNING_SECRET:-change-me-signing-secret-32bytes-ok}
       ALLOW_ANONYMOUS_DEV: "false"
       MEMBER_SERVICE_URL: http://member-service:8082
       CORS_ALLOW_ORIGINS: http://localhost:5173,http://localhost

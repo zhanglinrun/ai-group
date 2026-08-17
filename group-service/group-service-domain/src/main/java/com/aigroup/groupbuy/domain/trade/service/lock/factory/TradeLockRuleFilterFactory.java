@@ -55,12 +55,12 @@ public class TradeLockRuleFilterFactory {
         private Integer userTakeOrderCount;
 
         public String generateTeamStockKey(String teamId) {
-            if (StringUtils.isBlank(teamId)) return null;
+            if (StringUtils.isBlank(teamId) || groupBuyActivity == null) return null;
             return TradeLockRuleFilterFactory.generateTeamStockKey(groupBuyActivity.getActivityId(), teamId);
         }
 
         public String generateRecoveryTeamStockKey(String teamId) {
-            if (StringUtils.isBlank(teamId)) return null;
+            if (StringUtils.isBlank(teamId) || groupBuyActivity == null) return null;
             return TradeLockRuleFilterFactory.generateRecoveryTeamStockKey(groupBuyActivity.getActivityId(), teamId);
         }
 

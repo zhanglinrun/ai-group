@@ -32,6 +32,7 @@ public class RedisClientConfig {
 
         SingleServerConfig serverConfig = config.useSingleServer()
                 .setAddress("redis://" + properties.getHost() + ":" + properties.getPort())
+                .setDatabase(properties.getDatabase())
                 .setConnectionPoolSize(properties.getPoolSize())
                 .setConnectionMinimumIdleSize(properties.getMinIdleSize())
                 .setIdleConnectionTimeout(properties.getIdleTimeout())

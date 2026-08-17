@@ -4,7 +4,7 @@ WORKDIR /workspace
 COPY . .
 
 ARG MODULE
-RUN mvn -pl "${MODULE}" -am clean package -Dmaven.test.skip=true --no-transfer-progress
+RUN mvn -s /workspace/dev-ops/compose/maven-settings.xml -pl "${MODULE}" -am clean package -Dmaven.test.skip=true --no-transfer-progress
 
 # Select the executable Spring Boot jar while the build filesystem is still
 # available. The runtime stage cannot read files from the build stage via RUN.

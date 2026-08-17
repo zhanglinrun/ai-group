@@ -1,5 +1,6 @@
 package com.aigroup.groupbuy.admin;
 
+import com.aigroup.common.context.RequestUserContext;
 import com.aigroup.groupbuy.infrastructure.dao.IGroupBuyActivityDao;
 import com.aigroup.groupbuy.infrastructure.dao.IGroupBuyActivityTierDao;
 import com.aigroup.groupbuy.infrastructure.dao.IGroupBuyDiscountDao;
@@ -36,16 +37,14 @@ import java.util.Map;
 /**
  * 拼团运营端接口：活动/折扣/商品的查看与调整。
  *
- * <p>鉴权：仅接受经网关转发（X-Gateway-Request + X-Internal-Token）且角色为 ADMIN 的请求，
- * 与 pay 侧 GatewayUserResolver 的信任模型一致。活动/折扣在 Redis 有读缓存，更新后同步逐出。</p>
+ * <p>鉴权：仅接受经网关转发（X-Gateway-Request + X-Internal-Token）且 JWT role 为 ADMIN 的请求。
+ * 角色以 {@link RequestUserContext} 为准，不信请求头 {@code X-Role}。活动/折扣在 Redis 有读缓存，更新后同步逐出。</p>
  */
 @Slf4j
 @RestController
 @RequestMapping("/api/group/admin/")
 public class GroupBuyAdminController {
 
-    /** 与 ai-group-common CommonConstant 对齐（group 模块不依赖 common，这里直接使用字面量） */
-    private static final String HEADER_ROLE = "X-Role";
     private static final String HEADER_GATEWAY_REQUEST = "X-Gateway-Request";
     private static final String HEADER_INTERNAL_TOKEN = "X-Internal-Token";
 
@@ -330,16 +329,17 @@ public class GroupBuyAdminController {
     }
 
     /**
-     * 管理端信任模型：必须经网关（X-Gateway-Request=true 且内部令牌一致）且角色为 ADMIN。
+     * 管理端信任模型：必须经网关（X-Gateway-Request=true 且内部令牌一致），
+     * 且 JWT 绑定的 role 为 ADMIN。
      */
-    private boolean isAdmin(HttpServletRequest request) {
+    public boolean isAdmin(HttpServletRequest request) {
         if (!"true".equalsIgnoreCase(request.getHeader(HEADER_GATEWAY_REQUEST))) {
             return false;
         }
         if (StringUtils.isBlank(internalToken) || !internalToken.equals(request.getHeader(HEADER_INTERNAL_TOKEN))) {
             return false;
         }
-        return "ADMIN".equalsIgnoreCase(request.getHeader(HEADER_ROLE));
+        return "ADMIN".equalsIgnoreCase(RequestUserContext.getRole());
     }
 
     private Response<List<Map<String, Object>>> forbidden() {

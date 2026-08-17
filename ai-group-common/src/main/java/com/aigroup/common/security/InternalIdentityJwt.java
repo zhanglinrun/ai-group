@@ -60,7 +60,7 @@ public final class InternalIdentityJwt {
                     .claim(CLAIM_ROLE, normalizedRole)
                     .build();
             SignedJWT jwt = new SignedJWT(new JWSHeader(JWSAlgorithm.HS256), claims);
-            jwt.sign(new MACSigner(hmacKey(secret)));
+            jwt.sign(new MACSigner(signingKey(secret)));
             return jwt.serialize();
         } catch (JOSEException exception) {
             throw new IllegalStateException("cannot mint Gateway identity JWT", exception);
@@ -73,7 +73,7 @@ public final class InternalIdentityJwt {
         }
         try {
             SignedJWT jwt = SignedJWT.parse(token);
-            if (!jwt.verify(new MACVerifier(hmacKey(secret)))) {
+            if (!jwt.verify(new MACVerifier(signingKey(secret)))) {
                 return null;
             }
             JWTClaimsSet claims = jwt.getJWTClaimsSet();
@@ -98,9 +98,9 @@ public final class InternalIdentityJwt {
 
     /**
      * HS256 requires a 256-bit key. Hash the configured secret so existing
-     * env values of any length still produce a spec-compliant HMAC key.
+     * env values of any length still produce a spec-compliant signing key.
      */
-    static byte[] hmacKey(String secret) {
+    static byte[] signingKey(String secret) {
         try {
             return MessageDigest.getInstance("SHA-256").digest(secret.getBytes(StandardCharsets.UTF_8));
         } catch (NoSuchAlgorithmException exception) {

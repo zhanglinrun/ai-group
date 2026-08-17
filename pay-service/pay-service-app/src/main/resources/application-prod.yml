@@ -44,9 +44,6 @@ mybatis:
   mapper-locations: classpath:/mybatis/mapper/*.xml
   config-location: classpath:/mybatis/config/mybatis-config.xml
 
-weixin:
-  enabled: false
-
 alipay:
   enabled: ${ALIPAY_ENABLED:false}
   app_id: ${ALIPAY_APP_ID}

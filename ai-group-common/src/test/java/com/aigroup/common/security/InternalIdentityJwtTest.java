@@ -59,7 +59,7 @@ class InternalIdentityJwtTest {
                 .claim("role", "USER")
                 .build();
         SignedJWT jwt = new SignedJWT(new JWSHeader(JWSAlgorithm.HS256), claims);
-        jwt.sign(new MACSigner(InternalIdentityJwt.hmacKey(SECRET)));
+        jwt.sign(new MACSigner(InternalIdentityJwt.signingKey(SECRET)));
         assertNull(InternalIdentityJwt.verify(SECRET, jwt.serialize()));
     }
 

@@ -4,7 +4,10 @@ WORKDIR /workspace
 COPY . .
 
 ARG POM_PATH
-RUN mvn -f "${POM_PATH}" clean package -Dmaven.test.skip=true --no-transfer-progress
+# Commerce POMs are standalone reactors and cannot see ai-group-common unless
+# it is installed locally first. Do not resolve that in-repo jar from Aliyun.
+RUN mvn -s /workspace/dev-ops/compose/maven-settings.xml -pl ai-group-common -am install -Dmaven.test.skip=true --no-transfer-progress \
+ && mvn -s /workspace/dev-ops/compose/maven-settings.xml -f "${POM_PATH}" clean package -Dmaven.test.skip=true --no-transfer-progress
 
 FROM public.ecr.aws/docker/library/eclipse-temurin:21-jre
 WORKDIR /app

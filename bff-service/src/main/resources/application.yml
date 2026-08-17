@@ -38,4 +38,5 @@ ai-group:
     url: ${AGENT_SERVICE_URL:}
     connect-timeout-ms: ${AGENT_CONNECT_TIMEOUT_MS:2000}
     read-timeout-ms: ${AGENT_READ_TIMEOUT_MS:45000}
+    sse-read-timeout-ms: ${AGENT_SSE_READ_TIMEOUT_MS:1800000}
     write-timeout-ms: ${AGENT_WRITE_TIMEOUT_MS:10000}

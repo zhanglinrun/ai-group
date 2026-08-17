@@ -1,6 +1,6 @@
 # ai-group 服务合同
 
-`openapi/` 和 `events/` 是跨服务通信的唯一来源。Java、Python 和前端都只能围绕这些合同实现适配器，不在 BFF 或 Controller 中通过动态 Map 继续扩散隐式字段。
+`openapi/` 和 `events/` 是手写对照稿，不是 codegen 唯一来源。`scripts/validate-contracts.ps1` 只检查文件存在、JSON 可解析且不少于 50 字节。实现以各服务 DTO / Pydantic / 前端 types 为准；不要在 BFF 或 Controller 里继续用动态 Map 扩散隐式字段。
 
 规则：
 

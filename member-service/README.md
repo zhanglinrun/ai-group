@@ -19,8 +19,8 @@
 Agent 消耗配额用「预授权 + 确认」两阶段，**当前是一个 Run 一笔冻结**，不是每次 LLM 各冻一笔：
 
 - **预扣（freeze）**：创建 Run 时按输入估算与最大输出冻结一笔上界，`requestId=agent:{run_id}`。
-- **确认（confirm）**：Run 终态按累计真实 Token usage 扣减（缺失时使用有界本地估算），并释放未使用余量。
-- **释放（release）**：预留后未发起供应商调用，或供应商拒绝且没有 usage/输出证据时，释放整笔冻结。普通旧调用的僵尸冻结由 member 定时任务兜底；`ownerService=agent-service` 的冻结由 Agent 的持久化结算命令负责恢复，member 只告警，绝不按超时自动释放，避免供应商已经消耗后被误判成免费调用。
+- **确认（confirm）**：Run 终态按累计真实 Token usage 扣减并释放未使用余量。缺 usage 不估算，Agent 把 Run 标成 `PENDING_RECONCILIATION`，由进程内结算扫描重试。
+- **释放（release）**：预留后未发起供应商调用，或供应商拒绝且没有 usage/输出证据时，释放整笔冻结。普通旧调用的僵尸冻结由 member 定时任务兜底；`ownerService=agent-service` 的冻结由 Agent `service/billing_settlement.py` 的进程内扫描收敛，member 只告警，绝不按超时自动释放，避免供应商已经消耗后被误判成免费调用。
 
  `freeze` 的 `requestId` 是幂等键。同一用户用相同 `requestId` 重试时，请求额度上界、最小额度、能力编码和结算所有者必须完全一致；member 会保存服务端 SHA-256 指纹并拒绝参数漂移。结算所有者只接受 `legacy` 与 `agent-service`，避免未知调用方制造无法自动释放的冻结。`confirm` 与 `release` 都返回冻结的真实终态以及原始请求参数，因此调用方能识别 `CONFIRMED` / `RELEASED` 冲突、核验找回的冻结，并处理网络响应不确定。
 
@@ -115,5 +115,5 @@ cd member-service && mvn spring-boot:run
 ## 提醒
 
 - 权益发放和配额确认都要保持幂等，重复消息不能重复发、重复扣。
- - 两阶段扣减的 `confirm` / `release` 必须成对兜底。普通冻结由 `ExpiredFreezeReleaseJob` 清理；`agent-service` 托管冻结必须由 Agent durable settlement 恢复任务收敛，不能改回 member 超时自动释放。
+- 两阶段扣减的 `confirm` / `release` 必须成对兜底。普通冻结由 `ExpiredFreezeReleaseJob` 清理；`agent-service` 托管冻结必须由 Agent 进程内结算扫描收敛，不能改回 member 超时自动释放。
 - `/internal/**` 接口只走内部令牌，不要暴露给外部直连。

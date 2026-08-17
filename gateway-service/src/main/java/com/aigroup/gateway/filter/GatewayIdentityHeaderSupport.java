@@ -57,10 +57,5 @@ final class GatewayIdentityHeaderSupport {
         headers.remove(CommonConstant.HEADER_GATEWAY_REQUEST);
         headers.remove(CommonConstant.HEADER_INTERNAL_TOKEN);
         headers.remove(CommonConstant.HEADER_INTERNAL_JWT);
-        headers.remove(CommonConstant.HEADER_AUTH_TIMESTAMP);
-        headers.remove(CommonConstant.HEADER_AUTH_NONCE);
-        headers.remove(CommonConstant.HEADER_AUTH_SIGNATURE);
-        headers.remove("X-Gateway-Identity");
-        headers.remove("X-Service-Identity");
     }
 }

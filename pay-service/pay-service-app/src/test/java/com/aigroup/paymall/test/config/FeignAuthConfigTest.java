@@ -1,7 +1,7 @@
 package com.aigroup.paymall.test.config;
 
 import com.aigroup.common.constant.CommonConstant;
-import com.aigroup.paymall.config.Retrofit2Config;
+import com.aigroup.paymall.config.FeignAuthConfig;
 import feign.RequestInterceptor;
 import feign.RequestTemplate;
 import org.junit.After;
@@ -20,9 +20,9 @@ import static org.junit.Assert.assertTrue;
 
 /**
  * pay → group/member 内部调用必须附带 X-Internal-Token。
- * 迁移到 OpenFeign 后，token 由 {@code internalTokenRequestInterceptor} 注入。
+ * token 由 {@code internalTokenRequestInterceptor} 注入。
  */
-public class Retrofit2ConfigTest {
+public class FeignAuthConfigTest {
 
     @After
     public void clearRequest() {
@@ -34,7 +34,7 @@ public class Retrofit2ConfigTest {
         RequestInterceptor interceptor = buildInterceptor("secret-internal-token");
         RequestTemplate template = new RequestTemplate();
         interceptor.apply(template);
-        assertEquals("secret-internal-token", firstHeader(template, Retrofit2Config.HEADER_INTERNAL_TOKEN));
+        assertEquals("secret-internal-token", firstHeader(template, FeignAuthConfig.HEADER_INTERNAL_TOKEN));
     }
 
     @Test
@@ -42,7 +42,7 @@ public class Retrofit2ConfigTest {
         RequestInterceptor interceptor = buildInterceptor("");
         RequestTemplate template = new RequestTemplate();
         interceptor.apply(template);
-        assertNull(template.headers().get(Retrofit2Config.HEADER_INTERNAL_TOKEN));
+        assertNull(template.headers().get(FeignAuthConfig.HEADER_INTERNAL_TOKEN));
     }
 
     @Test
@@ -58,8 +58,8 @@ public class Retrofit2ConfigTest {
             RequestTemplate template = new RequestTemplate();
             template.uri(path);
             interceptor.apply(template);
-            assertEquals("secret-internal-token", firstHeader(template, Retrofit2Config.HEADER_INTERNAL_TOKEN));
-            assertEquals(1, template.headers().get(Retrofit2Config.HEADER_INTERNAL_TOKEN).size());
+            assertEquals("secret-internal-token", firstHeader(template, FeignAuthConfig.HEADER_INTERNAL_TOKEN));
+            assertEquals(1, template.headers().get(FeignAuthConfig.HEADER_INTERNAL_TOKEN).size());
         }
     }
 
@@ -74,7 +74,7 @@ public class Retrofit2ConfigTest {
         RequestTemplate template = new RequestTemplate();
         interceptor.apply(template);
 
-        assertEquals("secret-internal-token", firstHeader(template, Retrofit2Config.HEADER_INTERNAL_TOKEN));
+        assertEquals("secret-internal-token", firstHeader(template, FeignAuthConfig.HEADER_INTERNAL_TOKEN));
         assertEquals("header.payload.sig", firstHeader(template, CommonConstant.HEADER_INTERNAL_JWT));
         assertEquals("true", firstHeader(template, CommonConstant.HEADER_GATEWAY_REQUEST));
     }
@@ -87,7 +87,7 @@ public class Retrofit2ConfigTest {
     }
 
     private RequestInterceptor buildInterceptor(String token) {
-        Retrofit2Config config = new Retrofit2Config();
+        FeignAuthConfig config = new FeignAuthConfig();
         ReflectionTestUtils.setField(config, "internalToken", token);
         return config.internalTokenRequestInterceptor();
     }

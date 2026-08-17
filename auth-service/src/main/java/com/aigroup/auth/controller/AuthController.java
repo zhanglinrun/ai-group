@@ -70,10 +70,8 @@ public class AuthController {
 
     @GetMapping("/me")
     public Result<UserVO> me() {
-        if (!StpUtil.isLogin()) {
-            throw new com.aigroup.common.exception.BusinessException("未登录");
-        }
-        return Result.success(authService.profile(Long.parseLong(String.valueOf(StpUtil.getLoginId()))));
+        Long userId = RequestUserContext.requireUserId();
+        return Result.success(authService.profile(userId));
     }
 
     @GetMapping("/profile")

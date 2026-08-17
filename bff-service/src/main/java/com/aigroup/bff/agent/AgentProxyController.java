@@ -1,6 +1,7 @@
 package com.aigroup.bff.agent;
 
 import com.aigroup.common.constant.CommonConstant;
+import com.aigroup.common.context.RequestUserContext;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -31,17 +32,22 @@ public class AgentProxyController {
     private static final String DISCOVERED_AGENT_URL = "http://agent-service";
 
     private final WebClient.Builder webClientBuilder;
+    private final WebClient.Builder sseWebClientBuilder;
     private final String agentUrl;
 
     public AgentProxyController(
             WebClient.Builder agentWebClientBuilder,
             @Qualifier("loadBalancedAgentWebClientBuilder") ObjectProvider<WebClient.Builder> loadBalancedBuilder,
+            @Qualifier("sseAgentWebClientBuilder") ObjectProvider<WebClient.Builder> sseBuilder,
+            @Qualifier("loadBalancedSseAgentWebClientBuilder") ObjectProvider<WebClient.Builder> loadBalancedSseBuilder,
             @Value("${ai-group.agent.url:}") String agentUrl) {
         if (agentUrl == null || agentUrl.isBlank()) {
             this.webClientBuilder = loadBalancedBuilder.getObject();
+            this.sseWebClientBuilder = loadBalancedSseBuilder.getObject();
             this.agentUrl = DISCOVERED_AGENT_URL;
         } else {
             this.webClientBuilder = agentWebClientBuilder;
+            this.sseWebClientBuilder = sseBuilder.getObject();
             this.agentUrl = trimTrailingSlash(agentUrl);
         }
     }
@@ -69,7 +75,8 @@ public class AgentProxyController {
 
     @GetMapping(value = "/runs/{runId}/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public Flux<ServerSentEvent<String>> events(@PathVariable String runId, HttpServletRequest request) {
-        return webClientBuilder.build()
+        RequestUserContext.requireUserId();
+        return sseWebClientBuilder.build()
                 .get()
                 .uri(agentUrl + "/api/runs/" + runId + "/events")
                 .headers(headers -> copyIdentity(request, headers))
@@ -90,12 +97,18 @@ public class AgentProxyController {
                     return builder.data(event.data()).build();
                 })
                 .timeout(Duration.ofMinutes(30))
-                // An SSE client can navigate away or request a run it does
-                // not own.  Treat that upstream stream termination as a
-                // normal end-of-stream so the servlet/gateway does not log a
-                // 500 after the response has already started.
-                .onErrorResume(WebClientResponseException.class, ex -> Flux.empty())
-                .onErrorResume(ex -> Flux.empty());
+                // 4xx before the stream starts must surface to the browser.
+                // Disconnects after the stream has started stay empty so a
+                // navigation away is not logged as an Agent 500.
+                .onErrorResume(WebClientResponseException.class, ex -> {
+                    if (isClientIdentityOrMissing(ex)) {
+                        return Flux.error(ex);
+                    }
+                    return Flux.empty();
+                })
+                .onErrorResume(ex -> ex instanceof WebClientResponseException wce && isClientIdentityOrMissing(wce)
+                        ? Flux.error(ex)
+                        : Flux.empty());
     }
 
     @PostMapping("/runs/{runId}/plan/confirm")
@@ -143,6 +156,7 @@ public class AgentProxyController {
     }
 
     private ResponseEntity<String> json(HttpServletRequest request, String method, String path, String body) {
+        RequestUserContext.requireUserId();
         WebClient.RequestBodySpec spec = webClientBuilder.build()
                 .method(org.springframework.http.HttpMethod.valueOf(method))
                 .uri(agentUrl + path)
@@ -179,6 +193,11 @@ public class AgentProxyController {
                 headers.set(name, value);
             }
         }
+    }
+
+    private static boolean isClientIdentityOrMissing(WebClientResponseException ex) {
+        int status = ex.getStatusCode().value();
+        return status == 401 || status == 403 || status == 404;
     }
 
     private static String trimTrailingSlash(String url) {

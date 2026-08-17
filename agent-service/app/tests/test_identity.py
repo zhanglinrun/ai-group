@@ -16,7 +16,7 @@ ISSUER = "ai-group-gateway"
 AUDIENCE = "ai-group-internal"
 
 
-def _hmac_key(secret: str) -> bytes:
+def _signing_key(secret: str) -> bytes:
     return hashlib.sha256(secret.encode("utf-8")).digest()
 
 
@@ -40,13 +40,12 @@ def _mint(
         "exp": now + expires_delta,
         "jti": "test-jti",
     }
-    return jwt.encode(payload, _hmac_key(secret), algorithm="HS256")
+    return jwt.encode(payload, _signing_key(secret), algorithm="HS256")
 
 
 @pytest.fixture()
 def identity_client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     monkeypatch.setattr(settings, "INTERNAL_TOKEN", "internal-token")
-    monkeypatch.setattr(settings, "IDENTITY_JWT_SECRET", SECRET)
     monkeypatch.setattr(settings, "IDENTITY_SIGNING_SECRET", SECRET)
     monkeypatch.setattr(settings, "IDENTITY_JWT_ISSUER", ISSUER)
     monkeypatch.setattr(settings, "IDENTITY_JWT_AUDIENCE", AUDIENCE)
@@ -119,7 +118,6 @@ def test_missing_jwt_is_rejected_when_anonymous_disabled(identity_client: TestCl
 
 def test_anonymous_dev_allows_missing_jwt(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "INTERNAL_TOKEN", None)
-    monkeypatch.setattr(settings, "IDENTITY_JWT_SECRET", None)
     monkeypatch.setattr(settings, "IDENTITY_SIGNING_SECRET", None)
     monkeypatch.setattr(settings, "ALLOW_ANONYMOUS_DEV", True)
 

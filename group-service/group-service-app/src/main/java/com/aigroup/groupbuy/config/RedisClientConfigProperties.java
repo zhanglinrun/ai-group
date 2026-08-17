@@ -15,6 +15,8 @@ public class RedisClientConfigProperties {
     private String host;
     /** 端口 */
     private int port;
+    /** 数据库编号，默认 0；与 Sa-Token 等共用 Redis 实例时建议隔离到独立 db */
+    private int database = 0;
     /** 账密 */
     private String password;
     /** 设置连接池的大小，默认为64 */

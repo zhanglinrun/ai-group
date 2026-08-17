@@ -58,16 +58,6 @@ mybatis:
   mapper-locations: classpath:/mybatis/mapper/*.xml
   config-location:  classpath:/mybatis/config/mybatis-config.xml
 
-# 微信公众号对接（已禁用，统一走 auth-service + 支付宝）
-weixin:
-  enabled: false
-  config:
-    originalid: ${WEIXIN_ORIGINAL_ID:}
-    token: ${WEIXIN_TOKEN:}
-    app-id: ${WEIXIN_APP_ID:}
-    app-secret: ${WEIXIN_APP_SECRET:}
-    template_id: ${WEIXIN_TEMPLATE_ID:}
-
 # 支付宝支付 - 沙箱 https://opendocs.alipay.com/common/02kkv7（密钥统一从环境变量注入，勿硬编码）
 alipay:
   enabled: ${ALIPAY_ENABLED:false}

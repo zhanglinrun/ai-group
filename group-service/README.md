@@ -8,7 +8,7 @@ ai-group 的拼团交易服务：活动展示、优惠试算、锁单占位、�
 
 这里最容易被忽略、但最关键的一步是`锁单`。团购不是“谁付款成功谁算数”那么简单，如果不先占位，并发下很容易出现重复参团、名额超卖、支付后才发现团满、事后大量退款这些问题。所以系统要在支付之前先把资格和名额占住。
 
-口径：活动查询和锁单的 `userId` 以网关 JWT `sub` 为准，不以 body 为准；结算/退款是回调和 Job，只认内部令牌 + 订单里的 userId。热点库存是 Redis Lua 一次占用（保持 `INCR + 1` 语义），不是 MySQL CAS。限流是拼团侧 Redis 固定窗口，不是网关 `RequestRateLimiter`。MQ 监听器手动 ACK，失败有限重试再入队，没有独立 DLQ。
+口径：活动查询和锁单的 `userId` 以网关 JWT `sub` 为准，不以 body 为准；结算/退款是回调和 Job，只认内部令牌 + 订单里的 userId。加入者占座走 Redis `INCR+1` + recovery + `SET NX`，然后请求线程同步写 MySQL `lock_count`；开团不占 Redis。落库失败或未成团退款给 recovery +1。限流是拼团侧 Redis 固定窗口，不是网关 `RequestRateLimiter`。MQ 监听器手动 ACK，失败有限重试再入队，没有独立 DLQ。
 
 ---
 

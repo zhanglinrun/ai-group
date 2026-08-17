@@ -55,13 +55,10 @@ public abstract class AbstractRefundOrderStrategy implements IRefundOrderStrateg
      * 通用库存恢复逻辑
      * @param teamRefundSuccess 团队退单成功信息
      * @param refundType 退单类型描述
-     * @throws Exception 异常
      */
-    protected void doReverseStock(TeamRefundSuccess teamRefundSuccess, String refundType) throws Exception {
+    protected void doReverseStock(TeamRefundSuccess teamRefundSuccess, String refundType) {
         log.info("退单；恢复锁单量 - {} {} {} {}", refundType, teamRefundSuccess.getUserId(), teamRefundSuccess.getActivityId(), teamRefundSuccess.getTeamId());
-        // 1. 恢复库存key
         String recoveryTeamStockKey = TradeLockRuleFilterFactory.generateRecoveryTeamStockKey(teamRefundSuccess.getActivityId(), teamRefundSuccess.getTeamId());
-        // 2. 退单恢复库存
         repository.refund2AddRecovery(recoveryTeamStockKey, teamRefundSuccess.getOrderId());
     }
 

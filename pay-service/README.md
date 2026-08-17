@@ -2,7 +2,7 @@
 
 该工程负责额度商品下单、支付宝支付、拼团结算、退款，以及支付结果到付费额度发放之间的可靠事件交付。
 
-Java 包名 `com.aigroup.paymall`、库名 `s_pay_mall_ddd_market` 是历史保留，运行时服务名是 `pay-service`。内部同步调用走 OpenFeign；Retrofit 只用于微信等外部 API。
+Java 包名 `com.aigroup.paymall`、库名 `s_pay_mall_ddd_market` 是历史保留，运行时服务名是 `pay-service`。内部同步调用走 OpenFeign + Nacos。
 
 ## 模块
 
@@ -36,7 +36,7 @@ Java 包名 `com.aigroup.paymall`、库名 `s_pay_mall_ddd_market` 是历史保�
 
 ### 拼团购买
 
-1. 支付成功后通知 group 服务登记成员已支付；通知丢失由结算补偿任务重试。
+1. 支付成功后，回调线程同步 Feign 通知 group 登记成员已支付；通知丢失由 `settlement_notified` + 结算补偿任务重试。直购不走这条同步结算，只写 Outbox。
 2. 成团回调只结算真正处于 `PAY_SUCCESS` 的订单。
 3. 订单更新为 `MARKET` 与履约/权益 outbox 写入处于同一个事务；阶梯加赠额度随权益事件发送。
 4. 过期、已完成、满员等终态拒绝会进入幂等支付宝退款，不把订单永久留在 `PAY_SUCCESS`。

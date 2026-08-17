@@ -13,6 +13,7 @@ import com.aigroup.groupbuy.infrastructure.dao.IGroupBuyActivityTierDao;
 import com.aigroup.groupbuy.infrastructure.dao.IGroupBuyOrderDao;
 import com.aigroup.groupbuy.infrastructure.dao.IGroupBuyOrderListDao;
 import com.aigroup.groupbuy.infrastructure.dao.INotifyTaskDao;
+import com.aigroup.groupbuy.infrastructure.redis.IRedisService;
 import com.aigroup.groupbuy.infrastructure.dao.po.GroupBuyActivityTier;
 import com.aigroup.groupbuy.infrastructure.dao.po.GroupBuyOrder;
 import com.aigroup.groupbuy.infrastructure.dao.po.GroupBuyOrderList;
@@ -59,6 +60,7 @@ public class TradeRepositoryTierSnapshotTest {
         ReflectionTestUtils.setField(repository, "groupBuyOrderListDao", orderListDao);
         ReflectionTestUtils.setField(repository, "notifyTaskDao", notifyTaskDao);
         ReflectionTestUtils.setField(repository, "topic_team_success", "topic.team_success");
+        ReflectionTestUtils.setField(repository, "redisService", mock(IRedisService.class));
     }
 
     @Test

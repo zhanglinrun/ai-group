@@ -1,6 +1,6 @@
 package com.aigroup.paymall.test.config;
 
-import com.aigroup.paymall.config.Retrofit2Config;
+import com.aigroup.paymall.config.FeignAuthConfig;
 import org.junit.Test;
 import org.springframework.boot.env.YamlPropertySourceLoader;
 import org.springframework.core.env.PropertySource;
@@ -17,11 +17,11 @@ public class PayConfigurationContractTest {
 
     @Test
     public void onlyDevDefaultsToTheLocalMemberServicePort() throws IOException {
-        assertEquals("${MEMBER_SERVICE_URL:" + Retrofit2Config.DEFAULT_MEMBER_SERVICE_URL + "}",
+        assertEquals("${MEMBER_SERVICE_URL:" + FeignAuthConfig.DEFAULT_MEMBER_SERVICE_URL + "}",
                 property("application-dev.yml", "app.config.member-service.api-url"));
         assertEquals("${MEMBER_SERVICE_URL:}",
                 property("application-prod.yml", "app.config.member-service.api-url"));
-        assertEquals("http://127.0.0.1:18082", Retrofit2Config.DEFAULT_MEMBER_SERVICE_URL);
+        assertEquals("http://127.0.0.1:18082", FeignAuthConfig.DEFAULT_MEMBER_SERVICE_URL);
     }
 
     @Test

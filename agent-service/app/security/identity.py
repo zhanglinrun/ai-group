@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from contextvars import ContextVar
 from dataclasses import dataclass
+from secrets import compare_digest
 import hashlib
-import hmac
 import re
 
 import jwt
@@ -32,10 +32,10 @@ _identity_ctx: ContextVar[IdentityContext | None] = ContextVar("xiongdoctor_iden
 
 
 def _jwt_secret() -> str:
-    return (settings.IDENTITY_JWT_SECRET or settings.IDENTITY_SIGNING_SECRET or "").strip()
+    return (settings.IDENTITY_SIGNING_SECRET or "").strip()
 
 
-def _hmac_key(secret: str) -> bytes:
+def _signing_key(secret: str) -> bytes:
     return hashlib.sha256(secret.encode("utf-8")).digest()
 
 
@@ -46,7 +46,7 @@ def _decode_identity_jwt(token: str) -> IdentityContext:
     try:
         payload = jwt.decode(
             token,
-            _hmac_key(secret),
+            _signing_key(secret),
             algorithms=["HS256"],
             audience=settings.IDENTITY_JWT_AUDIENCE,
             issuer=settings.IDENTITY_JWT_ISSUER,
@@ -75,11 +75,11 @@ async def require_identity(
     """Validate the Gateway HS256 identity JWT.
 
     Development-only anonymous mode keeps local unit tests and the isolated
-    Agent demo usable. Compose/production sets ALLOW_ANONYMOUS_DEV=false and a
-    non-empty internal token/signing secret.
+    Agent demo usable. The setting defaults to false; Compose/production keep
+    it false and require a non-empty internal token/signing secret.
     """
     configured_internal = (settings.INTERNAL_TOKEN or "").strip()
-    if configured_internal and not hmac.compare_digest(configured_internal, x_internal_token or ""):
+    if configured_internal and not compare_digest(configured_internal, x_internal_token or ""):
         raise HTTPException(status_code=401, detail="invalid internal service credential")
 
     if not x_internal_jwt:

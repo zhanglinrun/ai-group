@@ -26,6 +26,20 @@ const PAGE_SIZE = 10;
 const CLEAR_ALL_CONFIRM_TEXT = "清空全部历史";
 type StatusFilter = "all" | "running" | "completed" | "degraded" | "failed";
 
+function clearSkipDescription(result: {
+  skipped_running_count: number;
+  skipped_unsettled_count?: number;
+}): string | undefined {
+  const parts: string[] = [];
+  if (result.skipped_running_count > 0) {
+    parts.push(`已跳过 ${result.skipped_running_count} 条进行中任务`);
+  }
+  if ((result.skipped_unsettled_count ?? 0) > 0) {
+    parts.push(`已跳过 ${result.skipped_unsettled_count} 条未结清额度`);
+  }
+  return parts.length > 0 ? parts.join("；") : undefined;
+}
+
 export function DashboardPage(): JSX.Element {
   const navigate = useNavigate();
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
@@ -158,7 +172,14 @@ export function DashboardPage(): JSX.Element {
     if (selectedRuns.size === 0) return;
     try {
       const result = await batchDeleteMutation.mutateAsync([...selectedRuns]);
-      pushToast({ title: `已删除 ${result.deleted_count} 项`, variant: "success" });
+      pushToast({
+        title: `已删除 ${result.deleted_count} 项`,
+        description:
+          (result.skipped_unsettled_count ?? 0) > 0
+            ? `已跳过 ${result.skipped_unsettled_count} 条未结清额度`
+            : undefined,
+        variant: "success",
+      });
       setSelectedRuns(new Set());
       void queryClient.invalidateQueries({ queryKey: ["runs"] });
     } catch (error) {
@@ -187,10 +208,7 @@ export function DashboardPage(): JSX.Element {
       void queryClient.invalidateQueries({ queryKey: ["runs"] });
       pushToast({
         title: `已清空 ${result.deleted_count} 条`,
-        description:
-          result.skipped_running_count > 0
-            ? `已跳过 ${result.skipped_running_count} 条进行中任务`
-            : undefined,
+        description: clearSkipDescription(result),
         variant: "success",
       });
     } catch (error) {
@@ -214,10 +232,7 @@ export function DashboardPage(): JSX.Element {
       void queryClient.invalidateQueries({ queryKey: ["runs"] });
       pushToast({
         title: `已清空 ${result.deleted_count} 条`,
-        description:
-          result.skipped_running_count > 0
-            ? `已跳过 ${result.skipped_running_count} 条进行中任务`
-            : undefined,
+        description: clearSkipDescription(result),
         variant: "success",
       });
       setClearAllConfirmText("");

@@ -229,8 +229,12 @@ async function patchRun(
 
 async function batchDeleteRuns(
   runIds: string[],
-): Promise<{ deleted_count: number; not_found: string[] }> {
-  const { data } = await apiClient.post<{ deleted_count: number; not_found: string[] }>(
+): Promise<{ deleted_count: number; not_found: string[]; skipped_unsettled_count?: number }> {
+  const { data } = await apiClient.post<{
+    deleted_count: number;
+    not_found: string[];
+    skipped_unsettled_count?: number;
+  }>(
     "/api/runs/batch-delete",
     { run_ids: runIds },
   );
@@ -247,6 +251,7 @@ interface ClearRunsResponse {
   deleted_count: number;
   deleted_run_ids: string[];
   skipped_running_count: number;
+  skipped_unsettled_count?: number;
   pruned_skill_candidate_refs: number;
 }
 
@@ -787,7 +792,7 @@ export function usePatchRun(): UseMutationResult<RunDetailResponse, Error, Patch
 }
 
 export function useBatchDeleteRuns(): UseMutationResult<
-  { deleted_count: number; not_found: string[] },
+  { deleted_count: number; not_found: string[]; skipped_unsettled_count?: number },
   Error,
   string[]
 > {
