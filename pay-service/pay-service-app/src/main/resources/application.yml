@@ -34,8 +34,6 @@ ai-group:
   kafka:
     ack-timeout-ms: ${KAFKA_ACK_TIMEOUT_MS:5000}
     topics:
-      order-pay-success: ${KAFKA_ORDER_PAY_SUCCESS:pay.order_pay_success}
       member-benefit: ${KAFKA_MEMBER_BENEFIT:member.benefit.completed}
       team-success: ${KAFKA_GROUP_TEAM_SUCCESS:group.team_success}
       team-refund: ${KAFKA_GROUP_TEAM_REFUND:group.team_refund}
-      user-registered: ${KAFKA_USER_REGISTERED:auth.user_registered}

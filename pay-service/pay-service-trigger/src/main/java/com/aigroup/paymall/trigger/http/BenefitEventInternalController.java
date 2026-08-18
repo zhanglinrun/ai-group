@@ -34,7 +34,7 @@ public class BenefitEventInternalController {
             @RequestParam(required = false) Long lastId,
             @RequestParam(defaultValue = "20") Integer pageSize,
             HttpServletRequest servletRequest) {
-        // C6: internal ops endpoint, same X-Internal-Token check as active_pay_notify
+        // internal ops endpoint: same X-Internal-Token check as other Pay callbacks
         if (!internalCallbackAuthSupport.isAuthorized(servletRequest)) {
             log.warn("pending grants query rejected: missing or invalid internal token");
             return Response.<List<BenefitEventEntity>>builder()

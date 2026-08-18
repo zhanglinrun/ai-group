@@ -1,6 +1,5 @@
 package com.aigroup.groupbuy.infrastructure.dao.po;
 
-import com.aigroup.groupbuy.infrastructure.dao.po.base.Page;
 import lombok.*;
 
 import java.math.BigDecimal;
@@ -10,12 +9,11 @@ import java.util.Date;
  * @description 用户拼单明细
  * @create 2025-01-11 08:42
  */
-@EqualsAndHashCode(callSuper = true)
 @Data
 @Builder
 @AllArgsConstructor
 @NoArgsConstructor
-public class GroupBuyOrderList extends Page {
+public class GroupBuyOrderList {
 
     /** 自增ID */
     private Long id;
@@ -55,5 +53,7 @@ public class GroupBuyOrderList extends Page {
     private Date createTime;
     /** 更新时间 */
     private Date updateTime;
+    /** 查询条数（非表字段，给列表查询用） */
+    private Integer count;
 
 }

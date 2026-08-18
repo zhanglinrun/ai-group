@@ -521,17 +521,6 @@ public class BffController {
         return value == null ? null : String.valueOf(value);
     }
 
-    private int integerValue(Object value) {
-        if (value instanceof Number number) {
-            return number.intValue();
-        }
-        try {
-            return value == null ? 0 : Integer.parseInt(String.valueOf(value));
-        } catch (NumberFormatException ex) {
-            return 0;
-        }
-    }
-
     private boolean isGroupBuyMarket(Object marketType) {
         if (marketType instanceof Number number) {
             return number.intValue() == GROUP_BUY_MARKET_TYPE;

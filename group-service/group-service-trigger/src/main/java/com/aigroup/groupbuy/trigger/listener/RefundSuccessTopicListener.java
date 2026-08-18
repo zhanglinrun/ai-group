@@ -33,6 +33,20 @@ public class RefundSuccessTopicListener {
         ack.acknowledge();
     }
 
+    @KafkaListener(
+            topics = "${ai-group.kafka.topics.team-refund:group.team_refund}.DLT",
+            groupId = "group-service-dlt",
+            containerFactory = "dltKafkaListenerContainerFactory")
+    public void consumeDlt(String message, Acknowledgment ack) {
+        try {
+            listener(message);
+            ack.acknowledge();
+        } catch (Exception e) {
+            log.error("kafka.dlt.exhausted topic=group.team_refund.DLT payload={}", message, e);
+            ack.acknowledge();
+        }
+    }
+
     public void listener(String message) {
         log.info("receive message (team refund) - restore team lock stock:{}", message);
         TeamRefundSuccess teamRefundSuccess = JsonUtils.parseObject(message, TeamRefundSuccess.class);

@@ -253,6 +253,8 @@ services:
       SERVER_PORT: 8091
       SPRING_PROFILES_ACTIVE: dev
       AI_GROUP_DEMO_PAYMENT_ENABLED: ${AI_GROUP_DEMO_PAYMENT_ENABLED:-false}
+      # With XXL-JOB enabled, notify_task is driven by groupBuyNotifyJob — not @Scheduled.
+      GROUP_OUTBOX_LOCAL_SCHEDULER_ENABLED: ${GROUP_OUTBOX_LOCAL_SCHEDULER_ENABLED:-false}
     expose: ["8091", "9999"]
     depends_on:
       mysql: {condition: service_healthy}
@@ -277,7 +279,6 @@ services:
       SERVER_PORT: 8070
       SPRING_PROFILES_ACTIVE: dev
       GROUP_BUY_API_URL: http://group-service:8091
-      GROUP_BUY_NOTIFY_URL: http://pay-service:8070/api/pay/group/notify
       MEMBER_SERVICE_URL: http://member-service:8082
       # With XXL-JOB enabled, Outbox is driven by outboxEventPublishJob — not @Scheduled.
       PAY_OUTBOX_LOCAL_SCHEDULER_ENABLED: ${PAY_OUTBOX_LOCAL_SCHEDULER_ENABLED:-false}

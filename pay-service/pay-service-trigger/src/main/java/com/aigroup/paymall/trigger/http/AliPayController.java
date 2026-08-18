@@ -2,7 +2,6 @@ package com.aigroup.paymall.trigger.http;
 
 import com.aigroup.paymall.api.dto.CreatePayQrResponseDTO;
 import com.aigroup.paymall.api.dto.CreatePayRequestDTO;
-import com.aigroup.paymall.api.dto.NotifyRequestDTO;
 import com.aigroup.paymall.api.dto.QueryOrderListRequestDTO;
 import com.aigroup.paymall.api.dto.QueryOrderListResponseDTO;
 import com.aigroup.paymall.api.dto.PayOrderResponseDTO;
@@ -194,22 +193,6 @@ public class AliPayController {
                     .code(Constants.ResponseCode.UN_ERROR.getCode())
                     .info(Constants.ResponseCode.UN_ERROR.getInfo())
                     .build();
-        }
-    }
-
-    @RequestMapping(value = {"group_buy_notify", "group/notify"}, method = RequestMethod.POST)
-    public String groupBuyNotify(@RequestBody NotifyRequestDTO requestDTO, HttpServletRequest servletRequest) {
-        if (!internalCallbackAuthSupport.isAuthorized(servletRequest)) {
-            log.warn("group buy notify rejected: missing or invalid internal token");
-            return "error";
-        }
-        log.info("group buy notify settlement start {}", JsonUtils.toJson(requestDTO));
-        try {
-            orderService.changeOrderMarketSettlement(requestDTO.getOutTradeNoList());
-            return "success";
-        } catch (Exception e) {
-            log.error("group buy notify settlement failed {}", JsonUtils.toJson(requestDTO), e);
-            return "error";
         }
     }
 

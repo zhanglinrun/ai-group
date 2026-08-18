@@ -1,6 +1,9 @@
 package com.aigroup.groupbuy.admin;
 
 import com.aigroup.common.context.RequestUserContext;
+import com.aigroup.groupbuy.domain.activity.model.valobj.DiscountTypeEnum;
+import com.aigroup.groupbuy.domain.activity.model.valobj.GroupBuyActivityDiscountVO;
+import com.aigroup.groupbuy.domain.activity.service.discount.IDiscountCalculateService;
 import com.aigroup.groupbuy.infrastructure.dao.IGroupBuyActivityDao;
 import com.aigroup.groupbuy.infrastructure.dao.IGroupBuyDiscountDao;
 import com.aigroup.groupbuy.infrastructure.dao.ISCSkuActivityDao;
@@ -59,6 +62,8 @@ public class GroupBuyAdminController {
     private ISCSkuActivityDao scSkuActivityDao;
     @Resource
     private IRedisService redisService;
+    @Resource
+    private Map<String, IDiscountCalculateService> discountCalculateServiceMap;
 
     /**
      * 活动列表（联查折扣与商品）：activity + discount(market_plan/expr) + goods(goods_id/name/original_price)。
@@ -171,7 +176,7 @@ public class GroupBuyAdminController {
     /**
      * 更新活动运营参数与拼团价：
      * body 可含 activityName/takeLimitCount/target/validTime/status（活动表）、
-     * marketExpr（折扣表，ZJ 直减金额）、goodsName/originalPrice（商品表）。
+     * marketPlan/marketExpr（折扣表，ZJ/MJ/ZK/N/MMJ）、goodsName/originalPrice（商品表）。
      * 更新后逐出活动与折扣的 Redis 读缓存，立即生效。
      */
     @PutMapping("activities/{activityId}")
@@ -256,39 +261,40 @@ public class GroupBuyAdminController {
     }
 
     private Object resolveGroupPayPrice(BigDecimal originalPrice, GroupBuyDiscount discount) {
-        if (originalPrice == null || discount == null) {
+        if (originalPrice == null || discount == null || discountCalculateServiceMap == null) {
+            return null;
+        }
+        IDiscountCalculateService calculator = discountCalculateServiceMap.get(discount.getMarketPlan());
+        if (calculator == null) {
             return null;
         }
         try {
-            String plan = discount.getMarketPlan();
-            String expr = discount.getMarketExpr();
-            BigDecimal price;
-            if ("ZJ".equals(plan)) {
-                price = originalPrice.subtract(new BigDecimal(expr));
-            } else if ("MJ".equals(plan)) {
-                String[] parts = expr.split(",");
-                if (parts.length != 2) return null;
-                BigDecimal threshold = new BigDecimal(parts[0].trim());
-                BigDecimal deduction = new BigDecimal(parts[1].trim());
-                price = originalPrice.compareTo(threshold) >= 0 ? originalPrice.subtract(deduction) : originalPrice;
-            } else if ("ZK".equals(plan)) {
-                price = originalPrice.multiply(new BigDecimal(expr));
-            } else if ("N".equals(plan)) {
-                price = new BigDecimal(expr);
-            } else {
+            Integer typeCode = discount.getDiscountType();
+            GroupBuyActivityDiscountVO.GroupBuyDiscount vo = GroupBuyActivityDiscountVO.GroupBuyDiscount.builder()
+                    .discountName(discount.getDiscountName())
+                    .discountDesc(discount.getDiscountDesc())
+                    .discountType(typeCode == null ? DiscountTypeEnum.BASE : DiscountTypeEnum.get(typeCode))
+                    .marketPlan(discount.getMarketPlan())
+                    .marketExpr(discount.getMarketExpr())
+                    .tagId(discount.getTagId())
+                    .build();
+            BigDecimal price = calculator.calculate("admin", originalPrice, vo);
+            if (price == null) {
                 return null;
             }
             price = price.setScale(2, java.math.RoundingMode.HALF_UP);
             return price.compareTo(BigDecimal.ZERO) <= 0 ? new BigDecimal("0.01") : price;
-        } catch (NumberFormatException e) {
+        } catch (RuntimeException e) {
+            log.warn("admin group pay price calculation failed plan={} expr={}",
+                    discount.getMarketPlan(), discount.getMarketExpr(), e);
             return null;
         }
     }
 
     private String normalizeMarketPlan(Object value) {
         String plan = StringUtils.upperCase(StringUtils.trimToEmpty(stringValue(value)));
-        if (!List.of("ZJ", "MJ", "ZK", "N").contains(plan)) {
-            throw new IllegalArgumentException("marketPlan must be one of ZJ, MJ, ZK, N");
+        if (!List.of("ZJ", "MJ", "ZK", "N", "MMJ").contains(plan)) {
+            throw new IllegalArgumentException("marketPlan must be one of ZJ, MJ, ZK, N, MMJ");
         }
         return plan;
     }

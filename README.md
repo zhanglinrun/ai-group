@@ -15,7 +15,6 @@ ai-group 是一套全栈微服务平台：用户通过拼团购买积分，再�
 - **DDD 设计**：Group / Pay 沿用领域分层（api / domain / infrastructure / trigger / app）
 - **最终一致性**：本地消息表（Outbox）+ Kafka + 定时补偿
 - **身份边界**：Sa-Token 管浏览器会话；Gateway 验完后签发 60 秒 HS256 内部 JWT。用户 API（含 Group 查询/锁单、Pay 下单）验 JWT，不以 body / `X-User-Id` 当身份；支付宝回调和补偿 Job 只认内部令牌，userId 来自已落库订单。JWT 不是用户登录态，浏览器拿不到。
-- **接口草图**：`contracts/` 中 OpenAPI 与事件 Schema 是手写对照稿；`scripts/validate-contracts.ps1` 只检查文件存在、可解析且非空，没有 codegen
 
 ### 核心领域
 
@@ -69,10 +68,9 @@ ai-group/
 │   └── app/                   # router / agents / service / models / alembic
 ├── frontend/                  # React + TypeScript + Vite 工作台
 ├── ai-group-common/           # Java 共享安全头、统一响应与基础配置
-├── contracts/                 # OpenAPI 与事件 JSON Schema
 ├── dev-ops/                   # Docker Compose、数据库初始化、中间件
 ├── eval/                      # Gateway 黑盒冒烟与回归入口
-└── scripts/                   # 合同校验、演示数据、产物清理
+└── scripts/                   # 演示数据、产物清理
 ```
 
 ## 核心功能
@@ -87,7 +85,7 @@ ai-group/
 ### 2. 现金支付与权益发放
 
 - **支付宝沙箱**：下单、回调、退款链路
-- **Outbox 事件**：直购在回调事务里写 Outbox 再发权益；拼团在回调线程同步 Feign 通知 Group 结算，丢了靠 `settlement_notified` 补偿，成团后再走 Outbox 发券
+- **Outbox 事件**：直购在回调事务里写 Outbox 再发权益；拼团在回调线程同步 Feign 通知 Group 结算，丢了靠 `settlement_notified` 补偿，成团后再走 Outbox 发额度
 - **可关闭沙箱**：本地可用模拟回调完成联调
 
 ### 3. Member 积分账本
@@ -120,7 +118,7 @@ ai-group/
 - **数据库**：MySQL 8.0+
 - **内部调用**：OpenFeign + Nacos；BFF 调 Agent 用 WebClient
 - **缓存 / 锁**：Redis（会话、拼团占库存 / recovery、拼团侧固定窗口限流、短缓存）
-- **消息队列**：Kafka（Outbox 投递；手动 ack + DefaultErrorHandler 有限重试，耗尽进 `{topic}.DLT`）
+- **消息队列**：Kafka（Outbox 投递；手动 ack + DefaultErrorHandler 有限重试，耗尽进 `{topic}.DLT`；各业务服务有 DLT 回放，失败打 `kafka.dlt.exhausted` 后 ack，不再投 `*.DLT.DLT`）
 - **任务调度**：XXL-JOB 3.4.2（Admin + auth/pay/group/member 执行器；本地 Compose 已内置）
 - **服务发现**：Nacos
 - **构建**：Maven
@@ -145,7 +143,6 @@ ai-group/
 
 ### 工程与运维
 
-- **合同**：OpenAPI YAML、事件 JSON Schema（`contracts/`）
 - **容器**：Docker Compose（`dev-ops/compose/`）
 - **日志**：Logback（Java）、structlog（Python）
 
@@ -153,7 +150,7 @@ ai-group/
 
 ### 1. Java + Python 边界清晰
 
-交易、支付、积分与身份留在 Java；模型 SDK、异步研究与图编排留在 Python。两边通过 OpenAPI、事件 Schema 与 HS256 内部 JWT 协作，不共享数据库或 SDK。
+交易、支付、积分与身份留在 Java；模型 SDK、异步研究与图编排留在 Python。两边通过各服务 DTO / Feign / Pydantic 与 HS256 内部 JWT 协作，不共享数据库或 SDK。
 
 ### 2. DDD 拼团 / 支付领域落地
 
@@ -171,9 +168,9 @@ Group / Pay 采用 api、domain、infrastructure、trigger、app 分层，用聚
 
 Run / Event 持久化，SSE 支持断线后按事件游标回放；LangGraph Checkpoint 落 Postgres，避免把运行状态绑死在浏览器长连接上。
 
-### 6. 合同草图与冒烟门禁
+### 6. 冒烟门禁
 
-`contracts/` 是手写对照稿，不是 codegen 唯一来源；`scripts/validate-contracts.ps1` 只检查文件非空/可解析，`eval/http-smoke.ps1` 做 Gateway 黑盒冒烟。
+`eval/http-smoke.ps1` 做 Gateway 黑盒冒烟。跨服务字段以 Pay `TradeCompletedEvent`、Auth Outbox JSON、Member/BFF DTO 为准。
 
 ## 环境要求
 
@@ -276,9 +273,8 @@ npm run dev
 - **security**：Gateway HS256 内部 JWT 校验
 - **发现**：Compose 下注册 Nacos（`agent-service`）；失败只打日志，不把进程打死
 
-### contracts / frontend / dev-ops
+### frontend / dev-ops
 
-- **contracts**：OpenAPI 与事件 Schema
 - **frontend**：研究工作台、拼团、支付与管理页
 - **dev-ops**：Compose、库表初始化与中间件配置
 
@@ -311,7 +307,6 @@ npm run dev
 mvn test
 cd agent-service; python -m pytest -q; cd ..
 cd frontend; npm ci; npm run lint; npm run build; cd ..
-powershell -ExecutionPolicy Bypass -File scripts/validate-contracts.ps1
 powershell -ExecutionPolicy Bypass -File eval/http-smoke.ps1
 ```
 

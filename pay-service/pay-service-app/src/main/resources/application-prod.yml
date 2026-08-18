@@ -7,7 +7,6 @@ app:
     cross-origin: ${APP_CROSS_ORIGIN:https://your-frontend.example.com}
     group-service:
       api-url: ${GROUP_BUY_API_URL:}
-      notify-url: ${GROUP_BUY_NOTIFY_URL:http://127.0.0.1:8070/api/pay/group/notify}
       source: ${GROUP_BUY_SOURCE:s01}
       chanel: ${GROUP_BUY_CHANNEL:c01}
     member-service:
@@ -29,16 +28,16 @@ spring:
     password: ${MYSQL_PASSWORD}
     url: ${MYSQL_URL}
     driver-class-name: com.mysql.cj.jdbc.Driver
-  hikari:
-    pool-name: Retail_HikariCP
-    minimum-idle: 15
-    idle-timeout: 180000
-    maximum-pool-size: 25
-    auto-commit: true
-    max-lifetime: 1800000
-    connection-timeout: 30000
-    connection-test-query: SELECT 1
-  type: com.zaxxer.hikari.HikariDataSource
+    type: com.zaxxer.hikari.HikariDataSource
+    hikari:
+      pool-name: Retail_HikariCP
+      minimum-idle: 15
+      idle-timeout: 180000
+      maximum-pool-size: 25
+      auto-commit: true
+      max-lifetime: 1800000
+      connection-timeout: 30000
+      connection-test-query: SELECT 1
 
 mybatis:
   mapper-locations: classpath:/mybatis/mapper/*.xml
@@ -52,13 +51,6 @@ alipay:
   notify_url: ${ALIPAY_NOTIFY_URL}
   return_url: ${ALIPAY_RETURN_URL}
   gatewayUrl: ${ALIPAY_GATEWAY_URL:https://openapi.alipay.com/gateway.do}
-
-sc:
-  group:
-    buy:
-      market:
-        source: ${GROUP_BUY_SOURCE:s01}
-        chanel: ${GROUP_BUY_CHANNEL:c01}
 
 logging:
   level:

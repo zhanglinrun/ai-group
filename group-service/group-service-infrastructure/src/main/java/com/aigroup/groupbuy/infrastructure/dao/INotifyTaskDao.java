@@ -17,8 +17,6 @@ public interface INotifyTaskDao {
 
     List<NotifyTask> queryUnExecutedNotifyTaskList();
 
-    NotifyTask queryUnExecutedNotifyTaskByTeamId(String teamId);
-
     int updateNotifyTaskStatusSuccess(NotifyTask notifyTask);
 
     int updateNotifyTaskStatusError(NotifyTask notifyTask);

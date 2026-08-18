@@ -44,15 +44,13 @@ public class MemberController {
         return Result.success(memberService.listQuotaLedger(RequestUserContext.requireUserId()));
     }
 
-    @PostMapping("/internal/members/init-free")
-    public Result<Void> initFree(@RequestBody Map<String, Long> body) {
-        memberService.initFree(body.get("userId"));
-        return Result.success();
-    }
-
     @PostMapping("/internal/member/quota/reservations")
     public Result<Map<String, Object>> createReservation(@RequestBody Map<String, Object> body) {
         Long userId = requiredLong(body, "userId");
+        Long identityUserId = RequestUserContext.getUserId();
+        if (identityUserId != null && !identityUserId.equals(userId)) {
+            throw new com.aigroup.common.exception.BusinessException("userId does not match identity");
+        }
         long amount = requiredLong(body, "amount");
         long minAmount = Long.parseLong(body.getOrDefault("minAmount", amount).toString());
         String abilityCode = String.valueOf(body.getOrDefault("abilityCode", "llm"));

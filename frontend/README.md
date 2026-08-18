@@ -11,7 +11,8 @@
 | Group | Routes |
 |---|---|
 | Public | `/`, `/examples`, `/pricing`, `/share/:runId` |
-| Workspace | `/app`, `/app/runs/new`, `/app/runs/:runId`, `/app/compare`, `/app/watch`, `/app/settings` |
+| Workspace | `/app`, `/app/runs/new`, `/app/runs/:runId`, `/app/watch`, `/app/settings` |
+| Commerce | `/group-buy`, `/account`, `/orders`, `/checkout/:orderId`, `/payment/result`, `/admin` |
 
 ## Development
 

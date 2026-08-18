@@ -36,3 +36,11 @@ ai-group:
     topics:
       team-success: ${KAFKA_GROUP_TEAM_SUCCESS:group.team_success}
       team-refund: ${KAFKA_GROUP_TEAM_REFUND:group.team_refund}
+
+group:
+  outbox:
+    # Prefer XXL-JOB groupBuyNotifyJob when Admin is available. Set true only
+    # as a fallback when XXL_JOB_ENABLED=false.
+    local-scheduler-enabled: ${GROUP_OUTBOX_LOCAL_SCHEDULER_ENABLED:false}
+    publish-interval-ms: ${GROUP_OUTBOX_PUBLISH_INTERVAL_MS:60000}
+    publish-initial-delay-ms: ${GROUP_OUTBOX_PUBLISH_INITIAL_DELAY_MS:60000}

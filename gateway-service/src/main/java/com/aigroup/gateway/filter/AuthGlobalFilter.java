@@ -39,17 +39,6 @@ public class AuthGlobalFilter implements GlobalFilter, Ordered {
             "/api/pay/alipay/notify"
     );
 
-    /**
-     * Service-to-service callbacks authenticated by shared internal token.
-     * group -> pay must either hit pay directly (recommended) or pass through gateway with X-Internal-Token.
-     */
-    private static final List<String> INTERNAL_CALLBACK_PATHS = List.of(
-            "/api/v1/alipay/group_buy_notify",
-            "/api/v1/alipay/active_pay_notify",
-            "/api/pay/group/notify",
-            "/api/pay/orders/reconcile/**"
-    );
-
     /** Gateway's own actuator surface is for authenticated operations, never browser traffic. */
     private static final List<String> MANAGEMENT_PATHS = List.of("/actuator/**");
 
@@ -62,16 +51,6 @@ public class AuthGlobalFilter implements GlobalFilter, Ordered {
     public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
         ServerHttpRequest request = exchange.getRequest();
         String path = request.getPath().value();
-
-        if (isInternalCallback(path)) {
-            if (!isValidInternalToken(request)) {
-                log.warn("Rejected internal callback without valid token, path={}", path);
-                return forbidden(exchange);
-            }
-            ServerHttpRequest downstream = GatewayIdentityHeaderSupport.withInternalToken(
-                    request, internalTokenProperties.getToken());
-            return chain.filter(exchange.mutate().request(downstream).build());
-        }
 
         if (isManagementPath(path)) {
             if (!isValidInternalToken(request)) {
@@ -134,10 +113,6 @@ public class AuthGlobalFilter implements GlobalFilter, Ordered {
 
     private boolean isWhiteList(String path) {
         return WHITE_LIST.stream().anyMatch(pattern -> PATH_MATCHER.match(pattern, path));
-    }
-
-    private boolean isInternalCallback(String path) {
-        return INTERNAL_CALLBACK_PATHS.stream().anyMatch(pattern -> PATH_MATCHER.match(pattern, path));
     }
 
     private boolean isManagementPath(String path) {

@@ -26,9 +26,9 @@ class ConfirmedKafkaPublisherTest {
         KafkaTemplate<String, String> kafkaTemplate = mockTemplate(CompletableFuture.completedFuture(null));
         ConfirmedKafkaPublisher publisher = new ConfirmedKafkaPublisher(kafkaTemplate, 1000);
 
-        publisher.publish("pay.order_pay_success", "order-1", "payload");
+        publisher.publish("group.team_success", "order-1", "payload");
 
-        verify(kafkaTemplate).send(eq("pay.order_pay_success"), eq("order-1"), eq("payload"));
+        verify(kafkaTemplate).send(eq("group.team_success"), eq("order-1"), eq("payload"));
     }
 
     @Test
@@ -39,7 +39,7 @@ class ConfirmedKafkaPublisherTest {
         ConfirmedKafkaPublisher publisher = new ConfirmedKafkaPublisher(kafkaTemplate, 1000);
 
         IllegalStateException error = assertThrows(IllegalStateException.class,
-                () -> publisher.publish("pay.order_pay_success", "order-1", "payload"));
+                () -> publisher.publish("group.team_success", "order-1", "payload"));
 
         assertTrue(error.getMessage().contains("Kafka publish failed"));
     }
@@ -51,7 +51,7 @@ class ConfirmedKafkaPublisherTest {
         Thread.currentThread().interrupt();
 
         IllegalStateException error = assertThrows(IllegalStateException.class,
-                () -> publisher.publish("pay.order_pay_success", "order-1", "payload"));
+                () -> publisher.publish("group.team_success", "order-1", "payload"));
 
         assertTrue(error.getMessage().contains("interrupted"));
         assertTrue(Thread.currentThread().isInterrupted());
@@ -60,7 +60,7 @@ class ConfirmedKafkaPublisherTest {
     @SuppressWarnings("unchecked")
     private KafkaTemplate<String, String> mockTemplate(CompletableFuture<SendResult<String, String>> future) {
         KafkaTemplate<String, String> kafkaTemplate = mock(KafkaTemplate.class);
-        when(kafkaTemplate.send(eq("pay.order_pay_success"), eq("order-1"), eq("payload"))).thenReturn(future);
+        when(kafkaTemplate.send(eq("group.team_success"), eq("order-1"), eq("payload"))).thenReturn(future);
         return kafkaTemplate;
     }
 }

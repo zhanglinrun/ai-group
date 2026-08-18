@@ -1,41 +1,32 @@
 package com.aigroup.paymall.test.infrastructure;
 
-import com.aigroup.paymall.domain.order.adapter.event.PaySuccessMessageEvent;
 import com.aigroup.paymall.infrastructure.adapter.port.BenefitEventPort;
 import com.aigroup.paymall.infrastructure.event.BenefitEventPublisher;
-import com.aigroup.paymall.infrastructure.event.EventPublisher;
-import com.aigroup.paymall.types.common.JsonUtils;
+import com.aigroup.paymall.types.event.TradeCompletedEvent;
 import org.junit.Test;
-import org.mockito.ArgumentCaptor;
 import org.springframework.test.util.ReflectionTestUtils;
 
-import static org.junit.Assert.assertEquals;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 
 public class BenefitEventPortTest {
 
     @Test
-    public void orderPaySuccessUsesOrderIdAsPartitionKey() {
-        EventPublisher eventPublisher = mock(EventPublisher.class);
-        PaySuccessMessageEvent paySuccessMessageEvent = new PaySuccessMessageEvent();
-        ReflectionTestUtils.setField(paySuccessMessageEvent, "topic", "topic.order_pay_success");
-
+    public void tradeCompletedDelegatesToBenefitPublisher() {
+        BenefitEventPublisher publisher = mock(BenefitEventPublisher.class);
         BenefitEventPort port = new BenefitEventPort();
-        ReflectionTestUtils.setField(port, "benefitEventPublisher", mock(BenefitEventPublisher.class));
-        ReflectionTestUtils.setField(port, "eventPublisher", eventPublisher);
-        ReflectionTestUtils.setField(port, "paySuccessMessageEvent", paySuccessMessageEvent);
+        ReflectionTestUtils.setField(port, "benefitEventPublisher", publisher);
 
-        port.publishOrderPaySuccess("evt-order-1", 10001L, "order-1");
+        TradeCompletedEvent event = TradeCompletedEvent.builder()
+                .eventId("evt-order-1")
+                .eventType("GROUP_BUY_COMPLETED")
+                .userId(10001L)
+                .orderId("order-1")
+                .productCode("QUOTA_LIGHT")
+                .baseQuota(60L)
+                .build();
+        port.publishTradeCompleted(event);
 
-        ArgumentCaptor<String> jsonCaptor = ArgumentCaptor.forClass(String.class);
-        verify(eventPublisher).publish(
-                org.mockito.ArgumentMatchers.eq("topic.order_pay_success"),
-                org.mockito.ArgumentMatchers.eq("order-1"),
-                jsonCaptor.capture());
-        PaySuccessMessageEvent.PaySuccessMessage message = JsonUtils.parseObject(
-                jsonCaptor.getValue(), PaySuccessMessageEvent.PaySuccessMessage.class);
-        assertEquals("10001", message.getUserId());
-        assertEquals("order-1", message.getTradeNo());
+        verify(publisher).publish(event);
     }
 }

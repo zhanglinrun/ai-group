@@ -74,9 +74,9 @@ public class AuthController {
         return Result.success(authService.profile(userId));
     }
 
+    /** Alias of {@link #me()} for older clients. */
     @GetMapping("/profile")
     public Result<UserVO> profile() {
-        Long userId = RequestUserContext.requireUserId();
-        return Result.success(authService.profile(userId));
+        return me();
     }
 }

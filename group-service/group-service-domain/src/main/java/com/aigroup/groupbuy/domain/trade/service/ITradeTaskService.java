@@ -5,7 +5,7 @@ import com.aigroup.groupbuy.domain.trade.model.entity.NotifyTaskEntity;
 import java.util.Map;
 
 /**
- * 交易任务（MT/HTTP）服务接口
+ * 交易任务服务接口：扫描 `notify_task` 并通过 Kafka 投递成团通知。
  * 
  * 2025/7/12 21:15
  */
@@ -18,15 +18,6 @@ public interface ITradeTaskService {
      * @throws Exception 异常
      */
     Map<String, Integer> execNotifyJob() throws Exception;
-
-    /**
-     * 执行结算通知任务
-     *
-     * @param teamId 指定结算组ID
-     * @return 结算数量
-     * @throws Exception 异常
-     */
-    Map<String, Integer> execNotifyJob(String teamId) throws Exception;
 
     /**
      * 执行结算通知任务

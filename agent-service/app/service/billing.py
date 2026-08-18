@@ -7,6 +7,7 @@ from uuid import uuid4
 import httpx
 
 from core.config import settings
+from security.identity import current_internal_jwt
 from utils.logger import get_logger
 
 log = get_logger("service.billing")
@@ -41,7 +42,11 @@ class MemberQuotaClient:
         self.timeout = httpx.Timeout(8.0, connect=2.0)
 
     def _headers(self) -> dict[str, str]:
-        return {"X-Internal-Token": settings.INTERNAL_TOKEN or ""}
+        headers = {"X-Internal-Token": settings.INTERNAL_TOKEN or ""}
+        jwt = current_internal_jwt()
+        if jwt:
+            headers["X-Internal-Jwt"] = jwt
+        return headers
 
     async def reserve(self, *, user_id: int, amount_micro_points: int, run_id: str, trace_id: str) -> Reservation:
         request_id = f"agent:{run_id}"

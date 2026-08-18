@@ -29,6 +29,7 @@ class IdentityContext:
 
 
 _identity_ctx: ContextVar[IdentityContext | None] = ContextVar("xiongdoctor_identity", default=None)
+_internal_jwt_ctx: ContextVar[str | None] = ContextVar("xiongdoctor_internal_jwt", default=None)
 
 
 def _jwt_secret() -> str:
@@ -86,11 +87,13 @@ async def require_identity(
         if settings.ALLOW_ANONYMOUS_DEV:
             identity = IdentityContext(user_id=0, username="local-dev", role="USER")
             _identity_ctx.set(identity)
+            _internal_jwt_ctx.set(None)
             return identity
         raise HTTPException(status_code=401, detail="gateway identity is required")
 
     identity = _decode_identity_jwt(x_internal_jwt)
     _identity_ctx.set(identity)
+    _internal_jwt_ctx.set(x_internal_jwt)
     await _assert_run_owner(request, identity)
     return identity
 
@@ -117,3 +120,11 @@ def get_identity() -> IdentityContext:
             return IdentityContext(user_id=0, username="local-dev", role="USER")
         raise HTTPException(status_code=401, detail="identity is not initialized")
     return identity
+
+
+def current_internal_jwt() -> str | None:
+    return _internal_jwt_ctx.get()
+
+
+def bind_internal_jwt(token: str | None) -> None:
+    _internal_jwt_ctx.set(token)

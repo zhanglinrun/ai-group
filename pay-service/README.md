@@ -7,14 +7,14 @@ Java 包名 `com.aigroup.paymall`、库名 `s_pay_mall_ddd_market` 是历史保�
 ## 模块
 
 - `pay-service-app`：Spring Boot 启动、配置、MyBatis 映射与测试。
-- `pay-service-domain`：订单、商品履约、权益 outbox 与补偿逻辑。
+- `pay-service-domain`：订单状态、权益 outbox 与补偿逻辑。
 - `pay-service-infrastructure`：MySQL、Kafka、支付宝、拼团服务和 member-service 适配。
 - `pay-service-trigger`：HTTP 接口、MQ 消费者和定时补偿任务。
 - `pay-service-api` / `pay-service-types`：跨层 DTO、事件和公共类型。
 
 ## 身份边界
 
-用户 API（创建订单、列表、退款）验 Gateway 签发的 `X-Internal-Jwt`，`userId` 取 JWT `sub`；body / `X-User-Id` 只能对照，不能当身份。Pay → Group 锁单时 Feign 转发 JWT + 内部令牌。支付宝 notify、成团 notify、补偿 Job 只认内部令牌，`userId` 来自已落库订单。
+用户 API（创建订单、列表、退款）验 Gateway 签发的 `X-Internal-Jwt`，`userId` 取 JWT `sub`；body / `X-User-Id` 只能对照，不能当身份。Pay → Group 锁单时 Feign 转发 JWT + 内部令牌。支付宝 notify、Kafka `group.team_success` 成团结算、补偿 Job 只认内部令牌，`userId` 来自已落库订单。成团入口只有 Kafka，没有 HTTP `group/notify`。
 
 ## 主要链路
 
@@ -28,17 +28,15 @@ Java 包名 `com.aigroup.paymall`、库名 `s_pay_mall_ddd_market` 是历史保�
 
 ### 直接购买
 
-1. 支付结果把订单从 `CREATE/PAY_WAIT` 更新为 `PAY_SUCCESS`。
-2. 同一个本地事务向 `benefit_event` 写入两条 outbox：
-   - `ORDER_PAY_SUCCESS`：驱动模拟履约，最终把订单更新为 `DEAL_DONE`。
-   - `GROUP_BUY_COMPLETED`：沿用 member 侧既有协议，发放基础额度。
+1. 支付结果在同一事务内把订单从 `CREATE/PAY_WAIT` 更新为 `PAY_SUCCESS` 再落到 `DEAL_DONE`。
+2. 同一事务向 `benefit_event` 写入 `GROUP_BUY_COMPLETED`，按订单 `baseQuota` 快照发放额度。
 3. 事务提交后，`OutboxEventPublishJob` 才能扫描并发送消息。
 
 ### 拼团购买
 
 1. 支付成功后，回调线程同步 Feign 通知 group 登记成员已支付；通知丢失由 `settlement_notified` + 结算补偿任务重试。直购不走这条同步结算，只写 Outbox。
-2. 成团回调只结算真正处于 `PAY_SUCCESS` 的订单。
-3. 订单更新为 `MARKET` 与履约/权益 outbox 写入处于同一个事务；额度只按订单里的 `baseQuota` 快照发放。
+2. Kafka `TeamSuccessTopicListener` 只结算真正处于 `PAY_SUCCESS` 的订单。
+3. 订单更新为 `MARKET` 与权益 outbox 写入处于同一个事务；额度只按订单里的 `baseQuota` 快照发放。`MARKET` 是成团终态，不会再被覆盖成 `DEAL_DONE`。
 4. 过期、已完成、满员等终态拒绝会进入幂等支付宝退款，不把订单永久留在 `PAY_SUCCESS`。
 
 ### 退款与权益撤销
@@ -55,7 +53,7 @@ Java 包名 `com.aigroup.paymall`、库名 `s_pay_mall_ddd_market` 是历史保�
 - 超时、失败或中断都会保留未发布状态，由发布轮询任务重试。
 - 默认由 XXL-JOB 调度 `outboxEventPublishJob`（full Compose 已内置 Admin，默认 `XXL_JOB_ENABLED=true`）。
 - 仅在没有 Admin 时，才设 `PAY_OUTBOX_LOCAL_SCHEDULER_ENABLED=true`，用同一发布器的 Spring `@Scheduled` 兜底；二者不要同时开启，避免双调度。
-- 交付语义为至少一次；member 权益消费和订单履约更新必须保持幂等。
+- 交付语义为至少一次；member 权益消费必须保持幂等。直购 `DEAL_DONE` 已在支付成功事务内完成，不再靠 Kafka 自循环改订单状态。
 
 相关迁移：
 
@@ -63,7 +61,7 @@ Java 包名 `com.aigroup.paymall`、库名 `s_pay_mall_ddd_market` 是历史保�
 - `docs/dev-ops/mysql/sql/V5_transactional_outbox.sql`
 - `docs/dev-ops/mysql/sql/V6_pay_order_idempotency.sql`
 
-一键启动脚本会幂等执行这些迁移，并为历史直购 `PAY_SUCCESS`、已成团 `MARKET` 订单补建缺失的履约 outbox；历史直购还会补建可能缺失的额度事件。等待成团的拼团 `PAY_SUCCESS` 不会被提前履约。
+一键启动脚本会幂等执行这些迁移。`V5` 里给历史直购补过的 `ORDER_PAY_SUCCESS` 行已不再被消费（该 topic 已删除）；当前只认 `GROUP_BUY_COMPLETED` / `GROUP_BUY_REVOKED`。等待成团的拼团 `PAY_SUCCESS` 不会被提前发额度。
 
 ## 本地配置
 

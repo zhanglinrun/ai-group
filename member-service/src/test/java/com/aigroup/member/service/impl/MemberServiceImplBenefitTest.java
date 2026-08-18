@@ -234,9 +234,33 @@ class MemberServiceImplBenefitTest {
     void benefitGrantStatusForOrderReturnsGrantedOnlyForGrantedCompletion() {
         BenefitGrantEvent event = new BenefitGrantEvent();
         event.setStatus("GRANTED");
-        when(benefitGrantEventMapper.selectOne(any())).thenReturn(event);
+        when(benefitGrantEventMapper.selectList(any())).thenReturn(List.of(event));
 
         assertEquals("GRANTED", memberService.benefitGrantStatusForOrder("order-1"));
+    }
+
+    @Test
+    void benefitGrantStatusForOrderReturnsRevokedForRevokedAndSkipped() {
+        BenefitGrantEvent revoked = new BenefitGrantEvent();
+        revoked.setStatus("REVOKED");
+        when(benefitGrantEventMapper.selectList(any())).thenReturn(List.of(revoked));
+        assertEquals("REVOKED", memberService.benefitGrantStatusForOrder("order-revoked"));
+
+        BenefitGrantEvent skipped = new BenefitGrantEvent();
+        skipped.setStatus("SKIPPED_REVOKED");
+        when(benefitGrantEventMapper.selectList(any())).thenReturn(List.of(skipped));
+        assertEquals("REVOKED", memberService.benefitGrantStatusForOrder("order-skipped"));
+    }
+
+    @Test
+    void benefitGrantStatusForOrderKeepsGrantedWhenAutoRevokeWasRejected() {
+        BenefitGrantEvent granted = new BenefitGrantEvent();
+        granted.setStatus("GRANTED");
+        BenefitGrantEvent rejected = new BenefitGrantEvent();
+        rejected.setStatus("REJECTED_GRANTED");
+        when(benefitGrantEventMapper.selectList(any())).thenReturn(List.of(granted, rejected));
+
+        assertEquals("GRANTED", memberService.benefitGrantStatusForOrder("order-rejected-granted"));
     }
 
     @Test

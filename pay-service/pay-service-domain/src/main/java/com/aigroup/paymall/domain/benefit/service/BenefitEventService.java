@@ -43,10 +43,9 @@ public class BenefitEventService implements IBenefitEventService {
         }
         for (String orderId : orderIds) {
             OrderEntity order = requireOrder(orderId);
-            // Both fulfillment and quota delivery are committed with the business
-            // state transition. MQ publication is exclusively handled by the
-            // independent outbox publisher after this transaction commits.
-            enqueueEvent(order, OutboxEventType.ORDER_PAY_SUCCESS.name());
+            // Quota delivery is committed with the business state transition.
+            // MQ publication is exclusively handled by the independent outbox
+            // publisher after this transaction commits.
             enqueueEvent(order, OutboxEventType.GROUP_BUY_COMPLETED.name());
         }
     }
@@ -139,12 +138,7 @@ public class BenefitEventService implements IBenefitEventService {
                     entity.getOrderId(), entity.getEventId());
             return false;
         }
-        if (OutboxEventType.ORDER_PAY_SUCCESS.equals(eventType)) {
-            benefitEventPort.publishOrderPaySuccess(
-                    entity.getEventId(), entity.getUserId(), entity.getOrderId());
-        } else {
-            benefitEventPort.publishTradeCompleted(toTradeCompletedEvent(entity));
-        }
+        benefitEventPort.publishTradeCompleted(toTradeCompletedEvent(entity));
         benefitEventRepository.markPublished(entity.getEventId());
         log.info("published outbox event orderId={} eventId={} eventType={}",
                 entity.getOrderId(), entity.getEventId(), entity.getEventType());

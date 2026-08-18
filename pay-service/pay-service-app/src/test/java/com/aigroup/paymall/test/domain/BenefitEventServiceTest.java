@@ -26,7 +26,6 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -47,19 +46,18 @@ public class BenefitEventServiceTest {
     }
 
     @Test
-    public void enqueueCompletedOrderEvents_writesTwoOutboxRowsWithoutPublishing() {
+    public void enqueueCompletedOrderEvents_writesBenefitOutboxRowWithoutPublishing() {
         OrderEntity order = order("order-001", MarketTypeVO.GROUP_BUY_MARKET, 60L);
         when(orderRepository.queryOrderByOrderId("order-001")).thenReturn(order);
 
         benefitEventService.enqueueCompletedOrderEvents(Collections.singletonList("order-001"));
 
         ArgumentCaptor<BenefitEventEntity> eventCaptor = ArgumentCaptor.forClass(BenefitEventEntity.class);
-        verify(benefitEventRepository, times(2)).insert(eventCaptor.capture());
-        List<BenefitEventEntity> events = eventCaptor.getAllValues();
-        assertEquals(OutboxEventType.ORDER_PAY_SUCCESS.name(), events.get(0).getEventType());
-        assertEquals(OutboxEventType.GROUP_BUY_COMPLETED.name(), events.get(1).getEventType());
-        assertEquals(Long.valueOf(60L), events.get(1).getBaseQuota());
-        assertFalse(events.get(0).getEventPublished());
+        verify(benefitEventRepository).insert(eventCaptor.capture());
+        BenefitEventEntity event = eventCaptor.getValue();
+        assertEquals(OutboxEventType.GROUP_BUY_COMPLETED.name(), event.getEventType());
+        assertEquals(Long.valueOf(60L), event.getBaseQuota());
+        assertFalse(event.getEventPublished());
         verifyNoInteractions(benefitEventPort);
         verify(benefitEventRepository, never()).markPublished(any(String.class));
     }
@@ -96,20 +94,6 @@ public class BenefitEventServiceTest {
     }
 
     @Test
-    public void publishPendingEvents_publishesOrderFulfillmentThenMarksRow() {
-        BenefitEventEntity pending = pending(
-                "evt-fulfillment", "order-003", OutboxEventType.ORDER_PAY_SUCCESS, 60L);
-        when(benefitEventRepository.queryUnpublished(100)).thenReturn(Collections.singletonList(pending));
-
-        int count = benefitEventService.publishPendingEvents();
-
-        assertEquals(1, count);
-        verify(benefitEventPort).publishOrderPaySuccess("evt-fulfillment", 10001L, "order-003");
-        verify(benefitEventPort, never()).publishTradeCompleted(any(TradeCompletedEvent.class));
-        verify(benefitEventRepository).markPublished("evt-fulfillment");
-    }
-
-    @Test
     public void publishPendingEvents_keepsOutboxPendingWhenBrokerConfirmationFails() {
         BenefitEventEntity pending = pending(
                 "evt-ack-timeout", "order-004", OutboxEventType.GROUP_BUY_COMPLETED, 60L);
@@ -119,20 +103,6 @@ public class BenefitEventServiceTest {
 
         assertThrows(IllegalStateException.class, () -> benefitEventService.publishPendingEvents());
         verify(benefitEventRepository, never()).markPublished("evt-ack-timeout");
-    }
-
-    @Test
-    public void publishPendingEvents_keepsFulfillmentPendingWhenPublisherFails() {
-        BenefitEventEntity pending = pending(
-                "evt-fulfillment-timeout", "order-fulfillment-timeout",
-                OutboxEventType.ORDER_PAY_SUCCESS, 60L);
-        when(benefitEventRepository.queryUnpublished(100)).thenReturn(Collections.singletonList(pending));
-        doThrow(new IllegalStateException("kafka publish timed out"))
-                .when(benefitEventPort).publishOrderPaySuccess(
-                        "evt-fulfillment-timeout", 10001L, "order-fulfillment-timeout");
-
-        assertThrows(IllegalStateException.class, () -> benefitEventService.publishPendingEvents());
-        verify(benefitEventRepository, never()).markPublished("evt-fulfillment-timeout");
     }
 
     @Test

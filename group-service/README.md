@@ -8,7 +8,7 @@ ai-group 的拼团交易服务：活动展示、优惠试算、锁单占位、�
 
 这里最容易被忽略、但最关键的一步是`锁单`。团购不是“谁付款成功谁算数”那么简单，如果不先占位，并发下很容易出现重复参团、名额超卖、支付后才发现团满、事后大量退款这些问题。所以系统要在支付之前先把资格和名额占住。
 
-口径：活动查询和锁单的 `userId` 以网关 JWT `sub` 为准，不以 body 为准；结算/退款是回调和 Job，只认内部令牌 + 订单里的 userId。加入者占座走 Redis `INCR+1` + recovery + `SET NX`，然后请求线程同步写 MySQL `lock_count`；开团不占 Redis。落库失败或未成团退款给 recovery +1。限流是拼团侧 Redis 固定窗口，不是网关 `RequestRateLimiter`。Kafka 监听器手动 ack，失败有限重试后进 `{topic}.DLT`。
+口径：活动查询和锁单的 `userId` 以网关 JWT `sub` 为准，不以 body 为准；结算/退款是回调和 Job，只认内部令牌 + 订单里的 userId。加入者占座走 Redis `INCR+1` + recovery + `SET NX`，然后请求线程同步写 MySQL `lock_count`；开团不占 Redis。落库失败或未成团退款给 recovery +1。限流是拼团侧 Redis 固定窗口，不是网关 `RequestRateLimiter`。Kafka 监听器手动 ack，失败有限重试后进 `{topic}.DLT`；DLT 回放同一套幂等方法，仍失败只打 `kafka.dlt.exhausted` 后 ack。
 
 ---
 
@@ -21,9 +21,9 @@ ai-group 的拼团交易服务：活动展示、优惠试算、锁单占位、�
 | `group-service-app` | 启动应用、加载配置、注册线程池和日志等运行时能力 |
 | `group-service-trigger` | 系统入口，接 `HTTP`（接口请求）、定时任务、消息监听 |
 | `group-service-domain` | 核心业务规则，内部再分 `activity` / `trade` / `tag` 三个域 |
-| `group-service-infrastructure` | 把领域需要的能力落到技术实现：数据库、`Redis`（缓存）、消息、外部回调 |
+| `group-service-infrastructure` | 把领域需要的能力落到技术实现：数据库、`Redis`（缓存）、Kafka 成团通知 |
 | `group-service-api` | 对外约定：服务接口、`DTO`（数据传输对象）、统一返回对象 |
-| `group-service-types` | 公共类型：枚举、异常、常量、事件基类 |
+| `group-service-types` | 公共类型：枚举、异常、常量 |
 
 一句话记住分工：`app` 把系统装起来，`trigger` 接外部请求，`domain` 处理业务，`infrastructure` 查库发消息，`api` 定约定，`types` 提供通用表达。
 
@@ -45,7 +45,7 @@ ai-group 的拼团交易服务：活动展示、优惠试算、锁单占位、�
 
 ### 2. 定时任务
 
-- `GroupBuyNotifyJob`（拼团回调通知任务）：扫描待通知任务，把回调结果继续往外推。
+- `GroupBuyNotifyJob`（拼团成团通知任务）：扫描 `notify_task`，经 Kafka 投递 `group.team_success`。默认 XXL-JOB；本地 `@Scheduled` 由 `group.outbox.local-scheduler-enabled` 控制，Compose 默认关。
 - `TimeoutRefundJob`（超时未支付退单任务）：扫描超时未支付订单，触发退单和回补。
 
 ### 3. 消息监听
@@ -81,7 +81,7 @@ ai-group 的拼团交易服务：活动展示、优惠试算、锁单占位、�
 | 表 | 存什么 |
 | --- | --- |
 | `group_buy_activity` | 活动的时间、目标人数、限购次数、标签范围、状态 |
-| `group_buy_discount` | 优惠方式和优惠表达式（直减、满减、`N` 元购等） |
+| `group_buy_discount` | 优惠方式和优惠表达式（ZJ/MJ/ZK/N/MMJ） |
 | `group_buy_order` | 某个团队的拼团进度、目标人数、锁单量、完成量、有效期 |
 | `group_buy_order_list` | 某个用户在某个团里的交易明细（外部单号、价格、状态） |
 | `notify_task` | 后续需要回调或重试的任务 |

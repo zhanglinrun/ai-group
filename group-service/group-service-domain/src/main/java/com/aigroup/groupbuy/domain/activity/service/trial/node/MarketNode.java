@@ -40,22 +40,6 @@ public class MarketNode extends AbstractGroupBuyMarketSupport<MarketProductEntit
     @Resource
     private TagNode tagNode;
 
-    /**
-     * 在 MarketNode2CompletableFuture 继承的子类实现一个 CompletableFuture 多线程方式。
-     * <p>
-     * 1. CompletableFuture：适用于大多数现代 Java 应用，尤其在需要灵活任务编排时。
-     * 2.  FutureTask：任务极度简单，适合简单场景。
-     * <p>
-     * | 对比维度    | FutureTask             | CompletableFuture                |
-     * | :--------------- | :-------------------------- | :------------------------------------- |
-     * | 任务编排能力 | 弱（需手动管理多个 Future） | 强（内置 `thenApply`、`allOf` 等方法） |
-     * | 代码简洁性  | 冗余（显式调用 `get()`）    | 简洁（链式调用，逻辑内聚）             |
-     * | 异常处理   | 繁琐（需捕获多个异常）      | 优雅（支持 `exceptionally` 统一处理）  |
-     * | 线程阻塞     | 可能多次阻塞主线程          | 非阻塞或单次阻塞（如 `join()`）        |
-     * | 适用场景     | 简单任务、低版本 Java 环境  | 复杂异步流程、Java 8+ 环境             |
-     * <p>
-     * 使用；MarketNode 的 @Service 注释掉，MarketNode2CompletableFuture 的 @Service 打开，就可以使用了。
-     */
     @Override
     protected void multiThread(MarketProductEntity requestParameter, DefaultActivityStrategyFactory.DynamicContext dynamicContext) throws ExecutionException, InterruptedException, TimeoutException {
         // 异步查询活动配置

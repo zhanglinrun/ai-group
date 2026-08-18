@@ -34,6 +34,8 @@ public interface IOrderRepository {
 
     void changeOrderPaySuccess(String orderId, Date payTime);
 
+    void changeOrderDealDone(String orderId);
+
     void changeMarketOrderPaySuccess(String orderId);
 
     List<String> queryNoPayNotifyOrder();
@@ -49,7 +51,8 @@ public interface IOrderRepository {
     boolean changeOrderClose(String orderId);
 
     /**
-     * 将成团回调中实际处于 PAY_SUCCESS 的订单迁移为 MARKET，并只对迁移成功的订单发送履约消息。
+     * 将 Kafka 成团回调中实际处于 PAY_SUCCESS 的订单迁移为 MARKET（拼团终态）。
+     * 调用方只对返回的订单号写入权益 outbox，不再发履约消息、也不再改成 DEAL_DONE。
      *
      * @return 真正结算成功（现为 MARKET）的订单号；未支付/已关闭订单不在其中，调用方据此发放权益
      */

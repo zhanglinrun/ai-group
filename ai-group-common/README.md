@@ -21,11 +21,16 @@
 
 ### 服务间安全
 
-- `GatewayUserContextFilter`（网关身份上下文过滤器）：确认网关证明后验 `X-Internal-Jwt`（HS256），用 JWT claims 绑定用户；JWT 缺失或无效直接 401，不以裸 `X-User-Id` 为准。
+- `GatewayUserContextFilter`（网关身份上下文过滤器）：内部令牌有效且带 `X-Internal-Jwt` 时验 HS256 并绑定 subject（网关转发或 Agent 直调均可）；网关证明在场但 JWT 无效则 401。不以裸 `X-User-Id` 为准。无 JWT 的内部调用（例如 Pay 查 SKU）只验令牌、不绑用户。
 - `InternalIdentityJwt`：Gateway 签发、下游验签的短时效内部 JWT。
 - `InternalApiAuthFilter`（内部接口鉴权过滤器）：保护 `/internal/**` 这类只允许服务间调用的接口，校验共享的内部令牌。
 - `InternalTokenProperties`（内部令牌配置属性）：服务之间互信用的共享令牌配置。
 - `ProductionSecurityValidator`（生产安全校验器）：非 local/dev/test 时内部令牌与 identity signing secret 必须存在且至少 32 位，不能是占位符；不合规就拦下。
+
+### Kafka 发布与 DLT
+
+- `ConfirmedKafkaPublisher`：`send().get(timeout)` 等到 Broker ACK 才返回。
+- `KafkaPublisherAutoConfiguration` 在 Boot `KafkaAutoConfiguration` 之前注册带 `DeadLetterPublishingRecoverer` 的 `DefaultErrorHandler`（3 次重试后进 `{topic}.DLT`）。DLT 容器用另一套 handler，失败只打 `kafka.dlt.exhausted`，不再投 `*.DLT.DLT`。
 
 ### 缓存
 

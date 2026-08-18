@@ -266,12 +266,11 @@ public class OrderService extends AbstractOrderService {
                 refundTerminalRejectedPayment(orderEntity.getUserId(), orderId);
             }
         } else {
-            // Direct-purchase status and both durable outbox rows commit atomically.
-            // No MQ call occurs inside this transaction; OutboxEventPublishJob can
-            // only observe the rows after commit. Replayed successful callbacks also
-            // repair legacy PAY_SUCCESS/DEAL_DONE orders that predate the outbox.
+            // Direct-purchase PAY_SUCCESS -> DEAL_DONE and the benefit outbox row
+            // commit atomically. No MQ call occurs inside this transaction.
             transactionTemplate.executeWithoutResult(status -> {
                 repository.changeOrderPaySuccess(orderId, payTime);
+                repository.changeOrderDealDone(orderId);
                 OrderEntity paidOrder = repository.queryOrderByOrderId(orderId);
                 if (isFulfillableDirectOrder(paidOrder)) {
                     benefitEventService.enqueueCompletedOrderEvents(
@@ -381,8 +380,8 @@ public class OrderService extends AbstractOrderService {
         // 未支付/已关闭订单即使出现在回调列表里也不发额度。
         List<String> settledOrderIds = repository.changeOrderMarketSettlement(outTradeNoList);
         if (null != settledOrderIds && !settledOrderIds.isEmpty()) {
-            // The order transition and both fulfillment/benefit outbox rows share
-            // this transaction. The independent publisher sends them after commit.
+            // MARKET is the formed-group terminal. Only the benefit outbox row
+            // is written here; DEAL_DONE is reserved for direct purchase.
             benefitEventService.enqueueCompletedOrderEvents(settledOrderIds);
         }
     }
@@ -407,7 +406,7 @@ public class OrderService extends AbstractOrderService {
 
         // 3. unpaid orders (CREATE/PAY_WAIT): no money moved, close locally.
         //    但 PAY_WAIT 已打开收银台，必须先关闭支付宝侧交易，否则用户从旧收银台仍可付款，
-        //    造成"钱已扣、订单已 CLOSE、不发货不退款"。关单未确认（可能并发支付/网络失败）时
+        //    造成"钱已扣、订单已 CLOSE、不发额度不退款"。关单未确认（可能并发支付/网络失败）时
         //    不本地关单，交由超时关单 Job 再对账，避免误关已支付单。
         if (OrderStatusVO.CREATE.getCode().equals(status) || OrderStatusVO.PAY_WAIT.getCode().equals(status)) {
             if (!closeAlipayTradeIfNeeded(orderId)) {

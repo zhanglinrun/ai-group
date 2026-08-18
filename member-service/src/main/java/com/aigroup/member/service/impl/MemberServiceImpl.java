@@ -761,15 +761,19 @@ public class MemberServiceImpl implements MemberService {
 
     @Override
     public String benefitGrantStatusForOrder(String orderId) {
-        BenefitGrantEvent completed = benefitGrantEventMapper.selectOne(
+        List<BenefitGrantEvent> events = benefitGrantEventMapper.selectList(
                 new LambdaQueryWrapper<BenefitGrantEvent>()
-                        .eq(BenefitGrantEvent::getOrderId, orderId)
-                        .eq(BenefitGrantEvent::getEventType, CommonConstant.EVENT_GROUP_BUY_COMPLETED)
-                        .orderByDesc(BenefitGrantEvent::getCreatedAt)
-                        .last("LIMIT 1"));
-        if (completed == null) {
+                        .eq(BenefitGrantEvent::getOrderId, orderId));
+        if (events == null || events.isEmpty()) {
             return "PENDING";
         }
-        return "GRANTED".equals(completed.getStatus()) ? "GRANTED" : "PENDING";
+        boolean revoked = events.stream().anyMatch(event ->
+                "REVOKED".equals(event.getStatus()) || "SKIPPED_REVOKED".equals(event.getStatus()));
+        if (revoked) {
+            return "REVOKED";
+        }
+        boolean granted = events.stream().anyMatch(event ->
+                "GRANTED".equals(event.getStatus()) || "REJECTED_GRANTED".equals(event.getStatus()));
+        return granted ? "GRANTED" : "PENDING";
     }
 }

@@ -22,7 +22,7 @@ public class BenefitEventRepositoryTest {
 
         repository.insert(BenefitEventEntity.builder()
                 .eventId("evt-1")
-                .eventType("ORDER_PAY_SUCCESS")
+                .eventType("GROUP_BUY_COMPLETED")
                 .userId(10001L)
                 .orderId("order-1")
                 .productCode("QUOTA_LIGHT")

@@ -17,7 +17,7 @@ import java.util.Map;
 import java.util.concurrent.ThreadPoolExecutor;
 
 /**
- * 交易任务（MT/HTTP）服务
+ * 交易任务服务：扫描 `notify_task` 并通过 Kafka 投递成团通知。
  *
  * 2025/7/12 21:15
  */
@@ -39,13 +39,6 @@ public class TradeTaskService implements ITradeTaskService {
         // 查询未执行任务
         List<NotifyTaskEntity> notifyTaskEntityList = repository.queryUnExecutedNotifyTaskList();
 
-        return execNotifyJob(notifyTaskEntityList);
-    }
-
-    @Override
-    public Map<String, Integer> execNotifyJob(String teamId) throws Exception {
-        log.info("拼团交易-执行回调通知回调，指定 teamId:{}", teamId);
-        List<NotifyTaskEntity> notifyTaskEntityList = repository.queryUnExecutedNotifyTaskList(teamId);
         return execNotifyJob(notifyTaskEntityList);
     }
 

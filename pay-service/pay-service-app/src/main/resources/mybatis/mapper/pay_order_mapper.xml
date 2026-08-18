@@ -175,7 +175,7 @@
     </update>
 
     <!-- 回查成团回调中真正结算成功(现为 MARKET)的订单：未支付(PAY_WAIT)/已关闭(CLOSE)订单不会命中，
-         调用方据此只对已结算订单发权益/发履约消息，杜绝"未支付也发额度" -->
+         调用方据此只对已结算订单写权益 outbox，杜绝"未支付也发额度" -->
     <select id="queryMarketSettledOrderIds" resultType="java.lang.String">
         select order_id from pay_order
         where status = 'MARKET' and order_id in
@@ -193,10 +193,10 @@
         where order_id = #{orderId}
     </select>
 
-    <!-- DEAL_DONE can only transit from PAY_SUCCESS/MARKET, so replayed MQ messages will not revert refunded/closed orders -->
+    <!-- DEAL_DONE is the direct-purchase terminal and only transits from PAY_SUCCESS -->
     <update id="changeOrderDealDone" parameterType="java.lang.String">
         update pay_order set status = 'DEAL_DONE', update_time = now()
-        where order_id = #{orderId} and status in ('PAY_SUCCESS', 'MARKET')
+        where order_id = #{orderId} and status = 'PAY_SUCCESS'
     </update>
 
     <select id="queryUserOrderList" resultMap="dataMap">

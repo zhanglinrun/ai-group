@@ -59,6 +59,7 @@ public class OrderServiceDirectOutboxTest {
         orderService.changeOrderPaySuccess("order-direct", payTime);
 
         verify(repository).changeOrderPaySuccess("order-direct", payTime);
+        verify(repository).changeOrderDealDone("order-direct");
         verify(benefitEventService).enqueueCompletedOrderEvents(
                 Collections.singletonList("order-direct"));
         verify(transactionManager).commit(transactionStatus);

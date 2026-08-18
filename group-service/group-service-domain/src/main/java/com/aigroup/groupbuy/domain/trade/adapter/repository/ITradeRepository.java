@@ -51,8 +51,6 @@ public interface ITradeRepository {
 
     List<NotifyTaskEntity> queryUnExecutedNotifyTaskList();
 
-    List<NotifyTaskEntity> queryUnExecutedNotifyTaskList(String teamId);
-
     int updateNotifyTaskStatusSuccess(NotifyTaskEntity notifyTaskEntity);
 
     int updateNotifyTaskStatusError(NotifyTaskEntity notifyTaskEntity);

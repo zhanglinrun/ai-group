@@ -31,7 +31,7 @@ public class GatewayUserContextFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
         try {
-            if (isGatewayVerified(request)) {
+            if (shouldBindIdentity(request)) {
                 InternalIdentityJwt.Claims claims = InternalIdentityJwt.verify(
                         identitySigningSecret, request.getHeader(CommonConstant.HEADER_INTERNAL_JWT));
                 if (claims == null) {
@@ -46,10 +46,23 @@ public class GatewayUserContextFilter extends OncePerRequestFilter {
         }
     }
 
-    private boolean isGatewayVerified(HttpServletRequest request) {
-        if (!"true".equalsIgnoreCase(request.getHeader(CommonConstant.HEADER_GATEWAY_REQUEST))) {
+    private boolean shouldBindIdentity(HttpServletRequest request) {
+        if (!isInternalTokenValid(request)) {
             return false;
         }
+        if (isGatewayVerified(request)) {
+            return true;
+        }
+        String jwt = request.getHeader(CommonConstant.HEADER_INTERNAL_JWT);
+        return jwt != null && !jwt.isBlank();
+    }
+
+    private boolean isGatewayVerified(HttpServletRequest request) {
+        return "true".equalsIgnoreCase(request.getHeader(CommonConstant.HEADER_GATEWAY_REQUEST))
+                && isInternalTokenValid(request);
+    }
+
+    private boolean isInternalTokenValid(HttpServletRequest request) {
         String expected = internalTokenProperties.getToken();
         return expected != null && !expected.isBlank()
                 && expected.equals(request.getHeader(CommonConstant.HEADER_INTERNAL_TOKEN));

@@ -36,17 +36,6 @@ class ProductionSecurityValidatorTest {
     }
 
     @Test
-    void nonLocalProfilesRejectEnabledAgentDebugEndpoints() {
-        ProductionSecurityValidator validator = validator(
-                "prod",
-                "abcdef0123456789abcdef0123456789"
-        );
-        ReflectionTestUtils.setField(validator, "debugEndpointsEnabled", true);
-
-        assertThrows(IllegalStateException.class, validator::validate);
-    }
-
-    @Test
     void nonLocalProfilesAllowStrongInternalToken() {
         assertDoesNotThrow(validator(
                 "prod",

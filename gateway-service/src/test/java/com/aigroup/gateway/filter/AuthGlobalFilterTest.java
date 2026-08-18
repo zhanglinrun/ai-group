@@ -30,37 +30,33 @@ class AuthGlobalFilterTest {
     }
 
     @Test
-    void groupBuyNotify_withoutInternalToken_isForbidden() {
+    void retiredGroupNotify_withoutSession_isUnauthorized() {
         ServerWebExchange exchange = MockServerWebExchange.from(MockServerHttpRequest
                 .post("/api/v1/alipay/group_buy_notify").build());
 
         StepVerifier.create(filter.filter(exchange, ex -> Mono.empty())).verifyComplete();
 
-        assertEquals(HttpStatus.FORBIDDEN, exchange.getResponse().getStatusCode());
+        assertEquals(HttpStatus.UNAUTHORIZED, exchange.getResponse().getStatusCode());
     }
 
     @Test
-    void groupBuyNotify_withValidInternalToken_forwardsToken() {
+    void retiredActivePayNotify_withoutSession_isUnauthorized() {
         ServerWebExchange exchange = MockServerWebExchange.from(MockServerHttpRequest
-                .post("/api/v1/alipay/group_buy_notify")
-                .header(CommonConstant.HEADER_INTERNAL_TOKEN, "secret-internal-token").build());
-
-        StepVerifier.create(filter.filter(exchange, ex -> {
-            assertEquals("secret-internal-token",
-                    ex.getRequest().getHeaders().getFirst(CommonConstant.HEADER_INTERNAL_TOKEN));
-            return Mono.empty();
-        })).verifyComplete();
-    }
-
-    @Test
-    void activePayNotify_withBearerButNoInternalToken_isForbidden() {
-        ServerWebExchange exchange = MockServerWebExchange.from(MockServerHttpRequest
-                .post("/api/v1/alipay/active_pay_notify?outTradeNo=order-1")
-                .header("Authorization", "Bearer valid-user-token").build());
+                .post("/api/v1/alipay/active_pay_notify").build());
 
         StepVerifier.create(filter.filter(exchange, ex -> Mono.empty())).verifyComplete();
 
-        assertEquals(HttpStatus.FORBIDDEN, exchange.getResponse().getStatusCode());
+        assertEquals(HttpStatus.UNAUTHORIZED, exchange.getResponse().getStatusCode());
+    }
+
+    @Test
+    void retiredGatewayReconcilePath_withoutSession_isUnauthorized() {
+        ServerWebExchange exchange = MockServerWebExchange.from(MockServerHttpRequest
+                .post("/api/pay/orders/reconcile/order-1").build());
+
+        StepVerifier.create(filter.filter(exchange, ex -> Mono.empty())).verifyComplete();
+
+        assertEquals(HttpStatus.UNAUTHORIZED, exchange.getResponse().getStatusCode());
     }
 
     @Test

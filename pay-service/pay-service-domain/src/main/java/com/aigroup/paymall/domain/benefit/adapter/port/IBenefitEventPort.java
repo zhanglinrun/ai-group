@@ -6,6 +6,4 @@ public interface IBenefitEventPort {
 
     void publishTradeCompleted(TradeCompletedEvent event);
 
-    void publishOrderPaySuccess(String eventId, Long userId, String orderId);
-
 }

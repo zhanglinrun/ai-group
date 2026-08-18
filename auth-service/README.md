@@ -15,8 +15,8 @@
 | `POST /api/auth/register` | 注册。密码用 `BCrypt`（加盐哈希）存储 |
 | `POST /api/auth/login` | 登录。成功后设置 HttpOnly Sa-Token Cookie |
 | `POST /api/auth/logout` | 登出。清除 Sa-Token 会话并清空 Cookie |
-| `GET /api/auth/me` | 查当前登录用户（读 Sa-Token 会话） |
-| `GET /api/auth/profile` | 查当前用户资料（读网关注入的身份头） |
+| `GET /api/auth/me` | 查当前登录用户（读网关注入的身份） |
+| `GET /api/auth/profile` | `/me` 的别名 |
 
 其中注册、登录在网关白名单里（不需要先登录）；`me` / `profile` 和登出需要有效会话。
 

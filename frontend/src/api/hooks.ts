@@ -28,7 +28,6 @@ import type {
   RunListResponse,
   RunMetricsResponse,
   RunConclusionsResponse,
-  RunResetRequest,
   RunReportResponse,
   RunTraceResponse,
   SkillCandidateListResponse,
@@ -393,11 +392,6 @@ async function resumeRun(runId: string): Promise<RunCreateResponse> {
   return data;
 }
 
-async function resetRun(runId: string, payload: RunResetRequest): Promise<RunCreateResponse> {
-  const { data } = await apiClient.post<RunCreateResponse>(`/api/runs/${runId}/reset`, payload);
-  return data;
-}
-
 async function fetchSkillCandidates(
   query: SkillCandidatesQuery,
 ): Promise<SkillCandidateListResponse> {
@@ -640,17 +634,6 @@ export function useSubmitRunFollowUp(): UseMutationResult<
 export function useResumeRun(): UseMutationResult<RunCreateResponse, Error, string> {
   return useMutation({
     mutationFn: resumeRun,
-  });
-}
-
-export interface ResetRunMutationVariables {
-  runId: string;
-  resetTo: RunResetRequest["reset_to"];
-}
-
-export function useResetRun(): UseMutationResult<RunCreateResponse, Error, ResetRunMutationVariables> {
-  return useMutation({
-    mutationFn: ({ runId, resetTo }) => resetRun(runId, { reset_to: resetTo }),
   });
 }
 

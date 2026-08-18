@@ -28,6 +28,20 @@ public class TeamSuccessTopicListener {
         ack.acknowledge();
     }
 
+    @KafkaListener(
+            topics = "${ai-group.kafka.topics.team-success:group.team_success}.DLT",
+            groupId = "pay-service-dlt",
+            containerFactory = "dltKafkaListenerContainerFactory")
+    public void consumeDlt(String message, Acknowledgment ack) {
+        try {
+            listener(message);
+            ack.acknowledge();
+        } catch (Exception e) {
+            log.error("kafka.dlt.exhausted topic=group.team_success.DLT payload={}", message, e);
+            ack.acknowledge();
+        }
+    }
+
     public void listener(String message) {
         try {
             NotifyRequestDTO requestDTO = JsonUtils.parseObject(message, NotifyRequestDTO.class);

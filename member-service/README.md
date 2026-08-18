@@ -1,6 +1,6 @@
 # `member-service`（额度账户服务）
 
-这是 `ai-group` 里管理「免费额度 + 付费额度」的钱包服务。用户注册后获得每月免费额度，购买额度包并完成拼团后获得付费额度。Agent 创建 Run 时冻结一笔上界，图内多次 LLM 只累计 usage，终态再 `confirm` / `release`。
+这是 `ai-group` 里管理「免费额度 + 付费额度」的钱包服务。用户注册后获得每月免费额度，购买额度包并在直购支付成功或拼团成团后获得付费额度。Agent 创建 Run 时冻结一笔上界，图内多次 LLM 只累计 usage，终态再 `confirm` / `release`。
 
 它默认运行在端口 `18082`，数据存储在 `member_db`（额度库，工程库名历史保留），持久层使用 `MyBatis-Plus`。
 
@@ -10,7 +10,7 @@
 
 ### 1. 额度包权益
 
-用户支付成团后，支付/结算侧会发送带订单快照的权益消息。member 只信任消息里的 `productCode` 和 `baseQuota`，将额度统一换算成 microcredits 后计入付费余额，避免套餐后来改价或改额度影响历史订单。
+用户直购支付成功或拼团成团后，支付/结算侧会发送带订单快照的权益消息。member 只信任消息里的 `productCode` 和 `baseQuota`，将额度统一换算成 microcredits 后计入付费余额，避免套餐后来改价或改额度影响历史订单。订单展示状态：`REVOKED`/`SKIPPED_REVOKED` → `REVOKED`；`GRANTED` 或额度已发后的 `REJECTED_GRANTED` → `GRANTED`。
 
 关键点是**按订单 + 事件类型幂等**：同一笔订单的权益消息即使重复投递，也只会真正发放一次，靠 `benefit_grant_event` 的幂等键去重。额度已经发放后的撤销不会自动扣回，以免用户已消费后出现负账；系统记录 `REJECTED_GRANTED`，交由运营审核处理。
 
@@ -42,7 +42,6 @@ Agent 消耗配额用「预授权 + 确认」两阶段，**当前是一个 Run �
 
 | 接口 | 作用 |
 | --- | --- |
-| `POST /internal/members/init-free` | 内部补偿入口；正常注册通过 `UserRegistered` Kafka 事件创建账户 |
 | `POST /internal/member/quota/reservations` | 预扣配额（Agent 合同） |
 | `POST /internal/member/quota/reservations/{reservationId}/confirm` | 确认扣减 |
 | `POST /internal/member/quota/reservations/{reservationId}/release` | 释放冻结 |
@@ -66,8 +65,8 @@ Agent 消耗配额用「预授权 + 确认」两阶段，**当前是一个 Run �
 
 ## 消息消费
 
-`BenefitEventConsumer`（权益事件消费者）监听成团消息队列，收到后触发权益发放；
-`UserRegisteredEventConsumer` 监听注册事件并幂等开通免费账户。监听器手动 ack：业务成功后再提交 offset，失败由 `DefaultErrorHandler` 有限重试，耗尽后发到 `{topic}.DLT`。
+`BenefitEventConsumer` 监听 `member.benefit.completed`（直购与成团共用），收到后触发权益发放；
+`UserRegisteredEventConsumer` 监听注册事件并幂等开通免费账户。监听器手动 ack：业务成功后再提交 offset，失败由 `DefaultErrorHandler` 有限重试，耗尽后发到 `{topic}.DLT`；DLT 监听器再走同一套幂等方法，仍失败只打 `kafka.dlt.exhausted` 后 ack。
 
 ---
 
@@ -107,7 +106,7 @@ cd member-service && mvn spring-boot:run
 
 - `MemberController`（用户端 + 内部接口）、`MemberAdminController`（运营端接口）。
 - `MemberServiceImpl`（额度服务实现）：权益发放、额度预留与结算的主逻辑。
-- `BenefitEventConsumer`（权益事件消费者）：监听成团消息。
+- `BenefitEventConsumer`（权益事件消费者）：监听 `member.benefit.completed`。
 - `MonthlyQuotaGrantJob` / `ExpiredFreezeReleaseJob`：两个定时任务。
 
 ---

@@ -124,6 +124,11 @@ public class OrderRepository implements IOrderRepository {
     }
 
     @Override
+    public void changeOrderDealDone(String orderId) {
+        orderDao.changeOrderDealDone(orderId);
+    }
+
+    @Override
     public void changeOrderPaySuccess(String orderId, Date payTime) {
         PayOrder payOrderReq = new PayOrder();
         payOrderReq.setOrderId(orderId);
@@ -199,7 +204,7 @@ public class OrderRepository implements IOrderRepository {
         }
 
         // 只把 PAY_SUCCESS 迁移为 MARKET；回查真正迁移成功(现为 MARKET)的订单。
-        // 未支付(PAY_WAIT)/已关闭(CLOSE)订单不在其中，避免给未支付订单发货/发权益。
+        // 未支付(PAY_WAIT)/已关闭(CLOSE)订单不在其中，避免给未支付订单写权益 outbox。
         orderDao.changeOrderMarketSettlement(outTradeNoList);
         List<String> settledOrderIds = orderDao.queryMarketSettledOrderIds(outTradeNoList);
         if (null == settledOrderIds || settledOrderIds.isEmpty()) {

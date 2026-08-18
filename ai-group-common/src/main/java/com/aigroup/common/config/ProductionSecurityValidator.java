@@ -18,9 +18,6 @@ public class ProductionSecurityValidator {
     @Value("${ai-group.identity.signing-secret:}")
     private String identitySigningSecret;
 
-    @Value("${xiongdoctor.agent.debug-endpoints.enabled:false}")
-    private boolean debugEndpointsEnabled;
-
     public ProductionSecurityValidator(Environment environment) {
         this.environment = environment;
     }
@@ -40,9 +37,6 @@ public class ProductionSecurityValidator {
                 || identitySigningSecret.contains("change-in-prod")) {
             throw new IllegalStateException(
                     "Identity signing secret must be a random value of at least 32 characters");
-        }
-        if (debugEndpointsEnabled) {
-            throw new IllegalStateException("Agent debug endpoints must be disabled outside local profiles");
         }
     }
 

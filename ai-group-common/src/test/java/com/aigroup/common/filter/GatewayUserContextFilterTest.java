@@ -51,6 +51,22 @@ class GatewayUserContextFilterTest {
     }
 
     @Test
+    void bindsClaimsFromVerifiedJwtWithInternalTokenEvenWithoutGatewayHeader() throws Exception {
+        GatewayUserContextFilter filter = filter();
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/internal/member/quota/reservations");
+        request.addHeader(CommonConstant.HEADER_INTERNAL_TOKEN, INTERNAL_TOKEN);
+        request.addHeader(CommonConstant.HEADER_INTERNAL_JWT,
+                InternalIdentityJwt.mint(SECRET, "42", "tester", "USER"));
+        AtomicReference<Long> ownerSeenInChain = new AtomicReference<>();
+
+        filter.doFilter(request, new MockHttpServletResponse(),
+                (ignoredRequest, ignoredResponse) -> ownerSeenInChain.set(RequestUserContext.getUserId()));
+
+        assertEquals(42L, ownerSeenInChain.get());
+        assertNull(RequestUserContext.getUserId());
+    }
+
+    @Test
     void ignoresIdentityHeadersWithoutGatewayProof() throws Exception {
         GatewayUserContextFilter filter = filter();
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/member/summary");

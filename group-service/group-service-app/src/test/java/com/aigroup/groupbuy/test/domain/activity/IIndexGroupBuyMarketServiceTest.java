@@ -24,9 +24,6 @@ public class IIndexGroupBuyMarketServiceTest {
     @Resource
     private IIndexGroupBuyMarketService indexGroupBuyMarketService;
 
-    /**
-     * 测试人群标签功能的时候，可以进入 ITagServiceTest#test_tag_job 执行人群写入
-     */
     @Test
     public void test_indexMarketTrial() throws Exception {
         MarketProductEntity marketProductEntity = new MarketProductEntity();

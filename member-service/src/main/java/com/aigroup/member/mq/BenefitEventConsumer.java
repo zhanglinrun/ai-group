@@ -25,6 +25,20 @@ public class BenefitEventConsumer {
         ack.acknowledge();
     }
 
+    @KafkaListener(
+            topics = "${ai-group.kafka.topics.member-benefit:member.benefit.completed}.DLT",
+            groupId = "member-service-dlt",
+            containerFactory = "dltKafkaListenerContainerFactory")
+    public void consumeTradeCompletedDlt(String payload, Acknowledgment ack) {
+        try {
+            onTradeCompleted(payload);
+            ack.acknowledge();
+        } catch (Exception e) {
+            log.error("kafka.dlt.exhausted topic=member.benefit.completed.DLT payload={}", payload, e);
+            ack.acknowledge();
+        }
+    }
+
     public void onTradeCompleted(String payload) {
         try {
             TradeCompletedEvent event = objectMapper.readValue(payload, TradeCompletedEvent.class);

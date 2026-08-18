@@ -102,6 +102,16 @@ class BffControllerDisplayStatusTest {
     }
 
     @Test
+    void marketOrder_keepsBenefitGrantedWhenMemberReportsGrantedAfterRejectedRevoke() {
+        when(payFeignClient.queryUserOrderList(any())).thenReturn(payResponse("MARKET", "order-4"));
+        when(memberFeignClient.benefitStatus("order-4")).thenReturn(Result.success(Map.of("status", "GRANTED")));
+
+        List<Map<String, Object>> orders = (List<Map<String, Object>>) controller.orders().getData().get("items");
+
+        assertEquals("BENEFIT_GRANTED", orders.get(0).get("displayStatus"));
+    }
+
+    @Test
     void accountSummary_includesAuthenticatedUsersQuotaLedger() {
         when(memberFeignClient.summary()).thenReturn(Result.success(new HashMap<>(Map.of(
                 "availableQuota", 5_000_000L,

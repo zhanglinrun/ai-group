@@ -2,8 +2,8 @@ package com.aigroup.groupbuy.infrastructure.adapter.port;
 
 import com.aigroup.groupbuy.domain.trade.model.entity.NotifyTaskEntity;
 import com.aigroup.groupbuy.domain.trade.model.valobj.NotifyTypeEnumVO;
-import com.aigroup.groupbuy.infrastructure.event.EventPublisher;
 import com.aigroup.groupbuy.infrastructure.redis.IRedisService;
+import com.aigroup.messaging.ConfirmedKafkaPublisher;
 import com.aigroup.groupbuy.types.enums.NotifyTaskHTTPEnumVO;
 import org.junit.Test;
 import org.redisson.api.RLock;
@@ -22,7 +22,7 @@ public class TradePortPublisherConfirmTest {
     public void mqTaskRemainsRetryableWhenBrokerConfirmFails() throws Exception {
         IRedisService redisService = mock(IRedisService.class);
         RLock lock = mock(RLock.class);
-        EventPublisher publisher = mock(EventPublisher.class);
+        ConfirmedKafkaPublisher publisher = mock(ConfirmedKafkaPublisher.class);
         when(redisService.getLock(anyString())).thenReturn(lock);
         when(lock.tryLock(3, 0, java.util.concurrent.TimeUnit.SECONDS)).thenReturn(true);
         when(lock.isLocked()).thenReturn(true);
@@ -32,7 +32,7 @@ public class TradePortPublisherConfirmTest {
 
         TradePort tradePort = new TradePort();
         ReflectionTestUtils.setField(tradePort, "redisService", redisService);
-        ReflectionTestUtils.setField(tradePort, "publisher", publisher);
+        ReflectionTestUtils.setField(tradePort, "kafkaPublisher", publisher);
         ReflectionTestUtils.setField(tradePort, "defaultTeamSuccessTopic", "group.team_success");
 
         String result = tradePort.groupBuyNotify(NotifyTaskEntity.builder()

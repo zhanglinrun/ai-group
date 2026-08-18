@@ -27,6 +27,20 @@ public class UserRegisteredEventConsumer {
         ack.acknowledge();
     }
 
+    @KafkaListener(
+            topics = "${ai-group.kafka.topics.user-registered:auth.user_registered}.DLT",
+            groupId = "member-service-dlt",
+            containerFactory = "dltKafkaListenerContainerFactory")
+    public void consumeUserRegisteredDlt(String message, Acknowledgment ack) {
+        try {
+            onUserRegistered(message);
+            ack.acknowledge();
+        } catch (Exception e) {
+            log.error("kafka.dlt.exhausted topic=auth.user_registered.DLT payload={}", message, e);
+            ack.acknowledge();
+        }
+    }
+
     public void onUserRegistered(String message) {
         try {
             JsonNode envelope = objectMapper.readTree(message);

@@ -30,8 +30,14 @@ public class PayConfigurationContractTest {
         assertEquals("manual", property("application.yml", "spring.kafka.listener.ack-mode"));
         assertEquals("${KAFKA_MEMBER_BENEFIT:member.benefit.completed}", property(
                 "application.yml", "ai-group.kafka.topics.member-benefit"));
-        assertEquals("${KAFKA_ORDER_PAY_SUCCESS:pay.order_pay_success}", property(
-                "application.yml", "ai-group.kafka.topics.order-pay-success"));
+        assertEquals("com.zaxxer.hikari.HikariDataSource", property(
+                "application-dev.yml", "spring.datasource.type"));
+        assertEquals("Retail_HikariCP", property(
+                "application-dev.yml", "spring.datasource.hikari.pool-name"));
+        assertEquals("com.zaxxer.hikari.HikariDataSource", property(
+                "application-prod.yml", "spring.datasource.type"));
+        assertEquals("Retail_HikariCP", property(
+                "application-prod.yml", "spring.datasource.hikari.pool-name"));
     }
 
     @Test

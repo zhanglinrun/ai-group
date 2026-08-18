@@ -453,21 +453,6 @@ public class TradeRepository implements ITradeRepository {
     }
 
     @Override
-    public List<NotifyTaskEntity> queryUnExecutedNotifyTaskList(String teamId) {
-        NotifyTask notifyTask = notifyTaskDao.queryUnExecutedNotifyTaskByTeamId(teamId);
-        if (null == notifyTask) return new ArrayList<>();
-        return Collections.singletonList(NotifyTaskEntity.builder()
-                .teamId(notifyTask.getTeamId())
-                .notifyType(notifyTask.getNotifyType())
-                .notifyMQ(notifyTask.getNotifyMQ())
-                .notifyUrl(notifyTask.getNotifyUrl())
-                .notifyCount(notifyTask.getNotifyCount())
-                .parameterJson(notifyTask.getParameterJson())
-                .uuid(notifyTask.getUuid())
-                .build());
-    }
-
-    @Override
     public int updateNotifyTaskStatusSuccess(NotifyTaskEntity notifyTaskEntity) {
         NotifyTask notifyTask = NotifyTask.builder()
                 .teamId(notifyTaskEntity.getTeamId())

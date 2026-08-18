@@ -43,7 +43,7 @@ public class DataNodeFilter implements ILogicHandler<TradeRefundCommandEntity, T
         // 2. 查询拼团状态
         GroupBuyTeamEntity groupBuyTeamEntity = repository.queryGroupBuyTeamByTeamId(teamId);
 
-        // 3. 写入上下文；如果查询数据是比较多的，可以参考 MarketNode2CompletableFuture 通过多线程进行加载
+        // 3. 写入上下文
         dynamicContext.setMarketPayOrderEntity(marketPayOrderEntity);
         dynamicContext.setGroupBuyTeamEntity(groupBuyTeamEntity);
 

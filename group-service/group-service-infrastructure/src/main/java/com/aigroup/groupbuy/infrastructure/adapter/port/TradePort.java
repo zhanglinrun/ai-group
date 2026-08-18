@@ -2,8 +2,8 @@ package com.aigroup.groupbuy.infrastructure.adapter.port;
 
 import com.aigroup.groupbuy.domain.trade.adapter.port.ITradePort;
 import com.aigroup.groupbuy.domain.trade.model.entity.NotifyTaskEntity;
-import com.aigroup.groupbuy.infrastructure.event.EventPublisher;
 import com.aigroup.groupbuy.infrastructure.redis.IRedisService;
+import com.aigroup.messaging.ConfirmedKafkaPublisher;
 import com.aigroup.groupbuy.types.enums.NotifyTaskHTTPEnumVO;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -24,7 +24,7 @@ public class TradePort implements ITradePort {
     @Resource
     private IRedisService redisService;
     @Resource
-    private EventPublisher publisher;
+    private ConfirmedKafkaPublisher kafkaPublisher;
 
     @Value("${ai-group.kafka.topics.team-success:group.team_success}")
     private String defaultTeamSuccessTopic;
@@ -38,7 +38,7 @@ public class TradePort implements ITradePort {
                     String topic = StringUtils.isNotBlank(notifyTask.getNotifyMQ())
                             ? notifyTask.getNotifyMQ()
                             : defaultTeamSuccessTopic;
-                    publisher.publish(topic, notifyTask.getTeamId(), notifyTask.getParameterJson());
+                    kafkaPublisher.publish(topic, notifyTask.getTeamId(), notifyTask.getParameterJson());
                     return NotifyTaskHTTPEnumVO.SUCCESS.getCode();
                 } finally {
                     if (lock.isLocked() && lock.isHeldByCurrentThread()) {

@@ -1,11 +1,10 @@
 package com.aigroup.paymall.test.trigger;
 
-import com.aigroup.paymall.domain.goods.service.IGoodsService;
 import com.aigroup.paymall.domain.order.service.IOrderService;
-import com.aigroup.paymall.trigger.listener.OrderPaySuccessListener;
 import com.aigroup.paymall.trigger.listener.TeamSuccessTopicListener;
 import org.junit.Assert;
 import org.junit.Test;
+import org.springframework.kafka.support.Acknowledgment;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
@@ -13,41 +12,66 @@ import java.util.List;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 public class KafkaListenerDeliveryTest {
 
-    @Test
-    public void teamSuccessCompletesSettlement() {
-        IOrderService service = mock(IOrderService.class);
-        TeamSuccessTopicListener listener = new TeamSuccessTopicListener();
-        ReflectionTestUtils.setField(listener, "orderService", service);
+    private static final String TEAM_SUCCESS = "{\"teamId\":\"t1\",\"outTradeNoList\":[\"trade-1\"]}";
 
-        listener.listener("{\"teamId\":\"t1\",\"outTradeNoList\":[\"trade-1\"]}");
+    @Test
+    public void teamSuccessCompletesSettlementAndAcknowledges() {
+        IOrderService service = mock(IOrderService.class);
+        Acknowledgment ack = mock(Acknowledgment.class);
+        TeamSuccessTopicListener listener = listener(service);
+
+        listener.consume(TEAM_SUCCESS, ack);
 
         verify(service).changeOrderMarketSettlement(List.of("trade-1"));
+        verify(ack).acknowledge();
     }
 
     @Test
-    public void teamSuccessFailureIsPropagated() {
+    public void teamSuccessFailureDoesNotAcknowledge() {
         IOrderService service = mock(IOrderService.class);
         doThrow(new IllegalStateException("db unavailable"))
                 .when(service).changeOrderMarketSettlement(anyList());
-        TeamSuccessTopicListener listener = new TeamSuccessTopicListener();
-        ReflectionTestUtils.setField(listener, "orderService", service);
+        Acknowledgment ack = mock(Acknowledgment.class);
+        TeamSuccessTopicListener listener = listener(service);
 
-        assertFails(() -> listener.listener("{\"outTradeNoList\":[\"trade-1\"]}"));
+        assertFails(() -> listener.consume(TEAM_SUCCESS, ack));
+        verify(ack, never()).acknowledge();
     }
 
     @Test
-    public void orderPaySuccessCompletesDelivery() {
-        IGoodsService service = mock(IGoodsService.class);
-        OrderPaySuccessListener listener = new OrderPaySuccessListener();
-        ReflectionTestUtils.setField(listener, "goodsService", service);
+    public void teamSuccessDltReplaysSettlementAndAcknowledges() {
+        IOrderService service = mock(IOrderService.class);
+        Acknowledgment ack = mock(Acknowledgment.class);
+        TeamSuccessTopicListener listener = listener(service);
 
-        listener.listener("{\"userId\":\"u1\",\"tradeNo\":\"trade-1\"}");
+        listener.consumeDlt(TEAM_SUCCESS, ack);
 
-        verify(service).changeOrderDealDone("trade-1");
+        verify(service).changeOrderMarketSettlement(List.of("trade-1"));
+        verify(ack).acknowledge();
+    }
+
+    @Test
+    public void teamSuccessDltExhaustedStillAcknowledges() {
+        IOrderService service = mock(IOrderService.class);
+        doThrow(new IllegalStateException("db unavailable"))
+                .when(service).changeOrderMarketSettlement(anyList());
+        Acknowledgment ack = mock(Acknowledgment.class);
+        TeamSuccessTopicListener listener = listener(service);
+
+        listener.consumeDlt(TEAM_SUCCESS, ack);
+
+        verify(ack).acknowledge();
+    }
+
+    private TeamSuccessTopicListener listener(IOrderService service) {
+        TeamSuccessTopicListener listener = new TeamSuccessTopicListener();
+        ReflectionTestUtils.setField(listener, "orderService", service);
+        return listener;
     }
 
     private void assertFails(Runnable action) {
