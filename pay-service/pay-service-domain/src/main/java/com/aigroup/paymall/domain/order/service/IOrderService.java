@@ -47,7 +47,7 @@ public interface IOrderService {
      */
     int compensateWaitRefund();
 
-    void changeOrderMarketSettlement(List<String> outTradeNoList, Integer bonusQuota);
+    void changeOrderMarketSettlement(List<String> outTradeNoList);
 
     List<OrderEntity> queryUserOrderList(String userId, Long lastId, Integer pageSize);
 

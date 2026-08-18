@@ -27,7 +27,7 @@ public class AuthOutboxPublishJob {
         authOutboxService.dispatchPending();
     }
 
-    @Scheduled(fixedDelayString = "${spring.rabbitmq.outbox-dispatch-ms:1000}")
+    @Scheduled(fixedDelayString = "${auth.outbox.dispatch-ms:1000}")
     public void dispatchLocally() {
         if (localSchedulerEnabled) {
             exec();

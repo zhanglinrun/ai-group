@@ -16,7 +16,7 @@ class BenefitEventConsumerTest {
     private static final String PAYLOAD = "{\"orderId\":\"order-1\",\"userId\":1001}";
 
     @Test
-    void handlesBenefitEventAfterRabbitDelivery() {
+    void handlesBenefitEventAfterKafkaDelivery() {
         MemberService memberService = mock(MemberService.class);
         BenefitEventConsumer consumer = new BenefitEventConsumer(memberService, new ObjectMapper());
 

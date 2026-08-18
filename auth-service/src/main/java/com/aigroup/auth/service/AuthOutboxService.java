@@ -3,20 +3,17 @@ package com.aigroup.auth.service;
 import com.aigroup.auth.entity.AuthOutboxEvent;
 import com.aigroup.auth.entity.User;
 import com.aigroup.auth.mapper.AuthOutboxMapper;
+import com.aigroup.messaging.ConfirmedKafkaPublisher;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.amqp.rabbit.connection.CorrelationData;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.TimeUnit;
 
 /** Auth's transactional-outbox boundary for cross-service identity events. */
 @Slf4j
@@ -25,17 +22,11 @@ import java.util.concurrent.TimeUnit;
 public class AuthOutboxService {
 
     private static final String USER_REGISTERED = "UserRegistered";
-    private static final String USER_REGISTERED_ROUTING_KEY = "auth.user_registered";
+    private static final String USER_REGISTERED_TOPIC = "auth.user_registered";
 
     private final AuthOutboxMapper outboxMapper;
     private final ObjectMapper objectMapper;
-    private final RabbitTemplate rabbitTemplate;
-
-    @Value("${spring.rabbitmq.event-exchange:xiongdoctor.events}")
-    private String eventExchange;
-
-    @Value("${spring.rabbitmq.confirm-timeout-ms:5000}")
-    private long confirmTimeoutMillis;
+    private final ConfirmedKafkaPublisher kafkaPublisher;
 
     @Transactional
     public void enqueueUserRegistered(User user) {
@@ -57,7 +48,7 @@ public class AuthOutboxService {
             AuthOutboxEvent event = new AuthOutboxEvent();
             event.setEventId(eventId);
             event.setEventType(USER_REGISTERED);
-            event.setRoutingKey(USER_REGISTERED_ROUTING_KEY);
+            event.setTopic(USER_REGISTERED_TOPIC);
             event.setAggregateId(String.valueOf(user.getId()));
             event.setTraceId(eventId);
             event.setPayload(objectMapper.writeValueAsString(envelope));
@@ -78,24 +69,16 @@ public class AuthOutboxService {
                 continue;
             }
             try {
-                publishWithConfirm(event);
+                String key = (event.getAggregateId() == null || event.getAggregateId().isBlank())
+                        ? event.getEventId()
+                        : event.getAggregateId();
+                kafkaPublisher.publish(event.getTopic(), key, event.getPayload());
                 outboxMapper.markSent(event.getId());
             } catch (Exception ex) {
                 log.error("auth outbox publish failed eventId={} attempt={}",
                         event.getEventId(), event.getAttempts(), ex);
                 outboxMapper.markFailed(event.getId(), abbreviate(ex.getMessage()));
             }
-        }
-    }
-
-    private void publishWithConfirm(AuthOutboxEvent event) throws Exception {
-        CorrelationData correlation = new CorrelationData(event.getEventId());
-        rabbitTemplate.convertAndSend(eventExchange, event.getRoutingKey(), event.getPayload(), correlation);
-        CorrelationData.Confirm confirm = correlation.getFuture()
-                .get(confirmTimeoutMillis, TimeUnit.MILLISECONDS);
-        if (confirm == null || !confirm.isAck()) {
-            throw new IllegalStateException("broker did not confirm event: "
-                    + (confirm == null ? "null" : confirm.getReason()));
         }
     }
 

@@ -156,17 +156,17 @@ class MemberServiceImplBenefitTest {
     }
 
     @Test
-    void completedOrderGrantsSnapshottedBaseAndBonusAsPermanentMicrocredits() {
+    void completedOrderGrantsSnapshottedBaseAsPermanentMicrocredits() {
         QuotaAccount account = account(5_000_000L, 1_000_000L, 0L);
         when(quotaAccountMapper.selectForUpdateByUserId(1001L)).thenReturn(account);
-        TradeCompletedEvent event = completedEvent(500L, 50L);
+        TradeCompletedEvent event = completedEvent(500L);
 
         memberService.handleBenefitEvent(event);
 
-        assertEquals(551_000_000L, account.getPaidQuotaBalance());
+        assertEquals(501_000_000L, account.getPaidQuotaBalance());
         ArgumentCaptor<BenefitGrantEvent> captor = ArgumentCaptor.forClass(BenefitGrantEvent.class);
         verify(benefitGrantEventMapper).insert(captor.capture());
-        assertEquals(550_000_000L, captor.getValue().getGrantedQuota());
+        assertEquals(500_000_000L, captor.getValue().getGrantedQuota());
         assertEquals("GRANTED", captor.getValue().getStatus());
     }
 
@@ -176,7 +176,7 @@ class MemberServiceImplBenefitTest {
                 .thenReturn(account(5_000_000L, 1_000_000L, 0L));
         when(benefitGrantEventMapper.selectOne(any())).thenReturn(new BenefitGrantEvent());
 
-        memberService.handleBenefitEvent(completedEvent(500L, 50L));
+        memberService.handleBenefitEvent(completedEvent(500L));
 
         verify(quotaAccountMapper).selectForUpdateByUserId(1001L);
         verify(quotaLedgerMapper, never()).insert(any(QuotaLedger.class));
@@ -188,7 +188,7 @@ class MemberServiceImplBenefitTest {
                 .thenReturn(account(5_000_000L, 1_000_000L, 0L));
         when(benefitGrantEventMapper.selectOne(any())).thenReturn(new BenefitGrantEvent());
 
-        memberService.handleBenefitEvent(completedEvent(500L, 50L));
+        memberService.handleBenefitEvent(completedEvent(500L));
 
         InOrder order = inOrder(quotaAccountMapper, benefitGrantEventMapper);
         order.verify(quotaAccountMapper).selectForUpdateByUserId(1001L);
@@ -202,7 +202,7 @@ class MemberServiceImplBenefitTest {
         when(quotaAccountMapper.selectForUpdateByUserId(1001L))
                 .thenReturn(account(5_000_000L, 1_000_000L, 0L));
         when(benefitGrantEventMapper.selectOne(any())).thenReturn(null, granted);
-        TradeCompletedEvent event = completedEvent(500L, 0L);
+        TradeCompletedEvent event = completedEvent(500L);
         event.setEventType(CommonConstant.EVENT_GROUP_BUY_REVOKED);
 
         memberService.handleBenefitEvent(event);
@@ -281,14 +281,13 @@ class MemberServiceImplBenefitTest {
         return freeze;
     }
 
-    private TradeCompletedEvent completedEvent(long base, long bonus) {
+    private TradeCompletedEvent completedEvent(long base) {
         TradeCompletedEvent event = new TradeCompletedEvent();
         event.setEventType(CommonConstant.EVENT_GROUP_BUY_COMPLETED);
         event.setUserId(1001L);
         event.setOrderId("order-1");
         event.setProductCode("QUOTA_500");
         event.setBaseQuota(base);
-        event.setBonusQuota(bonus);
         return event;
     }
 }

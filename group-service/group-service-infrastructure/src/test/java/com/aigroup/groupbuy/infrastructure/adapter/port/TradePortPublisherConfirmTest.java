@@ -3,7 +3,6 @@ package com.aigroup.groupbuy.infrastructure.adapter.port;
 import com.aigroup.groupbuy.domain.trade.model.entity.NotifyTaskEntity;
 import com.aigroup.groupbuy.domain.trade.model.valobj.NotifyTypeEnumVO;
 import com.aigroup.groupbuy.infrastructure.event.EventPublisher;
-import com.aigroup.groupbuy.infrastructure.gateway.GroupBuyNotifyService;
 import com.aigroup.groupbuy.infrastructure.redis.IRedisService;
 import com.aigroup.groupbuy.types.enums.NotifyTaskHTTPEnumVO;
 import org.junit.Test;
@@ -29,12 +28,12 @@ public class TradePortPublisherConfirmTest {
         when(lock.isLocked()).thenReturn(true);
         when(lock.isHeldByCurrentThread()).thenReturn(true);
         doThrow(new IllegalStateException("broker NACK"))
-                .when(publisher).publish("topic.team_success", "{}", "notify-1");
+                .when(publisher).publish("topic.team_success", "team-1", "{}");
 
         TradePort tradePort = new TradePort();
         ReflectionTestUtils.setField(tradePort, "redisService", redisService);
         ReflectionTestUtils.setField(tradePort, "publisher", publisher);
-        ReflectionTestUtils.setField(tradePort, "groupBuyNotifyService", mock(GroupBuyNotifyService.class));
+        ReflectionTestUtils.setField(tradePort, "defaultTeamSuccessTopic", "group.team_success");
 
         String result = tradePort.groupBuyNotify(NotifyTaskEntity.builder()
                 .teamId("team-1")

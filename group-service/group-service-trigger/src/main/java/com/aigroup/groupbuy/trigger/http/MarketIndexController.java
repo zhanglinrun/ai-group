@@ -19,7 +19,6 @@ import org.apache.commons.lang3.StringUtils;
 import org.springframework.web.bind.annotation.*;
 
 import jakarta.annotation.Resource;
-import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
@@ -72,64 +71,16 @@ public class MarketIndexController implements IMarketIndexService {
             // 3. 查询活动拼团统计
             TeamStatisticVO teamStatisticVO = indexGroupBuyMarketService.queryTeamStatisticByActivityId(activityId);
 
-            // 阶梯额度拼团只按人数赠送额度，不提供现金折扣。底层经典试算仍可能依据旧
-            // discount 表算出 ¥2 等历史价格；市场页必须与锁单的可信 SKU 原价保持一致。
-            boolean tieredQuotaActivity = Integer.valueOf(1).equals(groupBuyActivityDiscountVO.getActivityType());
-            BigDecimal originalPrice = trialBalanceEntity.getOriginalPrice();
-            BigDecimal deductionPrice = tieredQuotaActivity ? BigDecimal.ZERO : trialBalanceEntity.getDeductionPrice();
-            BigDecimal payPrice = tieredQuotaActivity ? originalPrice : trialBalanceEntity.getPayPrice();
-
             GoodsMarketResponseDTO.Goods goods = GoodsMarketResponseDTO.Goods.builder()
                     .goodsId(trialBalanceEntity.getGoodsId())
-                    .originalPrice(originalPrice)
-                    .deductionPrice(deductionPrice)
-                    .payPrice(payPrice)
+                    .originalPrice(trialBalanceEntity.getOriginalPrice())
+                    .deductionPrice(trialBalanceEntity.getDeductionPrice())
+                    .payPrice(trialBalanceEntity.getPayPrice())
                     .build();
-
-            // 阶梯档位（人数 → 累计加赠额度），仅阶梯额度拼团有值
-            List<GroupBuyActivityDiscountVO.Tier> voTiers = groupBuyActivityDiscountVO.getTiers();
-            List<GoodsMarketResponseDTO.Tier> tiers = new ArrayList<>();
-            Integer maxTierTargetCount = null;
-            if (null != voTiers && !voTiers.isEmpty()) {
-                for (GroupBuyActivityDiscountVO.Tier voTier : voTiers) {
-                    tiers.add(GoodsMarketResponseDTO.Tier.builder()
-                            .tierNo(voTier.getTierNo())
-                            .tierName(voTier.getTierName())
-                            .targetCount(voTier.getTargetCount())
-                            .bonusQuota(voTier.getBonusQuota())
-                            .build());
-                    if (null != voTier.getTargetCount() && (null == maxTierTargetCount || voTier.getTargetCount() > maxTierTargetCount)) {
-                        maxTierTargetCount = voTier.getTargetCount();
-                    }
-                }
-            }
 
             List<GoodsMarketResponseDTO.Team> teams = new ArrayList<>();
             if (null != userGroupBuyOrderDetailEntities && !userGroupBuyOrderDetailEntities.isEmpty()) {
                 for (UserGroupBuyOrderDetailEntity userGroupBuyOrderDetailEntity : userGroupBuyOrderDetailEntities) {
-                    List<GoodsMarketResponseDTO.Tier> teamTiers = tiers;
-                    if (StringUtils.isNotBlank(userGroupBuyOrderDetailEntity.getTierSnapshot())) {
-                        teamTiers = JsonUtils.parseArray(userGroupBuyOrderDetailEntity.getTierSnapshot(),
-                                GoodsMarketResponseDTO.Tier.class);
-                    }
-                    // 阶梯额度拼团：按当前完成人数计算已达档位与下一档位
-                    int completeCount = null != userGroupBuyOrderDetailEntity.getCompleteCount() ? userGroupBuyOrderDetailEntity.getCompleteCount() : 0;
-                    Integer reachedTierNo = 0;
-                    Integer nextTierTargetCount = null;
-                    Integer teamMaxTierTargetCount = null;
-                    if (null != teamTiers && !teamTiers.isEmpty()) {
-                        for (GoodsMarketResponseDTO.Tier teamTier : teamTiers) {
-                            if (null == teamTier.getTargetCount()) continue;
-                            if (teamMaxTierTargetCount == null || teamTier.getTargetCount() > teamMaxTierTargetCount) {
-                                teamMaxTierTargetCount = teamTier.getTargetCount();
-                            }
-                            if (completeCount >= teamTier.getTargetCount()) {
-                                reachedTierNo = teamTier.getTierNo();
-                            } else if (null == nextTierTargetCount) {
-                                nextTierTargetCount = teamTier.getTargetCount();
-                            }
-                        }
-                    }
                     GoodsMarketResponseDTO.Team team = GoodsMarketResponseDTO.Team.builder()
                             .userId(userGroupBuyOrderDetailEntity.getUserId())
                             .teamId(userGroupBuyOrderDetailEntity.getTeamId())
@@ -141,10 +92,6 @@ public class MarketIndexController implements IMarketIndexService {
                             .validEndTime(userGroupBuyOrderDetailEntity.getValidEndTime())
                             .validTimeCountdown(GoodsMarketResponseDTO.Team.differenceDateTime2Str(new Date(), userGroupBuyOrderDetailEntity.getValidEndTime()))
                             .outTradeNo(userGroupBuyOrderDetailEntity.getOutTradeNo())
-                            .reachedTierNo(reachedTierNo)
-                            .nextTierTargetCount(nextTierTargetCount)
-                            .maxTierTargetCount(teamMaxTierTargetCount != null ? teamMaxTierTargetCount : maxTierTargetCount)
-                            .tiers(teamTiers)
                             .build();
                     teams.add(team);
                 }
@@ -161,10 +108,8 @@ public class MarketIndexController implements IMarketIndexService {
                     .info(ResponseCode.SUCCESS.getInfo())
                     .data(GoodsMarketResponseDTO.builder()
                             .activityId(activityId)
-                            .activityType(groupBuyActivityDiscountVO.getActivityType())
                             .targetCount(trialBalanceEntity.getTargetCount())
                             .goods(goods)
-                            .tiers(tiers)
                             .teamList(teams)
                             .teamStatistic(teamStatistic)
                             .build())

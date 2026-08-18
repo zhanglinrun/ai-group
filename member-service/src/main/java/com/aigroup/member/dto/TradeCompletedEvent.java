@@ -11,6 +11,4 @@ public class TradeCompletedEvent {
     private String productCode;
     /** Trusted order snapshot, in whole credits. */
     private Long baseQuota;
-    /** Trusted group-tier snapshot bonus, in whole credits. */
-    private Long bonusQuota;
 }

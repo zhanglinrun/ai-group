@@ -44,20 +44,32 @@ services:
       timeout: 3s
       retries: 20
 
-  rabbitmq:
-    image: rabbitmq:3.13-management
+  kafka:
+    image: apache/kafka:3.8.1
+    hostname: kafka
     environment:
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:-xiongdoctor}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:-xiongdoctor_dev}
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:19092,PLAINTEXT_HOST://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:19092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
     ports:
-      - "${RABBITMQ_PUBLISH_PORT:-15672}:15672"
-      - "${RABBITMQ_AMQP_PUBLISH_PORT:-5672}:5672"
+      - "${KAFKA_PUBLISH_PORT:-9092}:9092"
     volumes:
-      - rabbitmq_data:/var/lib/rabbitmq
+      - kafka_data:/var/lib/kafka/data
     healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:19092 --list >/dev/null 2>&1"]
       interval: 10s
-      timeout: 5s
+      timeout: 10s
       retries: 20
 
   nacos:
@@ -145,11 +157,8 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_PASSWORD: ""
-      RABBITMQ_HOST: rabbitmq
-      RABBITMQ_PORT: 5672
-      RABBITMQ_USERNAME: ${RABBITMQ_DEFAULT_USER:-xiongdoctor}
-      RABBITMQ_PASSWORD: ${RABBITMQ_DEFAULT_PASS:-xiongdoctor_dev}
-      RABBITMQ_EVENT_EXCHANGE: ${RABBITMQ_EVENT_EXCHANGE:-xiongdoctor.events}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:19092
+      KAFKA_ACK_TIMEOUT_MS: ${KAFKA_ACK_TIMEOUT_MS:-5000}
       AI_GROUP_INTERNAL_TOKEN: ${AI_GROUP_INTERNAL_TOKEN:-change-me-internal}
       AI_GROUP_IDENTITY_SIGNING_SECRET: ${AI_GROUP_IDENTITY_SIGNING_SECRET:-change-me-signing-secret-32bytes-ok}
       # Enable XXL-JOB executors against the Compose admin; disable local Outbox
@@ -184,7 +193,7 @@ services:
     depends_on:
       mysql: {condition: service_healthy}
       redis: {condition: service_healthy}
-      rabbitmq: {condition: service_healthy}
+      kafka: {condition: service_healthy}
       nacos: {condition: service_healthy}
       xxl-job-admin: {condition: service_started}
 
@@ -206,6 +215,7 @@ services:
     depends_on:
       mysql: {condition: service_healthy}
       redis: {condition: service_healthy}
+      kafka: {condition: service_healthy}
       nacos: {condition: service_healthy}
       xxl-job-admin: {condition: service_started}
 
@@ -247,7 +257,7 @@ services:
     depends_on:
       mysql: {condition: service_healthy}
       redis: {condition: service_healthy}
-      rabbitmq: {condition: service_healthy}
+      kafka: {condition: service_healthy}
       nacos: {condition: service_healthy}
       xxl-job-admin: {condition: service_started}
 
@@ -284,7 +294,7 @@ services:
     expose: ["8070", "9998"]
     depends_on:
       mysql: {condition: service_healthy}
-      rabbitmq: {condition: service_healthy}
+      kafka: {condition: service_healthy}
       nacos: {condition: service_healthy}
       xxl-job-admin: {condition: service_started}
 
@@ -345,7 +355,7 @@ services:
 volumes:
   mysql_data:
   redis_data:
-  rabbitmq_data:
+  kafka_data:
   nacos_logs:
   agent_postgres_data:
   xxl_job_mysql_data:

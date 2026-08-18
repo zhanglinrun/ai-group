@@ -13,7 +13,7 @@ ai-group 是一套全栈微服务平台：用户通过拼团购买积分，再�
 - **微服务架构**：Gateway / Auth / BFF / Member / Group / Pay / Agent / Frontend 独立部署
 - **双栈分工**：Java 处理交易边界与一致性；Python 处理 LangGraph 与模型调用
 - **DDD 设计**：Group / Pay 沿用领域分层（api / domain / infrastructure / trigger / app）
-- **最终一致性**：本地消息表（Outbox）+ RabbitMQ + 定时补偿
+- **最终一致性**：本地消息表（Outbox）+ Kafka + 定时补偿
 - **身份边界**：Sa-Token 管浏览器会话；Gateway 验完后签发 60 秒 HS256 内部 JWT。用户 API（含 Group 查询/锁单、Pay 下单）验 JWT，不以 body / `X-User-Id` 当身份；支付宝回调和补偿 Job 只认内部令牌，userId 来自已落库订单。JWT 不是用户登录态，浏览器拿不到。
 - **接口草图**：`contracts/` 中 OpenAPI 与事件 Schema 是手写对照稿；`scripts/validate-contracts.ps1` 只检查文件存在、可解析且非空，没有 codegen
 
@@ -38,8 +38,9 @@ flowchart LR
   BFF --> AGENT[Python Agent / FastAPI]
   AGENT --> LG[LangGraph + LLM Provider]
   AGENT --> MEMBER
-  PAY -. RabbitMQ Outbox .-> GROUP
-  PAY -. RabbitMQ Outbox .-> MEMBER
+  GROUP -. Kafka Outbox .-> PAY
+  PAY -. Kafka Outbox .-> MEMBER
+  AUTH -. Kafka Outbox .-> MEMBER
 ```
 
 ### 模块结构
@@ -78,7 +79,7 @@ ai-group/
 
 ### 1. 拼团活动与高并发交易
 
-- **活动配置**：拼团活动、阶梯折扣、库存与限购
+- **活动配置**：拼团活动、营销折扣、库存与限购
 - **规则试算**：活动有效性、人群与优惠策略组合过滤
 - **Redis 占库存 + MySQL `lock_count` CAS**：开团不走 Redis。加入先 `INCR+1` 对照活动 target 和 recovery，再 `SET NX` 兜底；同一请求里同步写 `lock_count` 和明细。落库失败或未成团退款给 recovery +1。权威闸门仍是 MySQL CAS，打满返回 `E0005`
 - **成团结算与退款**：本地消息表 + MQ / 定时任务保证最终一致性
@@ -119,7 +120,7 @@ ai-group/
 - **数据库**：MySQL 8.0+
 - **内部调用**：OpenFeign + Nacos；BFF 调 Agent 用 WebClient
 - **缓存 / 锁**：Redis（会话、拼团占库存 / recovery、拼团侧固定窗口限流、短缓存）
-- **消息队列**：RabbitMQ（Outbox / 领域事件；手动 ACK + 有限重试再入队，没有独立 DLQ）
+- **消息队列**：Kafka（Outbox 投递；手动 ack + DefaultErrorHandler 有限重试，耗尽进 `{topic}.DLT`）
 - **任务调度**：XXL-JOB 3.4.2（Admin + auth/pay/group/member 执行器；本地 Compose 已内置）
 - **服务发现**：Nacos
 - **构建**：Maven
@@ -183,7 +184,7 @@ Run / Event 持久化，SSE 支持断线后按事件游标回放；LangGraph Che
 - **MySQL**：8.0+
 - **PostgreSQL**：14+（Agent Checkpoint / 运行数据）
 - **Redis**：5.0+
-- **RabbitMQ**：3.8+
+- **Kafka**：3.8+（KRaft）
 - **Nacos**：2.x（Compose 内可一键拉起）
 - **Docker / Docker Compose**（推荐全栈启动）
 
@@ -213,7 +214,7 @@ docker compose --env-file .env -f dev-ops/compose/docker-compose.full.yml up --b
 
 - 前端：<http://localhost:5173>
 - Gateway：<http://localhost:8080>
-- RabbitMQ 管理台：<http://localhost:15672>
+- Kafka：<http://localhost:9092>
 - XXL-JOB Admin：<http://localhost:18081/xxl-job-admin>（默认账号 `admin` / `123456`）
 
 ### 3. 仅启动依赖（本地分别跑服务）
@@ -222,7 +223,7 @@ docker compose --env-file .env -f dev-ops/compose/docker-compose.full.yml up --b
 docker compose --env-file .env -f dev-ops/compose/docker-compose.dev.yml up
 ```
 
-该模式通常只拉起 MySQL、Redis、RabbitMQ、Postgres、Agent 与 Vite 等开发依赖，Java 服务可本地 `mvn` 启动。
+该模式通常只拉起 MySQL、Redis、Kafka、Postgres、Agent 与 Vite 等开发依赖，Java 服务可本地 `mvn` 启动。
 
 ### 4. 编译 Java 模块
 
@@ -301,7 +302,7 @@ npm run dev
 - 观测栈（ELK 等）在 `dev-ops/observability`，不是启动依赖
 - Group / Pay 的 Java 包名和库名有历史保留（`com.aigroup.paymall`、`group_buy_market`、`s_pay_mall_ddd_market`），运行时服务名以本文模块结构为准
 - JVM 按机器规格设置堆与 GC（例如 G1）
-- MySQL / Redis / RabbitMQ / Postgres 开启持久化与高可用
+- MySQL / Redis / Kafka / Postgres 开启持久化与高可用
 - Agent 与 Member 之间网络隔离，禁止浏览器直连 Agent
 
 ## 验证

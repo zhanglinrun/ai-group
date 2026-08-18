@@ -37,7 +37,7 @@ public class BenefitEventService implements IBenefitEventService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void enqueueCompletedOrderEvents(List<String> orderIds, Long bonusQuota) {
+    public void enqueueCompletedOrderEvents(List<String> orderIds) {
         if (orderIds == null || orderIds.isEmpty()) {
             return;
         }
@@ -46,8 +46,8 @@ public class BenefitEventService implements IBenefitEventService {
             // Both fulfillment and quota delivery are committed with the business
             // state transition. MQ publication is exclusively handled by the
             // independent outbox publisher after this transaction commits.
-            enqueueEvent(order, OutboxEventType.ORDER_PAY_SUCCESS.name(), null);
-            enqueueEvent(order, OutboxEventType.GROUP_BUY_COMPLETED.name(), bonusQuota);
+            enqueueEvent(order, OutboxEventType.ORDER_PAY_SUCCESS.name());
+            enqueueEvent(order, OutboxEventType.GROUP_BUY_COMPLETED.name());
         }
     }
 
@@ -58,8 +58,8 @@ public class BenefitEventService implements IBenefitEventService {
             return;
         }
         for (String orderId : orderIds) {
-            // 撤销不需要加赠额度：member 侧按发放时记录的额度原路扣回。
-            enqueueEvent(requireOrder(orderId), OutboxEventType.GROUP_BUY_REVOKED.name(), null);
+            // 撤销不改额度快照：member 侧按发放时记录的额度处理。
+            enqueueEvent(requireOrder(orderId), OutboxEventType.GROUP_BUY_REVOKED.name());
         }
     }
 
@@ -93,7 +93,7 @@ public class BenefitEventService implements IBenefitEventService {
         return order;
     }
 
-    private BenefitEventEntity enqueueEvent(OrderEntity order, String eventType, Long bonusQuota) {
+    private BenefitEventEntity enqueueEvent(OrderEntity order, String eventType) {
         BenefitEventEntity existing = benefitEventRepository.findByOrderIdAndEventType(
                 order.getOrderId(), eventType);
         if (existing != null) {
@@ -110,7 +110,6 @@ public class BenefitEventService implements IBenefitEventService {
                 .productCode(productCode)
                 .eventPublished(false)
                 .baseQuota(order.getBaseQuotaSnapshot())
-                .bonusQuota(bonusQuota)
                 .build();
         try {
             benefitEventRepository.insert(entity);
@@ -166,7 +165,6 @@ public class BenefitEventService implements IBenefitEventService {
                 .orderId(entity.getOrderId())
                 .productCode(entity.getProductCode())
                 .baseQuota(entity.getBaseQuota())
-                .bonusQuota(entity.getBonusQuota())
                 .build();
     }
 

@@ -10,14 +10,12 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
 
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 
-public class RabbitListenerDeliveryTest {
+public class KafkaListenerDeliveryTest {
 
     @Test
     public void teamSuccessCompletesSettlement() {
@@ -25,20 +23,20 @@ public class RabbitListenerDeliveryTest {
         TeamSuccessTopicListener listener = new TeamSuccessTopicListener();
         ReflectionTestUtils.setField(listener, "orderService", service);
 
-        listener.listener("{\"teamId\":\"t1\",\"outTradeNoList\":[\"trade-1\"],\"bonusQuota\":10}");
+        listener.listener("{\"teamId\":\"t1\",\"outTradeNoList\":[\"trade-1\"]}");
 
-        verify(service).changeOrderMarketSettlement(List.of("trade-1"), 10);
+        verify(service).changeOrderMarketSettlement(List.of("trade-1"));
     }
 
     @Test
     public void teamSuccessFailureIsPropagated() {
         IOrderService service = mock(IOrderService.class);
         doThrow(new IllegalStateException("db unavailable"))
-                .when(service).changeOrderMarketSettlement(anyList(), anyInt());
+                .when(service).changeOrderMarketSettlement(anyList());
         TeamSuccessTopicListener listener = new TeamSuccessTopicListener();
         ReflectionTestUtils.setField(listener, "orderService", service);
 
-        assertFails(() -> listener.listener("{\"outTradeNoList\":[\"trade-1\"],\"bonusQuota\":10}"));
+        assertFails(() -> listener.listener("{\"outTradeNoList\":[\"trade-1\"]}"));
     }
 
     @Test

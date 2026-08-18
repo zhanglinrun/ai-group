@@ -12,7 +12,6 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -50,10 +49,10 @@ public class OrderServiceMarketSettlementTest {
         when(repository.changeOrderMarketSettlement(callbackList))
                 .thenReturn(Collections.singletonList("order-paid"));
 
-        orderService.changeOrderMarketSettlement(callbackList, 100);
+        orderService.changeOrderMarketSettlement(callbackList);
 
         // fulfillment + benefit outbox rows are created for the settled order only
-        verify(benefitEventService).enqueueCompletedOrderEvents(Collections.singletonList("order-paid"), 100L);
+        verify(benefitEventService).enqueueCompletedOrderEvents(Collections.singletonList("order-paid"));
     }
 
     @Test
@@ -62,9 +61,9 @@ public class OrderServiceMarketSettlementTest {
         when(repository.changeOrderMarketSettlement(callbackList))
                 .thenReturn(Collections.emptyList());
 
-        orderService.changeOrderMarketSettlement(callbackList, null);
+        orderService.changeOrderMarketSettlement(callbackList);
 
         // nothing settled -> no outbox event at all (no fulfillment/free quota for unpaid orders)
-        verify(benefitEventService, never()).enqueueCompletedOrderEvents(anyList(), any());
+        verify(benefitEventService, never()).enqueueCompletedOrderEvents(anyList());
     }
 }

@@ -499,11 +499,7 @@ public class MemberServiceImpl implements MemberService {
         if (event.getBaseQuota() == null || event.getBaseQuota() <= 0) {
             throw new BusinessException(ErrorCodeEnum.PARAM_ERROR, "baseQuota snapshot must be positive");
         }
-        long bonus = event.getBonusQuota() == null ? 0L : event.getBonusQuota();
-        if (bonus < 0) {
-            throw new BusinessException(ErrorCodeEnum.PARAM_ERROR, "bonusQuota cannot be negative");
-        }
-        long granted = creditsToMicro(addExact(event.getBaseQuota(), bonus));
+        long granted = creditsToMicro(event.getBaseQuota());
         quota.setPaidQuotaBalance(addExact(quota.getPaidQuotaBalance(), granted));
         quota.setUpdateTime(LocalDateTime.now());
         quotaAccountMapper.updateById(quota);

@@ -12,16 +12,21 @@ spring:
       port: ${REDIS_PORT:16379}
       password: ${REDIS_PASSWORD:}
       database: 0
-  rabbitmq:
-    host: ${RABBITMQ_HOST:127.0.0.1}
-    port: ${RABBITMQ_PORT:5672}
-    username: ${RABBITMQ_USERNAME:xiongdoctor}
-    password: ${RABBITMQ_PASSWORD:xiongdoctor_dev}
-    publisher-confirm-type: correlated
-    publisher-returns: true
-    event-exchange: ${RABBITMQ_EVENT_EXCHANGE:xiongdoctor.events}
-    confirm-timeout-ms: ${RABBITMQ_CONFIRM_TIMEOUT_MS:5000}
-    outbox-dispatch-ms: ${AUTH_OUTBOX_DISPATCH_MS:1000}
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:127.0.0.1:9092}
+    producer:
+      acks: all
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      properties:
+        enable.idempotence: true
+    consumer:
+      enable-auto-commit: false
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    listener:
+      ack-mode: manual
   cloud:
     compatibility-verifier:
       enabled: false
@@ -66,10 +71,15 @@ ai-group:
     token: ${AI_GROUP_INTERNAL_TOKEN:}
   identity:
     signing-secret: ${AI_GROUP_IDENTITY_SIGNING_SECRET:}
+  kafka:
+    ack-timeout-ms: ${KAFKA_ACK_TIMEOUT_MS:5000}
+    topics:
+      user-registered: ${KAFKA_USER_REGISTERED:auth.user_registered}
 
 auth:
   outbox:
     local-scheduler-enabled: ${AUTH_OUTBOX_LOCAL_SCHEDULER_ENABLED:false}
+    dispatch-ms: ${AUTH_OUTBOX_DISPATCH_MS:1000}
 
 xxl:
   job:

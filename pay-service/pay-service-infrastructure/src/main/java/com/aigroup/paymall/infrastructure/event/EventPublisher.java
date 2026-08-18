@@ -1,27 +1,27 @@
 package com.aigroup.paymall.infrastructure.event;
 
+import com.aigroup.messaging.ConfirmedKafkaPublisher;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 /**
- * Pay-side event publisher for order-pay-success messages. Delegates to
- * {@link ConfirmedRabbitPublisher} and only completes after the broker confirms.
+ * Pay-side Kafka publisher for order-pay-success. Completes only after the broker ACK.
  */
 @Slf4j
 @Component
 public class EventPublisher {
 
-    private final ConfirmedRabbitPublisher confirmedRabbitPublisher;
+    private final ConfirmedKafkaPublisher kafkaPublisher;
 
-    public EventPublisher(ConfirmedRabbitPublisher confirmedRabbitPublisher) {
-        this.confirmedRabbitPublisher = confirmedRabbitPublisher;
+    public EventPublisher(ConfirmedKafkaPublisher kafkaPublisher) {
+        this.kafkaPublisher = kafkaPublisher;
     }
 
-    public void publish(String correlationKey, String topic, String message) {
+    public void publish(String topic, String key, String message) {
         try {
-            confirmedRabbitPublisher.publish(topic, message, correlationKey);
+            kafkaPublisher.publish(topic, key, message);
         } catch (Exception e) {
-            log.error("发送RabbitMQ消息失败 routingKey:{} message:{}", topic, message, e);
+            log.error("发送 Kafka 消息失败 topic:{} key:{} message:{}", topic, key, message, e);
             throw e;
         }
     }

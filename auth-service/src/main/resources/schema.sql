@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS `auth_outbox_event` (
     `id` BIGINT NOT NULL AUTO_INCREMENT,
     `event_id` VARCHAR(64) NOT NULL,
     `event_type` VARCHAR(64) NOT NULL,
-    `routing_key` VARCHAR(128) NOT NULL,
+    `routing_key` VARCHAR(128) NOT NULL COMMENT 'Kafka topic',
     `aggregate_id` VARCHAR(128) NOT NULL,
     `trace_id` VARCHAR(128) NOT NULL,
     `payload` JSON NOT NULL,

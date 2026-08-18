@@ -10,7 +10,7 @@
 
 ### 1. 额度包权益
 
-用户支付成团后，支付/结算侧会发送带订单快照的权益消息。member 只信任消息里的 `productCode`、`baseQuota` 和可选 `bonusQuota`，将额度统一换算成 microcredits 后计入付费余额，避免套餐后来改价或改额度影响历史订单。
+用户支付成团后，支付/结算侧会发送带订单快照的权益消息。member 只信任消息里的 `productCode` 和 `baseQuota`，将额度统一换算成 microcredits 后计入付费余额，避免套餐后来改价或改额度影响历史订单。
 
 关键点是**按订单 + 事件类型幂等**：同一笔订单的权益消息即使重复投递，也只会真正发放一次，靠 `benefit_grant_event` 的幂等键去重。额度已经发放后的撤销不会自动扣回，以免用户已消费后出现负账；系统记录 `REJECTED_GRANTED`，交由运营审核处理。
 
@@ -42,7 +42,7 @@ Agent 消耗配额用「预授权 + 确认」两阶段，**当前是一个 Run �
 
 | 接口 | 作用 |
 | --- | --- |
-| `POST /internal/members/init-free` | 内部补偿入口；正常注册通过 `UserRegistered` RabbitMQ 事件创建账户 |
+| `POST /internal/members/init-free` | 内部补偿入口；正常注册通过 `UserRegistered` Kafka 事件创建账户 |
 | `POST /internal/member/quota/reservations` | 预扣配额（Agent 合同） |
 | `POST /internal/member/quota/reservations/{reservationId}/confirm` | 确认扣减 |
 | `POST /internal/member/quota/reservations/{reservationId}/release` | 释放冻结 |
@@ -67,7 +67,7 @@ Agent 消耗配额用「预授权 + 确认」两阶段，**当前是一个 Run �
 ## 消息消费
 
 `BenefitEventConsumer`（权益事件消费者）监听成团消息队列，收到后触发权益发放；
-`UserRegisteredEventConsumer` 监听注册事件并幂等开通免费账户。监听器手动 ACK：成功 `basicAck`，失败抛出让现有 `retry.max-attempts=3` 生效，耗尽后按 `default-requeue-rejected: true` 重入队。仓库没有独立死信交换机。
+`UserRegisteredEventConsumer` 监听注册事件并幂等开通免费账户。监听器手动 ack：业务成功后再提交 offset，失败由 `DefaultErrorHandler` 有限重试，耗尽后发到 `{topic}.DLT`。
 
 ---
 
@@ -85,7 +85,7 @@ Agent 消耗配额用「预授权 + 确认」两阶段，**当前是一个 Run �
 
 ## 本地运行
 
-依赖 `MySQL`（数据库，`member_db`）、`Redis`（缓存）、`RabbitMQ`（Topic exchange 消息队列）、`Nacos`（注册中心）。表结构在 `src/main/resources/schema.sql`。
+依赖 `MySQL`（数据库，`member_db`）、`Redis`（缓存）、`Kafka`（领域事件）、`Nacos`（注册中心）。表结构在 `src/main/resources/schema.sql`。
 
 在仓库根目录跟平台一起起：
 

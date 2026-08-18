@@ -33,7 +33,7 @@ public class RefundListenerDeliveryTest {
             listener.listener("{\"type\":\"paid_unformed\",\"userId\":\"u1\",\"outTradeNo\":\"order-001\"}");
             Assert.fail("expected AppException on refund business failure");
         } catch (AppException expected) {
-            // Rabbit redelivery/dead-letter handling owns the retry.
+            // Kafka DefaultErrorHandler / DLT owns the retry.
         }
         verify(orderService).refundPayOrder("u1", "order-001");
     }

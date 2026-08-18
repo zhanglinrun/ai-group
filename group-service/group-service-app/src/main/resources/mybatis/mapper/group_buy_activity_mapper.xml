@@ -8,7 +8,6 @@
         <result column="activity_name" property="activityName"/>
         <result column="discount_id" property="discountId"/>
         <result column="group_type" property="groupType"/>
-        <result column="activity_type" property="activityType"/>
         <result column="take_limit_count" property="takeLimitCount"/>
         <result column="target" property="target"/>
         <result column="valid_time" property="validTime"/>
@@ -28,7 +27,7 @@
     <select id="queryValidGroupBuyActivity" parameterType="com.aigroup.groupbuy.infrastructure.dao.po.GroupBuyActivity"
             resultMap="dataMap">
         select
-        activity_id, activity_name, discount_id, group_type, activity_type, take_limit_count,
+        activity_id, activity_name, discount_id, group_type, take_limit_count,
         target, valid_time, status, start_time, end_time, tag_id, tag_scope
         from group_buy_activity
         where source = #{source} and channel = #{channel}
@@ -38,7 +37,7 @@
 
     <select id="queryValidGroupBuyActivityId" parameterType="java.lang.Long" resultMap="dataMap">
         select
-        activity_id, activity_name, discount_id, group_type, activity_type, take_limit_count,
+        activity_id, activity_name, discount_id, group_type, take_limit_count,
         target, valid_time, status, start_time, end_time, tag_id, tag_scope
         from group_buy_activity
         where activity_id = #{activityId} and status = 1
@@ -46,7 +45,7 @@
 
     <select id="queryGroupBuyActivityByActivityId" parameterType="java.lang.Long" resultMap="dataMap">
         select
-        activity_id, activity_name, discount_id, group_type, activity_type, take_limit_count,
+        activity_id, activity_name, discount_id, group_type, take_limit_count,
         target, valid_time, status, start_time, end_time, tag_id, tag_scope
         from group_buy_activity
         where activity_id = #{activityId}
@@ -61,7 +60,6 @@
             <if test="target != null">target = #{target},</if>
             <if test="validTime != null">valid_time = #{validTime},</if>
             <if test="status != null">status = #{status},</if>
-            <if test="activityType != null">activity_type = #{activityType},</if>
             update_time = now()
         </set>
         where activity_id = #{activityId}
@@ -69,10 +67,10 @@
 
     <insert id="insertGroupBuyActivity" parameterType="com.aigroup.groupbuy.infrastructure.dao.po.GroupBuyActivity">
         insert into group_buy_activity
-        (activity_id, activity_name, discount_id, group_type, activity_type, take_limit_count,
+        (activity_id, activity_name, discount_id, group_type, take_limit_count,
          target, valid_time, status, start_time, end_time, create_time, update_time)
         values
-        (#{activityId}, #{activityName}, #{discountId}, #{groupType}, #{activityType}, #{takeLimitCount},
+        (#{activityId}, #{activityName}, #{discountId}, #{groupType}, #{takeLimitCount},
          #{target}, #{validTime}, #{status}, now(), date_add(now(), interval 10 year), now(), now())
     </insert>
 

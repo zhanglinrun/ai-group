@@ -14,11 +14,11 @@ import org.springframework.stereotype.Component;
 @Component
 public class PaySuccessMessageEvent {
 
-    @Value("${spring.rabbitmq.routing.order-pay-success:pay.order_pay_success}")
-    private String routingKey;
+    @Value("${ai-group.kafka.topics.order-pay-success:pay.order_pay_success}")
+    private String topic;
 
     public String topic() {
-        return routingKey;
+        return topic;
     }
 
     @Data

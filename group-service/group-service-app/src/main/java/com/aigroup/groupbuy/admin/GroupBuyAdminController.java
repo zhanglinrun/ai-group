@@ -2,12 +2,10 @@ package com.aigroup.groupbuy.admin;
 
 import com.aigroup.common.context.RequestUserContext;
 import com.aigroup.groupbuy.infrastructure.dao.IGroupBuyActivityDao;
-import com.aigroup.groupbuy.infrastructure.dao.IGroupBuyActivityTierDao;
 import com.aigroup.groupbuy.infrastructure.dao.IGroupBuyDiscountDao;
 import com.aigroup.groupbuy.infrastructure.dao.ISCSkuActivityDao;
 import com.aigroup.groupbuy.infrastructure.dao.ISkuDao;
 import com.aigroup.groupbuy.infrastructure.dao.po.GroupBuyActivity;
-import com.aigroup.groupbuy.infrastructure.dao.po.GroupBuyActivityTier;
 import com.aigroup.groupbuy.infrastructure.dao.po.GroupBuyDiscount;
 import com.aigroup.groupbuy.infrastructure.dao.po.SCSkuActivity;
 import com.aigroup.groupbuy.infrastructure.dao.po.Sku;
@@ -54,8 +52,6 @@ public class GroupBuyAdminController {
     @Resource
     private IGroupBuyActivityDao groupBuyActivityDao;
     @Resource
-    private IGroupBuyActivityTierDao groupBuyActivityTierDao;
-    @Resource
     private IGroupBuyDiscountDao groupBuyDiscountDao;
     @Resource
     private ISkuDao skuDao;
@@ -100,7 +96,6 @@ public class GroupBuyAdminController {
             row.put("target", activity.getTarget());
             row.put("validTime", activity.getValidTime());
             row.put("status", activity.getStatus());
-            row.put("activityType", activity.getActivityType());
             row.put("startTime", activity.getStartTime());
             row.put("endTime", activity.getEndTime());
             GroupBuyDiscount discount = discountById.get(activity.getDiscountId());
@@ -158,10 +153,7 @@ public class GroupBuyAdminController {
                     .goodsId(goodsId).goodsName(goodsName).originalPrice(originalPrice).build());
             groupBuyActivityDao.insertGroupBuyActivity(GroupBuyActivity.builder()
                     .activityId(activityId).activityName(activityName).discountId(discountId)
-                    // The current product has one fixed quota per SKU. Keep
-                    // activity_type at the legacy-compatible classic value;
-                    // cash promotions are configured through marketPlan/Expr.
-                    .groupType(0).activityType(0)
+                    .groupType(0)
                     .takeLimitCount(defaultInt(body.get("takeLimitCount"), 10))
                     .target(defaultTarget(body.get("target")))
                     .validTime(defaultInt(body.get("validTime"), 1440))
@@ -174,32 +166,6 @@ public class GroupBuyAdminController {
             log.error("admin create group-buy activity failed", e);
             throw new IllegalStateException("create group-buy activity failed", e);
         }
-    }
-
-    /**
-     * Legacy compatibility endpoint. The current product deliberately has no
-     * tiered pricing; callers may only submit an empty list to clear prototype
-     * rows from an old development database.
-     */
-    @PutMapping("activities/{activityId}/tiers")
-    @Transactional(rollbackFor = Exception.class)
-    public Response<Boolean> replaceTiers(@PathVariable Long activityId,
-                                          @RequestBody List<Map<String, Object>> tiers,
-                                          HttpServletRequest request) {
-        if (!isAdmin(request)) {
-            return Response.<Boolean>builder().code(ResponseCode.ILLEGAL_PARAMETER.getCode())
-                    .info("admin role required").build();
-        }
-        if (tiers != null && !tiers.isEmpty()) {
-            return Response.<Boolean>builder()
-                    .code(ResponseCode.ILLEGAL_PARAMETER.getCode())
-                    .info("tiered pricing is disabled; configure marketPlan and marketExpr instead")
-                    .build();
-        }
-        groupBuyActivityTierDao.disableTiersByActivityId(activityId);
-        redisService.remove(GroupBuyActivityTier.cacheRedisKey(activityId));
-        return Response.<Boolean>builder().code(ResponseCode.SUCCESS.getCode())
-                .info(ResponseCode.SUCCESS.getInfo()).data(Boolean.TRUE).build();
     }
 
     /**
@@ -234,7 +200,6 @@ public class GroupBuyAdminController {
                     .target(targetValue(body.get("target")))
                     .validTime(intValue(body.get("validTime")))
                     .status(intValue(body.get("status")))
-                    .activityType(0)
                     .build();
             groupBuyActivityDao.updateGroupBuyActivityConfig(activityUpdate);
 

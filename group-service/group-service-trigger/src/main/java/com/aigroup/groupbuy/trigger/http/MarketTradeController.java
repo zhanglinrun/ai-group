@@ -77,8 +77,7 @@ public class MarketTradeController implements IMarketTradeService {
             if (StringUtils.isBlank(userId) || StringUtils.isBlank(source) || StringUtils.isBlank(channel)
                     || StringUtils.isBlank(goodsId) || null == activityId || StringUtils.isBlank(outTradeNo)
                     || notifyConfigVO == null || StringUtils.isBlank(notifyConfigVO.getNotifyType())
-                    || (!("MQ".equals(notifyConfigVO.getNotifyType()) || "HTTP".equals(notifyConfigVO.getNotifyType())))
-                    || ("HTTP".equals(notifyConfigVO.getNotifyType()) && StringUtils.isBlank(notifyConfigVO.getNotifyUrl()))) {
+                    || !"MQ".equals(notifyConfigVO.getNotifyType())) {
                 return illegalLockRequest();
             }
 
@@ -120,25 +119,9 @@ public class MarketTradeController implements IMarketTradeService {
             }
 
             GroupBuyActivityDiscountVO groupBuyActivityDiscountVO = trialBalanceEntity.getGroupBuyActivityDiscountVO();
-
-            // 额度拼团不做现金折扣。价格由 pay 从启用的 member SKU 查询后透传，
-            // group 只负责建团和赠额；缺少可信价格时失败关闭，避免退回本地旧 SKU 价格。
-            boolean tieredQuotaActivity = Integer.valueOf(1).equals(groupBuyActivityDiscountVO.getActivityType());
             BigDecimal originalPrice = trialBalanceEntity.getOriginalPrice();
             BigDecimal deductionPrice = trialBalanceEntity.getDeductionPrice();
             BigDecimal payPrice = trialBalanceEntity.getPayPrice();
-            if (tieredQuotaActivity) {
-                BigDecimal orderPrice = requestDTO.getOrderPrice();
-                if (orderPrice == null || orderPrice.signum() <= 0) {
-                    return Response.<LockMarketPayOrderResponseDTO>builder()
-                            .code(ResponseCode.ILLEGAL_PARAMETER.getCode())
-                            .info("额度拼团缺少可信订单价格")
-                            .build();
-                }
-                originalPrice = orderPrice;
-                deductionPrice = BigDecimal.ZERO;
-                payPrice = orderPrice;
-            }
 
             // 营销优惠锁单
             marketPayOrderEntity = tradeOrderService.lockMarketPayOrder(
@@ -166,7 +149,6 @@ public class MarketTradeController implements IMarketTradeService {
                                     NotifyConfigVO.builder()
                                             .notifyType(NotifyTypeEnumVO.valueOf(notifyConfigVO.getNotifyType()))
                                             .notifyMQ(notifyConfigVO.getNotifyMQ())
-                                            .notifyUrl(notifyConfigVO.getNotifyUrl())
                                             .build())
                             .build());
 

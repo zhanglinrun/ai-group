@@ -83,7 +83,7 @@ export function AdminPage(): JSX.Element {
     <div><p className="text-sm font-medium text-primary">运营控制台</p><h1 className="mt-2 text-3xl font-semibold">熊博士管理中心</h1><p className="mt-2 text-sm text-foreground-muted">所有操作都通过 Java Gateway 权限校验，状态来自各领域服务的真实数据。</p></div>
     <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">{cards.map(([title, text, href]) => <Card key={title}><CardHeader><CardTitle>{title}</CardTitle></CardHeader><CardContent><p className="text-sm text-foreground-muted">{text}</p><Link className="mt-4 inline-block text-sm font-medium text-primary hover:underline" to={href}>进入模块 →</Link></CardContent></Card>)}</div>
     <Card>
-      <CardHeader><div className="flex flex-wrap items-center justify-between gap-3"><div><CardTitle>营销规则配置</CardTitle><p className="mt-1 text-sm text-foreground-muted">为每个拼团活动设置成团人数和直减、满减、折扣或 N 元购；不再使用人数阶梯价格。</p></div><Button variant="outline" onClick={() => void loadActivities()} disabled={loading}>{loading ? "读取中…" : "刷新规则"}</Button></div></CardHeader>
+      <CardHeader><div className="flex flex-wrap items-center justify-between gap-3"><div><CardTitle>营销规则配置</CardTitle><p className="mt-1 text-sm text-foreground-muted">为每个拼团活动设置成团人数和直减、满减、折扣或 N 元购。</p></div><Button variant="outline" onClick={() => void loadActivities()} disabled={loading}>{loading ? "读取中…" : "刷新规则"}</Button></div></CardHeader>
       <CardContent className="space-y-4">
         {ruleMessage ? <p className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-sm text-primary">{ruleMessage}</p> : null}
         {loading ? <p className="py-6 text-center text-sm text-foreground-muted">正在读取活动规则…</p> : null}

@@ -5,10 +5,8 @@ import com.aigroup.member.service.MemberService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import com.rabbitmq.client.Channel;
-import org.springframework.amqp.rabbit.annotation.RabbitListener;
-import org.springframework.amqp.support.AmqpHeaders;
-import org.springframework.messaging.handler.annotation.Header;
+import org.springframework.kafka.annotation.KafkaListener;
+import org.springframework.kafka.support.Acknowledgment;
 import org.springframework.stereotype.Component;
 
 @Slf4j
@@ -19,11 +17,12 @@ public class BenefitEventConsumer {
     private final MemberService memberService;
     private final ObjectMapper objectMapper;
 
-    @RabbitListener(queues = "member-service.benefit", ackMode = "MANUAL")
-    public void consumeTradeCompleted(String payload, Channel channel,
-                                     @Header(AmqpHeaders.DELIVERY_TAG) long tag) throws Exception {
+    @KafkaListener(
+            topics = "${ai-group.kafka.topics.member-benefit:member.benefit.completed}",
+            groupId = "member-service")
+    public void consumeTradeCompleted(String payload, Acknowledgment ack) {
         onTradeCompleted(payload);
-        channel.basicAck(tag, false);
+        ack.acknowledge();
     }
 
     public void onTradeCompleted(String payload) {

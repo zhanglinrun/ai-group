@@ -1,6 +1,7 @@
 package com.aigroup.auth.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
@@ -16,7 +17,9 @@ public class AuthOutboxEvent {
     private Long id;
     private String eventId;
     private String eventType;
-    private String routingKey;
+    /** Kafka topic. Column name `routing_key` is historical. */
+    @TableField("routing_key")
+    private String topic;
     private String aggregateId;
     private String traceId;
     private String payload;

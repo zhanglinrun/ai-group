@@ -60,7 +60,7 @@ public class OrderServiceDirectOutboxTest {
 
         verify(repository).changeOrderPaySuccess("order-direct", payTime);
         verify(benefitEventService).enqueueCompletedOrderEvents(
-                Collections.singletonList("order-direct"), null);
+                Collections.singletonList("order-direct"));
         verify(transactionManager).commit(transactionStatus);
         verify(transactionManager, never()).rollback(any(TransactionStatus.class));
     }
@@ -72,7 +72,7 @@ public class OrderServiceDirectOutboxTest {
 
         orderService.changeOrderPaySuccess("order-closed", new Date());
 
-        verify(benefitEventService, never()).enqueueCompletedOrderEvents(any(), any());
+        verify(benefitEventService, never()).enqueueCompletedOrderEvents(any());
         verify(transactionManager).commit(transactionStatus);
     }
 
@@ -82,7 +82,7 @@ public class OrderServiceDirectOutboxTest {
         OrderEntity after = order("order-rollback", OrderStatusVO.PAY_SUCCESS);
         when(repository.queryOrderByOrderId("order-rollback")).thenReturn(before, after);
         doThrow(new IllegalStateException("outbox unavailable"))
-                .when(benefitEventService).enqueueCompletedOrderEvents(any(), any());
+                .when(benefitEventService).enqueueCompletedOrderEvents(any());
 
         assertThrows(IllegalStateException.class,
                 () -> orderService.changeOrderPaySuccess("order-rollback", new Date()));

@@ -140,9 +140,4 @@ public class TradeSettlementOrderService implements ITradeSettlementOrderService
         return team.getTeamId();
     }
 
-    @Override
-    public int settleExpiredFormedTeams() {
-        return repository.settleExpiredFormedTeams();
-    }
-
 }

@@ -41,7 +41,6 @@ CREATE TABLE IF NOT EXISTS `benefit_event` (
     `product_code` varchar(64) NOT NULL COMMENT 'SKU编码',
     `event_published` tinyint(1) NOT NULL DEFAULT '0' COMMENT 'MQ是否已发布',
     `base_quota` bigint NOT NULL DEFAULT '0' COMMENT '下单时基础额度快照（整额度点）',
-    `bonus_quota` bigint NOT NULL DEFAULT '0' COMMENT '成团档位加赠额度（整额度点）',
     `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     PRIMARY KEY (`id`),
@@ -60,21 +59,6 @@ SET @benefit_base_col_exists = (
 SET @ddl = IF(
     @benefit_base_col_exists = 0,
     'ALTER TABLE `benefit_event` ADD COLUMN `base_quota` bigint NOT NULL DEFAULT 0 COMMENT ''base quota snapshot'' AFTER `event_published`',
-    'SELECT 1'
-);
-PREPARE stmt FROM @ddl;
-EXECUTE stmt;
-DEALLOCATE PREPARE stmt;
-
-SET @benefit_bonus_col_exists = (
-    SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
-    WHERE TABLE_SCHEMA = 's_pay_mall_ddd_market'
-      AND TABLE_NAME = 'benefit_event'
-      AND COLUMN_NAME = 'bonus_quota'
-);
-SET @ddl = IF(
-    @benefit_bonus_col_exists = 0,
-    'ALTER TABLE `benefit_event` ADD COLUMN `bonus_quota` bigint NOT NULL DEFAULT 0 COMMENT ''group tier bonus quota'' AFTER `base_quota`',
     'SELECT 1'
 );
 PREPARE stmt FROM @ddl;

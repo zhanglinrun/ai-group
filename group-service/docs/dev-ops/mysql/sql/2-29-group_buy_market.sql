@@ -89,7 +89,6 @@ CREATE TABLE IF NOT EXISTS `group_buy_order` (
   `deduction_price` decimal(8,2) NOT NULL COMMENT '折扣金额',
   `pay_price` decimal(8,2) NOT NULL COMMENT '支付价格',
   `target_count` int NOT NULL COMMENT '目标数量',
-  `tier_snapshot` text DEFAULT NULL COMMENT '创建团队时的阶梯档位快照',
   `complete_count` int NOT NULL COMMENT '完成数量',
   `lock_count` int NOT NULL COMMENT '锁单数量',
   `status` tinyint(1) NOT NULL DEFAULT '0' COMMENT '拼团状态',

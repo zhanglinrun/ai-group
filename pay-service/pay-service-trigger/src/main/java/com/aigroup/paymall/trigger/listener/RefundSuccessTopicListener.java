@@ -7,17 +7,14 @@ import com.aigroup.paymall.types.exception.AppException;
 import com.aigroup.paymall.types.common.JsonUtils;
 import com.alipay.api.AlipayApiException;
 import lombok.extern.slf4j.Slf4j;
-import com.rabbitmq.client.Channel;
-import org.springframework.amqp.rabbit.annotation.RabbitListener;
-import org.springframework.amqp.support.AmqpHeaders;
-import org.springframework.messaging.handler.annotation.Header;
+import org.springframework.kafka.annotation.KafkaListener;
+import org.springframework.kafka.support.Acknowledgment;
 import org.springframework.stereotype.Component;
 
 import jakarta.annotation.Resource;
 
 /**
- * Group team_refund message listener (RabbitMQ): executes the alipay refund for orders
- * parked in WAIT_REFUND. 消费 group.team_refund 主题。
+ * Group team_refund listener: executes the Alipay refund for orders parked in WAIT_REFUND.
  */
 @Slf4j
 @Component
@@ -26,11 +23,12 @@ public class RefundSuccessTopicListener {
     @Resource
     private IOrderService orderService;
 
-    @RabbitListener(queues = "pay-service.team-refund", ackMode = "MANUAL")
-    public void consume(String message, Channel channel,
-                        @Header(AmqpHeaders.DELIVERY_TAG) long tag) throws Exception {
+    @KafkaListener(
+            topics = "${ai-group.kafka.topics.team-refund:group.team_refund}",
+            groupId = "pay-service")
+    public void consume(String message, Acknowledgment ack) {
         listener(message);
-        channel.basicAck(tag, false);
+        ack.acknowledge();
     }
 
     public void listener(String message) {

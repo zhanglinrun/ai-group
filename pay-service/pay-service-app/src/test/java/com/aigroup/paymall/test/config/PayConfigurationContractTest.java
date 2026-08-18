@@ -25,12 +25,13 @@ public class PayConfigurationContractTest {
     }
 
     @Test
-    public void commonRabbitAndOutboxPublisherGatesRemainEnabled() throws IOException {
-        assertEquals("correlated", property("application.yml", "spring.rabbitmq.publisher-confirm-type"));
-        assertEquals("${RABBITMQ_MEMBER_BENEFIT:member.benefit.completed}", property(
-                "application.yml", "spring.rabbitmq.routing.member-benefit"));
-        assertEquals("${RABBITMQ_ORDER_PAY_SUCCESS:pay.order_pay_success}", property(
-                "application.yml", "spring.rabbitmq.routing.order-pay-success"));
+    public void commonKafkaAndOutboxPublisherGatesRemainEnabled() throws IOException {
+        assertEquals("all", property("application.yml", "spring.kafka.producer.acks"));
+        assertEquals("manual", property("application.yml", "spring.kafka.listener.ack-mode"));
+        assertEquals("${KAFKA_MEMBER_BENEFIT:member.benefit.completed}", property(
+                "application.yml", "ai-group.kafka.topics.member-benefit"));
+        assertEquals("${KAFKA_ORDER_PAY_SUCCESS:pay.order_pay_success}", property(
+                "application.yml", "ai-group.kafka.topics.order-pay-success"));
     }
 
     @Test

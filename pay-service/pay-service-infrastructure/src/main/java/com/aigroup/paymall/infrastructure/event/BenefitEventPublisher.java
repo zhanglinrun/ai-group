@@ -1,7 +1,8 @@
 package com.aigroup.paymall.infrastructure.event;
 
-import com.aigroup.paymall.types.event.TradeCompletedEvent;
+import com.aigroup.messaging.ConfirmedKafkaPublisher;
 import com.aigroup.paymall.types.common.JsonUtils;
+import com.aigroup.paymall.types.event.TradeCompletedEvent;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -10,19 +11,19 @@ import org.springframework.stereotype.Component;
 @Component
 public class BenefitEventPublisher {
 
-    private final ConfirmedRabbitPublisher confirmedRabbitPublisher;
+    private final ConfirmedKafkaPublisher kafkaPublisher;
 
-    public BenefitEventPublisher(ConfirmedRabbitPublisher confirmedRabbitPublisher) {
-        this.confirmedRabbitPublisher = confirmedRabbitPublisher;
+    public BenefitEventPublisher(ConfirmedKafkaPublisher kafkaPublisher) {
+        this.kafkaPublisher = kafkaPublisher;
     }
 
-    @Value("${spring.rabbitmq.routing.member-benefit:member.benefit.completed}")
+    @Value("${ai-group.kafka.topics.member-benefit:member.benefit.completed}")
     private String topic;
 
     public void publish(TradeCompletedEvent event) {
         String message = JsonUtils.toJson(event);
         try {
-            confirmedRabbitPublisher.publish(topic, message, event.getEventId());
+            kafkaPublisher.publish(topic, event.getOrderId(), message);
         } catch (Exception e) {
             log.error("发送权益事件失败 topic:{} message:{}", topic, message, e);
             throw e;

@@ -15,7 +15,5 @@ public class NotifyRequestDTO {
     private String teamId;
     /** 外部单号 */
     private List<String> outTradeNoList;
-    /** 阶梯拼团加赠额度（成团所达档位，随回调透传给权益发放） */
-    private Integer bonusQuota;
 
 }

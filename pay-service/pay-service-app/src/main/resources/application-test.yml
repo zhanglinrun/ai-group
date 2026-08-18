@@ -43,15 +43,6 @@ spring:
     connection-timeout: 30000 #数据库连接超时时间,默认30秒，即30000
     connection-test-query: SELECT 1
   type: com.zaxxer.hikari.HikariDataSource
-  rabbitmq:
-    host: 127.0.0.1
-    port: 5672
-    username: xiongdoctor
-    password: xiongdoctor_dev
-    publisher-confirm-type: correlated
-    publisher-returns: true
-    event-exchange: xiongdoctor.events
-    confirm-timeout-ms: 1000
 
 # MyBatis 配置【如需使用记得打开】
 mybatis:

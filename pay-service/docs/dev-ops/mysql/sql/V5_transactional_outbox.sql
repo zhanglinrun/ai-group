@@ -34,29 +34,17 @@ PREPARE stmt FROM @ddl;
 EXECUTE stmt;
 DEALLOCATE PREPARE stmt;
 
--- Older incremental installs created bonus_quota as nullable INT. Normalize
--- the live schema to the current BIGINT NOT NULL contract before new outbox
--- rows are written with zero-valued non-benefit fields.
-SET @bonus_quota_needs_normalize = (
+-- Drop leftover unused column from earlier prototypes. Safe if already absent.
+SET @bonus_quota_exists = (
     SELECT COUNT(*)
     FROM INFORMATION_SCHEMA.COLUMNS
     WHERE TABLE_SCHEMA = 's_pay_mall_ddd_market'
       AND TABLE_NAME = 'benefit_event'
       AND COLUMN_NAME = 'bonus_quota'
-      AND (DATA_TYPE <> 'bigint' OR IS_NULLABLE <> 'NO' OR COLUMN_DEFAULT <> '0')
 );
-SET @dml = IF(
-    @bonus_quota_needs_normalize > 0,
-    'UPDATE `benefit_event` SET bonus_quota = 0 WHERE bonus_quota IS NULL',
-    'SELECT 1'
-);
-PREPARE stmt FROM @dml;
-EXECUTE stmt;
-DEALLOCATE PREPARE stmt;
-
 SET @ddl = IF(
-    @bonus_quota_needs_normalize > 0,
-    'ALTER TABLE `benefit_event` MODIFY COLUMN `bonus_quota` bigint NOT NULL DEFAULT 0 COMMENT ''成团档位加赠额度（整额度点）''',
+    @bonus_quota_exists > 0,
+    'ALTER TABLE `benefit_event` DROP COLUMN `bonus_quota`',
     'SELECT 1'
 );
 PREPARE stmt FROM @ddl;
@@ -78,10 +66,10 @@ WHERE event_row.event_type = 'ORDER_PAY_SUCCESS'
 -- The unique order+event_type key makes repeated execution safe.
 INSERT IGNORE INTO `benefit_event`(
     event_id, event_type, user_id, order_id, product_code,
-    event_published, base_quota, bonus_quota, create_time, update_time)
+    event_published, base_quota, create_time, update_time)
 SELECT UUID(), 'ORDER_PAY_SUCCESS', CAST(user_id AS UNSIGNED), order_id,
        COALESCE(NULLIF(product_code, ''), NULLIF(product_id, ''), 'UNKNOWN'),
-       0, COALESCE(base_quota_snapshot, 0), 0, NOW(), NOW()
+       0, COALESCE(base_quota_snapshot, 0), NOW(), NOW()
 FROM `pay_order`
 WHERE user_id REGEXP '^[0-9]+$'
   AND ((market_type = 0 AND status = 'PAY_SUCCESS')
@@ -89,13 +77,12 @@ WHERE user_id REGEXP '^[0-9]+$'
 
 -- The old direct-purchase path could commit PAY_SUCCESS, fail its immediate
 -- fulfillment send, and never reach the subsequent quota event creation.
--- Only direct purchases can be reconstructed without losing a group tier bonus.
 INSERT IGNORE INTO `benefit_event`(
     event_id, event_type, user_id, order_id, product_code,
-    event_published, base_quota, bonus_quota, create_time, update_time)
+    event_published, base_quota, create_time, update_time)
 SELECT UUID(), 'GROUP_BUY_COMPLETED', CAST(user_id AS UNSIGNED), order_id,
        COALESCE(NULLIF(product_code, ''), NULLIF(product_id, ''), 'UNKNOWN'),
-       0, COALESCE(base_quota_snapshot, 0), 0, NOW(), NOW()
+       0, COALESCE(base_quota_snapshot, 0), NOW(), NOW()
 FROM `pay_order`
 WHERE user_id REGEXP '^[0-9]+$'
   AND market_type = 0

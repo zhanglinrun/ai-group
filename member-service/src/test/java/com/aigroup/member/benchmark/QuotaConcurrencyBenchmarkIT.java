@@ -36,7 +36,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Opt-in MySQL benchmark. It is intentionally named *IT so the normal unit
- * suite stays infrastructure-free. Use eval/run-quota-benchmark.ps1, which starts local MySQL/RabbitMQ
+ * suite stays infrastructure-free. Use eval/run-quota-benchmark.ps1, which starts local MySQL/Kafka
  * and then invokes this test against member_db.
  */
 @SpringBootTest(
@@ -45,7 +45,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
         properties = {
                 "spring.profiles.active=test",
                 "spring.cloud.nacos.discovery.enabled=false",
-                "spring.rabbitmq.listener.simple.auto-startup=false",
+                "spring.kafka.listener.auto-startup=false",
                 "spring.task.scheduling.enabled=false",
                 "xxl.job.enabled=false"
         }
@@ -387,7 +387,6 @@ class QuotaConcurrencyBenchmarkIT {
         event.setOrderId(orderId);
         event.setProductCode("QUOTA_BENCH");
         event.setBaseQuota(1L);
-        event.setBonusQuota(0L);
         return event;
     }
 

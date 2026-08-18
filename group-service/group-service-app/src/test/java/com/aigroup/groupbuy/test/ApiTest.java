@@ -20,19 +20,19 @@ public class ApiTest {
     @Resource
     private EventPublisher publisher;
 
-    @Value("${spring.rabbitmq.routing.group-team-success:group.team_success}")
-    private String routingKey;
+    @Value("${ai-group.kafka.topics.team-success:group.team_success}")
+    private String topic;
 
-    @Ignore("Requires a running RabbitMQ broker and is not part of the unit suite")
+    @Ignore("Requires a running Kafka broker and is not part of the unit suite")
     @Test
-    public void test_rabbit_publish() throws InterruptedException {
+    public void test_kafka_publish() throws InterruptedException {
         CountDownLatch countDownLatch = new CountDownLatch(1);
 
-        publisher.publish(routingKey, "订单结算：ORD-20231234");
-        publisher.publish(routingKey, "订单结算：ORD-20231235");
-        publisher.publish(routingKey, "订单结算：ORD-20231236");
-        publisher.publish(routingKey, "订单结算：ORD-20231237");
-        publisher.publish(routingKey, "订单结算：ORD-20231238");
+        publisher.publish(topic, "订单结算：ORD-20231234");
+        publisher.publish(topic, "订单结算：ORD-20231235");
+        publisher.publish(topic, "订单结算：ORD-20231236");
+        publisher.publish(topic, "订单结算：ORD-20231237");
+        publisher.publish(topic, "订单结算：ORD-20231238");
 
         // 等待消息消费。测试后，可主动关闭。
         countDownLatch.await();

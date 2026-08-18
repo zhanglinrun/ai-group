@@ -25,7 +25,6 @@ import java.math.BigDecimal;
 import static org.junit.Assert.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -42,44 +41,7 @@ public class MarketTradeTrustedPriceTest {
     }
 
     @Test
-    public void quotaGroupUsesTrustedPayOrderPriceInsteadOfStaleGroupSkuPrice() throws Exception {
-        Fixture fixture = fixture(1);
-
-        Response<LockMarketPayOrderResponseDTO> response = fixture.controller.lockMarketPayOrder(request());
-
-        assertEquals("0000", response.getCode());
-        PayDiscountEntity discount = fixture.captureDiscount();
-        assertEquals(0, new BigDecimal("12.00").compareTo(discount.getOriginalPrice()));
-        assertEquals(0, BigDecimal.ZERO.compareTo(discount.getDeductionPrice()));
-        assertEquals(0, new BigDecimal("12.00").compareTo(discount.getPayPrice()));
-    }
-
-    @Test
     public void classicGroupKeepsExistingTrialDiscountPath() throws Exception {
-        Fixture fixture = fixture(0);
-
-        Response<LockMarketPayOrderResponseDTO> response = fixture.controller.lockMarketPayOrder(request());
-
-        assertEquals("0000", response.getCode());
-        PayDiscountEntity discount = fixture.captureDiscount();
-        assertEquals(0, new BigDecimal("99.00").compareTo(discount.getOriginalPrice()));
-        assertEquals(0, new BigDecimal("10.00").compareTo(discount.getDeductionPrice()));
-        assertEquals(0, new BigDecimal("89.00").compareTo(discount.getPayPrice()));
-    }
-
-    @Test
-    public void quotaGroupRejectsMissingTrustedPayOrderPrice() throws Exception {
-        Fixture fixture = fixture(1);
-        LockMarketPayOrderRequestDTO request = request();
-        request.setOrderPrice(null);
-
-        Response<LockMarketPayOrderResponseDTO> response = fixture.controller.lockMarketPayOrder(request);
-
-        assertEquals("0002", response.getCode());
-        verify(fixture.tradeService, never()).lockMarketPayOrder(any(), any(), any());
-    }
-
-    private Fixture fixture(int activityType) throws Exception {
         IIndexGroupBuyMarketService marketService = mock(IIndexGroupBuyMarketService.class);
         ITradeLockOrderService tradeService = mock(ITradeLockOrderService.class);
         MarketTradeController controller = new MarketTradeController();
@@ -97,7 +59,6 @@ public class MarketTradeTrustedPriceTest {
                 .groupBuyActivityDiscountVO(GroupBuyActivityDiscountVO.builder()
                         .activityId(100201L)
                         .activityName("额度拼团")
-                        .activityType(activityType)
                         .target(10)
                         .validTime(1440)
                         .build())
@@ -105,15 +66,12 @@ public class MarketTradeTrustedPriceTest {
         when(tradeService.lockMarketPayOrder(any(), any(), any())).thenReturn(MarketPayOrderEntity.builder()
                 .teamId("team-1")
                 .orderId("group-order-1")
-                .originalPrice(new BigDecimal("12.00"))
-                .deductionPrice(BigDecimal.ZERO)
-                .payPrice(new BigDecimal("12.00"))
+                .originalPrice(new BigDecimal("99.00"))
+                .deductionPrice(new BigDecimal("10.00"))
+                .payPrice(new BigDecimal("89.00"))
                 .tradeOrderStatusEnumVO(TradeOrderStatusEnumVO.CREATE)
                 .build());
-        return new Fixture(controller, tradeService);
-    }
 
-    private LockMarketPayOrderRequestDTO request() {
         LockMarketPayOrderRequestDTO request = new LockMarketPayOrderRequestDTO();
         request.setUserId("1");
         request.setActivityId(100201L);
@@ -123,22 +81,14 @@ public class MarketTradeTrustedPriceTest {
         request.setChannel("c01");
         request.setOutTradeNo("pay-order-1");
         request.setNotifyMQ();
-        return request;
-    }
 
-    private static class Fixture {
-        private final MarketTradeController controller;
-        private final ITradeLockOrderService tradeService;
+        Response<LockMarketPayOrderResponseDTO> response = controller.lockMarketPayOrder(request);
 
-        private Fixture(MarketTradeController controller, ITradeLockOrderService tradeService) {
-            this.controller = controller;
-            this.tradeService = tradeService;
-        }
-
-        private PayDiscountEntity captureDiscount() throws Exception {
-            ArgumentCaptor<PayDiscountEntity> discount = ArgumentCaptor.forClass(PayDiscountEntity.class);
-            verify(tradeService).lockMarketPayOrder(any(UserEntity.class), any(PayActivityEntity.class), discount.capture());
-            return discount.getValue();
-        }
+        assertEquals("0000", response.getCode());
+        ArgumentCaptor<PayDiscountEntity> discount = ArgumentCaptor.forClass(PayDiscountEntity.class);
+        verify(tradeService).lockMarketPayOrder(any(UserEntity.class), any(PayActivityEntity.class), discount.capture());
+        assertEquals(0, new BigDecimal("99.00").compareTo(discount.getValue().getOriginalPrice()));
+        assertEquals(0, new BigDecimal("10.00").compareTo(discount.getValue().getDeductionPrice()));
+        assertEquals(0, new BigDecimal("89.00").compareTo(discount.getValue().getPayPrice()));
     }
 }

@@ -4,16 +4,14 @@ import com.aigroup.groupbuy.domain.trade.model.valobj.TeamRefundSuccess;
 import com.aigroup.groupbuy.domain.trade.service.ITradeRefundOrderService;
 import com.aigroup.groupbuy.types.common.JsonUtils;
 import lombok.extern.slf4j.Slf4j;
-import com.rabbitmq.client.Channel;
-import org.springframework.amqp.rabbit.annotation.RabbitListener;
-import org.springframework.amqp.support.AmqpHeaders;
-import org.springframework.messaging.handler.annotation.Header;
+import org.springframework.kafka.annotation.KafkaListener;
+import org.springframework.kafka.support.Acknowledgment;
 import org.springframework.stereotype.Component;
 
 import jakarta.annotation.Resource;
 
 /**
- * 团队退款成功消息监听器（RabbitMQ topic）。
+ * 团队退款成功消息监听器：恢复 Redis 锁定库存。
  */
 @Slf4j
 @Component
@@ -24,14 +22,15 @@ public class RefundSuccessTopicListener {
 
     /**
      * 消费团队退款消息并恢复团队锁定库存。
-     * 消费异常会继续抛出，以触发现有 retry；耗尽后按 default-requeue-rejected 重入队（没有独立 DLQ）。
+     * 业务成功后再 ack；失败由 DefaultErrorHandler 有限重试，耗尽后发到 topic.DLT。
      * 重复消息的幂等处理由领域服务负责。
      */
-    @RabbitListener(queues = "group-service.team-refund", ackMode = "MANUAL")
-    public void consume(String message, Channel channel,
-                        @Header(AmqpHeaders.DELIVERY_TAG) long tag) throws Exception {
+    @KafkaListener(
+            topics = "${ai-group.kafka.topics.team-refund:group.team_refund}",
+            groupId = "group-service")
+    public void consume(String message, Acknowledgment ack) {
         listener(message);
-        channel.basicAck(tag, false);
+        ack.acknowledge();
     }
 
     public void listener(String message) {

@@ -33,7 +33,6 @@ public class BenefitEventRepository implements IBenefitEventRepository {
                 .productCode(entity.getProductCode())
                 .eventPublished(false)
                 .baseQuota(entity.getBaseQuota() == null ? 0L : entity.getBaseQuota())
-                .bonusQuota(entity.getBonusQuota() == null ? 0L : entity.getBonusQuota())
                 .build());
     }
 
@@ -69,7 +68,6 @@ public class BenefitEventRepository implements IBenefitEventRepository {
                 .productCode(row.getProductCode())
                 .eventPublished(row.getEventPublished())
                 .baseQuota(row.getBaseQuota())
-                .bonusQuota(row.getBonusQuota())
                 .createTime(row.getCreateTime())
                 .updateTime(row.getUpdateTime())
                 .build();

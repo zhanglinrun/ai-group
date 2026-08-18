@@ -6,27 +6,21 @@ spring:
     username: ${MYSQL_USER:root}
     password: ${MYSQL_ROOT_PASSWORD:}
     driver-class-name: com.mysql.cj.jdbc.Driver
-  rabbitmq:
-    host: ${RABBITMQ_HOST:127.0.0.1}
-    port: ${RABBITMQ_PORT:5672}
-    username: ${RABBITMQ_USERNAME:xiongdoctor}
-    password: ${RABBITMQ_PASSWORD:xiongdoctor_dev}
-    publisher-confirm-type: correlated
-    publisher-returns: true
-    event-exchange: ${RABBITMQ_EVENT_EXCHANGE:xiongdoctor.events}
-    routing:
-      member-benefit: ${RABBITMQ_MEMBER_BENEFIT:member.benefit.completed}
-      member-user-registered: ${RABBITMQ_MEMBER_USER_REGISTERED:auth.user_registered}
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:127.0.0.1:9092}
+    producer:
+      acks: all
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      properties:
+        enable.idempotence: true
+    consumer:
+      enable-auto-commit: false
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
     listener:
-      simple:
-        acknowledge-mode: manual
-        default-requeue-rejected: true
-        retry:
-          enabled: true
-          max-attempts: 3
-          initial-interval: 1000ms
-          max-interval: 10000ms
-          multiplier: 2.0
+      ack-mode: manual
   cloud:
     compatibility-verifier:
       enabled: false
@@ -62,6 +56,11 @@ ai-group:
     token: ${AI_GROUP_INTERNAL_TOKEN:}
   identity:
     signing-secret: ${AI_GROUP_IDENTITY_SIGNING_SECRET:}
+  kafka:
+    ack-timeout-ms: ${KAFKA_ACK_TIMEOUT_MS:5000}
+    topics:
+      member-benefit: ${KAFKA_MEMBER_BENEFIT:member.benefit.completed}
+      user-registered: ${KAFKA_USER_REGISTERED:auth.user_registered}
 
 # XXL-JOB 执行器配置
 xxl:

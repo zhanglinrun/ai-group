@@ -275,7 +275,7 @@ public class OrderService extends AbstractOrderService {
                 OrderEntity paidOrder = repository.queryOrderByOrderId(orderId);
                 if (isFulfillableDirectOrder(paidOrder)) {
                     benefitEventService.enqueueCompletedOrderEvents(
-                            Collections.singletonList(orderId), null);
+                            Collections.singletonList(orderId));
                 } else {
                     log.info("skip direct purchase outbox, order is not paid orderId={} status={}",
                             orderId, paidOrder == null ? null : paidOrder.getOrderStatusVO());
@@ -376,15 +376,14 @@ public class OrderService extends AbstractOrderService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void changeOrderMarketSettlement(List<String> outTradeNoList, Integer bonusQuota) {
+    public void changeOrderMarketSettlement(List<String> outTradeNoList) {
         // 只对真正从 PAY_SUCCESS 迁移为 MARKET 的订单发放权益；
         // 未支付/已关闭订单即使出现在回调列表里也不发额度。
         List<String> settledOrderIds = repository.changeOrderMarketSettlement(outTradeNoList);
         if (null != settledOrderIds && !settledOrderIds.isEmpty()) {
             // The order transition and both fulfillment/benefit outbox rows share
             // this transaction. The independent publisher sends them after commit.
-            benefitEventService.enqueueCompletedOrderEvents(settledOrderIds,
-                    bonusQuota == null ? null : bonusQuota.longValue());
+            benefitEventService.enqueueCompletedOrderEvents(settledOrderIds);
         }
     }
 

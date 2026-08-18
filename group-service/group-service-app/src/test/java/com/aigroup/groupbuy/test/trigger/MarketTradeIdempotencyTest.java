@@ -123,7 +123,6 @@ public class MarketTradeIdempotencyTest {
                 .groupBuyActivityDiscountVO(GroupBuyActivityDiscountVO.builder()
                         .activityId(100201L)
                         .activityName("quota group")
-                        .activityType(1)
                         .target(10)
                         .validTime(1440)
                         .build())

@@ -18,7 +18,5 @@ public class TradeCompletedEvent {
     private String productCode;
     /** Whole-credit base entitlement captured when the order was created. */
     private Long baseQuota;
-    /** 阶梯拼团加赠额度（在 SKU 基础额度之上叠加发放；直购/经典为 0/空） */
-    private Long bonusQuota;
 
 }

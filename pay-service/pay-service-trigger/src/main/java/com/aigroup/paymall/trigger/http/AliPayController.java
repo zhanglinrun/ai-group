@@ -205,7 +205,7 @@ public class AliPayController {
         }
         log.info("group buy notify settlement start {}", JsonUtils.toJson(requestDTO));
         try {
-            orderService.changeOrderMarketSettlement(requestDTO.getOutTradeNoList(), requestDTO.getBonusQuota());
+            orderService.changeOrderMarketSettlement(requestDTO.getOutTradeNoList());
             return "success";
         } catch (Exception e) {
             log.error("group buy notify settlement failed {}", JsonUtils.toJson(requestDTO), e);

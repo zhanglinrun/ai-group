@@ -2,7 +2,6 @@ package com.aigroup.groupbuy.test.trigger;
 
 import com.aigroup.groupbuy.domain.trade.service.ITradeRefundOrderService;
 import com.aigroup.groupbuy.trigger.listener.RefundSuccessTopicListener;
-import com.aigroup.groupbuy.trigger.listener.TeamSuccessTopicListener;
 import org.junit.Assert;
 import org.junit.Test;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -12,14 +11,9 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 
-public class RabbitListenerDeliveryTest {
+public class KafkaListenerDeliveryTest {
 
     private static final String REFUND = "{\"type\":\"paid_unformed\",\"userId\":\"u1\",\"teamId\":\"t1\",\"activityId\":1,\"orderId\":\"o1\",\"outTradeNo\":\"trade-1\"}";
-
-    @Test
-    public void teamSuccessConsumesMessage() {
-        new TeamSuccessTopicListener().listener("{}");
-    }
 
     @Test
     public void refundCompletesOnlyAfterStockRestore() throws Exception {

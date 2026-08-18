@@ -30,14 +30,14 @@
 
 ### 2. 注册与积分账户解耦
 
-注册成功后，auth 在自己的事务中写入 `auth_outbox_event`，由 RabbitMQ 投递
+注册成功后，auth 在自己的事务中写入 `auth_outbox_event`，由 Kafka 投递
 `UserRegistered` 事件；member 消费事件并幂等创建免费积分账户。Auth 不直接访问 Member 数据库，也不通过同步 HTTP 调用耦合 Member。
 
 ---
 
 ## 本地运行
 
-依赖 `MySQL`（数据库，`auth_db`）、`Redis`（会话）、`RabbitMQ`（注册事件）、`Nacos`（注册中心）。表结构在 `src/main/resources/schema.sql`。
+依赖 `MySQL`（数据库，`auth_db`）、`Redis`（会话）、`Kafka`（注册事件）、`Nacos`（注册中心）。表结构在 `src/main/resources/schema.sql`。
 
 跟平台一套启动脚本走：
 
@@ -59,7 +59,7 @@ cd auth-service && mvn spring-boot:run
 
 - `AuthController`（认证接口）：登录 / 注册 / 登出 / 资料入口。
 - `AuthServiceImpl`（认证服务实现）：注册、登录、登出的主逻辑。
-- `AuthOutboxService`（注册事件可靠投递）：事务外盒、Rabbit publisher confirm 和失败重试。
+- `AuthOutboxService`（注册事件可靠投递）：事务外盒、Kafka Broker ACK 和失败重试。
 - `AuthOutboxPublishJob`：XXL-JOB `authOutboxPublishJob` 扫描 Outbox；本地 `@Scheduled` 仅作无 Admin 兜底。
 - `SecurityConfig`（安全配置）：密码加密、请求放行规则。
 - `User`（用户实体）、`UserMapper`（用户数据访问）。

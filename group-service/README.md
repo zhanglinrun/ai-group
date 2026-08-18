@@ -8,7 +8,7 @@ ai-group 的拼团交易服务：活动展示、优惠试算、锁单占位、�
 
 这里最容易被忽略、但最关键的一步是`锁单`。团购不是“谁付款成功谁算数”那么简单，如果不先占位，并发下很容易出现重复参团、名额超卖、支付后才发现团满、事后大量退款这些问题。所以系统要在支付之前先把资格和名额占住。
 
-口径：活动查询和锁单的 `userId` 以网关 JWT `sub` 为准，不以 body 为准；结算/退款是回调和 Job，只认内部令牌 + 订单里的 userId。加入者占座走 Redis `INCR+1` + recovery + `SET NX`，然后请求线程同步写 MySQL `lock_count`；开团不占 Redis。落库失败或未成团退款给 recovery +1。限流是拼团侧 Redis 固定窗口，不是网关 `RequestRateLimiter`。MQ 监听器手动 ACK，失败有限重试再入队，没有独立 DLQ。
+口径：活动查询和锁单的 `userId` 以网关 JWT `sub` 为准，不以 body 为准；结算/退款是回调和 Job，只认内部令牌 + 订单里的 userId。加入者占座走 Redis `INCR+1` + recovery + `SET NX`，然后请求线程同步写 MySQL `lock_count`；开团不占 Redis。落库失败或未成团退款给 recovery +1。限流是拼团侧 Redis 固定窗口，不是网关 `RequestRateLimiter`。Kafka 监听器手动 ack，失败有限重试后进 `{topic}.DLT`。
 
 ---
 
@@ -50,8 +50,7 @@ ai-group 的拼团交易服务：活动展示、优惠试算、锁单占位、�
 
 ### 3. 消息监听
 
-- `TeamSuccessTopicListener`（组队成功监听）：接收拼团完结相关消息。
-- `RefundSuccessTopicListener`（退单成功监听）：退单成功后恢复锁单量，走最终一致性。
+- `RefundSuccessTopicListener`（退单成功监听）：退单成功后恢复锁单量，走最终一致性。成团消息由 Pay 消费，Group 不再监听 `group.team_success`。
 
 ---
 
@@ -71,7 +70,7 @@ ai-group 的拼团交易服务：活动展示、优惠试算、锁单占位、�
 - **结算是在推动团状态变化。** 支付成功后不只是把订单改成“已支付”，还要判断这单属于哪个团、团里完成了多少、是否刚好成团、要不要生成回调任务。本质是在推动“拼团是否成功”。
 - **退款不止一种。** 至少有三种场景：下单没支付超时退、已支付但没成团、已支付且已成团后又退款。不同场景恢复的数据和触发的动作都不一样，所以用了不同退款策略。
 - **主流程结束不等于业务结束。** 后面往往还有一串尾巴：回调外部系统、本地消息补发、定时任务重试、`MQ`（消息队列）失败重投、锁单量恢复。这也是项目里会有 `notify_task`（通知任务表）和多个任务、监听器的原因。
-- **本地通知任务不能把"调用了发送 API"当作成功。** MQ 发送使用 RabbitMQ topic exchange + publisher confirm；只有 Broker 确认接收时才把 `notify_task` 标成成功，超时、失败或中断都会保留任务供后续补偿重试。
+- **本地通知任务不能把"调用了发送 API"当作成功。** 成团通知只走 Kafka；`ConfirmedKafkaPublisher` 等到 Broker ACK 才把 `notify_task` 标成成功，超时、失败或中断都会保留任务供后续补偿重试。
 
 ---
 
@@ -96,7 +95,7 @@ ai-group 的拼团交易服务：活动展示、优惠试算、锁单占位、�
 - `Spring Boot 3.5.16`（应用框架）
 - `Maven`（构建工具）、`MyBatis`（持久层框架）
 - `MySQL`（数据库）、`Redis`（缓存）、`Redisson`（分布式锁）
-- `RabbitMQ`（Topic exchange 消息队列）
+- `Kafka`（领域事件与 Outbox 投递）
 - `Nacos`（服务发现）、`XXL-JOB`（补偿任务）
 - 动态配置与限流组件的配置键仍是库前缀 `xfg.wrench`（不是网关 `RequestRateLimiter`）
 
@@ -110,7 +109,7 @@ ai-group 的拼团交易服务：活动展示、优惠试算、锁单占位、�
 
 - `JDK 21`
 - `Maven 3.6+`
-- `MySQL 8`、`Redis 6`、`RabbitMQ 3`
+- `MySQL 8`、`Redis 6`、`Kafka 3.8`
 
 ### 启动步骤
 
@@ -122,7 +121,7 @@ docker compose --env-file .env -f dev-ops/compose/docker-compose.dev.yml up
 
 全栈也可用 `dev-ops/compose/docker-compose.full.yml`。库表初始化走 Compose 挂载的 `group-service/docs/dev-ops/mysql/sql/2-29-group_buy_market.sql`。
 
-2. **改开发配置。** 检查 `group-service-app/src/main/resources/application-dev.yml`：数据源、RabbitMQ、Redis，以及动态配置注册键 `xfg.wrench.config.register`（组件库前缀，不要改成别的名字）。
+2. **改开发配置。** 检查 `group-service-app/src/main/resources/application.yml`：数据源、Kafka、Redis，以及动态配置注册键 `xfg.wrench.config.register`（组件库前缀，不要改成别的名字）。
 
 3. **构建并启动。** 在仓库根目录：
 

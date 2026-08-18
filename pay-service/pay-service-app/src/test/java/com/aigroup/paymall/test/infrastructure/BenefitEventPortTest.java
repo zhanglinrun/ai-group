@@ -16,10 +16,10 @@ import static org.mockito.Mockito.verify;
 public class BenefitEventPortTest {
 
     @Test
-    public void orderPaySuccessUsesOutboxEventIdAsPublisherCorrelationKey() {
+    public void orderPaySuccessUsesOrderIdAsPartitionKey() {
         EventPublisher eventPublisher = mock(EventPublisher.class);
         PaySuccessMessageEvent paySuccessMessageEvent = new PaySuccessMessageEvent();
-        ReflectionTestUtils.setField(paySuccessMessageEvent, "routingKey", "topic.order_pay_success");
+        ReflectionTestUtils.setField(paySuccessMessageEvent, "topic", "topic.order_pay_success");
 
         BenefitEventPort port = new BenefitEventPort();
         ReflectionTestUtils.setField(port, "benefitEventPublisher", mock(BenefitEventPublisher.class));
@@ -30,8 +30,8 @@ public class BenefitEventPortTest {
 
         ArgumentCaptor<String> jsonCaptor = ArgumentCaptor.forClass(String.class);
         verify(eventPublisher).publish(
-                org.mockito.ArgumentMatchers.eq("evt-order-1"),
                 org.mockito.ArgumentMatchers.eq("topic.order_pay_success"),
+                org.mockito.ArgumentMatchers.eq("order-1"),
                 jsonCaptor.capture());
         PaySuccessMessageEvent.PaySuccessMessage message = JsonUtils.parseObject(
                 jsonCaptor.getValue(), PaySuccessMessageEvent.PaySuccessMessage.class);

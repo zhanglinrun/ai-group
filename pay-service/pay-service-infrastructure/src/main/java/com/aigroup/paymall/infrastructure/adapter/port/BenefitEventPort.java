@@ -31,7 +31,7 @@ public class BenefitEventPort implements IBenefitEventPort {
                 .userId(userId == null ? null : userId.toString())
                 .tradeNo(orderId)
                 .build();
-        eventPublisher.publish(eventId, paySuccessMessageEvent.topic(), JsonUtils.toJson(message));
+        eventPublisher.publish(paySuccessMessageEvent.topic(), orderId, JsonUtils.toJson(message));
     }
 
 }

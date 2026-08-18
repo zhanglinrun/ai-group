@@ -7,7 +7,7 @@ import java.util.List;
 
 public interface IBenefitEventService {
 
-    void enqueueCompletedOrderEvents(List<String> orderIds, Long bonusQuota);
+    void enqueueCompletedOrderEvents(List<String> orderIds);
 
     void enqueueRevokedBenefitEvents(List<String> orderIds);
 

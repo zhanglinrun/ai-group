@@ -27,12 +27,10 @@ public class BenefitEventRepositoryTest {
                 .orderId("order-1")
                 .productCode("QUOTA_LIGHT")
                 .baseQuota(null)
-                .bonusQuota(null)
                 .build());
 
         ArgumentCaptor<BenefitEvent> rowCaptor = ArgumentCaptor.forClass(BenefitEvent.class);
         verify(dao).insert(rowCaptor.capture());
         assertEquals(Long.valueOf(0L), rowCaptor.getValue().getBaseQuota());
-        assertEquals(Long.valueOf(0L), rowCaptor.getValue().getBonusQuota());
     }
 }

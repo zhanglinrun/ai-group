@@ -26,8 +26,6 @@ public class ProductPort implements IProductPort {
     private String source;
     @Value("${app.config.group-service.chanel}")
     private String chanel;
-    @Value("${app.config.group-service.notify-url}")
-    private String notifyUrl;
     @Value("${app.config.group-service.lock-max-attempts:3}")
     private int lockMaxAttempts = 3;
     @Value("${app.config.group-service.lock-retry-backoff-millis:100}")
