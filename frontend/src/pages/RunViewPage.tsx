@@ -30,6 +30,7 @@ import { KnowledgePanel } from "@/components/knowledge/KnowledgePanel";
 import { ReportArticle } from "@/components/report/ReportArticle";
 import { RunBreadcrumb } from "@/components/RunBreadcrumb";
 import { StatusBadge } from "@/components/StatusBadge";
+import { StatusReasonBanner } from "@/components/StatusReasonBanner";
 import { LlmCallsTable } from "@/components/trace/LlmCallsTable";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -59,7 +60,10 @@ export function RunViewPage(): JSX.Element {
   const createWatchlistMutation = useCreateWatchlistItem();
 
   const detailQuery = useRunDetail(runId, { events: false });
-  const traceQuery = useRunTrace(runId, { events: false });
+  const traceQuery = useRunTrace(runId, {
+    events: false,
+    enabled: Boolean(runId) && detailQuery.isSuccess,
+  });
   // Only subscribe after the ownership/detail request succeeds.  A direct
   // link to another user's run should render a normal error card, not keep
   // reconnecting an SSE request that can never be authorized.
@@ -222,8 +226,14 @@ export function RunViewPage(): JSX.Element {
               </p>
             ) : null}
           </div>
-          <StatusBadge status={detailQuery.isError ? "failed" : runStatus} />
+          <StatusBadge
+            status={detailQuery.isError ? "failed" : runStatus}
+            reason={detailQuery.data?.status_reason}
+          />
         </div>
+        {detailQuery.data && !isTerminalFailure ? (
+          <StatusReasonBanner status={runStatus} reason={detailQuery.data.status_reason} />
+        ) : null}
       </header>
 
       {detailQuery.isLoading && (
@@ -243,6 +253,7 @@ export function RunViewPage(): JSX.Element {
         <RunOutcomeCard
           runId={runId}
           status={runStatus as "failed" | "cancelled"}
+          reason={detailQuery.data.status_reason}
           startedAt={detailQuery.data.started_at}
           finishedAt={detailQuery.data.finished_at}
           onReanalyze={() => navigateToFocusedRun([])}
@@ -256,7 +267,7 @@ export function RunViewPage(): JSX.Element {
             <div className="flex flex-col gap-3 rounded-lg border border-primary/25 bg-primary/[0.06] p-4 text-caption text-foreground-muted sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-center gap-2">
                 <Activity className="h-4 w-4 text-primary" />
-                <span>分析仍在进行中，建议查看实时进度，避免在报告生成前看到空结果。</span>
+                <span>调研仍在进行中，建议查看实时进度，避免在报告生成前看到空结果。</span>
               </div>
               <Button asChild size="sm" variant="secondary">
                 <Link to={activeRunRoute}>前往实时进度</Link>
@@ -298,7 +309,7 @@ export function RunViewPage(): JSX.Element {
                 <Button size="sm" variant="ghost" onClick={handleExportPdf} aria-label="导出 PDF">
                   <FileDown className="h-3.5 w-3.5" />
                 </Button>
-                <Button size="sm" variant="ghost" onClick={() => navigateToFocusedRun([])} aria-label="再分析一版">
+                <Button size="sm" variant="ghost" onClick={() => navigateToFocusedRun([])} aria-label="再调研一版">
                   <RotateCcw className="h-3.5 w-3.5" />
                 </Button>
                 {SHOW_DEBUG_PANELS && isReportReady ? (
@@ -498,6 +509,7 @@ function KpiCard({ label, value }: { label: string; value: string }): JSX.Elemen
 interface RunOutcomeCardProps {
   runId: string;
   status: "failed" | "cancelled";
+  reason?: string | null;
   startedAt: string;
   finishedAt: string | null;
   onReanalyze: () => void;
@@ -515,6 +527,7 @@ interface RunOutcomeCardProps {
 function RunOutcomeCard({
   runId,
   status,
+  reason,
   startedAt,
   finishedAt,
   onReanalyze,
@@ -544,12 +557,14 @@ function RunOutcomeCard({
         <div className="min-w-0 flex-1 space-y-3">
           <div>
             <h2 className="text-h3 font-semibold text-foreground">
-              {isFailed ? "分析未能完成" : "分析已停止"}
+              {isFailed ? "调研未能完成" : "调研已停止"}
             </h2>
             <p className="mt-1 text-caption text-foreground-muted">
-              {isFailed
-                ? "运行过程中发生错误，可在「执行回放」查看 Agent 最后操作以定位原因，或直接基于此重新发起一次。"
-                : "你在分析进行中点击了停止；可以基于同一需求重新发起一次。"}
+              {reason?.trim()
+                ? reason
+                : isFailed
+                  ? "运行过程中发生错误，可在「执行回放」查看 Agent 最后操作以定位原因，或直接基于此重新发起一次。"
+                  : "你在调研进行中点击了停止；可以基于同一需求重新发起一次。"}
             </p>
           </div>
           <dl className="grid grid-cols-3 gap-x-4 gap-y-1.5 border-t border-white/[0.04] pt-3 text-caption">
@@ -573,7 +588,7 @@ function RunOutcomeCard({
           <div className="flex flex-wrap gap-2 pt-1">
             <Button onClick={onReanalyze} size="sm">
               <RotateCcw className="h-3.5 w-3.5" />
-              基于此重新分析
+              基于此重新调研
             </Button>
             <Button asChild size="sm" variant="outline">
               <Link to={`/app/runs/${runId}/trace`}>查看执行回放</Link>

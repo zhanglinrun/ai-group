@@ -29,6 +29,7 @@ from service.llm.harness import complete_structured
 from service.llm.records import build_llm_call_record
 from service.llm.response import LLMResponse
 from service.locale import detect_language
+from service.run_status_reason import build_degraded_reason
 from utils.log_node import log_node
 from utils.logger import bind_step, get_logger
 
@@ -2162,6 +2163,11 @@ async def supervisor_node(state: AgentState) -> AgentState:
             for item in state.get("researcher_degraded_competitors", [])
             if isinstance(item, str) and item
         ]
+        degraded_required_sections = qa_degraded_required_sections or [
+            item
+            for item in state.get("report_degraded_required_sections", [])
+            if isinstance(item, str) and item
+        ]
         if (
             not report_draft_done
             or completion_reason in {"max_iterations_hit", "fallback_path"}
@@ -2170,10 +2176,22 @@ async def supervisor_node(state: AgentState) -> AgentState:
             or researcher_degraded_competitors
         ):
             status = "degraded"
+            status_reason = build_degraded_reason(
+                forced_degraded_by_qa=forced_degraded_by_qa,
+                qa_degrade_reason=qa_degrade_reason,
+                degraded_required_sections=degraded_required_sections,
+                writer_fallback=writer_fallback,
+                completion_reason=completion_reason,
+                report_draft_done=report_draft_done,
+                researcher_degraded_competitors=researcher_degraded_competitors,
+                competitor_count=len(competitors),
+            )
         else:
             status = "completed"
+            status_reason = None
     else:
         status = "running"
+        status_reason = None
 
     return {
         **spread_without_accumulators(state),
@@ -2192,4 +2210,5 @@ async def supervisor_node(state: AgentState) -> AgentState:
         "qa_degraded_required_sections": [],
         "qa_unsupported_numeric_claims": [],
         "status": status,
+        "status_reason": status_reason,
     }

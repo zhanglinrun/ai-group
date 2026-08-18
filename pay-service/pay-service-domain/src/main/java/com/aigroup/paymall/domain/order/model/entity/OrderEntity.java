@@ -49,5 +49,7 @@ public class OrderEntity {
     private BigDecimal payAmount;
     // 支付时间
     private Date payTime;
+    // 最近状态变更时间：关单、成团结算、退款推进都写在这里
+    private Date updateTime;
 
 }

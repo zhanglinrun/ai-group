@@ -110,7 +110,7 @@ export function formatRunTitle(
     .map((line) => line.trim())
     .find((line) => line.length > 0);
   if (!firstLine) {
-    return "未命名分析";
+    return "未命名调研";
   }
   if (firstLine.length <= max) {
     return firstLine;

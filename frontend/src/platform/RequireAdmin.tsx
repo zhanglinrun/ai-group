@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Navigate, Outlet, useLocation } from "react-router-dom";
 
-import { currentUser, type PlatformUser } from "@/platform/client";
+import { currentUser, isAdmin, type PlatformUser } from "@/platform/client";
 
 /** Separate role gate for operator routes; a logged-in USER is not enough. */
 export function RequireAdmin(): JSX.Element {
@@ -32,7 +32,7 @@ export function RequireAdmin(): JSX.Element {
   if (!user) {
     return <Navigate replace to={`/login?redirect=${encodeURIComponent(location.pathname)}`} />;
   }
-  if (user.role.toUpperCase() !== "ADMIN") {
+  if (!isAdmin(user)) {
     return <Navigate replace to="/app" />;
   }
   return <Outlet />;

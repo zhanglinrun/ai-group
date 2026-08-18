@@ -23,7 +23,7 @@ interface RunBreadcrumbProps {
 }
 
 /**
- * Anchors run-detail pages to the "我的分析" sidebar item so users always
+ * Anchors run-detail pages to the "我的调研" sidebar item so users always
  * know where they are. Used at the top of RunView / LiveRun / PlanConfirm /
  * RunTrace / RunEvidence headers.
  */
@@ -39,7 +39,7 @@ export function RunBreadcrumb({ run, current, className }: RunBreadcrumbProps): 
       )}
     >
       <Link className="transition-colors hover:text-foreground" to="/app">
-        我的分析
+        我的调研
       </Link>
       <ChevronRight className="h-3.5 w-3.5 shrink-0 text-foreground-subtle" />
       {current ? (

@@ -50,9 +50,10 @@ const STATUS_META: Record<string, StatusMeta> = {
 
 export interface StatusBadgeProps {
   status: StatusType;
+  reason?: string | null;
 }
 
-export function StatusBadge({ status }: StatusBadgeProps): JSX.Element {
+export function StatusBadge({ status, reason }: StatusBadgeProps): JSX.Element {
   const meta = STATUS_META[status] ?? {
     icon: CircleDashed,
     label: status,
@@ -60,7 +61,7 @@ export function StatusBadge({ status }: StatusBadgeProps): JSX.Element {
   };
   const Icon = meta.icon;
   return (
-    <Badge variant={meta.variant}>
+    <Badge variant={meta.variant} title={reason?.trim() ? reason : undefined}>
       <Icon className={cn("h-3 w-3", status === "running" && "animate-spin")} />
       {meta.label}
     </Badge>

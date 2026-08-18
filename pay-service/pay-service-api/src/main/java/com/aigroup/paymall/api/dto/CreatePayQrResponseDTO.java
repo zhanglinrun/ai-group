@@ -23,6 +23,4 @@ public class CreatePayQrResponseDTO {
     private String payUrl;
     /** 服务端订单快照计算出的展示应付金额，不能由浏览器根据营销试算自行推导。 */
     private BigDecimal amount;
-    /** 仅 dev profile + 显式开关开启时为 true；生产环境始终为 false。 */
-    private boolean demoCompletionEnabled;
 }

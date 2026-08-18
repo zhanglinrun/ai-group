@@ -20,7 +20,7 @@ export function LandingPage(): JSX.Element {
   const previewRun = completedRunsQuery.data?.items[0] ?? null;
 
   useEffect(() => {
-    document.title = "熊博士 — AI 研究与拼团商城";
+    document.title = "熊博士 — AI 深度调研与拼团商城";
   }, []);
 
   return (
@@ -34,17 +34,17 @@ export function LandingPage(): JSX.Element {
           拼团购买积分 · 按 Token 透明计费
         </p>
         <h1 className="mx-auto max-w-3xl font-display text-display text-foreground">
-          让熊博士帮你生成
+          让熊博士帮你完成
           <br />
-          <span className="text-primary">可溯源研究报告</span>
+          <span className="text-primary">可溯源的深度调研</span>
         </h1>
         <p className="mx-auto mt-5 max-w-2xl text-body text-foreground-muted">
-          通过拼团获得更划算的 AI 积分，熊博士使用 LangGraph 多智能体并行检索、分析和写作；每次运行都展示 Token 消耗、积分冻结和最终结算。
+          竞品对比、赛道摸底、领域论文综述都可以。通过拼团获得更划算的 AI 积分，多智能体并行检索公开资料并写作；每次运行都展示 Token 消耗、积分冻结和最终结算。
         </p>
         <div className="mt-8 flex items-center justify-center gap-3">
           <Button asChild size="lg">
             <Link to="/app/runs/new">
-              开始分析
+              开始调研
               <ArrowRight className="h-4 w-4" />
             </Link>
           </Button>
@@ -59,7 +59,7 @@ export function LandingPage(): JSX.Element {
         <div className="rounded-xl border border-white/[0.06] bg-surface p-6 shadow-raised">
           <div className="mb-4 flex items-center gap-3">
             <div className="h-2 w-2 rounded-full bg-success" />
-            <span className="text-caption text-foreground-muted">最近完成的真实分析</span>
+            <span className="text-caption text-foreground-muted">最近完成的深度调研</span>
           </div>
           {completedRunsQuery.isLoading ? (
             <Skeleton className="h-28 w-full" />
@@ -106,7 +106,7 @@ export function LandingPage(): JSX.Element {
               <div className="rounded-lg border border-dashed border-white/[0.08] bg-page p-5">
                 <p className="text-caption font-medium text-foreground">暂无真实报告预览</p>
                 <p className="mt-2 text-caption text-foreground-muted">
-                  完成一次分析后，这里会展示最新报告的标题、证据量和执行步骤。
+                  完成一次深度调研后，这里会展示最新报告的标题、证据量和执行步骤。
                 </p>
               </div>
             )
@@ -123,7 +123,7 @@ export function LandingPage(): JSX.Element {
           </div>
           <h3 className="text-h3 text-foreground">自动调研</h3>
           <p className="text-caption text-foreground-muted">
-            并行抓取竞品官网、定价页、用户反馈，形成可追踪证据链。每条结论都可溯源到原始信息。
+            可以抓取竞品官网、定价与用户反馈，也可以检索论文、技术报告和公开资料，形成可追踪证据链。每条结论都可溯源到原文。
           </p>
         </div>
         <div className="space-y-3">
@@ -132,7 +132,7 @@ export function LandingPage(): JSX.Element {
           </div>
           <h3 className="text-h3 text-foreground">结构化结论</h3>
           <p className="text-caption text-foreground-muted">
-            把离散信息变成按竞品分组的 Battlecard 矩阵，输出置信度与风险标记，支持跨竞品对比。
+            按主题整理：竞品对比会输出 Battlecard，领域调研会梳理方法演进与关键结论，并标注置信度。
           </p>
         </div>
         <div className="space-y-3">
@@ -149,7 +149,7 @@ export function LandingPage(): JSX.Element {
       {/* Showcase wall */}
       <section className="space-y-4">
         <div className="flex items-end justify-between">
-          <h2 className="text-h2 text-foreground">最近完成的分析</h2>
+          <h2 className="text-h2 text-foreground">最近完成的调研</h2>
           <Link className="text-caption text-primary hover:underline" to="/examples">
             查看全部
           </Link>

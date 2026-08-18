@@ -167,7 +167,7 @@ export function PlanConfirmPage(): JSX.Element {
     if (totalEnabled === 0) {
       pushToast({
         title: "至少需要保留一个任务",
-        description: "全部任务被禁用，无法启动分析。",
+        description: "全部任务被禁用，无法启动调研。",
         variant: "danger",
       });
       return;
@@ -248,10 +248,10 @@ export function PlanConfirmPage(): JSX.Element {
           </Button>
         </div>
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h1 className="text-h1 text-foreground">确认分析计划</h1>
+          <h1 className="text-h1 text-foreground">确认调研计划</h1>
           <div className="flex items-center gap-2">
             <Badge variant="secondary" className="font-mono text-xs">{runId}</Badge>
-            <CancelRunButton runId={runId} label="放弃此次分析" redirectTo="/app" />
+            <CancelRunButton runId={runId} label="放弃此次调研" redirectTo="/app" />
           </div>
         </div>
         <p className="text-caption text-foreground-muted">
@@ -327,7 +327,7 @@ export function PlanConfirmPage(): JSX.Element {
                         启动中
                       </>
                     ) : (
-                      "确认并启动分析"
+                      "确认并启动调研"
                     )}
                   </Button>
                 </CardContent>
@@ -499,7 +499,7 @@ function AdditionalTasksCard({ tasks, onAdd, onRemove }: AdditionalTasksCardProp
     onAdd(newTask);
     pushToast({
       title: "补充任务已加入待确认队列",
-      description: "点击“确认并启动分析”后才会生效。",
+      description: "点击“确认并启动调研”后才会生效。",
       variant: "success",
     });
     resetForm();
@@ -517,7 +517,7 @@ function AdditionalTasksCard({ tasks, onAdd, onRemove }: AdditionalTasksCardProp
           </span>
         </CardTitle>
         <p className="text-caption text-foreground-muted">
-          这里新增的是待确认补充任务，点击“确认并启动分析”后才会提交并按高优先级执行。
+          这里新增的是待确认补充任务，点击“确认并启动调研”后才会提交并按高优先级执行。
         </p>
       </CardHeader>
       <CardContent className="space-y-2 pt-0">
@@ -661,7 +661,7 @@ function PlanLoadingCard(): JSX.Element {
       <CardHeader className="pb-3">
         <CardTitle className="inline-flex items-center gap-2 text-base">
           <Loader2 className="h-4 w-4 animate-spin text-primary" />
-          Agent 正在拟定分析计划…
+          Agent 正在拟定调研计划…
         </CardTitle>
         <p className="text-caption text-foreground-muted">
           Planner 通常需要 5-15 秒，期间你可以稍等或先阅读右侧需求摘要。
@@ -704,9 +704,9 @@ function IntakeSummaryCard({
           <>
             <SummaryRow label="原始诉求" value={draft.user_query} />
             <SummaryRow label="用户角色" value={draft.user_role ?? "—"} />
-            <SummaryRow label="分析意图" value={draft.analysis_intent ?? "—"} />
+            <SummaryRow label="调研意图" value={draft.analysis_intent ?? "—"} />
             <SummaryRow
-              label="分析形态"
+              label="调研形态"
               value={
                 draft.analysis_archetype === "landscape"
                   ? "landscape（赛道分层）"
@@ -714,7 +714,7 @@ function IntakeSummaryCard({
               }
             />
             <SummaryRow
-              label="竞品"
+              label="调研对象"
               value={
                 draft.competitors_explicit.length > 0
                   ? draft.competitors_explicit.join("、")

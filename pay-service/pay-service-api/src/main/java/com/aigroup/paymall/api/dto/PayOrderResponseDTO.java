@@ -17,8 +17,7 @@ public class PayOrderResponseDTO {
     private String payUrl;
     private Date orderTime;
     private Date payTime;
+    private Date updateTime;
     private Long groupActivityId;
     private String groupTeamId;
-    /** Local dev profile exposes a guarded simulated payment endpoint. */
-    private boolean demoCompletionEnabled;
 }

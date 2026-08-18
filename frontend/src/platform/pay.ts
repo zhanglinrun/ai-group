@@ -16,7 +16,6 @@ export interface CreatePayQrOrder {
   qrCode?: string | null;
   payUrl?: string | null;
   amount?: number | string | null;
-  demoCompletionEnabled?: boolean;
 }
 
 interface PaymentEnvelope<T> {
@@ -47,33 +46,6 @@ export async function createPayQrOrder(request: CreatePayOrderRequest): Promise<
 export async function syncPayOrder(orderId: string): Promise<string> {
   const response = await platformClient.post<PaymentEnvelope<string>>(
     "/api/v1/alipay/sync_settle",
-    null,
-    { params: { outTradeNo: orderId } },
-  );
-  return unwrap(response.data);
-}
-
-export async function completeDemoPayment(orderId: string): Promise<string> {
-  const response = await platformClient.post<PaymentEnvelope<string>>(
-    "/api/v1/alipay/demo_complete",
-    null,
-    { params: { outTradeNo: orderId } },
-  );
-  return unwrap(response.data);
-}
-
-export async function markDemoGroupPaid(orderId: string): Promise<string> {
-  const response = await platformClient.post<PaymentEnvelope<string>>(
-    "/api/v1/alipay/demo_mark_paid",
-    null,
-    { params: { outTradeNo: orderId } },
-  );
-  return unwrap(response.data);
-}
-
-export async function finalizeDemoGroup(orderId: string): Promise<string> {
-  const response = await platformClient.post<PaymentEnvelope<string>>(
-    "/api/v1/alipay/demo_finalize_group",
     null,
     { params: { outTradeNo: orderId } },
   );

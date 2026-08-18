@@ -249,13 +249,13 @@ export function DashboardPage(): JSX.Element {
       {/* Header */}
       <div className="flex items-end justify-between">
         <div>
-          <h1 className="text-h1 text-foreground">我的分析</h1>
-          <p className="mt-1 text-caption text-foreground-muted">继续上次任务、复盘历史报告、快速启动新分析。</p>
+          <h1 className="text-h1 text-foreground">我的调研</h1>
+          <p className="mt-1 text-caption text-foreground-muted">继续上次任务、复盘历史报告、快速启动新的深度调研。</p>
         </div>
         <Button asChild>
           <Link to="/app/runs/new">
             <Plus className="h-4 w-4" />
-            新建分析
+            新建调研
           </Link>
         </Button>
       </div>
@@ -269,7 +269,7 @@ export function DashboardPage(): JSX.Element {
             <div className="mt-3 space-y-2">
               <p className="text-caption font-medium text-foreground">{continueRun.user_query}</p>
               <div className="flex items-center gap-2">
-                <StatusBadge status={continueRun.status} />
+                <StatusBadge status={continueRun.status} reason={continueRun.status_reason} />
                 <span className="text-micro text-foreground-subtle">{formatRelativeTime(continueRun.started_at)}</span>
               </div>
               <Button
@@ -292,9 +292,9 @@ export function DashboardPage(): JSX.Element {
 
         {/* Watchlist card */}
         <div className="rounded-lg border border-white/[0.06] bg-surface p-5">
-          <p className="text-micro font-medium uppercase tracking-wider text-foreground-subtle">竞品追踪</p>
+          <p className="text-micro font-medium uppercase tracking-wider text-foreground-subtle">调研追踪</p>
           <p className="mt-3 text-h2 font-semibold text-foreground">{watchlistQuery.data?.length ?? 0}</p>
-          <p className="text-micro text-foreground-muted">个竞品正在追踪</p>
+          <p className="text-micro text-foreground-muted">个对象正在追踪</p>
           <Button asChild size="sm" variant="secondary" className="mt-3">
             <Link to="/app/watch">管理追踪列表</Link>
           </Button>
@@ -440,10 +440,15 @@ export function DashboardPage(): JSX.Element {
                     <p className="text-micro text-foreground-subtle">
                       {run.domain_hint ?? "通用"} · {run.evidence_count} 证据 · {run.step_count} 步骤
                     </p>
+                    {run.status_reason ? (
+                      <p className="truncate text-micro text-warning" title={run.status_reason}>
+                        {run.status_reason}
+                      </p>
+                    ) : null}
                   </>
                 )}
               </button>
-              <StatusBadge status={run.status} />
+              <StatusBadge status={run.status} reason={run.status_reason} />
               <div className="relative" ref={menuOpenId === run.run_id ? menuRef : undefined}>
                 <button
                   type="button"

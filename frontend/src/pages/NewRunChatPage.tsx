@@ -77,7 +77,7 @@ type ChatStatus =
   | "error";
 
 const WELCOME_TEXT =
-  "你好，我是熊博士。告诉我你想做的竞品分析，我会先帮你对齐角色、意图和竞品范围，再开始抓取证据。";
+  "你好，我是熊博士。告诉我你想做的深度调研——可以是竞品对比，也可以是某个领域的论文综述或技术摸底。我会先对齐身份、意图和调研对象，再开始抓取证据。";
 
 const POST_COMPLETE_DELAY_MS = 1500;
 
@@ -119,9 +119,9 @@ function reportDepthLabel(depth: ReportDepth): string {
 // user-facing labels for the clarify bubble; unknown keys are hidden, not shown raw.
 const FIELD_TARGET_LABELS: Record<string, string> = {
   user_role: "用户身份",
-  analysis_intent: "分析意图",
-  competitors_explicit: "竞品范围",
-  competitors_discovery_mode: "竞品范围",
+  analysis_intent: "调研意图",
+  competitors_explicit: "调研对象",
+  competitors_discovery_mode: "调研对象",
   domain_hint: "行业领域",
   focus_dimensions: "关注维度",
   report_depth: "报告深度",
@@ -141,12 +141,12 @@ function buildIdempotencyKey(): string {
   return `intake_${Date.now()}_${Math.random().toString(16).slice(2)}`;
 }
 
-// Curated example prompts the user can one-click into the composer. Three
-// scenarios chosen to be mutually orthogonal on (industry × user role ×
-// requirement clarity), so a stranger to the system sees the full coverage:
-//   - trae_full       → TC-I7  PM     × AI Coding IDE × discovery + dense spec
-//   - hr_saas_ai      → TC-I1  PM     × HR SaaS       × discovery-first（竞品范围未知）
-//   - ai_resume_track → TC-I2  Founder× HR Tech       × 半模糊（创业者给投资人讲故事）
+// Curated example prompts the user can one-click into the composer.
+// Coverage includes competitor analysis and domain-paper research:
+//   - trae_full         → PM     × AI Coding IDE × 竞品发现
+//   - hr_saas_ai        → PM     × HR SaaS       × 赛道摸底
+//   - ai_resume_track   → Founder× HR Tech       × 早期对标
+//   - rag_paper_survey  → 研究/工程 × RAG        × 领域论文综述
 interface ExamplePrompt {
   id: string;
   title: string;
@@ -160,7 +160,7 @@ interface ExamplePrompt {
 const ANALYSIS_PIPELINE_STEPS: Array<{ title: string; text: string }> = [
   {
     title: "澄清需求",
-    text: "Intake Agent 根据你的描述追问，补齐角色、意图与竞品范围（左侧清单同步更新）",
+    text: "Intake Agent 根据你的描述追问，补齐角色、意图与调研对象（左侧清单同步更新）",
   },
   {
     title: "确认计划",
@@ -172,7 +172,7 @@ const ANALYSIS_PIPELINE_STEPS: Array<{ title: string; text: string }> = [
   },
   {
     title: "产出报告",
-    text: "生成 Battlecard 与可分享报告，结论均可追溯到 evidence",
+    text: "生成结构化报告：竞品对比会出 Battlecard，领域调研会梳理文献与结论，均可追溯到 evidence",
   },
 ];
 
@@ -198,6 +198,13 @@ const EXAMPLE_PROMPTS: ExamplePrompt[] = [
     subtitle: "创业者 · 早期对标 · 给种子轮投资人讲故事",
     query:
       "我们三人团队在做「AI 简历优化 + 求职进度追踪」工具，目标用户是国内应届生和 1-3 年经验的年轻人，MVP 刚在小红书内测，反馈还不错。下个月要见种子轮投资人，需要把赛道讲清楚。海外我知道有 Teal、Rezi 做简历，LinkedIn 在推 AI 求职助手；国内感觉很乱，不知道谁是真正的竞品、谁只是个单点功能。请帮我把这个赛道的主要产品和公司找出来，梳理各自的用户定位、核心功能和商业模式，然后帮我判断「简历优化 + 求职追踪」的组合切入点还有没有空间。",
+  },
+  {
+    id: "rag_paper_survey",
+    title: "RAG 方向论文与技术路线综述",
+    subtitle: "研究/工程 · 领域论文 · 方法演进与落地建议",
+    query:
+      "请帮我做一次检索增强生成（RAG）方向的深度调研，不要做成产品竞品对比。覆盖 2023–2026 年的关键论文与技术报告：naive RAG、Self-RAG、GraphRAG、agentic RAG，以及评测基准（如 RGB、CRAG、HotpotQA）。请梳理方法演进脉络、各自解决的问题和尚未闭环的瓶颈，并给出工程落地时该怎么选型。中英文公开资料都可以用，结论要能追溯到论文或技术博客原文。",
   },
 ];
 
@@ -316,13 +323,13 @@ function deriveChecklistRows(
       hint:
         identitySatisfied && draft
           ? roleLabel(draft.user_role as UserRole)
-          : "PM / 创业者 / 销售 / 投资人",
+          : "产品经理 / 创业者 / 销售 / 投资人",
       satisfied: identitySatisfied,
       active: !identitySatisfied && activeRowIds.has("identity"),
     },
     {
       id: "intent",
-      label: "分析意图",
+      label: "调研意图",
       hint: intentSatisfied && draft?.analysis_intent
         ? draft.analysis_intent
         : "你最希望解决的问题或决策",
@@ -331,7 +338,7 @@ function deriveChecklistRows(
     },
     {
       id: "competitors",
-      label: "竞品范围",
+      label: "调研对象",
       hint: competitorHint(draft),
       satisfied: competitorsSatisfied,
       active: !competitorsSatisfied && activeRowIds.has("competitors"),
@@ -367,15 +374,15 @@ function roleLabel(role: UserRole): string {
 
 function competitorHint(draft: RunIntakeDraft | null): string {
   if (!draft) {
-    return "指定竞品或让 Agent 自动发现";
+    return "指定竞品、论文主题，或让 Agent 按领域检索";
   }
   if (draft.competitors_explicit.length > 0) {
     return draft.competitors_explicit.join("、");
   }
   if (draft.competitors_discovery_mode) {
-    return "由 Agent 自动发现赛道头部";
+    return "由 Agent 按主题自动检索公开资料";
   }
-  return "指定竞品或让 Agent 自动发现";
+  return "指定竞品、论文主题，或让 Agent 按领域检索";
 }
 
 function competitorPathSatisfied(draft: RunIntakeDraft | null): boolean {
@@ -709,7 +716,7 @@ export function NewRunChatPage(): JSX.Element {
         {
           id: newMessageId(),
           kind: "assistant.complete",
-          text: "需求确认完成。请先选择分析档位，再生成计划。",
+          text: "需求确认完成。请先选择调研档位，再生成计划。",
         },
       ]);
       if (draftFromEvent?.report_depth !== undefined) {
@@ -721,7 +728,7 @@ export function NewRunChatPage(): JSX.Element {
       setStatus("awaiting_profile");
       pushToast({
         title: "需求确认完成",
-        description: "请选择分析档位后继续。",
+        description: "请选择调研档位后继续。",
         variant: "success",
       });
     },
@@ -807,7 +814,7 @@ export function NewRunChatPage(): JSX.Element {
         sessionStorage.removeItem(INTAKE_SESSION_KEY);
         setStatus("complete");
         pushToast({
-          title: "已开始分析",
+          title: "已开始调研",
           description: "任务已在后台完成，正在跳转结果页。",
           variant: "success",
         });
@@ -1082,9 +1089,9 @@ export function NewRunChatPage(): JSX.Element {
     !composerDisabled;
   const composerPlaceholder =
     runId === null
-      ? "描述你想做的竞品分析（角色、要解决的问题、可选竞品名单）"
+      ? "描述你想做的深度调研（竞品对比、赛道摸底或领域论文都可以）"
       : status === "awaiting_profile"
-        ? "请先选择分析档位后继续"
+        ? "请先选择调研档位后继续"
         : "回答澄清问题，或补充更多上下文…";
 
   useEffect(() => {
@@ -1116,12 +1123,12 @@ export function NewRunChatPage(): JSX.Element {
     <section className="flex h-full min-h-0 flex-col gap-5">
       <header className="shrink-0 space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h1 className="text-h1 text-foreground">新建竞品分析</h1>
+          <h1 className="text-h1 text-foreground">新建深度调研</h1>
           <div className="flex items-center gap-2">
             {runId !== null && status !== "complete" && (
               <CancelRunButton
                 runId={runId}
-                label="放弃此次分析"
+                label="放弃此次调研"
                 redirectTo="/app"
                 size="sm"
               />
@@ -1130,8 +1137,8 @@ export function NewRunChatPage(): JSX.Element {
           </div>
         </div>
         <p className="text-caption text-foreground-muted">
-          告诉 Agent 你想分析什么，我会用对话帮你确认身份、意图和竞品范围，再开始抓取证据。
-          想跳过澄清直接填表单，可以切到「专家表单」。
+          告诉 Agent 你想调研什么，我会用对话帮你确认身份、意图和调研对象，再开始抓取证据。
+          竞品对比、赛道摸底、某个领域的论文综述都可以。想跳过澄清直接填表单，可以切到「专家表单」。
         </p>
         {fromRunId !== null ? (
           <p className="text-xs text-primary">
@@ -1227,7 +1234,7 @@ export function NewRunChatPage(): JSX.Element {
                 {status === "awaiting_profile" && runId !== null && (
                   <div className="rounded-md border border-primary/30 bg-primary/[0.06] p-3">
                     <p className="text-xs font-medium text-foreground">
-                      需求已确认，生成计划前请选择分析档位
+                      需求已确认，生成计划前请选择调研档位
                     </p>
                     <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
                       <ReportDepthSelector value={reportDepth} onChange={setReportDepth} />
@@ -1377,7 +1384,8 @@ export function NewRunChatPage(): JSX.Element {
             </CardHeader>
             <CardContent className="space-y-3 pt-0 text-xs text-foreground-muted">
               <p className="leading-relaxed text-foreground-muted">
-                Agent 会先与你对齐角色、意图和竞品范围，再开始抓取证据——这样可以避免「报告生成了但方向错」的浪费。
+                Agent 会先与你对齐角色、意图和调研对象，再开始抓取证据——这样可以避免「报告生成了但方向错」的浪费。
+                竞品只是深度调研的一种，领域论文和技术摸底同样适用。
               </p>
               <div className="space-y-2.5 border-t border-white/[0.06] pt-3">
                 <p className="text-[11px] uppercase tracking-wider text-foreground-subtle">
@@ -1509,7 +1517,7 @@ function intakeThinkingLabel(status: ChatStatus, hasClarify: boolean): string {
   if (status === "replying") {
     return "发送中…";
   }
-  return hasClarify ? "正在核对需求信息…" : "正在理解你的分析需求…";
+  return hasClarify ? "正在核对需求信息…" : "正在理解你的调研需求…";
 }
 
 function ThinkingBubble({

@@ -4,8 +4,10 @@ import { Link, useNavigate } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { DEFAULT_GROUP_VALID_MINUTES, formatCountdown, PAYMENT_WINDOW_MS, secondsUntil } from "@/lib/countdown";
 import { pricing } from "@/platform/client";
 import { createPayQrOrder, type CreatePayOrderRequest, type PurchaseMode } from "@/platform/pay";
+import { classifyPayPayload } from "@/lib/payPayload";
 import { PaymentDialog, type PaymentDialogState } from "@/components/commerce/PaymentDialog";
 
 interface PackageCard {
@@ -18,6 +20,7 @@ interface PackageCard {
   activityId?: number;
   productId?: string;
   teamSize?: number;
+  validTimeMinutes?: number;
 }
 
 interface GroupTeam {
@@ -30,6 +33,7 @@ interface GroupTeam {
   validEndTime?: string;
   validTimeCountdown?: string;
   outTradeNo?: string;
+  own?: boolean;
 }
 
 function normalizeTeams(value: unknown): GroupTeam[] {
@@ -56,9 +60,9 @@ function normalizeTeams(value: unknown): GroupTeam[] {
 }
 
 const FALLBACK_PACKAGES: PackageCard[] = [
-  { code: "QUOTA_LIGHT", name: "轻享额度包", price: 12, quota: 60, groupPrice: 10.8, groupDeduction: 1.2, teamSize: 3, activityId: 100201, productId: "9890002" },
-  { code: "QUOTA_STANDARD", name: "标准额度包", price: 60, quota: 300, groupPrice: 54, groupDeduction: 6, teamSize: 3, activityId: 100202, productId: "9890003" },
-  { code: "QUOTA_LARGE", name: "大额额度包", price: 140, quota: 700, groupPrice: 126, groupDeduction: 14, teamSize: 3, activityId: 100203, productId: "9890004" },
+  { code: "QUOTA_LIGHT", name: "轻享额度包", price: 12, quota: 60, groupPrice: 10.8, groupDeduction: 1.2, teamSize: 3, activityId: 100201, productId: "9890002", validTimeMinutes: DEFAULT_GROUP_VALID_MINUTES },
+  { code: "QUOTA_STANDARD", name: "标准额度包", price: 60, quota: 300, groupPrice: 54, groupDeduction: 6, teamSize: 3, activityId: 100202, productId: "9890003", validTimeMinutes: DEFAULT_GROUP_VALID_MINUTES },
+  { code: "QUOTA_LARGE", name: "大额额度包", price: 140, quota: 700, groupPrice: 126, groupDeduction: 14, teamSize: 3, activityId: 100203, productId: "9890004", validTimeMinutes: DEFAULT_GROUP_VALID_MINUTES },
 ];
 
 function normalizePackages(payload: Record<string, unknown>): PackageCard[] {
@@ -80,34 +84,27 @@ function normalizePackages(payload: Record<string, unknown>): PackageCard[] {
       activityId: Number(row.groupActivityId || row.group_activity_id || 0) || undefined,
       productId: String(row.groupGoodsId || row.id || "") || undefined,
       teamSize: Number(row.teamSize || row.groupTeamSize || 0) || undefined,
+      validTimeMinutes: Number(row.groupValidTime || row.validTime || 0) || DEFAULT_GROUP_VALID_MINUTES,
     }];
   });
   return normalized.length ? normalized : FALLBACK_PACKAGES;
 }
 
-function remainingSeconds(expiresAt: string | undefined, now: number): number | null {
-  if (!expiresAt) return null;
-  const timestamp = Date.parse(expiresAt);
-  if (!Number.isFinite(timestamp)) return null;
-  return Math.max(0, Math.floor((timestamp - now) / 1000));
-}
-
-function formatRemaining(seconds: number | null): string {
-  if (seconds == null) return "";
-  if (seconds <= 0) return "已结束";
-  const days = Math.floor(seconds / 86400);
-  const hours = Math.floor((seconds % 86400) / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
-  const rest = seconds % 60;
-  return days > 0
-    ? `${days}天 ${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`
-    : `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(rest).padStart(2, "0")}`;
+function mergeHallTeams(mine: GroupTeam[], others: GroupTeam[]): GroupTeam[] {
+  const ownIds = new Set(mine.map((team) => team.teamId));
+  const seen = new Set<string>();
+  const merged: GroupTeam[] = [];
+  for (const team of [...mine, ...others]) {
+    if (seen.has(team.teamId)) continue;
+    seen.add(team.teamId);
+    merged.push({ ...team, own: ownIds.has(team.teamId) });
+  }
+  return merged;
 }
 
 export function GroupHallPage(): JSX.Element {
   const navigate = useNavigate();
   const [packages, setPackages] = useState(FALLBACK_PACKAGES);
-  const [myTeams, setMyTeams] = useState<GroupTeam[]>([]);
   const [teams, setTeams] = useState<GroupTeam[]>([]);
   const [message, setMessage] = useState<string | null>(null);
   const [paying, setPaying] = useState<string | null>(null);
@@ -126,12 +123,20 @@ export function GroupHallPage(): JSX.Element {
         const groupBuyData = groupBuy && typeof groupBuy === "object"
           ? groupBuy as Record<string, unknown>
           : {};
-        setMyTeams(normalizeTeams(groupBuyData.myTeamList));
-        setTeams(normalizeTeams(groupBuyData.teamList));
+        if (groupBuyData.unavailable === true) {
+          if (!silent) {
+            setMessage("拼团大厅暂时读不到进行中队伍，请稍后刷新。");
+          }
+        } else {
+          setMessage(null);
+        }
+        setTeams(mergeHallTeams(
+          normalizeTeams(groupBuyData.myTeamList),
+          normalizeTeams(groupBuyData.teamList),
+        ));
       } catch {
         if (!alive) return;
         setPackages(FALLBACK_PACKAGES);
-        setMyTeams([]);
         setTeams([]);
       }
     };
@@ -148,6 +153,10 @@ export function GroupHallPage(): JSX.Element {
   const totalQuota = useMemo(() => packages.reduce((sum, item) => sum + item.quota, 0), [packages]);
 
   async function purchase(packageCard: PackageCard, mode: PurchaseMode, teamId?: string): Promise<void> {
+    if (teamId && teams.some((team) => team.teamId === teamId && team.own)) {
+      setMessage("不能加入自己的队伍，请到订单中心继续支付。");
+      return;
+    }
     const key = teamId ? `${packageCard.code}-group-${teamId}` : `${packageCard.code}-${mode}`;
     setPaying(key);
     setMessage(null);
@@ -165,14 +174,21 @@ export function GroupHallPage(): JSX.Element {
         request.teamId = teamId;
       }
       const order = await createPayQrOrder(request);
+      const joined = teamId ? teams.find((team) => team.teamId === teamId) : undefined;
+      const validMinutes = packageCard.validTimeMinutes || DEFAULT_GROUP_VALID_MINUTES;
+      const qrPayload = classifyPayPayload(order.qrCode ?? order.payUrl);
+      const formPayload = classifyPayPayload(order.payUrl);
       setPayment({
         orderId: order.orderId,
         title: packageCard.name,
         amount: order.amount ?? (mode === "group" ? packageCard.groupPrice : packageCard.price),
-        qrCode: order.qrCode,
-        payUrl: order.payUrl,
-        demoCompletionEnabled: order.demoCompletionEnabled,
+        qrCode: qrPayload.kind === "qr" ? qrPayload.qrCode : undefined,
+        payUrl: formPayload.kind === "form" ? formPayload.formHtml : undefined,
         purchaseMode: mode,
+        paymentExpiresAt: Date.now() + PAYMENT_WINDOW_MS,
+        groupExpiresAt: mode === "group"
+          ? (joined?.validEndTime ?? Date.now() + validMinutes * 60 * 1000)
+          : undefined,
       });
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "创建支付订单失败");
@@ -194,7 +210,7 @@ export function GroupHallPage(): JSX.Element {
           <Link to="/app" className="text-sm text-foreground-muted hover:text-primary">← 返回工作台</Link>
           <p className="mt-4 text-sm font-medium text-primary">熊博士积分商城</p>
           <h1 className="mt-2 text-3xl font-semibold">拼团大厅</h1>
-          <p className="mt-3 max-w-2xl text-sm text-foreground-muted">拼团购买会发起一个新队伍；下方只展示其他用户的进行中队伍，可选择加入。支付后可在订单中心查看锁单、成团和入账进度。</p>
+          <p className="mt-3 max-w-2xl text-sm text-foreground-muted">拼团购买会发起一个新队伍；下方展示全部进行中队伍。自己的队伍只可查看，不能再次加入。支付后可在订单中心查看锁单、成团和入账进度。</p>
         </div>
         <div className="rounded-xl border border-border bg-surface px-5 py-4 text-sm"><p className="text-foreground-muted">当前可选积分</p><p className="mt-1 text-2xl font-semibold text-primary">{totalQuota.toLocaleString()}+</p></div>
       </div>
@@ -202,8 +218,7 @@ export function GroupHallPage(): JSX.Element {
       <div className="grid gap-5 lg:grid-cols-3">
         {packages.map((item, index) => <PackageCard key={item.code} item={item} featured={index === 1} paying={paying} onPurchase={(mode) => void purchase(item, mode)} />)}
       </div>
-      {myTeams.length > 0 ? <section className="space-y-3"><div><h2 className="text-xl font-semibold">我的进行中拼团</h2><p className="mt-1 text-sm text-foreground-muted">这里展示你已发起或已加入、仍在有效期内的队伍。可到订单中心继续支付并查看锁单进度。</p></div><div className="grid gap-3 md:grid-cols-2">{myTeams.map((team) => <TeamProgressCard key={`mine-${team.teamId}`} team={team} packages={packages} now={now} own />)}</div></section> : null}
-      {teams.length > 0 ? <section className="space-y-3"><div><h2 className="text-xl font-semibold">可加入的进行中拼团</h2><p className="mt-1 text-sm text-foreground-muted">这里只展示其他用户发起的队伍。选择同一套餐加入，支付前锁定队伍库存，支付成功后计入成团人数。</p></div><div className="grid gap-3 md:grid-cols-2">{teams.map((team) => <TeamProgressCard key={`other-${team.teamId}`} team={team} packages={packages} now={now} paying={paying} onJoin={(item) => void purchase(item, "group", team.teamId)} />)}</div></section> : <Card><CardContent className="p-8 text-center"><p className="font-medium">暂无可加入的他人拼团</p><p className="mt-2 text-sm text-foreground-muted">当前没有其他用户的有效队伍；你可以点击额度包的“拼团购买（发起新团）”创建自己的队伍。</p></CardContent></Card>}
+      {teams.length > 0 ? <section className="space-y-3"><div><h2 className="text-xl font-semibold">进行中拼团</h2><p className="mt-1 text-sm text-foreground-muted">这里展示全部进行中队伍。选择同一套餐可加入他人队伍；自己的队伍不能再次加入，可到订单中心继续支付。</p></div><div className="grid gap-3 md:grid-cols-2">{teams.map((team) => <TeamProgressCard key={team.teamId} team={team} packages={packages} now={now} paying={paying} own={team.own} onJoin={team.own ? undefined : (item) => void purchase(item, "group", team.teamId)} />)}</div></section> : <Card><CardContent className="p-8 text-center"><p className="font-medium">暂无进行中拼团</p><p className="mt-2 text-sm text-foreground-muted">当前没有有效队伍；你可以点击额度包的“拼团购买（发起新团）”创建自己的队伍。</p></CardContent></Card>}
       <div className="grid gap-4 md:grid-cols-3">
         <Info icon={<Users />} title="真实拼团" text="同一活动共享队伍库存，成团后订单进入权益发放流程。" />
         <Info icon={<WalletCards />} title="积分账本" text="冻结、确认、释放和赠送均追加流水，重复回调不会重复入账。" />
@@ -234,10 +249,10 @@ function TeamProgressCard({
   const complete = team.completeCount ?? 0;
   const target = team.targetCount ?? 3;
   const locked = team.lockCount ?? complete;
-  const countdown = remainingSeconds(team.validEndTime, now);
-  const countdownText = formatRemaining(countdown) || team.validTimeCountdown || "等待成团";
+  const countdown = secondsUntil(team.validEndTime, now);
+  const countdownText = formatCountdown(countdown) || team.validTimeCountdown || "等待成团";
 
-  return <Card><CardContent className="space-y-3 p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="font-medium">{item.name}</p><p className="mt-1 text-xs text-foreground-muted">{own ? "我的队伍" : "队伍"} {team.teamId.slice(0, 12)} · 已支付 {complete}/{target} 人</p></div><span className={`rounded-full px-2 py-1 text-xs font-medium ${countdown === 0 ? "bg-secondary text-foreground-muted" : "bg-primary/10 text-primary"}`}><Clock3 className="mr-1 inline h-3 w-3" />{countdownText}</span></div><div className="h-2 overflow-hidden rounded-full bg-secondary"><div className="h-full rounded-full bg-primary transition-all" style={{ width: `${target > 0 ? Math.min(100, (locked / target) * 100) : 0}%` }} /></div><div className="flex items-center justify-between text-xs text-foreground-muted"><span>已锁单 {locked}/{target}</span><span>{Math.max(target - locked, 0) > 0 ? `还差 ${Math.max(target - locked, 0)} 人` : "已达到成团人数"}</span></div>{own ? <Button asChild variant="outline" className="w-full"><Link to="/orders">查看订单与支付状态</Link></Button> : <Button size="sm" className="w-full" onClick={() => onJoin?.(item)} disabled={Boolean(paying) || !item.activityId || countdown === 0}>{teamPaying ? "创建订单…" : "加入他人拼团"}</Button>}</CardContent></Card>;
+  return <Card><CardContent className="space-y-3 p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="font-medium">{item.name}</p><p className="mt-1 text-xs text-foreground-muted">{own ? "我的队伍" : "队伍"} {team.teamId.slice(0, 12)} · 已支付 {complete}/{target} 人</p></div><span className={`rounded-full px-2 py-1 text-xs font-medium ${countdown === 0 ? "bg-secondary text-foreground-muted" : "bg-primary/10 text-primary"}`}><Clock3 className="mr-1 inline h-3 w-3" />{countdownText}</span></div><div className="h-2 overflow-hidden rounded-full bg-secondary"><div className="h-full rounded-full bg-primary transition-all" style={{ width: `${target > 0 ? Math.min(100, (locked / target) * 100) : 0}%` }} /></div><div className="flex items-center justify-between text-xs text-foreground-muted"><span>已锁单 {locked}/{target}</span><span>{Math.max(target - locked, 0) > 0 ? `还差 ${Math.max(target - locked, 0)} 人` : "已达到成团人数"}</span></div>{own ? <div className="grid gap-2"><Button size="sm" className="w-full" disabled>不能加入自己的队伍</Button><Button asChild variant="outline" className="w-full"><Link to="/orders">查看订单与支付状态</Link></Button></div> : <Button size="sm" className="w-full" onClick={() => onJoin?.(item)} disabled={Boolean(paying) || !item.activityId || countdown === 0}>{teamPaying ? "创建订单…" : "加入拼团"}</Button>}</CardContent></Card>;
 }
 
 function PackageCard({ item, featured, paying, onPurchase }: { item: PackageCard; featured: boolean; paying: string | null; onPurchase: (mode: PurchaseMode) => void }): JSX.Element {

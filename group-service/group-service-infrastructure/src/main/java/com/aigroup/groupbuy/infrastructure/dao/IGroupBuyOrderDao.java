@@ -33,12 +33,6 @@ public interface IGroupBuyOrderDao {
 
     int updateOrderStatus2COMPLETE(String teamId);
 
-    /**
-     * 本地演示专用：在当前用户完成真实模拟支付后，补齐剩余演示席位并封团。
-     * 生产支付/成团链路仍必须由真实成员逐个完成支付，不调用此方法。
-     */
-    int finalizeDemoTeam(@Param("teamId") String teamId);
-
     List<GroupBuyOrder> queryGroupBuyProgressByTeamIds(@Param("teamIds") Set<String> teamIds);
 
     /**

@@ -20,7 +20,4 @@ public interface ITradeSettlementOrderService {
      */
     TradePaySettlementEntity settlementMarketPayOrder(TradePaySuccessEntity tradePaySuccessEntity) throws Exception;
 
-    /** Dev-only orchestration. The HTTP mapping that calls this method is absent outside dev. */
-    String finalizePaidTeamForDemo(String userId, String outTradeNo) throws Exception;
-
 }

@@ -24,6 +24,8 @@ public class GoodsMarketResponseDTO {
     private Long activityId;
     // 当前活动成团人数目标
     private Integer targetCount;
+    // 拼团有效时长（分钟）；锁单后 validEndTime = 锁单时间 + validTime
+    private Integer validTime;
     // 商品信息
     private Goods goods;
     // 组队信息（1个个人的置顶、2个随机的「获取10个，随机取2个」）
@@ -94,6 +96,9 @@ public class GoodsMarketResponseDTO {
             long hours = TimeUnit.MILLISECONDS.toHours(diffInMilliseconds) % 24;
             long days = TimeUnit.MILLISECONDS.toDays(diffInMilliseconds);
 
+            if (days > 0) {
+                return String.format("%d天 %02d:%02d:%02d", days, hours, minutes, seconds);
+            }
             return String.format("%02d:%02d:%02d", hours, minutes, seconds);
         }
 

@@ -43,8 +43,4 @@ public interface IGroupBuyMarketService {
     @PostMapping("api/v1/gbm/trade/refund_market_pay_order")
     Response<RefundMarketPayOrderResponseDTO> refundMarketPayOrder(@RequestBody RefundMarketPayOrderRequestDTO requestDTO);
 
-    /** Dev-only endpoint. The group application does not register this mapping outside dev profile. */
-    @PostMapping("api/v1/gbm/trade/demo_finalize_market_pay_order")
-    Response<String> finalizeDemoMarketPayOrder(@RequestBody DemoFinalizeMarketPayOrderRequestDTO requestDTO);
-
 }

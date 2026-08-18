@@ -108,6 +108,7 @@ export interface RunFinishPayload {
   status: "completed" | "degraded" | "failed" | "cancelled" | string;
   error_type?: string;
   error_message?: string;
+  status_reason?: string;
 }
 
 export interface StepFinishEventPayload {
@@ -251,11 +252,13 @@ function coerceRunFinishPayload(value: unknown): RunFinishPayload | null {
   }
   const errorTypeRaw = record.error_type;
   const errorMessageRaw = record.error_message;
+  const statusReasonRaw = record.status_reason;
   return {
     run_id: runIdRaw,
     status: statusRaw,
     error_type: typeof errorTypeRaw === "string" ? errorTypeRaw : undefined,
     error_message: typeof errorMessageRaw === "string" ? errorMessageRaw : undefined,
+    status_reason: typeof statusReasonRaw === "string" ? statusReasonRaw : undefined,
   };
 }
 

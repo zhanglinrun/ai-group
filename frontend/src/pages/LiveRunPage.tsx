@@ -37,6 +37,7 @@ import { CancelRunButton } from "@/components/CancelRunButton";
 import { EvidenceDrawer } from "@/components/EvidenceDrawer";
 import { RunBreadcrumb } from "@/components/RunBreadcrumb";
 import { StatusBadge } from "@/components/StatusBadge";
+import { StatusReasonBanner } from "@/components/StatusReasonBanner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -259,7 +260,7 @@ export function LiveRunPage(): JSX.Element {
           <CardContent className="space-y-3 py-8 text-center">
             <p className="text-foreground-muted">缺少 run id，无法打开实时进度页。</p>
             <Button asChild>
-              <Link to="/app">回到我的分析</Link>
+              <Link to="/app">回到我的调研</Link>
             </Button>
           </CardContent>
         </Card>
@@ -280,7 +281,7 @@ export function LiveRunPage(): JSX.Element {
   const userQuery = intakeDraft?.user_query ?? runDetail.data?.user_query ?? "";
   const headerTitle = runDetail.data
     ? formatRunTitle(runDetail.data, { max: 50 })
-    : userQuery || "正在分析中…";
+    : userQuery || "正在调研中…";
   const isFailureTerminal = runStatus === "failed" || runStatus === "cancelled";
   const idleMs = isTerminal ? 0 : now - progressStore.lastActivityAt;
   const isStuck = !isTerminal && idleMs >= STUCK_HINT_THRESHOLD_MS;
@@ -301,7 +302,12 @@ export function LiveRunPage(): JSX.Element {
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {runStatus ? <StatusBadge status={runStatus} /> : null}
+          {runStatus ? (
+            <StatusBadge
+              status={runStatus}
+              reason={finishPayload?.status_reason ?? runDetail.data?.status_reason}
+            />
+          ) : null}
           {reportDepthBadge !== null ? <Badge variant="outline">{reportDepthBadge}</Badge> : null}
           {planTree !== null ? (
             <Badge variant="secondary">
@@ -354,16 +360,25 @@ export function LiveRunPage(): JSX.Element {
           tone={runStatus === "cancelled" ? "neutral" : "danger"}
           icon={runStatus === "cancelled" ? CircleSlash : XCircle}
           title={
-            runStatus === "cancelled" ? "此次分析已停止" : "分析未能完成"
+            runStatus === "cancelled" ? "此次调研已停止" : "调研未能完成"
           }
           message={
+            finishPayload?.status_reason ??
             finishPayload?.error_message ??
+            runDetail.data?.status_reason ??
             (runStatus === "cancelled"
-              ? "已采集的证据保留在历史中，可重新发起新的分析。"
-              : "后台任务异常退出，请查看日志或重新发起一次分析。")
+              ? "已采集的证据保留在历史中，可重新发起新的调研。"
+              : "后台任务异常退出，请查看日志或重新发起一次调研。")
           }
           errorType={finishPayload?.error_type ?? null}
           runId={runId}
+        />
+      ) : null}
+
+      {runStatus === "degraded" ? (
+        <StatusReasonBanner
+          status="degraded"
+          reason={finishPayload?.status_reason ?? runDetail.data?.status_reason}
         />
       ) : null}
 
@@ -772,7 +787,7 @@ function TerminalAlert({
       </div>
       <div className="flex shrink-0 flex-wrap items-center gap-2">
         <Button asChild variant="ghost" size="sm">
-          <Link to="/app">返回我的分析</Link>
+          <Link to="/app">返回我的调研</Link>
         </Button>
         <Button asChild size="sm">
           <Link to={`/app/runs/${runId}`}>查看已有结果</Link>
@@ -847,7 +862,7 @@ function StuckHintAlert({ idleMs, runId }: StuckHintAlertProps): JSX.Element {
       <div className="flex items-start gap-3">
         <Info className="mt-0.5 h-5 w-5 shrink-0 text-warning" />
         <div className="space-y-1">
-          <div className="text-sm font-medium text-warning">分析似乎已停滞</div>
+          <div className="text-sm font-medium text-warning">调研似乎已停滞</div>
           <p className="text-sm text-foreground-muted">
             最近 {formatIdleDuration(idleMs)} 没有收到任何进度事件。Agent
             可能正在处理长耗时的子任务，也可能已经中断。

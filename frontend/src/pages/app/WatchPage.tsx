@@ -178,7 +178,7 @@ function WatchCard({
               {profile?.role ? <Badge variant="outline">{profile.role}</Badge> : null}
             </div>
             <p className="mt-2 max-w-3xl text-caption leading-6 text-foreground-muted">
-              {introduction || "暂无稳定竞品简介；下一次从报告加入追踪或完成刷新后会优先补齐产品档案。"}
+              {introduction || "暂无稳定简介；下一次从报告加入追踪或完成刷新后会优先补齐档案。"}
             </p>
             <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-micro text-foreground-subtle">
               <span>追踪自 {formatDateTime(item.created_at)}</span>
@@ -194,7 +194,7 @@ function WatchCard({
 
           <div className="flex flex-wrap gap-2 lg:justify-end">
             <StatPill label="洞察" value={`${item.insight_count}`} />
-            <StatPill label="分析" value={`${item.run_count}`} />
+            <StatPill label="调研" value={`${item.run_count}`} />
             <StatPill
               label="最近"
               value={item.last_updated_at ? formatRelativeTime(item.last_updated_at) : "-"}
@@ -228,7 +228,7 @@ function WatchCard({
             </ul>
           ) : (
             <div className="rounded-lg border border-dashed border-white/[0.1] bg-black/10 p-4 text-caption text-foreground-muted">
-              暂无结构化变化。完成至少两次同一竞品分析后，这里会显示功能、定价、定位等维度的变化。
+              暂无结构化变化。完成至少两次同一对象的调研后，这里会显示功能、定价、定位等维度的变化。
             </div>
           )}
 
@@ -252,7 +252,7 @@ function WatchCard({
           </div>
           {item.items.length === 0 ? (
             <div className="rounded-lg border border-dashed border-white/[0.1] bg-black/10 p-4 text-caption text-foreground-muted">
-              暂无分析洞察。点击“刷新一次”会启动 quick 追踪分析，完成后自动沉淀到这里。
+              暂无洞察。点击“刷新一次”会启动 quick 追踪调研，完成后自动沉淀到这里。
             </div>
           ) : (
             <ul className="space-y-2">
@@ -293,7 +293,7 @@ function WatchCard({
             编辑备注
           </Button>
           <Button asChild size="sm" variant="ghost">
-            <Link to={focusRunLink(item.latest_run_id, item.competitor_id)}>新建专题分析</Link>
+            <Link to={focusRunLink(item.latest_run_id, item.competitor_id)}>新建专题调研</Link>
           </Button>
           <Button
             size="sm"
@@ -348,7 +348,7 @@ export function WatchPage(): JSX.Element {
   }
 
   async function handleDelete(watchId: string, competitorId: string): Promise<void> {
-    if (!window.confirm(`确认移除 ${competitorId} 的追踪？历史分析不会被删除。`)) {
+    if (!window.confirm(`确认移除 ${competitorId} 的追踪？历史调研不会被删除。`)) {
       return;
     }
     try {
@@ -404,9 +404,9 @@ export function WatchPage(): JSX.Element {
   return (
     <section className="space-y-6">
       <header>
-        <h1 className="text-h1 text-foreground">竞品追踪</h1>
+        <h1 className="text-h1 text-foreground">调研追踪</h1>
         <p className="mt-1 max-w-2xl text-caption text-foreground-muted">
-          持续维护竞品档案、变化信号、证据来源和刷新节奏。这里关注“发生了什么变化”，不是简单重跑一份报告。
+          持续维护调研对象的档案、变化信号、证据来源和刷新节奏。竞品、产品都可以挂在这里看变化，而不是每次重跑一整份报告。
         </p>
       </header>
 
@@ -434,7 +434,7 @@ export function WatchPage(): JSX.Element {
           </Button>
         </div>
         <p className="mt-2 text-micro text-foreground-subtle">
-          建议追踪具体产品，而不是公司名。已有分析中的同名或别名竞品会自动聚合历史洞察。
+          建议追踪具体对象（例如某个产品），而不是公司名。已有调研里的同名或别名对象会自动聚合历史洞察。
         </p>
       </div>
 
@@ -447,7 +447,7 @@ export function WatchPage(): JSX.Element {
 
       {watchlistDigestQuery.isError ? (
         <div className="rounded-lg border border-red-400/40 bg-red-500/10 p-4 text-caption text-red-200">
-          <p className="font-medium">竞品追踪加载失败</p>
+          <p className="font-medium">调研追踪加载失败</p>
           <p className="mt-1">{watchlistDigestQuery.error.message}</p>
           <Button className="mt-3" size="sm" variant="outline" onClick={() => void watchlistDigestQuery.refetch()}>
             重试
@@ -457,7 +457,7 @@ export function WatchPage(): JSX.Element {
 
       {!watchlistDigestQuery.isLoading && !watchlistDigestQuery.isError && watchItems.length === 0 ? (
         <div className="rounded-lg border border-white/[0.06] bg-surface p-8 text-center text-caption text-foreground-muted">
-          追踪列表为空。先添加一个具体产品，后续分析和刷新会沉淀竞品档案、变化和证据。
+          追踪列表为空。先添加一个具体对象，后续调研和刷新会沉淀档案、变化和证据。
         </div>
       ) : null}
 

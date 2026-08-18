@@ -44,6 +44,8 @@ public class QueryOrderListResponseDTO {
         private BigDecimal payAmount;
         /** 支付时间 */
         private Date payTime;
+        /** 最近状态变更时间 */
+        private Date updateTime;
     }
 
 }

@@ -22,6 +22,7 @@ from models.run import Run
 from router import health_rt, run_rt, skill_rt
 from service.billing_settlement import settle_run_ids, start_loop as start_billing_settlement_loop
 from service.event_bus import EventBus, RunEventType, emit_run_event, set_event_bus
+from service.run_status_reason import ORPHAN_RESTART_REASON
 from service.skill_store import get_skill_store
 from service.watchlist.refresher import WatchlistRefresher
 from utils.logger import bind_request_id, clear_request_id, configure_logging, get_logger
@@ -56,7 +57,11 @@ async def _sweep_orphan_running_runs() -> list[str]:
         await session.execute(
             update(Run)
             .where(Run.run_id.in_(orphan_ids))
-            .values(status="failed", finished_at=datetime.now(timezone.utc))
+            .values(
+                status="failed",
+                finished_at=datetime.now(timezone.utc),
+                status_reason=ORPHAN_RESTART_REASON,
+            )
         )
         await session.commit()
     log.warning(
@@ -75,7 +80,8 @@ async def _sweep_orphan_running_runs() -> list[str]:
                 "run_id": run_id,
                 "status": "failed",
                 "error_type": "ServerRestart",
-                "error_message": "服务重启时此任务正在执行，已标记为失败。请重新发起分析。",
+                "error_message": ORPHAN_RESTART_REASON,
+                "status_reason": ORPHAN_RESTART_REASON,
             },
         )
     return orphan_ids

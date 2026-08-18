@@ -59,21 +59,26 @@ public class RateLimiterAOP {
         String keyAttr = resolveKey(key, jp.getArgs());
         log.info("aop attr {}", keyAttr);
 
-        if (!"all".equals(keyAttr)
-                && rateLimiterAccessInterceptor.blacklistCount() != 0
-                && RedisRateLimitScript.blacklistCount(redisService, blacklistKey(keyAttr))
-                > rateLimiterAccessInterceptor.blacklistCount()) {
-            log.info("限流-黑名单拦截(24h)：{}", keyAttr);
-            return fallbackMethodResult(jp, rateLimiterAccessInterceptor.fallbackMethod());
-        }
-
-        int limit = Math.max(1, (int) Math.ceil(rateLimiterAccessInterceptor.permitsPerSecond()));
-        if (!RedisRateLimitScript.tryAcquire(redisService, windowKey(keyAttr), limit, WINDOW_MS)) {
-            if (rateLimiterAccessInterceptor.blacklistCount() != 0 && !"all".equals(keyAttr)) {
-                RedisRateLimitScript.bumpBlacklist(redisService, blacklistKey(keyAttr), BLACKLIST_TTL_SECONDS);
+        try {
+            if (!"all".equals(keyAttr)
+                    && rateLimiterAccessInterceptor.blacklistCount() != 0
+                    && RedisRateLimitScript.blacklistCount(redisService, blacklistKey(keyAttr))
+                    > rateLimiterAccessInterceptor.blacklistCount()) {
+                log.info("限流-黑名单拦截(24h)：{}", keyAttr);
+                return fallbackMethodResult(jp, rateLimiterAccessInterceptor.fallbackMethod());
             }
-            log.info("限流-超频次拦截：{}", keyAttr);
-            return fallbackMethodResult(jp, rateLimiterAccessInterceptor.fallbackMethod());
+
+            int limit = Math.max(1, (int) Math.ceil(rateLimiterAccessInterceptor.permitsPerSecond()));
+            if (!RedisRateLimitScript.tryAcquire(redisService, windowKey(keyAttr), limit, WINDOW_MS)) {
+                if (rateLimiterAccessInterceptor.blacklistCount() != 0 && !"all".equals(keyAttr)) {
+                    RedisRateLimitScript.bumpBlacklist(redisService, blacklistKey(keyAttr), BLACKLIST_TTL_SECONDS);
+                }
+                log.info("限流-超频次拦截：{}", keyAttr);
+                return fallbackMethodResult(jp, rateLimiterAccessInterceptor.fallbackMethod());
+            }
+        } catch (RuntimeException ex) {
+            log.error("rate limiter redis failed, fail-open key={}", keyAttr, ex);
+            return jp.proceed();
         }
 
         return jp.proceed();

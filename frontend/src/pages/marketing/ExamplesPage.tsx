@@ -14,7 +14,7 @@ export function ExamplesPage(): JSX.Element {
     <section className="space-y-6 py-8">
       <header>
         <h1 className="text-h1 text-foreground">案例库</h1>
-        <p className="mt-1 text-caption text-foreground-muted">浏览已完成的竞品分析报告。</p>
+        <p className="mt-1 text-caption text-foreground-muted">浏览已完成的深度调研报告，包括竞品对比与领域综述。</p>
       </header>
 
       {runsQuery.isLoading && (
@@ -54,7 +54,7 @@ export function ExamplesPage(): JSX.Element {
 
       {!runsQuery.isLoading && !runsQuery.isError && (runsQuery.data?.items ?? []).length === 0 ? (
         <div className="rounded-lg border border-dashed border-border p-8 text-center text-caption text-foreground-muted">
-          还没有已完成的竞品分析。<Link className="ml-1 text-primary hover:underline" to="/app/runs/new">新建一次分析</Link>
+          还没有已完成的深度调研。<Link className="ml-1 text-primary hover:underline" to="/app/runs/new">新建一次调研</Link>
         </div>
       ) : null}
     </section>

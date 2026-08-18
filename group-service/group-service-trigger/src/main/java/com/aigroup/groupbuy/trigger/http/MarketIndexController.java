@@ -35,8 +35,10 @@ public class MarketIndexController implements IMarketIndexService {
     @Resource
     private IIndexGroupBuyMarketService indexGroupBuyMarketService;
 
+    // BFF fans this out once per quota SKU (~3 calls) and the hall polls every 15s.
+    // 1 QPS + blacklistCount=1 would 24h-ban a normal page load after the second SKU.
     @RateLimiterAccessInterceptor(key = "userId", fallbackMethod = "queryGroupBuyMarketConfigFallBack",
-            permitsPerSecond = 1.0d, blacklistCount = 1)
+            permitsPerSecond = 20.0d, blacklistCount = 0)
     @RequestMapping(value = {"query_group_buy_market_config", "activities"}, method = RequestMethod.POST)
     @Override
     public Response<GoodsMarketResponseDTO> queryGroupBuyMarketConfig(@RequestBody GoodsMarketRequestDTO requestDTO) {
@@ -109,6 +111,7 @@ public class MarketIndexController implements IMarketIndexService {
                     .data(GoodsMarketResponseDTO.builder()
                             .activityId(activityId)
                             .targetCount(trialBalanceEntity.getTargetCount())
+                            .validTime(groupBuyActivityDiscountVO.getValidTime())
                             .goods(goods)
                             .teamList(teams)
                             .teamStatistic(teamStatistic)

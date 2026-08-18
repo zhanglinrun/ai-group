@@ -104,9 +104,6 @@ ai-group:
   internal:
     token: ${AI_GROUP_INTERNAL_TOKEN:}
     auth-enabled: ${AI_GROUP_INTERNAL_AUTH_ENABLED:true}
-  group:
-    # 仅供 dev-only 本地演示支付编排；端点仍需 X-Internal-Token。
-    demo-finalize-enabled: ${AI_GROUP_DEMO_PAYMENT_ENABLED:false}
 
 # XXL-JOB 执行器配置
 xxl:

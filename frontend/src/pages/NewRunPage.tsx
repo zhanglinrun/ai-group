@@ -35,10 +35,10 @@ interface RunTemplate {
 const LAST_RUN_DRAFT_STORAGE_KEY = "xiongdoctor.lastRunDraft";
 
 const ROLE_OPTIONS: RoleOption[] = [
-  { id: "pm", label: "产品经理", description: "关注功能差异、定价与用户反馈", icon: Target },
-  { id: "founder", label: "创业者", description: "关注市场机会、定位与风险", icon: Rocket },
-  { id: "sales", label: "销售", description: "关注竞品卖点、报价与异议回答", icon: Users },
-  { id: "investor", label: "投资人", description: "关注竞争格局与增长潜力", icon: UserRoundSearch },
+  { id: "pm", label: "产品经理", description: "关注差异、定价与反馈，竞品对比和领域综述都适用", icon: Target },
+  { id: "founder", label: "创业者", description: "关注机会、定位与风险，适合赛道摸底或技术选型", icon: Rocket },
+  { id: "sales", label: "销售", description: "关注卖点、报价与异议回答，结论要能直接对外讲", icon: Users },
+  { id: "investor", label: "投资人", description: "关注格局、增长与潜力，产品和公开资料调研都能用", icon: UserRoundSearch },
 ];
 
 const RUN_TEMPLATES: RunTemplate[] = [
@@ -70,6 +70,16 @@ const RUN_TEMPLATES: RunTemplate[] = [
     competitors: ["Linear", "Jira", "ClickUp"],
     targetRoles: ["pm", "founder", "sales"],
     domainHint: "project management tools",
+    referenceUrls: [],
+  },
+  {
+    id: "rag-papers",
+    label: "RAG 论文综述",
+    userQuery:
+      "梳理 2023–2026 年检索增强生成（RAG）方向的关键论文与技术路线，覆盖 naive RAG、Self-RAG、GraphRAG、agentic RAG，总结方法演进、公开基准与尚未解决的问题，并给出工程落地建议。",
+    competitors: [],
+    targetRoles: ["pm", "founder"],
+    domainHint: "retrieval-augmented generation research survey",
     referenceUrls: [],
   },
 ];
@@ -306,8 +316,8 @@ export function NewRunPage(): JSX.Element {
         }),
       );
       pushToast({
-        title: "分析任务已启动",
-        description: "正在进入实时进度页，分析将在后台进行。",
+        title: "调研任务已启动",
+        description: "正在进入实时进度页，调研将在后台进行。",
         variant: "success",
       });
       navigate(`/app/runs/${created.run_id}`);
@@ -324,11 +334,11 @@ export function NewRunPage(): JSX.Element {
     <section className="space-y-6">
       <header className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h1 className="text-h1 text-foreground">新建竞品分析</h1>
+          <h1 className="text-h1 text-foreground">新建深度调研</h1>
           <IntakeModeSwitcher active="expert" />
         </div>
         <p className="text-caption text-foreground-muted">
-          填写核心问题、选择竞品与关注角色后即可启动。不确定竞品时可留空，Agent 会自动发现赛道内的主要竞品。
+          填写核心问题与关注角色后即可启动。竞品对比可填写产品名单；领域论文或技术摸底可留空，Agent 会按主题检索公开资料。
         </p>
         <div className="flex flex-wrap gap-2">
           {RUN_TEMPLATES.map((template) => (
@@ -378,25 +388,25 @@ export function NewRunPage(): JSX.Element {
               <CardTitle className="inline-flex items-center gap-2 text-lg">
                 <Badge>Step 1</Badge>
                 <Compass className="h-4 w-4 text-primary" />
-                你想分析什么问题？
+                你想调研什么问题？
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">
               <div className="space-y-1">
-                <label className="text-sm font-medium">分析档位</label>
+                <label className="text-sm font-medium">调研档位</label>
                 <ReportDepthSelector value={reportDepth} onChange={setReportDepth} />
                 <p className="text-xs text-muted-foreground">
                   Quick 适合日常调研；Deep 提升覆盖和深度；Debug 仅在本地开发环境显示。
                 </p>
               </div>
               <label className="text-sm font-medium" htmlFor="user-query">
-                分析目标
+                调研目标
               </label>
               <textarea
                 className="min-h-28 w-full rounded-md border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-caption text-foreground outline-none transition focus:border-primary/40 focus:ring-2 focus:ring-ring/40"
                 id="user-query"
                 onChange={(event) => setUserQuery(event.target.value)}
-                placeholder="例如：对比 Cursor、Windsurf 与 TRAE 在功能、定价和用户反馈上的差异，并给出产品决策建议。"
+                placeholder="例如：对比 Cursor、Windsurf 与 TRAE 的功能与定价；或梳理 RAG 方向近年关键论文与方法演进。"
                 value={userQuery}
               />
               <p className="text-xs text-muted-foreground">建议写成明确问题，输出质量会明显更高。</p>
@@ -408,8 +418,11 @@ export function NewRunPage(): JSX.Element {
               <CardTitle className="inline-flex items-center gap-2 text-lg">
                 <Badge>Step 2</Badge>
                 <Users className="h-4 w-4 text-primary" />
-                选择要对比的竞品
+                调研对象（可选）
               </CardTitle>
+              <p className="text-xs font-normal text-muted-foreground">
+                竞品对比时填写产品名；领域论文或公开资料综述可留空。
+              </p>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex flex-col gap-2 sm:flex-row">
@@ -422,7 +435,7 @@ export function NewRunPage(): JSX.Element {
                     event.preventDefault();
                     addCompetitor(competitorInput);
                   }}
-                  placeholder="输入竞品名，例如 Cursor / Windsurf / TRAE"
+                  placeholder="竞品名，例如 Cursor；论文综述可留空"
                   value={competitorInput}
                 />
                 <Button onClick={() => addCompetitor(competitorInput)} type="button" variant="outline">
@@ -477,8 +490,10 @@ export function NewRunPage(): JSX.Element {
               </div>
               {selectedCompetitors.length === 0 && (
                 <div className="rounded-md border border-primary/30 bg-primary/5 px-4 py-3 text-sm text-foreground-muted">
-                  <p className="font-medium text-primary">赛道扫描模式</p>
-                  <p className="mt-1 text-xs">不填写竞品时，Agent 将根据你的问题描述自动搜索并发现该领域的主要竞品，然后进行深度分析。</p>
+                  <p className="font-medium text-primary">按主题检索</p>
+                  <p className="mt-1 text-xs">
+                    不填写对象时，Agent 会根据问题主题检索公开资料：竞品对比会发现赛道头部产品，领域综述会检索论文、技术报告等。
+                  </p>
                 </div>
               )}
             </CardContent>
@@ -491,6 +506,9 @@ export function NewRunPage(): JSX.Element {
                 <Target className="h-4 w-4 text-primary" />
                 你的关注角色
               </CardTitle>
+              <p className="text-xs font-normal text-muted-foreground">
+                决定报告怎么写，不是把调研限定成竞品分析。论文综述、赛道摸底也可以选。
+              </p>
             </CardHeader>
             <CardContent>
               <div className="grid gap-3 sm:grid-cols-2">
@@ -633,10 +651,10 @@ export function NewRunPage(): JSX.Element {
                 onChange={(event) => setAddToWatchlist(event.target.checked)}
                 type="checkbox"
               />
-              将本次竞品加入追踪列表
+              若本次包含竞品，加入追踪列表
             </label>
             <Button disabled={!canSubmit} size="lg" type="submit">
-              {createRunMutation.isPending ? "启动中..." : "启动分析"}
+              {createRunMutation.isPending ? "启动中..." : "启动调研"}
             </Button>
           </div>
         </form>

@@ -20,6 +20,7 @@ import { QaClosureSection } from "@/components/audit/QaClosureSection";
 import { RunTraceDag } from "@/components/dag/RunTraceDag";
 import { RunBreadcrumb } from "@/components/RunBreadcrumb";
 import { StatusBadge } from "@/components/StatusBadge";
+import { StatusReasonBanner } from "@/components/StatusReasonBanner";
 import { LlmCallsTable } from "@/components/trace/LlmCallsTable";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -105,13 +106,17 @@ export function RunAuditPage(): JSX.Element {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {detail ? <StatusBadge status={detail.status} /> : null}
+            {detail ? <StatusBadge status={detail.status} reason={detail.status_reason} /> : null}
             <Button asChild size="sm" variant="outline">
               <Link to={`/app/runs/${runId}`}>返回报告</Link>
             </Button>
           </div>
         </div>
       </header>
+
+      {detail ? (
+        <StatusReasonBanner status={detail.status} reason={detail.status_reason} />
+      ) : null}
 
       {detailQuery.isLoading || traceQuery.isLoading ? (
         <div className="space-y-3">

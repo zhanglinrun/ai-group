@@ -21,6 +21,36 @@ log = get_logger("service.watchlist.refresher")
 _MAX_CONCURRENT_REFRESHES = 3
 
 
+def refresh_user_query(competitor_id: str) -> str:
+    return f"[调研追踪] 自动刷新: {competitor_id}"
+
+
+def refresh_run_title(competitor_id: str) -> str:
+    return f"调研追踪自动刷新：{competitor_id}"
+
+
+def resolve_refresh_owner_user_id(
+    *,
+    preferred_owner_user_id: int | None,
+    last_run_owner_user_id: int | None,
+    added_from_run_owner_user_id: int | None,
+) -> int:
+    """Pick a real account for a watchlist refresh run.
+
+    Background refreshes have no request identity. Owner 0 is treated as
+    anonymous and the Gateway identity check then hides the report as
+    ``run not found``.
+    """
+    for candidate in (
+        preferred_owner_user_id,
+        last_run_owner_user_id,
+        added_from_run_owner_user_id,
+    ):
+        if candidate is not None and int(candidate) != 0:
+            return int(candidate)
+    return 0
+
+
 class WatchlistRefresher:
     """Polls the watchlist for overdue refresh entries and launches background Runs.
 
@@ -41,16 +71,25 @@ class WatchlistRefresher:
         self._semaphore = asyncio.Semaphore(_MAX_CONCURRENT_REFRESHES)
         self._background_tasks = background_tasks
 
-    async def trigger_single(self, watch_id: str) -> str:
+    async def trigger_single(self, watch_id: str, *, owner_user_id: int | None = None) -> str:
         """Immediately trigger a refresh run for one watchlist item. Returns run_id."""
         async with self._session_factory() as session:
             item = await session.get(WatchlistItem, watch_id)
             if item is None:
                 raise ValueError(f"watch_id={watch_id} not found in watchlist")
-            run_id = await self._create_run_record(item, session)
+            run_id, resolved_owner_user_id = await self._create_run_record(
+                item,
+                session,
+                preferred_owner_user_id=owner_user_id,
+            )
 
         task = asyncio.create_task(
-            self._execute_and_finalize(watch_id=watch_id, run_id=run_id, competitor_id=item.competitor_id),
+            self._execute_and_finalize(
+                watch_id=watch_id,
+                run_id=run_id,
+                competitor_id=item.competitor_id,
+                owner_user_id=resolved_owner_user_id,
+            ),
             name=f"watchlist_finalize_{run_id}",
         )
         self._background_tasks.add(task)
@@ -98,14 +137,35 @@ class WatchlistRefresher:
             except Exception as exc:
                 log.warning("watchlist.refresher.trigger.error", watch_id=watch_id, error=str(exc))
 
-    async def _create_run_record(self, item: WatchlistItem, session: AsyncSession) -> str:
+    async def _lookup_run_owner(self, session: AsyncSession, run_id: str | None) -> int | None:
+        if not run_id:
+            return None
+        run = await session.get(Run, run_id)
+        if run is None:
+            return None
+        return int(run.owner_user_id or 0)
+
+    async def _create_run_record(
+        self,
+        item: WatchlistItem,
+        session: AsyncSession,
+        *,
+        preferred_owner_user_id: int | None,
+    ) -> tuple[str, int]:
         run_id = make_id("run_")
         parent_run_id = item.last_run_id
-        user_query = f"[竞品追踪] 自动刷新: {item.competitor_id}"
+        owner_user_id = resolve_refresh_owner_user_id(
+            preferred_owner_user_id=preferred_owner_user_id,
+            last_run_owner_user_id=await self._lookup_run_owner(session, item.last_run_id),
+            added_from_run_owner_user_id=await self._lookup_run_owner(
+                session, item.added_from_run_id
+            ),
+        )
+        user_query = refresh_user_query(item.competitor_id)
         intake_draft = RunIntakeDraft(
             user_query=user_query,
             user_role="pm",
-            analysis_intent=f"追踪竞品 {item.competitor_id} 的最新动态",
+            analysis_intent=f"追踪 {item.competitor_id} 的最新动态",
             competitors_explicit=[item.competitor_id],
             competitors_discovery_mode=False,
             focus_dimensions=list(DEFAULT_FOCUS_DIMENSIONS),
@@ -114,7 +174,9 @@ class WatchlistRefresher:
         )
         run = Run(
             run_id=run_id,
+            owner_user_id=owner_user_id,
             user_query=user_query,
+            title=refresh_run_title(item.competitor_id),
             domain_hint=None,
             reference_urls=[],
             status="running",
@@ -135,14 +197,25 @@ class WatchlistRefresher:
                 hours=item.refresh_interval_hours
             )
         await session.commit()
-        log.info("watchlist.refresher.run_created", watch_id=item.watch_id, run_id=run_id)
-        return run_id
+        log.info(
+            "watchlist.refresher.run_created",
+            watch_id=item.watch_id,
+            run_id=run_id,
+            owner_user_id=owner_user_id,
+        )
+        return run_id, owner_user_id
 
     async def _execute_and_finalize(
-        self, *, watch_id: str, run_id: str, competitor_id: str
+        self,
+        *,
+        watch_id: str,
+        run_id: str,
+        competitor_id: str,
+        owner_user_id: int,
     ) -> None:
         initial_state: dict[str, object] = {
             "run_id": run_id,
+            "owner_user_id": owner_user_id,
             "domain_hint": None,
             "market_scope": None,
             "response_language": detect_language(competitor_id),
@@ -150,7 +223,7 @@ class WatchlistRefresher:
             "competitors": [competitor_id],
             "discovered_competitors": [],
             "discovered_competitor_sources": {},
-            "user_query": f"[竞品追踪] 自动刷新: {competitor_id}",
+            "user_query": refresh_user_query(competitor_id),
             "researched_competitors": [],
             "analysis_done": False,
             "report_draft_done": False,

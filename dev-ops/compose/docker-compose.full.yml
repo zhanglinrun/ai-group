@@ -252,7 +252,6 @@ services:
       REDIS_PORT: 6379
       SERVER_PORT: 8091
       SPRING_PROFILES_ACTIVE: dev
-      AI_GROUP_DEMO_PAYMENT_ENABLED: ${AI_GROUP_DEMO_PAYMENT_ENABLED:-false}
       # With XXL-JOB enabled, notify_task is driven by groupBuyNotifyJob — not @Scheduled.
       GROUP_OUTBOX_LOCAL_SCHEDULER_ENABLED: ${GROUP_OUTBOX_LOCAL_SCHEDULER_ENABLED:-false}
     expose: ["8091", "9999"]
@@ -291,7 +290,6 @@ services:
       ALIPAY_NOTIFY_URL: ${ALIPAY_NOTIFY_URL:-http://localhost:8080/api/pay/alipay/notify}
       ALIPAY_RETURN_URL: ${ALIPAY_RETURN_URL:-http://localhost:5173/pricing?tab=orders&paymentReturn=1}
       AI_GROUP_PAY_SANDBOX_AMOUNT: ${AI_GROUP_PAY_SANDBOX_AMOUNT:-0}
-      AI_GROUP_DEMO_PAYMENT_ENABLED: ${AI_GROUP_DEMO_PAYMENT_ENABLED:-false}
     expose: ["8070", "9998"]
     depends_on:
       mysql: {condition: service_healthy}

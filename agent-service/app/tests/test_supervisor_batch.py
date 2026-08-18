@@ -537,6 +537,8 @@ async def test_supervisor_finalize_degrades_when_researcher_had_zero_evidence(
     )
 
     assert new_state["status"] == "degraded"
+    assert "comp_cursor" in str(new_state.get("status_reason", ""))
+    assert "有效证据" in str(new_state.get("status_reason", ""))
 
 
 @pytest.mark.asyncio

@@ -57,7 +57,7 @@ export function SharedReportPage(): JSX.Element {
       )}
 
       <p className="text-center text-micro text-foreground-subtle">
-        由熊博士 AI 竞品研究生成 · 数据来源为公开信息
+        由熊博士 AI 深度调研生成 · 数据来源为公开信息
       </p>
 
       <EvidenceDrawer

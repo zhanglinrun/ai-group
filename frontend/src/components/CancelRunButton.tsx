@@ -24,7 +24,7 @@ interface CancelRunButtonProps {
   // Compact button (used inside chat header / intake chrome) vs. full-width
   // (used in the Live Run header). Both share the same confirm dialog.
   size?: "sm" | "default";
-  // Label override — "停止分析" by default. Intake mode uses "放弃此次分析"
+  // Label override — "停止调研" by default. Intake mode uses "放弃此次调研"
   // because there's nothing to "stop" yet, the run is just paused on a
   // clarification turn.
   label?: string;
@@ -38,7 +38,7 @@ export function CancelRunButton({
   runId,
   disabled = false,
   size = "sm",
-  label = "停止分析",
+  label = "停止调研",
   redirectTo = "/app",
 }: CancelRunButtonProps): JSX.Element {
   const [open, setOpen] = useState(false);
@@ -59,8 +59,8 @@ export function CancelRunButton({
       await queryClient.invalidateQueries({ queryKey: ["run-detail", runId] });
       await queryClient.invalidateQueries({ queryKey: ["runs"] });
       pushToast({
-        title: "已停止此次分析",
-        description: "已采集的证据保留在历史中，可重新发起新的分析。",
+        title: "已停止此次调研",
+        description: "已采集的证据保留在历史中，可重新发起新的调研。",
         variant: "default",
       });
       setOpen(false);

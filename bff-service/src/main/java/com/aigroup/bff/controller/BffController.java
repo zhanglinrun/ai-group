@@ -171,6 +171,10 @@ public class BffController {
             if (targetCount != null) {
                 sku.put("groupTeamSize", targetCount);
             }
+            Object validTime = market.get("validTime");
+            if (validTime != null) {
+                sku.put("groupValidTime", validTime);
+            }
             // Current quota packages use one fixed amount per SKU. Do not
             // expose the legacy activity-tier payload to the browser; the
             // activity still returns team progress and its configured cash
@@ -418,7 +422,10 @@ public class BffController {
                 // 不能作为展示价；无 totalAmount 的历史单退回 payAmount。
                 mapped.put("amount", resolveDisplayAmount(
                         orderMap.get("totalAmount"), orderMap.get("marketDeductionAmount"), orderMap.get("payAmount")));
+                mapped.put("orderTime", orderMap.get("orderTime"));
+                mapped.put("payTime", orderMap.get("payTime"));
                 mapped.put("paidAt", orderMap.get("payTime"));
+                mapped.put("updateTime", orderMap.get("updateTime"));
                 mapped.put("marketType", marketType);
                 mapped.put("groupStatus", isGroupBuyMarket(marketType) ? mapGroupStatus(rawStatus) : null);
                 // 透传收银台表单：pay 服务仅对 PAY_WAIT 订单回传 payUrl，

@@ -17,7 +17,7 @@ const MODES: Array<{ id: IntakeMode; label: string; to: string }> = [
 export function IntakeModeSwitcher({ active, className }: IntakeModeSwitcherProps): JSX.Element {
   return (
     <div
-      aria-label="选择新建分析的方式"
+      aria-label="选择新建调研的方式"
       className={cn(
         "inline-flex items-center gap-1 rounded-md border border-white/[0.08] bg-white/[0.03] p-1",
         className,

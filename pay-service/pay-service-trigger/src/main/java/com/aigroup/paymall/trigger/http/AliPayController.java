@@ -28,8 +28,6 @@ import com.alipay.api.request.AlipayTradeQueryRequest;
 import com.alipay.api.response.AlipayTradeQueryResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.core.env.Environment;
-import org.springframework.core.env.Profiles;
 import org.springframework.web.bind.annotation.*;
 
 import jakarta.annotation.Resource;
@@ -63,12 +61,6 @@ public class AliPayController {
 
     @Resource
     private GatewayUserResolver gatewayUserResolver;
-
-    @Resource
-    private Environment environment;
-
-    @Value("${ai-group.pay.demo-complete-enabled:false}")
-    private boolean demoCompleteEnabled;
 
     /**
      * http://localhost:8080/api/v1/alipay/create_pay_order
@@ -172,7 +164,6 @@ public class AliPayController {
                              .qrCode(qrCode)
                              .payUrl(persistedOrder == null ? null : persistedOrder.getPayUrl())
                              .amount(resolveDisplayAmount(persistedOrder))
-                             .demoCompletionEnabled(isDemoCompletionAvailable())
                              .build())
                     .build();
         } catch (AppException e) {
@@ -309,6 +300,7 @@ public class AliPayController {
                 orderInfo.setMarketDeductionAmount(order.getMarketDeductionAmount());
                 orderInfo.setPayAmount(order.getPayAmount());
                 orderInfo.setPayTime(order.getPayTime());
+                orderInfo.setUpdateTime(order.getUpdateTime());
                 return orderInfo;
             }).collect(Collectors.toList());
             
@@ -419,9 +411,9 @@ public class AliPayController {
             data.setPayUrl(order.getPayUrl());
             data.setOrderTime(order.getOrderTime());
             data.setPayTime(order.getPayTime());
+            data.setUpdateTime(order.getUpdateTime());
             data.setGroupActivityId(order.getGroupActivityId());
             data.setGroupTeamId(order.getGroupTeamId());
-            data.setDemoCompletionEnabled(isDemoCompletionAvailable());
             return Response.<PayOrderResponseDTO>builder()
                     .code(Constants.ResponseCode.SUCCESS.getCode())
                     .info(Constants.ResponseCode.SUCCESS.getInfo())
@@ -574,10 +566,6 @@ public class AliPayController {
         }
         String payUrl = order.getPayUrl().trim();
         return payUrl.startsWith("https://") || payUrl.startsWith("http://") ? payUrl : null;
-    }
-
-    private boolean isDemoCompletionAvailable() {
-        return demoCompleteEnabled && environment != null && environment.acceptsProfiles(Profiles.of("dev"));
     }
 
 }

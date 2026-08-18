@@ -16,7 +16,7 @@ interface ReportDepthOption {
 
 const REPORT_DEPTH_OPTIONS: ReportDepthOption[] = [
   { id: "quick", label: "Quick", hint: "平衡速度与质量" },
-  { id: "deep", label: "Deep", hint: "更深分析与更高覆盖" },
+  { id: "deep", label: "Deep", hint: "更深调研与更高覆盖" },
   { id: "debug", label: "Debug", hint: "仅调试", devOnly: true },
 ];
 
@@ -34,7 +34,7 @@ export function ReportDepthSelector({
 
   return (
     <div
-      aria-label="选择分析档位"
+      aria-label="选择调研档位"
       className={cn(
         "inline-flex items-center gap-1 rounded-md border border-white/[0.08] bg-white/[0.03] p-1",
         className,

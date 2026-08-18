@@ -174,6 +174,7 @@ export interface RunDetailResponse {
   domain_hint: string | null;
   reference_urls: string[];
   status: RunStatus;
+  status_reason?: string | null;
   target_roles: string[];
   competitors: string[];
   started_at: string;
@@ -193,6 +194,7 @@ export interface RunListItemResponse {
   title: string | null;
   domain_hint: string | null;
   status: RunStatus;
+  status_reason?: string | null;
   phase?: RunPhase | null;
   started_at: string;
   finished_at: string | null;

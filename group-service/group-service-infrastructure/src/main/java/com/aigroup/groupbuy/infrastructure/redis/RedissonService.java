@@ -1,6 +1,7 @@
 package com.aigroup.groupbuy.infrastructure.redis;
 
 import org.redisson.api.*;
+import org.redisson.client.codec.StringCodec;
 import org.springframework.stereotype.Service;
 
 import jakarta.annotation.Resource;
@@ -182,7 +183,9 @@ public class RedissonService implements IRedisService {
     @Override
     public Long evalLong(String script, List<String> keys, List<String> args) {
         List<Object> keyObjects = new ArrayList<>(keys);
-        return redissonClient.getScript().eval(
+        // Lua ARGV must be raw Redis strings. The client codec is JsonJackson,
+        // which would encode "1" as "\"1\"" and make tonumber(ARGV[1]) nil.
+        return redissonClient.getScript(StringCodec.INSTANCE).eval(
                 RScript.Mode.READ_WRITE,
                 script,
                 RScript.ReturnType.INTEGER,

@@ -10,11 +10,13 @@ import {
 } from "lucide-react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 
+import { useEffect, useState } from "react";
+
 import { useSkillCandidates } from "@/api/hooks";
 import { Badge } from "@/components/ui/badge";
 import { Logo } from "@/components/Logo";
 import { cn } from "@/lib/utils";
-import { logout } from "@/platform/client";
+import { currentUser, isAdmin, logout, type PlatformUser } from "@/platform/client";
 
 const INTAKE_SESSION_KEY = "xiongdoctor.intake.run_id";
 
@@ -26,29 +28,30 @@ interface NavItem {
   /**
    * Optional matcher that lights up the item even when the active URL is not
    * a literal prefix of `to`. Used so /app/runs/:id (run detail variants)
-   * keep "我的分析" highlighted — without this they look orphaned in the UI.
+   * keep "我的调研" highlighted — without this they look orphaned in the UI.
    */
   matchPath?: (pathname: string) => boolean;
+  adminOnly?: boolean;
 }
 
 const NAV_ITEMS: readonly NavItem[] = [
   {
     to: "/app",
     icon: FolderKanban,
-    label: "我的分析",
+    label: "我的调研",
     end: true,
-    // /app/runs/new* belongs to the "新建分析" tab, so we explicitly exclude
+    // /app/runs/new* belongs to the "新建调研" tab, so we explicitly exclude
     // it; everything else under /app/runs/* (detail/live/plan/trace/evidence)
-    // anchors back to "我的分析".
+    // anchors back to "我的调研".
     matchPath: (pathname) =>
       pathname.startsWith("/app/runs/") && !pathname.startsWith("/app/runs/new"),
   },
-  { to: "/app/runs/new", icon: Plus, label: "新建分析", end: false },
-  { to: "/app/watch", icon: FolderClock, label: "竞品追踪", end: false },
+  { to: "/app/runs/new", icon: Plus, label: "新建调研", end: false },
+  { to: "/app/watch", icon: FolderClock, label: "调研追踪", end: false },
   { to: "/group-buy", icon: ShoppingCart, label: "拼团商城", end: false },
   { to: "/account", icon: WalletCards, label: "积分账户", end: false },
   { to: "/orders", icon: WalletCards, label: "我的订单", end: false },
-  { to: "/admin", icon: ShieldCheck, label: "管理中心", end: false },
+  { to: "/admin", icon: ShieldCheck, label: "管理中心", end: false, adminOnly: true },
 ];
 
 export function WorkspaceShell(): JSX.Element {
@@ -63,6 +66,23 @@ export function WorkspaceShell(): JSX.Element {
   const pendingCount = pendingCandidatesQuery.data?.total ?? 0;
   const location = useLocation();
   const navigate = useNavigate();
+  const [user, setUser] = useState<PlatformUser | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    currentUser()
+      .then((value) => {
+        if (active) setUser(value);
+      })
+      .catch(() => {
+        if (active) setUser(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const navItems = NAV_ITEMS.filter((item) => !item.adminOnly || isAdmin(user));
 
   return (
     <div className="flex h-screen overflow-hidden bg-background text-foreground">
@@ -77,7 +97,7 @@ export function WorkspaceShell(): JSX.Element {
 
         {/* Main nav */}
         <nav className="flex-1 space-y-0.5 px-2 py-2">
-          {NAV_ITEMS.map((item) => {
+          {navItems.map((item) => {
             const matchedExternally = item.matchPath?.(location.pathname) ?? false;
             const isNewRunEntry = item.to === "/app/runs/new";
             const isOnNewRunFlow = location.pathname.startsWith("/app/runs/new");
@@ -103,7 +123,7 @@ export function WorkspaceShell(): JSX.Element {
                     return;
                   }
                   const wantsFreshSession = window.confirm(
-                    "检测到你有一个未完成的新建分析会话。确定要放弃当前会话并新开任务吗？\n\n点击「取消」将继续当前会话。",
+                    "检测到你有一个未完成的新建调研会话。确定要放弃当前会话并新开任务吗？\n\n点击「取消」将继续当前会话。",
                   );
                   if (!wantsFreshSession) {
                     if (isOnNewRunFlow) {

@@ -48,6 +48,10 @@ export interface PlatformUser {
   email?: string | null;
 }
 
+export function isAdmin(user: PlatformUser | null | undefined): boolean {
+  return user?.role.toUpperCase() === "ADMIN";
+}
+
 export interface QuotaSummary {
   userId?: number;
   freeQuotaBalance?: number;

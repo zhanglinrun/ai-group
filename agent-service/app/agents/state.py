@@ -50,6 +50,9 @@ class AgentState(TypedDict, total=False):
     replan_count: int
     decisions: list[SupervisorDecision]
     status: Annotated[str, _last_write_wins]
+    # User-facing terminal explanation; written on Finalize (degraded) and
+    # persisted onto runs.status_reason by the graph finalizer.
+    status_reason: Annotated[str | None, _last_write_wins]
 
     # --- Phase 1+ Agent-native intake + plan-then-execute (contract; nodes TBD) ---
     # `phase` drives the conditional entry route (Invariant B). Legacy runs omit it

@@ -65,6 +65,14 @@ from service.knowledge import load_knowledge_for_run
 from service.locale import resolve_report_language
 from service.metrics import RunMetricsSnapshot, build_run_metrics_snapshot, load_run_metrics_snapshot
 from service.skill_curator.tasks import run_skill_curator_for_run
+from service.run_status_reason import (
+    DEFAULT_CANCELLED_REASON,
+    DEFAULT_DEGRADED_REASON,
+    UNEXPECTED_CANCEL_REASON,
+    clip_reason,
+    humanize_failure_message,
+    resolve_run_status_reason,
+)
 from utils.logger import bind_run, format_exception_for_log, get_logger
 
 router = APIRouter(dependencies=[Depends(require_identity)])
@@ -305,6 +313,7 @@ class RunDetailResponse(BaseModel):
     domain_hint: str | None
     reference_urls: list[str]
     status: str
+    status_reason: str | None = None
     target_roles: list[str]
     competitors: list[str]
     started_at: str
@@ -325,6 +334,7 @@ class RunListItemResponse(BaseModel):
     title: str | None = None
     domain_hint: str | None
     status: str
+    status_reason: str | None = None
     phase: Literal["intake", "planning", "executing", "done"] | None = None
     started_at: str
     finished_at: str | None
@@ -750,13 +760,43 @@ def _build_run_finish_payload(
     status: str,
     error_type: str | None = None,
     error_message: str | None = None,
+    status_reason: str | None = None,
 ) -> dict[str, object]:
     payload: dict[str, object] = {"run_id": run_id, "status": status}
     if error_type is not None:
         payload["error_type"] = error_type
     if error_message is not None:
         payload["error_message"] = error_message[:500]
+    if status_reason is not None:
+        payload["status_reason"] = status_reason[:500]
     return payload
+
+
+def _graph_state_mapping(graph_state: object) -> dict[str, object]:
+    if isinstance(graph_state, dict):
+        return graph_state
+    return {}
+
+
+def _apply_graph_terminal_run_fields(run: Run, graph_state: object) -> str:
+    state = _graph_state_mapping(graph_state)
+    raw = str(state.get("status", "completed"))
+    status = raw if raw in {"completed", "degraded"} else "completed"
+    run.status = status
+    run.finished_at = datetime.now(timezone.utc)
+    reason_raw = state.get("status_reason")
+    if status == "degraded":
+        run.status_reason = (
+            clip_reason(reason_raw)
+            if isinstance(reason_raw, str) and reason_raw.strip()
+            else DEFAULT_DEGRADED_REASON
+        )
+    else:
+        run.status_reason = None
+    competitors = state.get("competitors")
+    if isinstance(competitors, list) and competitors:
+        run.competitors = competitors
+    return status
 
 
 async def _mark_run_failed_and_emit(
@@ -774,12 +814,14 @@ async def _mark_run_failed_and_emit(
     """
     error_type = type(exc).__name__
     error_message = format_exception_for_log(exc)
+    status_reason = humanize_failure_message(error_message)
     log.error(log_event, error_type=error_type, error=error_message)
     session_factory = get_session_factory()
     async with session_factory() as session:
         run = await session.get(Run, run_id)
         if run is not None:
             run.status = "failed"
+            run.status_reason = status_reason
             run.finished_at = datetime.now(timezone.utc)
             await session.commit()
     await settle_run_billing(run_id=run_id, terminal_status="failed")
@@ -790,7 +832,8 @@ async def _mark_run_failed_and_emit(
             run_id=run_id,
             status="failed",
             error_type=error_type,
-            error_message=error_message,
+            error_message=status_reason,
+            status_reason=status_reason,
         ),
     )
 
@@ -824,6 +867,7 @@ async def _handle_graph_cancelled(*, run_id: str, log_event: str) -> None:
             await settle_run_billing(run_id=run_id, terminal_status=str(run.status))
             return
         run.status = "failed"
+        run.status_reason = UNEXPECTED_CANCEL_REASON
         run.finished_at = datetime.now(timezone.utc)
         await session.commit()
     await settle_run_billing(run_id=run_id, terminal_status="failed")
@@ -836,7 +880,8 @@ async def _handle_graph_cancelled(*, run_id: str, log_event: str) -> None:
             run_id=run_id,
             status="failed",
             error_type="CancelledError",
-            error_message="后台任务被中止（可能是服务重启）",
+            error_message=UNEXPECTED_CANCEL_REASON,
+            status_reason=UNEXPECTED_CANCEL_REASON,
         ),
     )
 
@@ -1012,7 +1057,8 @@ def _derive_run_phase(run: Run) -> Literal["intake", "planning", "executing", "d
     return "planning"
 
 
-def _to_run_detail(run: Run) -> RunDetailResponse:
+def _to_run_detail(run: Run, *, status_reason: str | None = None) -> RunDetailResponse:
+    resolved_reason = status_reason if status_reason is not None else run.status_reason
     return RunDetailResponse(
         run_id=run.run_id,
         owner_user_id=run.owner_user_id,
@@ -1025,6 +1071,7 @@ def _to_run_detail(run: Run) -> RunDetailResponse:
         domain_hint=run.domain_hint if run.domain_hint else None,
         reference_urls=list(run.reference_urls or []),
         status=run.status,
+        status_reason=resolved_reason,
         target_roles=list(run.target_roles),
         competitors=list(run.competitors),
         started_at=run.started_at.isoformat(),
@@ -1433,6 +1480,7 @@ async def list_runs(
                 title=run.title,
                 domain_hint=run.domain_hint if run.domain_hint else None,
                 status=run.status,
+                status_reason=run.status_reason,
                 phase=_derive_run_phase(run),
                 started_at=run.started_at.isoformat(),
                 finished_at=_to_iso(run.finished_at),
@@ -1498,19 +1546,18 @@ async def _execute_run_graph(
             run = await session.get(Run, run_id)
             if run is None:
                 raise RuntimeError(f"run_id={run_id} should exist after creation")
-            run_status = str(graph_state.get("status", "completed"))
-            run.status = run_status if run_status in {"completed", "degraded"} else "completed"
-            run.finished_at = datetime.now(timezone.utc)
-            final_competitors = graph_state.get("competitors")
-            if isinstance(final_competitors, list) and final_competitors:
-                run.competitors = final_competitors
+            final_status = _apply_graph_terminal_run_fields(run, graph_state)
+            status_reason = run.status_reason
             await session.commit()
-            final_status = run.status
         await settle_run_billing(run_id=run_id, terminal_status=final_status)
         await emit_run_event(
             run_id=run_id,
             event_type=RunEventType.RUN_FINISH,
-            payload=_build_run_finish_payload(run_id=run_id, status=final_status),
+            payload=_build_run_finish_payload(
+                run_id=run_id,
+                status=final_status,
+                status_reason=status_reason,
+            ),
         )
         await _log_run_summary(run_id=run_id, status=final_status)
         diff_task = asyncio.create_task(
@@ -1951,22 +1998,24 @@ async def _start_intake_graph_in_background(
 
         # Defensive: intake graph might reach terminal unexpectedly; mirror the
         # finalization behavior used by resume paths so run status can't stay running.
-        run_status_raw = str(state_values.get("status", "completed"))
-        run_status = run_status_raw if run_status_raw in {"completed", "degraded"} else "completed"
         async with session_factory() as session:
             run = await session.get(Run, run_id)
             if run is not None:
-                run.status = run_status
-                run.finished_at = datetime.now(timezone.utc)
-                final_competitors = state_values.get("competitors")
-                if isinstance(final_competitors, list) and final_competitors:
-                    run.competitors = final_competitors
+                run_status = _apply_graph_terminal_run_fields(run, state_values)
+                status_reason = run.status_reason
                 await session.commit()
+            else:
+                run_status = "completed"
+                status_reason = None
         await settle_run_billing(run_id=run_id, terminal_status=run_status)
         await emit_run_event(
             run_id=run_id,
             event_type=RunEventType.RUN_FINISH,
-            payload=_build_run_finish_payload(run_id=run_id, status=run_status),
+            payload=_build_run_finish_payload(
+                run_id=run_id,
+                status=run_status,
+                status_reason=status_reason,
+            ),
         )
         curator_task = asyncio.create_task(
             run_skill_curator_for_run(run_id=run_id, domain_hint=domain_hint),
@@ -2013,25 +2062,22 @@ async def _resume_plan_graph_in_background(
             )
             return
 
-        run_status_raw = str(graph_state.get("status", "completed")) if isinstance(graph_state, dict) else "completed"
-        run_status = run_status_raw if run_status_raw in {"completed", "degraded"} else "completed"
         async with session_factory() as session:
             run = await session.get(Run, run_id)
             if run is None:
                 raise RuntimeError(f"run_id={run_id} should exist after plan confirm")
-            run.status = run_status
-            run.finished_at = datetime.now(timezone.utc)
-            if isinstance(graph_state, dict):
-                final_competitors = graph_state.get("competitors")
-                if isinstance(final_competitors, list) and final_competitors:
-                    run.competitors = final_competitors
+            final_status = _apply_graph_terminal_run_fields(run, graph_state)
+            status_reason = run.status_reason
             await session.commit()
-            final_status = run.status
         await settle_run_billing(run_id=run_id, terminal_status=final_status)
         await emit_run_event(
             run_id=run_id,
             event_type=RunEventType.RUN_FINISH,
-            payload=_build_run_finish_payload(run_id=run_id, status=final_status),
+            payload=_build_run_finish_payload(
+                run_id=run_id,
+                status=final_status,
+                status_reason=status_reason,
+            ),
         )
         curator_task = asyncio.create_task(
             run_skill_curator_for_run(run_id=run_id, domain_hint=domain_hint),
@@ -2093,23 +2139,21 @@ async def _resume_intake_graph_in_background(
             )
             return
 
-        run_status_raw = str(state_values.get("status", "completed"))
-        run_status = run_status_raw if run_status_raw in {"completed", "degraded"} else "completed"
         async with session_factory() as session:
             run = await session.get(Run, run_id)
             if run is None:
                 raise RuntimeError(f"run_id={run_id} should exist after resume")
-            run.status = run_status
-            run.finished_at = datetime.now(timezone.utc)
-            final_competitors = state_values.get("competitors")
-            if isinstance(final_competitors, list) and final_competitors:
-                run.competitors = final_competitors
+            final_status = _apply_graph_terminal_run_fields(run, state_values)
+            status_reason = run.status_reason
             await session.commit()
-            final_status = run.status
         await emit_run_event(
             run_id=run_id,
             event_type=RunEventType.RUN_FINISH,
-            payload=_build_run_finish_payload(run_id=run_id, status=final_status),
+            payload=_build_run_finish_payload(
+                run_id=run_id,
+                status=final_status,
+                status_reason=status_reason,
+            ),
         )
         curator_task = asyncio.create_task(
             run_skill_curator_for_run(run_id=run_id, domain_hint=domain_hint),
@@ -2821,25 +2865,28 @@ async def resume_run(run_id: str, request: Request) -> RunCreateResponse:
                     message=f"run_id={run_id} should exist before resume update",
                 )
             run_domain_hint = run.domain_hint
-            run_status = str(graph_state.get("status", "completed"))
-            run.status = run_status if run_status in {"completed", "degraded"} else "completed"
-            run.finished_at = datetime.now(timezone.utc)
+            final_status = _apply_graph_terminal_run_fields(run, graph_state)
+            status_reason = run.status_reason
             await session.commit()
         await emit_run_event(
             run_id=run_id,
             event_type=RunEventType.RUN_FINISH,
-            payload=_build_run_finish_payload(run_id=run_id, status=run.status),
+            payload=_build_run_finish_payload(
+                run_id=run_id,
+                status=final_status,
+                status_reason=status_reason,
+            ),
         )
         task = asyncio.create_task(
             run_skill_curator_for_run(run_id=run_id, domain_hint=run_domain_hint),
             name=f"skill_curator_{run_id}",
         )
         _register_background_task(request, task)
-        log.info("api.run.resume.finish", status=run.status)
+        log.info("api.run.resume.finish", status=final_status)
 
     return RunCreateResponse(
         run_id=run_id,
-        status=run.status,
+        status=final_status,
         message="Run resumed from checkpoint.",
     )
 
@@ -2959,7 +3006,15 @@ async def get_run(run_id: str) -> RunDetailResponse:
                 error_code="RUN_NOT_FOUND",
                 message=f"run_id={run_id} does not exist",
             )
-        return _to_run_detail(run)
+        status_reason = await resolve_run_status_reason(session, run)
+        if (
+            status_reason
+            and not (run.status_reason or "").strip()
+            and run.status in {"degraded", "failed", "cancelled"}
+        ):
+            run.status_reason = status_reason
+            await session.commit()
+        return _to_run_detail(run, status_reason=status_reason)
 
 
 class IntakeSessionResponse(BaseModel):
@@ -3196,6 +3251,7 @@ async def patch_run(
             run.title = payload.title
         if payload.status == "cancelled" and run.status == "running":
             run.status = "cancelled"
+            run.status_reason = clip_reason(cancel_reason or DEFAULT_CANCELLED_REASON)
             run.finished_at = datetime.now(timezone.utc)
             should_cancel_tasks = True
         await session.commit()
@@ -3223,7 +3279,8 @@ async def patch_run(
                 run_id=run_id,
                 status="cancelled",
                 error_type="UserCancelled",
-                error_message=cancel_reason or "用户已停止此次分析",
+                error_message=run.status_reason or DEFAULT_CANCELLED_REASON,
+                status_reason=run.status_reason or DEFAULT_CANCELLED_REASON,
             ),
         )
     return _to_run_detail(run)
@@ -3949,6 +4006,7 @@ async def create_watchlist_item(payload: WatchlistCreateRequest) -> WatchlistIte
             note=payload.note,
             next_refresh_at=resolved_next_refresh_at,
             added_from_run_id=payload.added_from_run_id,
+            last_run_id=payload.added_from_run_id,
             source_role=payload.source_role,
             refresh_interval_hours=payload.refresh_interval_hours,
         )
@@ -4026,7 +4084,8 @@ async def manual_refresh_watchlist_item(watch_id: str, request: Request) -> Watc
             message="Watchlist refresher is not initialized.",
         )
     try:
-        run_id = await refresher.trigger_single(watch_id)
+        identity = get_identity()
+        run_id = await refresher.trigger_single(watch_id, owner_user_id=identity.user_id)
     except ValueError as exc:
         raise APIException(
             status_code=404,

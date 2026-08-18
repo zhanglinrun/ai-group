@@ -36,7 +36,7 @@ export function LoginPage(): JSX.Element {
         <CardHeader className="space-y-4">
           <Link to="/" className="w-fit"><Logo /></Link>
           <CardTitle>登录熊博士</CardTitle>
-          <p className="text-sm text-foreground-muted">登录后可以购买积分、发起研究并查看完整账单。</p>
+          <p className="text-sm text-foreground-muted">登录后可以购买积分、发起深度调研并查看完整账单。</p>
         </CardHeader>
         <CardContent>
           <form className="space-y-4" onSubmit={submit}>

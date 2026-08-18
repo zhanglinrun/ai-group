@@ -72,3 +72,6 @@ class Run(Base):
     consumed_micro_points: Mapped[int] = mapped_column(nullable=False, default=0)
     billing_status: Mapped[str] = mapped_column(String(32), nullable=False, default="NOT_STARTED")
     billing_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # User-facing terminal explanation (degraded / failed / cancelled). Nullable
+    # for in-flight runs and rows created before this column existed.
+    status_reason: Mapped[str | None] = mapped_column(Text, nullable=True)

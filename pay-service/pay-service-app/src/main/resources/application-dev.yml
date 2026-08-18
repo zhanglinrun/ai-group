@@ -72,8 +72,6 @@ ai-group:
   internal:
     token: ${AI_GROUP_INTERNAL_TOKEN:}
   pay:
-    # 本地开发联调专用：开启后注册 dev-only 模拟支付入口；生产 profile 没有该路由。
-    demo-complete-enabled: ${AI_GROUP_DEMO_PAYMENT_ENABLED:false}
     # 小额实收开关：>0 时实际向支付宝只收该金额（真实支付通道演示用）；<=0 按套餐价全额收取。
     # 当前走支付宝沙箱（假钱），默认全额收取使收银台金额与页面价格一致；
     # 若切换到真实支付通道又只想花几分钱演示，设 AI_GROUP_PAY_SANDBOX_AMOUNT=0.01 即可。

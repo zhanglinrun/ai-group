@@ -41,12 +41,6 @@ public interface ITradeRepository {
 
     NotifyTaskEntity settlementMarketPayOrder(GroupBuyTeamSettlementAggregate groupBuyTeamSettlementAggregate);
 
-    /**
-     * Dev-only: finalize the real team containing an already COMPLETE member order and create the
-     * same settlement notification task as the normal full-team path. Repeated calls are idempotent.
-     */
-    NotifyTaskEntity finalizePaidTeamForDemo(String userId, String outTradeNo);
-
     boolean isSCBlackIntercept(String source, String channel);
 
     List<NotifyTaskEntity> queryUnExecutedNotifyTaskList();

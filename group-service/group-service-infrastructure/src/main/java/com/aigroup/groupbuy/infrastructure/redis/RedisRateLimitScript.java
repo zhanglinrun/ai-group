@@ -6,22 +6,31 @@ import java.util.List;
 public final class RedisRateLimitScript {
 
     public static final String TRY_ACQUIRE = """
-            local current = redis.call('INCR', KEYS[1])
-            if current == 1 then
-              redis.call('PEXPIRE', KEYS[1], tonumber(ARGV[2]))
-            end
-            if current > tonumber(ARGV[1]) then
-              return 0
-            end
-            return 1
+        local limit = tonumber(ARGV[1])
+        local ttl = tonumber(ARGV[2])
+        if not limit or not ttl then
+          return 1
+        end
+        local current = redis.call('INCR', KEYS[1])
+        if current == 1 then
+          redis.call('PEXPIRE', KEYS[1], ttl)
+        end
+        if current > limit then
+          return 0
+        end
+        return 1
             """;
 
     public static final String BUMP_BLACKLIST = """
-            local current = redis.call('INCR', KEYS[1])
-            if current == 1 then
-              redis.call('EXPIRE', KEYS[1], tonumber(ARGV[1]))
-            end
-            return current
+        local ttl = tonumber(ARGV[1])
+        if not ttl then
+          return 0
+        end
+        local current = redis.call('INCR', KEYS[1])
+        if current == 1 then
+          redis.call('EXPIRE', KEYS[1], ttl)
+        end
+        return current
             """;
 
     private RedisRateLimitScript() {
