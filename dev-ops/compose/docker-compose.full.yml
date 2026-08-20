@@ -169,11 +169,13 @@ services:
       XXL_JOB_ADMIN_ADDRESSES: http://xxl-job-admin:8080
       XXL_JOB_ACCESS_TOKEN: ${XXL_JOB_ACCESS_TOKEN:-default_token}
       SA_TOKEN_COOKIE_SECURE: ${SA_TOKEN_COOKIE_SECURE:-false}
+      GATEWAY_ROUTE_AGENT_URI: ${AGENT_SERVICE_URL:-http://agent-service:8090}
     ports:
       - "${GATEWAY_PUBLISH_PORT:-8080}:8080"
     depends_on:
       redis: {condition: service_healthy}
       nacos: {condition: service_healthy}
+      agent-service: {condition: service_started}
 
   auth-service:
     build:
@@ -218,22 +220,6 @@ services:
       kafka: {condition: service_healthy}
       nacos: {condition: service_healthy}
       xxl-job-admin: {condition: service_started}
-
-  bff-service:
-    build:
-      context: ../..
-      dockerfile: dev-ops/compose/Dockerfile.platform
-      args:
-        MODULE: bff-service
-        ARTIFACT: bff-service
-    environment:
-      <<: *java-common
-      # Direct Docker DNS when Agent is not in Nacos (Python registration is best-effort).
-      AGENT_SERVICE_URL: ${AGENT_SERVICE_URL:-http://agent-service:8090}
-    expose: ["8083"]
-    depends_on:
-      nacos: {condition: service_healthy}
-      agent-service: {condition: service_started}
 
   group-service:
     build:

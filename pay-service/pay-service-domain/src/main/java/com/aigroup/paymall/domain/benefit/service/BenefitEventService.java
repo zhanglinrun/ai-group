@@ -12,10 +12,13 @@ import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.Date;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.ThreadPoolExecutor;
 
 @Slf4j
 @Service
@@ -26,13 +29,16 @@ public class BenefitEventService implements IBenefitEventService {
     private final IOrderRepository orderRepository;
     private final IBenefitEventRepository benefitEventRepository;
     private final IBenefitEventPort benefitEventPort;
+    private final ThreadPoolExecutor threadPoolExecutor;
 
     public BenefitEventService(IOrderRepository orderRepository,
                                IBenefitEventRepository benefitEventRepository,
-                               IBenefitEventPort benefitEventPort) {
+                               IBenefitEventPort benefitEventPort,
+                               ThreadPoolExecutor threadPoolExecutor) {
         this.orderRepository = orderRepository;
         this.benefitEventRepository = benefitEventRepository;
         this.benefitEventPort = benefitEventPort;
+        this.threadPoolExecutor = threadPoolExecutor;
     }
 
     @Override
@@ -43,10 +49,10 @@ public class BenefitEventService implements IBenefitEventService {
         }
         for (String orderId : orderIds) {
             OrderEntity order = requireOrder(orderId);
-            // Quota delivery is committed with the business state transition.
-            // MQ publication is exclusively handled by the independent outbox
-            // publisher after this transaction commits.
-            enqueueEvent(order, OutboxEventType.GROUP_BUY_COMPLETED.name());
+            // Same pattern as Group notify_task: write the row in this transaction,
+            // then afterCommit the thread pool tries tryPublish. The Job only
+            // scans leftovers. Never send Kafka before commit.
+            schedulePublishAfterCommit(enqueueEvent(order, OutboxEventType.GROUP_BUY_COMPLETED.name()));
         }
     }
 
@@ -58,7 +64,8 @@ public class BenefitEventService implements IBenefitEventService {
         }
         for (String orderId : orderIds) {
             // 撤销不改额度快照：member 侧按发放时记录的额度处理。
-            enqueueEvent(requireOrder(orderId), OutboxEventType.GROUP_BUY_REVOKED.name());
+            schedulePublishAfterCommit(
+                    enqueueEvent(requireOrder(orderId), OutboxEventType.GROUP_BUY_REVOKED.name()));
         }
     }
 
@@ -90,6 +97,41 @@ public class BenefitEventService implements IBenefitEventService {
             throw new IllegalStateException("outbox event order not found: " + orderId);
         }
         return order;
+    }
+
+    private void schedulePublishAfterCommit(BenefitEventEntity entity) {
+        if (entity == null || Boolean.TRUE.equals(entity.getEventPublished())) {
+            return;
+        }
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            return;
+        }
+        String orderId = entity.getOrderId();
+        String eventType = entity.getEventType();
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                try {
+                    threadPoolExecutor.execute(() -> publishCommittedEvent(orderId, eventType));
+                } catch (RuntimeException ex) {
+                    log.warn("eager outbox submit failed, job will retry orderId={} eventType={}",
+                            orderId, eventType, ex);
+                }
+            }
+        });
+    }
+
+    private void publishCommittedEvent(String orderId, String eventType) {
+        try {
+            BenefitEventEntity latest = benefitEventRepository.findByOrderIdAndEventType(orderId, eventType);
+            if (latest == null) {
+                return;
+            }
+            tryPublish(latest);
+        } catch (RuntimeException ex) {
+            log.warn("eager outbox publish failed, job will retry orderId={} eventType={}",
+                    orderId, eventType, ex);
+        }
     }
 
     private BenefitEventEntity enqueueEvent(OrderEntity order, String eventType) {

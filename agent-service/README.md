@@ -1,6 +1,6 @@
 # ai-group Agent Service
 
-这是唯一的 Python Agent 服务入口。它负责 LangGraph 运行、Postgres checkpoint、证据/报告、SSE 事件和 Token 计费；浏览器不能直接访问它，所有请求由 Java BFF 透传并附加 Gateway 签发的 HS256 内部 JWT。Agent 用 PyJWT 验签，不接入 Sa-Token。
+这是唯一的 Python Agent 服务入口。它负责 LangGraph 运行、Postgres checkpoint、证据/报告、SSE 事件和 Token 计费；浏览器不能直接访问它，所有请求经 Gateway 转发并附加签发的 HS256 内部 JWT。Agent 用 PyJWT 验签，不接入 Sa-Token。
 
 ## Token 计费口径
 
@@ -35,4 +35,4 @@ uvicorn main:app --host 0.0.0.0 --port 8090
 
 生产/Compose 环境必须设置 `INTERNAL_TOKEN`、`IDENTITY_SIGNING_SECRET`、Postgres DSN 和至少一个 LLM Provider。`ALLOW_ANONYMOUS_DEV=true` 只用于隔离开发测试。内部 JWT 的 `iss`/`aud` 与 Java Gateway 一致：`ai-group-gateway` / `ai-group-internal`。
 
-Compose 下 Agent 用 HTTP Naming 注册 Nacos（服务名 `agent-service`）。注册/心跳失败只打日志并重试，不把进程打死。BFF 在 `ai-group.agent.url` 为空时走 `http://agent-service` 负载均衡；`application-local.yml` 仍直连 `127.0.0.1:8090`。网关不配 Agent 路由，浏览器只打 BFF。
+Compose 下 Agent 用 HTTP Naming 注册 Nacos（服务名 `agent-service`）。注册/心跳失败只打日志并重试，不把进程打死。Gateway 在 Compose 里用 `GATEWAY_ROUTE_AGENT_URI=http://agent-service:8090` 直连 Docker DNS（不赌 Python Nacos 成功）；local profile 直连 `127.0.0.1:8090`。浏览器只打 Gateway，看不到 Agent 端口。

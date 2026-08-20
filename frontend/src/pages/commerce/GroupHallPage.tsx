@@ -5,7 +5,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DEFAULT_GROUP_VALID_MINUTES, formatCountdown, PAYMENT_WINDOW_MS, secondsUntil } from "@/lib/countdown";
-import { pricing } from "@/platform/client";
+import { pricing } from "@/platform/pricing";
 import { createPayQrOrder, type CreatePayOrderRequest, type PurchaseMode } from "@/platform/pay";
 import { classifyPayPayload } from "@/lib/payPayload";
 import { PaymentDialog, type PaymentDialogState } from "@/components/commerce/PaymentDialog";

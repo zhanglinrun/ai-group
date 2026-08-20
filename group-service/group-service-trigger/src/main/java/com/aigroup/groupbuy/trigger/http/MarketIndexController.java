@@ -35,7 +35,7 @@ public class MarketIndexController implements IMarketIndexService {
     @Resource
     private IIndexGroupBuyMarketService indexGroupBuyMarketService;
 
-    // BFF fans this out once per quota SKU (~3 calls) and the hall polls every 15s.
+    // Frontend fans this out once per quota SKU (~3 calls) and the hall polls every 15s.
     // 1 QPS + blacklistCount=1 would 24h-ban a normal page load after the second SKU.
     @RateLimiterAccessInterceptor(key = "userId", fallbackMethod = "queryGroupBuyMarketConfigFallBack",
             permitsPerSecond = 20.0d, blacklistCount = 0)
@@ -144,7 +144,7 @@ public class MarketIndexController implements IMarketIndexService {
                 .build();
     }
 
-    /** Browser/BFF-friendly canonical read variant; POST remains for legacy Feign callers. */
+    /** Browser-friendly canonical read variant; POST remains for Feign callers. */
     @GetMapping("activities")
     public Response<GoodsMarketResponseDTO> listActivities(
             @RequestParam(required = false) String userId,

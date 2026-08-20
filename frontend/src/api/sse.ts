@@ -488,8 +488,8 @@ function dispatchToSubscribers(
 }
 
 function createRunEventsChannel(runId: string): SharedRunEventsChannel {
-  const eventsUrl = `${API_BASE_URL}/api/bff/agent/runs/${runId}/events`;
-  const eventSource = new EventSource(eventsUrl);
+  const eventsUrl = `${API_BASE_URL}/api/runs/${runId}/events`;
+  const eventSource = new EventSource(eventsUrl, { withCredentials: true });
   const channel: SharedRunEventsChannel = {
     runId,
     eventSource,

@@ -14,15 +14,22 @@ import org.junit.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -36,13 +43,16 @@ public class BenefitEventServiceTest {
     private IOrderRepository orderRepository;
     private IBenefitEventRepository benefitEventRepository;
     private IBenefitEventPort benefitEventPort;
+    private ThreadPoolExecutor threadPoolExecutor;
 
     @Before
     public void setUp() {
         orderRepository = mock(IOrderRepository.class);
         benefitEventRepository = mock(IBenefitEventRepository.class);
         benefitEventPort = mock(IBenefitEventPort.class);
-        benefitEventService = new BenefitEventService(orderRepository, benefitEventRepository, benefitEventPort);
+        threadPoolExecutor = mock(ThreadPoolExecutor.class);
+        benefitEventService = new BenefitEventService(
+                orderRepository, benefitEventRepository, benefitEventPort, threadPoolExecutor);
     }
 
     @Test
@@ -60,6 +70,68 @@ public class BenefitEventServiceTest {
         assertFalse(event.getEventPublished());
         verifyNoInteractions(benefitEventPort);
         verify(benefitEventRepository, never()).markPublished(any(String.class));
+        verify(threadPoolExecutor, never()).execute(any(Runnable.class));
+    }
+
+    @Test
+    public void enqueueCompletedOrderEvents_publishesOnThreadPoolAfterCommit() {
+        runInlineExecutor();
+        OrderEntity order = order("order-001", MarketTypeVO.GROUP_BUY_MARKET, 60L);
+        when(orderRepository.queryOrderByOrderId("order-001")).thenReturn(order);
+        AtomicReference<BenefitEventEntity> inserted = new AtomicReference<>();
+        doAnswer(invocation -> {
+            inserted.set(invocation.getArgument(0));
+            return null;
+        }).when(benefitEventRepository).insert(any(BenefitEventEntity.class));
+        when(benefitEventRepository.findByOrderIdAndEventType(
+                eq("order-001"), eq(OutboxEventType.GROUP_BUY_COMPLETED.name())))
+                .thenAnswer(invocation -> inserted.get());
+
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            benefitEventService.enqueueCompletedOrderEvents(Collections.singletonList("order-001"));
+            verifyNoInteractions(benefitEventPort);
+            verify(threadPoolExecutor, never()).execute(any(Runnable.class));
+
+            for (TransactionSynchronization synchronization
+                    : TransactionSynchronizationManager.getSynchronizations()) {
+                synchronization.afterCommit();
+            }
+
+            verify(benefitEventPort).publishTradeCompleted(any(TradeCompletedEvent.class));
+            verify(benefitEventRepository).markPublished(inserted.get().getEventId());
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+    }
+
+    @Test
+    public void enqueueCompletedOrderEvents_keepsRowUnpublishedWhenEagerPublishFails() {
+        runInlineExecutor();
+        OrderEntity order = order("order-001", MarketTypeVO.GROUP_BUY_MARKET, 60L);
+        when(orderRepository.queryOrderByOrderId("order-001")).thenReturn(order);
+        AtomicReference<BenefitEventEntity> inserted = new AtomicReference<>();
+        doAnswer(invocation -> {
+            inserted.set(invocation.getArgument(0));
+            return null;
+        }).when(benefitEventRepository).insert(any(BenefitEventEntity.class));
+        when(benefitEventRepository.findByOrderIdAndEventType(
+                eq("order-001"), eq(OutboxEventType.GROUP_BUY_COMPLETED.name())))
+                .thenAnswer(invocation -> inserted.get());
+        doThrow(new IllegalStateException("kafka publish timed out"))
+                .when(benefitEventPort).publishTradeCompleted(any(TradeCompletedEvent.class));
+
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            benefitEventService.enqueueCompletedOrderEvents(Collections.singletonList("order-001"));
+            for (TransactionSynchronization synchronization
+                    : TransactionSynchronizationManager.getSynchronizations()) {
+                synchronization.afterCommit();
+            }
+            verify(benefitEventRepository, never()).markPublished(anyString());
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
     }
 
     @Test
@@ -161,6 +233,13 @@ public class BenefitEventServiceTest {
 
         assertThrows(IllegalStateException.class, () -> benefitEventService
                 .enqueueRevokedBenefitEvents(Collections.singletonList("order-revoke-insert-failure")));
+    }
+
+    private void runInlineExecutor() {
+        doAnswer(invocation -> {
+            invocation.getArgument(0, Runnable.class).run();
+            return null;
+        }).when(threadPoolExecutor).execute(any(Runnable.class));
     }
 
     private OrderEntity order(String orderId, MarketTypeVO marketType, Long baseQuota) {

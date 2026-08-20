@@ -92,7 +92,7 @@ async function fetchRunDetail(runId: string): Promise<RunDetailResponse> {
 
 async function fetchRunTrace(runId: string): Promise<RunTraceResponse> {
   const { data } = await apiClient.get<RunTraceResponse>(`/api/runs/${runId}/trace`);
-  // The Agent endpoint returns { run, steps, ... }, but older BFF responses
+  // The Agent endpoint returns { run, steps, ... }, but older wrapped responses
   // wrapped it in { data: ... } and could briefly omit `run` while a run was
   // being finalized. Normalize both shapes at the API boundary.
   const envelope = data as unknown as Record<string, unknown> | null;
@@ -126,7 +126,7 @@ async function fetchRunTrace(runId: string): Promise<RunTraceResponse> {
       };
     }
   }
-  // Older Agent/BFF responses may omit an empty trace collection while a run
+  // Older Agent responses may omit an empty trace collection while a run
   // is being finalized.  Keep the UI contract stable so detail, trace and
   // audit pages can render the report while those collections are empty.
   return {
@@ -276,7 +276,7 @@ async function fetchRunEvidence(
 }
 
 /**
- * Agent normally returns an array, but older BFF deployments may wrap it in
+ * Agent normally returns an array, but older deployments may wrap it in
  * `{ data: [...] }` or `{ items: [...] }`. Normalize at the API boundary so
  * every evidence consumer can safely treat the result as a list.
  */

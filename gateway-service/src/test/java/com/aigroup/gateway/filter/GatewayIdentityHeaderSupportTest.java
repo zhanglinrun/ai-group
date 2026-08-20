@@ -16,7 +16,7 @@ class GatewayIdentityHeaderSupportTest {
 
     @Test
     void verifiedIdentityRewritesProtectedHeadersAndMintsJwt() {
-        ServerHttpRequest browserRequest = MockServerHttpRequest.get("/api/bff/agent/runs/run-1/events")
+        ServerHttpRequest browserRequest = MockServerHttpRequest.get("/api/runs/run-1/events")
                 .header("Last-Event-ID", "42")
                 .header(CommonConstant.HEADER_USER_ID, "attacker")
                 .header(CommonConstant.HEADER_GATEWAY_REQUEST, "false")

@@ -68,7 +68,6 @@
         <module>gateway-service</module>
         <module>auth-service</module>
         <module>member-service</module>
-        <module>bff-service</module>
         <module>group-service</module>
         <module>pay-service</module>
     </modules>

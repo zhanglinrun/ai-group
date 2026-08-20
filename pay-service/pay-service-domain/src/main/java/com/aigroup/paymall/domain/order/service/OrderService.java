@@ -267,7 +267,7 @@ public class OrderService extends AbstractOrderService {
             }
         } else {
             // Direct-purchase PAY_SUCCESS -> DEAL_DONE and the benefit outbox row
-            // commit atomically. No MQ call occurs inside this transaction.
+            // commit atomically. Kafka is sent afterCommit (thread pool), not here.
             transactionTemplate.executeWithoutResult(status -> {
                 repository.changeOrderPaySuccess(orderId, payTime);
                 repository.changeOrderDealDone(orderId);
@@ -381,7 +381,8 @@ public class OrderService extends AbstractOrderService {
         List<String> settledOrderIds = repository.changeOrderMarketSettlement(outTradeNoList);
         if (null != settledOrderIds && !settledOrderIds.isEmpty()) {
             // MARKET is the formed-group terminal. Only the benefit outbox row
-            // is written here; DEAL_DONE is reserved for direct purchase.
+            // is written here; Kafka goes out afterCommit. DEAL_DONE is reserved
+            // for direct purchase.
             benefitEventService.enqueueCompletedOrderEvents(settledOrderIds);
         }
     }
@@ -458,7 +459,7 @@ public class OrderService extends AbstractOrderService {
         AlipayTradeRefundResponse execute = alipayClient.execute(request);
         if (!execute.isSuccess()) return false;
 
-        // 原子更新本地订单状态并写入权益撤销 outbox；独立发布器在提交后发送。
+        // 原子更新本地订单状态并写入权益撤销 outbox；提交后线程池抢发，Job 只补偿。
         // local DB updates (order close + revoke outbox row) commit atomically
         transactionTemplate.executeWithoutResult(status -> {
             repository.refundOrder(userId, orderId);

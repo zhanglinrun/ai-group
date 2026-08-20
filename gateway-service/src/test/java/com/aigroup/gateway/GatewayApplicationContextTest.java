@@ -15,6 +15,7 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.core.env.Environment;
 import reactor.core.publisher.Mono;
 
+import java.time.Duration;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -52,37 +53,50 @@ class GatewayApplicationContextTest {
     }
 
     @Test
-    void bffRoutesDedupeCorsResponseHeaders() {
+    void agentRoutesDedupeCorsResponseHeaders() {
         List<Route> routes = routeLocator.getRoutes().collectList().block();
-        assertRouteHasDedupe(routes, "bff");
+        assertRouteHasDedupe(routes, "agent-sse");
+        assertRouteHasDedupe(routes, "agent-json");
     }
 
     @Test
-    void bffAgentRouteIncludesRunApi() {
+    void agentJsonRouteIncludesRunApi() {
         Route route = routeLocator.getRoutes()
-                .filter(item -> "bff".equals(item.getId()))
+                .filter(item -> "agent-json".equals(item.getId()))
                 .blockFirst();
         MockServerWebExchange exchange = MockServerWebExchange.from(
-                MockServerHttpRequest.get("/api/bff/agent/runs/run-1").build());
+                MockServerHttpRequest.get("/api/runs/run-1").build());
 
         assertNotNull(route);
         assertTrue(Boolean.TRUE.equals(Mono.from(route.getPredicate().apply(exchange)).block()));
     }
 
     @Test
-    void bffSseRouteMatchesReplayEndpointAndDeepRunTimeoutIsFiveMinutes() {
+    void agentSseRouteMatchesEventsAndUsesThirtyMinuteTimeout() {
         Route route = routeLocator.getRoutes()
-                .filter(item -> "bff".equals(item.getId()))
+                .filter(item -> "agent-sse".equals(item.getId()))
                 .blockFirst();
         MockServerWebExchange exchange = MockServerWebExchange.from(
-                MockServerHttpRequest.get("/api/bff/agent/runs/run-1/events")
+                MockServerHttpRequest.get("/api/runs/run-1/events")
                         .header("Last-Event-ID", "42").build());
 
         assertNotNull(route);
         assertTrue(Boolean.TRUE.equals(Mono.from(route.getPredicate().apply(exchange)).block()));
         assertEquals("42", exchange.getRequest().getHeaders().getFirst("Last-Event-ID"));
+        assertTrue(sseTimeoutMillis(route) >= Duration.ofMinutes(30).toMillis());
         assertTrue(environment.getProperty(
                 "spring.cloud.gateway.server.webflux.httpclient.response-timeout", Long.class, 0L) >= 300_000L);
+    }
+
+    private static long sseTimeoutMillis(Route route) {
+        Object timeout = route.getMetadata().get("response-timeout");
+        if (timeout instanceof Duration duration) {
+            return duration.toMillis();
+        }
+        if (timeout instanceof Number number) {
+            return number.longValue();
+        }
+        return 0L;
     }
 
     private void assertRouteHasDedupe(List<Route> routes, String routeId) {

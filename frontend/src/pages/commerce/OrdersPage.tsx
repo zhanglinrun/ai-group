@@ -8,21 +8,7 @@ import { orderStatusLabel, productLabel } from "@/lib/commerceLabels";
 import { PAYMENT_WINDOW_MS } from "@/lib/countdown";
 import { classifyPayPayload, isPayableStatus } from "@/lib/payPayload";
 import { orderDateRows } from "@/lib/orderDates";
-import { platformClient } from "@/platform/client";
-
-interface OrderItem {
-  orderId?: string;
-  productName?: string;
-  status?: string;
-  displayStatus?: string;
-  marketType?: unknown;
-  amount?: number | string;
-  payUrl?: string;
-  orderTime?: string;
-  payTime?: string;
-  paidAt?: string;
-  updateTime?: string;
-}
+import { listOrders, type OrderItem } from "@/platform/orders";
 
 function isGroupMarket(marketType: unknown): boolean {
   return marketType === 1 || marketType === "1" || marketType === "group_buy_market";
@@ -37,8 +23,7 @@ export function OrdersPage(): JSX.Element {
   async function load(): Promise<void> {
     setLoading(true);
     try {
-      const response = await platformClient.get<{ data?: { items?: OrderItem[] } }>("/api/bff/orders");
-      setOrders(response.data.data?.items ?? []);
+      setOrders(await listOrders());
       setError(null);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "订单暂时不可用");

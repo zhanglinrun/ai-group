@@ -53,12 +53,13 @@ sa-token:
 
 gateway:
   route:
-    # 平台服务与 agent 经 Nacos 服务发现 + 负载均衡（lb://服务名）；local profile 覆盖为直连
+    # 平台服务与 agent 经 Nacos 服务发现 + 负载均衡（lb://服务名）；local profile 覆盖为直连。
+    # Python Nacos 注册是 fail-open，Compose 用 GATEWAY_ROUTE_AGENT_URI 走 Docker DNS。
     auth-uri: lb://auth-service
     member-uri: lb://member-service
-    bff-uri: lb://bff-service
     pay-uri: lb://pay-service
     group-uri: lb://group-service
+    agent-uri: lb://agent-service
 
 ai-group:
   internal:

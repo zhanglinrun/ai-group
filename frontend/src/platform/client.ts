@@ -2,8 +2,19 @@ import axios from "axios";
 
 interface PlatformEnvelope {
   code?: number | string;
+  info?: string;
   message?: string;
   data?: unknown;
+}
+
+function isBusinessSuccess(code: unknown): boolean {
+  if (code === undefined || code === null) {
+    return true;
+  }
+  if (typeof code === "number") {
+    return code === 200;
+  }
+  return code === "0000" || code === "200";
 }
 
 function platformErrorMessage(payload: PlatformEnvelope | undefined): string {
@@ -11,7 +22,7 @@ function platformErrorMessage(payload: PlatformEnvelope | undefined): string {
   if (code === 608) return "用户名或密码错误，请确认账号已注册";
   if (code === 607) return "用户名已存在，请直接登录";
   if (code === 401 || code === 604 || code === 605) return "登录状态已失效，请重新登录";
-  return payload?.message || "请求失败";
+  return payload?.message || payload?.info || "请求失败";
 }
 
 export const platformClient = axios.create({
@@ -26,7 +37,7 @@ platformClient.interceptors.response.use(
     // Reject those responses here so callers never dereference a null data
     // object (for example, login failures return data: null).
     const payload = response.data as PlatformEnvelope | undefined;
-    if (payload && typeof payload === "object" && typeof payload.code === "number" && payload.code !== 200) {
+    if (payload && typeof payload === "object" && payload.code !== undefined && !isBusinessSuccess(payload.code)) {
       return Promise.reject(new Error(platformErrorMessage(payload)));
     }
     return response;
@@ -86,13 +97,13 @@ export async function logout(): Promise<void> {
 }
 
 export async function accountOverview(): Promise<QuotaSummary & { quotaLedger?: Array<Record<string, unknown>> }> {
-  const { data } = await platformClient.get<{ data: QuotaSummary & { quotaLedger?: Array<Record<string, unknown>> } }>(
-    "/api/bff/account/summary",
-  );
-  return data.data;
-}
-
-export async function pricing(): Promise<Record<string, unknown>> {
-  const { data } = await platformClient.get<{ data: Record<string, unknown> }>("/api/bff/pricing");
-  return data.data;
+  const { data } = await platformClient.get<{ data: QuotaSummary }>("/api/member/summary");
+  let quotaLedger: Array<Record<string, unknown>> = [];
+  try {
+    const ledger = await platformClient.get<{ data?: Array<Record<string, unknown>> }>("/api/member/quota-ledger");
+    quotaLedger = Array.isArray(ledger.data.data) ? ledger.data.data : [];
+  } catch {
+    quotaLedger = [];
+  }
+  return { ...data.data, quotaLedger };
 }

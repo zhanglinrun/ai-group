@@ -35,4 +35,19 @@ class GatewayLocalRouteContractTest {
 
         assertEquals(URI.create("http://127.0.0.1:18082"), memberUri);
     }
+
+    @Test
+    void agentRoutesTargetLocalAgentPort() {
+        URI sseUri = routeLocator.getRoutes()
+                .filter(route -> "agent-sse".equals(route.getId()))
+                .map(Route::getUri)
+                .blockFirst();
+        URI jsonUri = routeLocator.getRoutes()
+                .filter(route -> "agent-json".equals(route.getId()))
+                .map(Route::getUri)
+                .blockFirst();
+
+        assertEquals(URI.create("http://127.0.0.1:8090"), sseUri);
+        assertEquals(URI.create("http://127.0.0.1:8090"), jsonUri);
+    }
 }

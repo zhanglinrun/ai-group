@@ -387,7 +387,7 @@ public class AliPayController {
         }
     }
 
-    /** Canonical read endpoint used by the BFF order detail page. */
+    /** Canonical read endpoint used by the order detail page. */
     @GetMapping("orders/{orderId}")
     public Response<PayOrderResponseDTO> getOrder(
             @PathVariable String orderId,

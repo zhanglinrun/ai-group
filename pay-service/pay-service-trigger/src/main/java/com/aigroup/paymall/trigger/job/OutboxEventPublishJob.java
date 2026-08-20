@@ -10,9 +10,9 @@ import org.springframework.stereotype.Component;
 import jakarta.annotation.Resource;
 
 /**
- * Independently publishes committed payment outbox rows. Business transactions
- * only insert rows; this poller plus consumer idempotency provides at-least-once
- * delivery without sending MQ messages before the database commit succeeds.
+ * Compensates unpublished payment outbox rows. Business transactions only insert
+ * rows; afterCommit the thread pool tries the same {@code tryPublish} path.
+ * This job scans leftovers if the eager send failed or the process died.
  * Prefer XXL-JOB admin scheduling ({@code outboxEventPublishJob}); enable
  * {@code pay.outbox.local-scheduler-enabled} only as a no-Admin fallback.
  */

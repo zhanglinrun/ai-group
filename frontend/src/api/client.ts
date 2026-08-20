@@ -1,7 +1,7 @@
 import axios from "axios";
 
-// All Agent calls go through Java BFF. The browser never knows the Python
-// service address and the BFF can attach the verified Gateway identity.
+// Agent JSON goes through Gateway `/api/runs/**` (and watchlist / skill / fixtures).
+// The browser never receives the Python service address.
 const DEFAULT_API_BASE_URL = import.meta.env.DEV ? "" : "";
 
 const resolvedBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim();
@@ -22,25 +22,11 @@ export const apiClient = axios.create({
   withCredentials: true,
 });
 
-apiClient.interceptors.request.use((config) => {
-  const url = config.url ?? "";
-  const shouldProxyAgent =
-    url.startsWith("/api/runs") ||
-    url.startsWith("/api/watchlist") ||
-    url.startsWith("/api/demo-fixtures") ||
-    url.startsWith("/api/skill-candidates");
-  if (shouldProxyAgent) {
-    config.url = `/api/bff/agent${url.substring("/api".length)}`;
-  }
-  return config;
-});
-
 apiClient.interceptors.response.use(
   (response) => {
-    // The Java BFF keeps downstream failures in a HTTP 200 envelope.  Treat
-    // those envelopes as rejected requests; otherwise a page may interpret
-    // `{ code: 500, data: null }` as a successful Agent DTO and crash while
-    // rendering fields such as `user_query` or `run_id`.
+    // Java Result envelopes keep business failures in HTTP 200. Treat those as
+    // rejected requests so pages never render `{ code: 500, data: null }` as an
+    // Agent DTO. FastAPI errors use real status codes and skip this branch.
     const payload = response.data as Record<string, unknown> | undefined;
     if (
       payload &&

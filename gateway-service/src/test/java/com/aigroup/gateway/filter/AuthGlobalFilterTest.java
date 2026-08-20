@@ -83,7 +83,7 @@ class AuthGlobalFilterTest {
     @Test
     void userApi_withoutSession_isUnauthorized() {
         ServerWebExchange exchange = MockServerWebExchange.from(MockServerHttpRequest
-                .post("/api/bff/orders").build());
+                .post("/api/pay/orders/page").build());
 
         StepVerifier.create(filter.filter(exchange, ex -> Mono.empty())).verifyComplete();
 
@@ -93,7 +93,7 @@ class AuthGlobalFilterTest {
     @Test
     void userApi_withUnknownBearer_isUnauthorized() {
         ServerWebExchange exchange = MockServerWebExchange.from(MockServerHttpRequest
-                .get("/api/bff/account/summary")
+                .get("/api/member/summary")
                 .header("Authorization", "Bearer not-a-real-session")
                 .build());
 

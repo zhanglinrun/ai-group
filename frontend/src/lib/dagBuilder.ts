@@ -284,7 +284,7 @@ function applyDagreLayout(nodes: DagNode[], edges: DagEdge[]): DagNode[] {
  * - start/end node: start / end
  */
 export function buildRunTraceDag(trace: RunTraceResponse): DagBuildResult {
-  // Keep the visualization usable when an older Agent/BFF response is
+  // Keep the visualization usable when an older Agent response is
   // missing one of the trace collections. The API hook normalizes this too,
   // but the builder is intentionally defensive for cached/manual payloads.
   const rawTrace = trace as Partial<RunTraceResponse>;

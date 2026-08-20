@@ -29,7 +29,7 @@ npm run dev
 本地开发默认走 **Vite 代理**：前端请求 `/api/*` 由 `vite.config.ts` 转发到 Gateway `http://localhost:8080`，无需配置 CORS。
 
 - 环境变量：无需设置，开发代理统一指向 Gateway。
-- Python Agent 地址只存在于 BFF 的服务端配置，浏览器不会直连 Agent。
+- Python Agent 地址只存在于 Gateway 路由配置，浏览器不会直连 Agent。
 
 ```bash
 # 默认：留空，走 Vite /api 代理

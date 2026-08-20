@@ -10,7 +10,7 @@ ai-group 是一套全栈微服务平台：用户通过拼团购买积分，再�
 
 ### 架构特点
 
-- **微服务架构**：Gateway / Auth / BFF / Member / Group / Pay / Agent / Frontend 独立部署
+- **微服务架构**：Gateway / Auth / Member / Group / Pay / Agent / Frontend 独立部署
 - **双栈分工**：Java 处理交易边界与一致性；Python 处理 LangGraph 与模型调用
 - **DDD 设计**：Group / Pay 沿用领域分层（api / domain / infrastructure / trigger / app）
 - **最终一致性**：本地消息表（Outbox）+ Kafka + 定时补偿
@@ -18,7 +18,7 @@ ai-group 是一套全栈微服务平台：用户通过拼团购买积分，再�
 
 ### 核心领域
 
-- **身份与入口（Auth / Gateway / BFF）**：登录会话、路由鉴权、页面 DTO 聚合、Agent SSE 透传
+- **身份与入口（Auth / Gateway）**：登录会话、路由鉴权、Agent `/api/runs/**` 直转
 - **拼团域（Group）**：活动配置、规则试算、库存抢占、成团结算、退款与通知任务
 - **支付域（Pay）**：现金订单、支付宝沙箱回调、退款与 Outbox 事件
 - **积分域（Member）**：积分账户唯一权威；冻结 / 确认 / 释放幂等账本
@@ -30,11 +30,10 @@ ai-group 是一套全栈微服务平台：用户通过拼团购买积分，再�
 flowchart LR
   WEB[React 前端] --> GW[Spring Cloud Gateway]
   GW --> AUTH[Auth / Sa-Token]
-  GW --> BFF[BFF 页面聚合]
   GW --> MEMBER[Member 积分账本]
   GW --> GROUP[Group 拼团领域]
   GW --> PAY[Pay 支付宝沙箱]
-  BFF --> AGENT[Python Agent / FastAPI]
+  GW --> AGENT[Python Agent / FastAPI]
   AGENT --> LG[LangGraph + LLM Provider]
   AGENT --> MEMBER
   GROUP -. Kafka Outbox .-> PAY
@@ -46,9 +45,8 @@ flowchart LR
 
 ```
 ai-group/
-├── gateway-service/           # 路由、Sa-Token 校验、内部 JWT 签发
+├── gateway-service/           # 路由、Sa-Token 校验、内部 JWT 签发、Agent 反代
 ├── auth-service/              # 用户、角色、登录会话、注册与退出
-├── bff-service/               # 页面 DTO 聚合与 Agent SSE 透传
 ├── member-service/            # 积分账户、冻结/确认/释放、不可变账本
 ├── group-service/             # 拼团 DDD 服务（活动/标签/交易）
 │   ├── group-service-api/
@@ -85,7 +83,7 @@ ai-group/
 ### 2. 现金支付与权益发放
 
 - **支付宝沙箱**：下单、回调、退款链路
-- **Outbox 事件**：直购在回调事务里写 Outbox 再发权益；拼团在回调线程同步 Feign 通知 Group 结算，丢了靠 `settlement_notified` 补偿，成团后再走 Outbox 发额度
+- **Outbox 事件**：直购/成团都是事务里写 Outbox，提交后线程池抢发，Job 只补偿；拼团在回调线程同步 Feign 通知 Group 结算，丢了靠 `settlement_notified` 补偿
 - **可关闭沙箱**：本地可用模拟回调完成联调
 
 ### 3. Member 积分账本
@@ -105,7 +103,7 @@ ai-group/
 
 - **HttpOnly Cookie + Sa-Token**：浏览器会话不落 Agent，可在 Redis 撤销
 - **HS256 内部 JWT**：Gateway 校验会话后签发约 60 秒内部身份；Python 用 PyJWT 验签，不接 Sa-Token
-- **BFF 聚合**：前端只调 Gateway；Agent 地址不写入前端环境变量；BFF 原样转发 JWT，不重造 userId
+- **Gateway 直转 Agent**：前端只调 Gateway；Agent 地址不写入前端环境变量。定价/账户由前端并行调用 Member、Group、Pay，Group 失败可降级
 
 ## 技术栈
 
@@ -116,7 +114,7 @@ ai-group/
 - **网关 / 会话**：Spring Cloud Gateway、Sa-Token
 - **ORM**：MyBatis-Plus
 - **数据库**：MySQL 8.0+
-- **内部调用**：OpenFeign + Nacos；BFF 调 Agent 用 WebClient
+- **内部调用**：OpenFeign + Nacos；Gateway 直转 Agent
 - **缓存 / 锁**：Redis（会话、拼团占库存 / recovery、拼团侧固定窗口限流、短缓存）
 - **消息队列**：Kafka（Outbox 投递；手动 ack + DefaultErrorHandler 有限重试，耗尽进 `{topic}.DLT`；各业务服务有 DLT 回放，失败打 `kafka.dlt.exhausted` 后 ack，不再投 `*.DLT.DLT`）
 - **任务调度**：XXL-JOB 3.4.2（Admin + auth/pay/group/member 执行器；本地 Compose 已内置）
@@ -130,7 +128,7 @@ ai-group/
 - **编排**：LangGraph、langchain-core、Postgres Checkpoint
 - **持久化**：SQLAlchemy（asyncio）、asyncpg、Alembic、PostgreSQL
 - **LLM / 检索**：OpenAI 兼容 SDK、Tavily 等工具链
-- **服务发现**：nacos-sdk-python（注册为 `agent-service`，BFF 按服务名发现）
+- **服务发现**：nacos-sdk-python（注册为 `agent-service`；Gateway Compose 走 Docker DNS）
 - **可观测**：structlog
 - **测试**：pytest、pytest-asyncio
 
@@ -170,7 +168,7 @@ Run / Event 持久化，SSE 支持断线后按事件游标回放；LangGraph Che
 
 ### 6. 冒烟门禁
 
-`eval/http-smoke.ps1` 做 Gateway 黑盒冒烟。跨服务字段以 Pay `TradeCompletedEvent`、Auth Outbox JSON、Member/BFF DTO 为准。
+`eval/http-smoke.ps1` 做 Gateway 黑盒冒烟。跨服务字段以 Pay `TradeCompletedEvent`、Auth Outbox JSON、Member DTO 为准。
 
 ## 环境要求
 
@@ -246,11 +244,10 @@ npm run dev
 
 ## 项目结构说明
 
-### Gateway / Auth / BFF
+### Gateway / Auth
 
-- **gateway-service**：统一入口、鉴权、HS256 内部 JWT 签发（限流在拼团侧 Redis，不在网关）
+- **gateway-service**：统一入口、鉴权、HS256 内部 JWT 签发；`/api/runs/**` 等到 Agent（JSON 45s / SSE 30 分钟）；限流在拼团侧 Redis，不在网关
 - **auth-service**：账号体系与 Sa-Token 会话
-- **bff-service**：页面级聚合与 Agent SSE 代理（浏览器永不直连 Agent；`ai-group.agent.url` 空则 `lb://agent-service`，local 直连）
 
 ### Member
 

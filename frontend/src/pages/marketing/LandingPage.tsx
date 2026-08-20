@@ -10,9 +10,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { formatDateTime, formatRunTitle } from "@/lib/format";
 
 export function LandingPage(): JSX.Element {
-  // The marketing page is public, while /api/bff/agent/runs is intentionally
-  // scoped to the signed-in user's workspace. Do not turn the expected guest
-  // 401 into a visible "network error" on the landing page.
+  // The marketing page is public, while /api/runs is scoped to the signed-in
+  // user's workspace. Do not turn the expected guest 401 into a visible
+  // "network error" on the landing page.
   const completedRunsQuery = useRunsList(
     { status: "completed", limit: 3, offset: 0 },
     { enabled: false },

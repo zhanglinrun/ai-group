@@ -30,24 +30,25 @@ Java 包名 `com.aigroup.paymall`、库名 `s_pay_mall_ddd_market` 是历史保�
 
 1. 支付结果在同一事务内把订单从 `CREATE/PAY_WAIT` 更新为 `PAY_SUCCESS` 再落到 `DEAL_DONE`。
 2. 同一事务向 `benefit_event` 写入 `GROUP_BUY_COMPLETED`，按订单 `baseQuota` 快照发放额度。
-3. 事务提交后，`OutboxEventPublishJob` 才能扫描并发送消息。
+3. 事务提交后线程池立刻走同一套发布方法抢发 Kafka；`OutboxEventPublishJob` 只扫未发布行做补偿。
 
 ### 拼团购买
 
 1. 支付成功后，回调线程同步 Feign 通知 group 登记成员已支付；通知丢失由 `settlement_notified` + 结算补偿任务重试。直购不走这条同步结算，只写 Outbox。
 2. Kafka `TeamSuccessTopicListener` 只结算真正处于 `PAY_SUCCESS` 的订单。
-3. 订单更新为 `MARKET` 与权益 outbox 写入处于同一个事务；额度只按订单里的 `baseQuota` 快照发放。`MARKET` 是成团终态，不会再被覆盖成 `DEAL_DONE`。
+3. 订单更新为 `MARKET` 与权益 outbox 写入处于同一个事务；提交后线程池抢发额度 Kafka。额度只按订单里的 `baseQuota` 快照发放。`MARKET` 是成团终态，不会再被覆盖成 `DEAL_DONE`。
 4. 过期、已完成、满员等终态拒绝会进入幂等支付宝退款，不把订单永久留在 `PAY_SUCCESS`。
 
 ### 退款与权益撤销
 
-支付宝退款成功后，本地关单与 `GROUP_BUY_REVOKED` outbox 原子提交。若同一订单已有完成事件，发布器会先确保完成事件到达 Broker，再发送撤销；member 同时保留乱序 tombstone 防线，使先到的撤销能阻止后到完成事件误发额度。若额度早已发放，member 记录人工审核状态，不自动扣成负余额。
+支付宝退款成功后，本地关单与 `GROUP_BUY_REVOKED` outbox 原子提交，提交后同样线程池抢发。若同一订单已有完成事件，发布方法在看到未发布撤销时仍会推迟完成事件；member 同时保留乱序 tombstone 防线，使先到的撤销能阻止后到完成事件误发额度。若额度早已发放，member 记录人工审核状态，不自动扣成负余额。
 
 ## Outbox 与 Kafka 门禁
 
 现有 `benefit_event` 表作为统一交易 outbox 使用，表名为历史命名。`order_id + event_type` 唯一键保证重复回调只生成一条同类事件。
 
-- 业务事务只写 outbox，不直接发送 MQ。
+- 业务事务只写 outbox，不在事务内发送 MQ。提交后线程池抢发，Job 只补偿未发布行（与 Group `notify_task` 相同）。
+- 抢发和补偿都走同一套发布方法：未发布的撤销仍会推迟完成事件。
 - 发布器采用 Kafka `acks=all` 幂等生产者，`send().get(timeout)` 等待 Broker ACK。
 - 只有 Broker 确认接收，才把 `event_published` 更新为 `1`。
 - 超时、失败或中断都会保留未发布状态，由发布轮询任务重试。
