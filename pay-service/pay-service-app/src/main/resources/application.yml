@@ -12,6 +12,31 @@ spring:
         namespace: ${NACOS_NAMESPACE:public}
         username: ${NACOS_USERNAME:nacos}
         password: ${NACOS_PASSWORD:nacos}
+      config:
+        enabled: ${NACOS_CONFIG_ENABLED:false}
+        import-check:
+          enabled: false
+        server-addr: ${NACOS_HOST:127.0.0.1}:${NACOS_PORT:8848}
+        username: ${NACOS_USERNAME:nacos}
+        password: ${NACOS_PASSWORD:nacos}
+    sentinel:
+      enabled: ${SENTINEL_ENABLED:false}
+      datasource:
+        feign-degrade:
+          nacos:
+            server-addr: ${NACOS_HOST:127.0.0.1}:${NACOS_PORT:8848}
+            dataId: pay-sentinel-feign.json
+            groupId: AI_GROUP
+            data-type: json
+            rule-type: degrade
+    openfeign:
+      client:
+        config:
+          default:
+            # Fail fast so Sentinel can open before Tomcat workers pile up.
+            # Feign runs on the request thread; this is not thread.pool.executor.
+            connect-timeout: 2000
+            read-timeout: 5000
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:127.0.0.1:9092}
     producer:
@@ -27,6 +52,10 @@ spring:
       value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
     listener:
       ack-mode: manual
+
+feign:
+  sentinel:
+    enabled: ${SENTINEL_ENABLED:false}
 
 ai-group:
   identity:

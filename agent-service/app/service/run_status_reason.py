@@ -14,6 +14,7 @@ MAX_REASON_LEN = 500
 DEFAULT_DEGRADED_REASON = "报告已完成，但存在已知质量缺口。"
 DEFAULT_FAILED_REASON = "运行过程中发生错误。"
 DEFAULT_CANCELLED_REASON = "你已停止此次调研。"
+QUOTA_PAUSED_REASON = "积分不足，充值后可从当前进度继续。"
 UNEXPECTED_CANCEL_REASON = "后台任务被中止（可能是服务重启）。"
 ORPHAN_RESTART_REASON = "服务重启时此任务仍在执行，已标记为失败。请重新发起调研。"
 
@@ -172,6 +173,8 @@ async def resolve_run_status_reason(session: AsyncSession, run: Run) -> str | No
     stored = run.status_reason.strip() if isinstance(run.status_reason, str) else ""
     if stored:
         return clip_reason(stored)
+    if run.status == "paused":
+        return QUOTA_PAUSED_REASON
     if run.status == "cancelled":
         return DEFAULT_CANCELLED_REASON
     if run.status == "failed":

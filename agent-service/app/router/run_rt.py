@@ -54,7 +54,7 @@ from service.comparison import load_comparisons_for_run
 from service.conclusion import load_conclusions_for_run
 from service.diff.comparator import compute_diff
 from service.event_bus import EventBus, RunEventType, emit_run_event
-from service.billing import Reservation, default_reservation_amount, quota_client
+from service.billing import QuotaExhaustedError, quota_client
 from service.billing_settlement import (
     is_unsettled_billing,
     settle_if_needed_for_delete,
@@ -68,6 +68,7 @@ from service.skill_curator.tasks import run_skill_curator_for_run
 from service.run_status_reason import (
     DEFAULT_CANCELLED_REASON,
     DEFAULT_DEGRADED_REASON,
+    QUOTA_PAUSED_REASON,
     UNEXPECTED_CANCEL_REASON,
     clip_reason,
     humanize_failure_message,
@@ -799,6 +800,40 @@ def _apply_graph_terminal_run_fields(run: Run, graph_state: object) -> str:
     return status
 
 
+async def _mark_run_paused_for_quota(*, run_id: str, log_event: str) -> None:
+    """Stop the graph without failing it so the user can recharge and resume."""
+    log.info(log_event, error_type="QuotaExhaustedError", status="paused")
+    session_factory = get_session_factory()
+    async with session_factory() as session:
+        run = await session.get(Run, run_id)
+        if run is None:
+            return
+        if run.status in {"completed", "degraded", "failed", "cancelled"}:
+            return
+        run.status = "paused"
+        run.status_reason = QUOTA_PAUSED_REASON
+        run.finished_at = None
+        await session.commit()
+    await emit_run_event(
+        run_id=run_id,
+        event_type=RunEventType.RUN_FINISH,
+        payload=_build_run_finish_payload(
+            run_id=run_id,
+            status="paused",
+            error_type="QuotaExhaustedError",
+            error_message=QUOTA_PAUSED_REASON,
+            status_reason=QUOTA_PAUSED_REASON,
+        ),
+    )
+
+
+async def _handle_graph_failure(*, run_id: str, exc: BaseException, log_event: str) -> None:
+    if isinstance(exc, QuotaExhaustedError):
+        await _mark_run_paused_for_quota(run_id=run_id, log_event=log_event)
+        return
+    await _mark_run_failed_and_emit(run_id=run_id, exc=exc, log_event=log_event)
+
+
 async def _mark_run_failed_and_emit(
     *,
     run_id: str,
@@ -864,7 +899,8 @@ async def _handle_graph_cancelled(*, run_id: str, log_event: str) -> None:
         if run.status != "running":
             with bind_run(run_id):
                 log.info(log_event, status=run.status, branch="already_terminal")
-            await settle_run_billing(run_id=run_id, terminal_status=str(run.status))
+            if run.status not in {"paused"}:
+                await settle_run_billing(run_id=run_id, terminal_status=str(run.status))
             return
         run.status = "failed"
         run.status_reason = UNEXPECTED_CANCEL_REASON
@@ -1039,7 +1075,7 @@ def _derive_run_phase(run: Run) -> Literal["intake", "planning", "executing", "d
     intake_draft = run.intake_draft
     if intake_draft is None:
         return None
-    if run.status in {"completed", "degraded", "failed"}:
+    if run.status in {"completed", "degraded", "failed", "cancelled"}:
         return "done"
     plan_tree = run.plan_tree
     if plan_tree is not None:
@@ -1507,7 +1543,7 @@ async def _execute_run_graph(
     *,
     run_id: str,
     graph: Any,
-    initial_state: dict[str, object],
+    graph_input: object,
     domain_hint: str | None,
     recursion_limit: int,
     background_tasks: set[asyncio.Task[object]],
@@ -1527,7 +1563,7 @@ async def _execute_run_graph(
                 phase="execute",
                 graph=graph,
                 config=config,
-                invoke_coro=graph.ainvoke(initial_state, config=config),
+                invoke_coro=graph.ainvoke(graph_input, config=config),
             )
         except asyncio.CancelledError:
             await _handle_graph_cancelled(
@@ -1537,7 +1573,7 @@ async def _execute_run_graph(
         except Exception as exc:
             # Background-task outer boundary: persist failed + RUN_FINISH; do not re-raise
             # or asyncio emits unstructured "Task exception was never retrieved" noise.
-            await _mark_run_failed_and_emit(
+            await _handle_graph_failure(
                 run_id=run_id, exc=exc, log_event="api.run.execute.failed"
             )
             return
@@ -1705,20 +1741,6 @@ async def create_run(payload: RunCreateRequest, request: Request) -> RunCreateRe
     normalized_reference_urls = list(payload.reference_urls or [])
     run_id = make_id("run_")
     identity = get_identity()
-    reservation_amount = default_reservation_amount(payload.max_micro_points)
-    try:
-        reservation = await quota_client.reserve(
-            user_id=identity.user_id,
-            amount_micro_points=reservation_amount,
-            run_id=run_id,
-            trace_id=run_id,
-        )
-    except Exception as exc:
-        raise APIException(
-            status_code=402,
-            error_code="QUOTA_RESERVATION_FAILED",
-            message="积分不足或积分服务暂不可用，请稍后重试。",
-        ) from exc
     session_factory = get_session_factory()
     with bind_run(run_id):
         log.info(
@@ -1788,9 +1810,7 @@ async def create_run(payload: RunCreateRequest, request: Request) -> RunCreateRe
                     target_roles=payload.target_roles,
                     competitors=normalized_competitors,
                     intake_draft=direct_intake_draft.model_dump(exclude={"is_complete"}),
-                    reservation_id=reservation.reservation_id,
-                    reserved_micro_points=reservation.amount_micro_points,
-                    billing_status="RESERVED",
+                    billing_status="NOT_STARTED",
                 )
             )
             await session.commit()
@@ -1828,7 +1848,7 @@ async def create_run(payload: RunCreateRequest, request: Request) -> RunCreateRe
             _execute_run_graph(
                 run_id=run_id,
                 graph=graph,
-                initial_state=initial_state,
+                graph_input=initial_state,
                 domain_hint=payload.domain_hint,
                 recursion_limit=int(execution_config["recursion_limit"]),
                 background_tasks=background_tasks,
@@ -1842,7 +1862,7 @@ async def create_run(payload: RunCreateRequest, request: Request) -> RunCreateRe
         run_id=run_id,
         status="running",
         message="Run accepted; supervisor loop executing in background.",
-        reserved_micro_points=reservation.amount_micro_points,
+        reserved_micro_points=0,
     )
 
 
@@ -1962,14 +1982,15 @@ async def _start_intake_graph_in_background(
             )
             raise
         except Exception as exc:
-            async with session_factory() as session:
-                record = await session.get(RunCreateRequestRecord, idempotency_key)
-                if record is not None:
-                    record.status = "failed"
-                    record.error_code = type(exc).__name__
-                    record.error_message = format_exception_for_log(exc)
-                    await session.commit()
-            await _mark_run_failed_and_emit(
+            if not isinstance(exc, QuotaExhaustedError):
+                async with session_factory() as session:
+                    record = await session.get(RunCreateRequestRecord, idempotency_key)
+                    if record is not None:
+                        record.status = "failed"
+                        record.error_code = type(exc).__name__
+                        record.error_message = format_exception_for_log(exc)
+                        await session.commit()
+            await _handle_graph_failure(
                 run_id=run_id,
                 exc=exc,
                 log_event="api.run.intake.create.background.failed",
@@ -2057,7 +2078,7 @@ async def _resume_plan_graph_in_background(
             )
             raise
         except Exception as exc:
-            await _mark_run_failed_and_emit(
+            await _handle_graph_failure(
                 run_id=run_id, exc=exc, log_event="api.run.plan.resume.failed"
             )
             return
@@ -2124,7 +2145,7 @@ async def _resume_intake_graph_in_background(
             )
             raise
         except Exception as exc:
-            await _mark_run_failed_and_emit(
+            await _handle_graph_failure(
                 run_id=run_id, exc=exc, log_event="api.run.intake.resume.failed"
             )
             return
@@ -2371,20 +2392,6 @@ async def create_run_intake(
             )
 
     run_id = make_id("run_")
-    reservation_amount = default_reservation_amount(None)
-    try:
-        reservation = await quota_client.reserve(
-            user_id=identity.user_id,
-            amount_micro_points=reservation_amount,
-            run_id=run_id,
-            trace_id=run_id,
-        )
-    except Exception as exc:
-        raise APIException(
-            status_code=402,
-            error_code="QUOTA_RESERVATION_FAILED",
-            message="积分不足或积分服务暂不可用，请稍后重试。",
-        ) from exc
     accepted_at = datetime.now(timezone.utc)
     with bind_run(run_id):
         log.info(
@@ -2409,9 +2416,7 @@ async def create_run_intake(
                     intake_draft=initial_draft.model_dump(exclude={"is_complete"}),
                     parent_run_id=payload.from_run_id,
                     seed_competitor_ids=effective_seed_competitors or None,
-                    reservation_id=reservation.reservation_id,
-                    reserved_micro_points=reservation.amount_micro_points,
-                    billing_status="RESERVED",
+                    billing_status="NOT_STARTED",
                 )
             )
             session.add(
@@ -2592,7 +2597,6 @@ async def reply_run_intake(
                     f"current next_node={list(snapshot.next)}"
                 ),
             )
-
         resume_payload = payload.model_dump()
         intake_resume_config = _graph_invoke_config(
             run_id=run_id,
@@ -2838,13 +2842,16 @@ async def resume_run(run_id: str, request: Request) -> RunCreateResponse:
                     error_code="RUN_NOT_FOUND",
                     message=f"run_id={run_id} does not exist",
                 )
-            if run.status != "running":
+            if run.status not in {"running", "paused"}:
                 raise APIException(
                     status_code=409,
                     error_code="RUN_NOT_RESUMABLE",
                     message=f"run_id={run_id} status={run.status} cannot resume",
                 )
             report_depth = _resolve_run_report_depth(run)
+            owner_user_id = int(run.owner_user_id or 0)
+            domain_hint = run.domain_hint
+            was_paused = run.status == "paused"
 
         graph = getattr(request.app.state, "compiled_graph", None)
         if graph is None:
@@ -2853,6 +2860,56 @@ async def resume_run(run_id: str, request: Request) -> RunCreateResponse:
                 error_code="GRAPH_NOT_INITIALIZED",
                 message="Compiled LangGraph instance is not initialized.",
             )
+        if was_paused:
+            try:
+                available = await quota_client.available_micro_points(user_id=owner_user_id)
+            except Exception:
+                available = None
+            if available is not None and available <= 0:
+                raise APIException(
+                    status_code=402,
+                    error_code="QUOTA_INSUFFICIENT",
+                    message="积分不足，请充值后再继续此次调研。",
+                )
+            background_tasks = getattr(request.app.state, "background_tasks", None)
+            if not isinstance(background_tasks, set):
+                raise APIException(
+                    status_code=500,
+                    error_code="BACKGROUND_TASKS_NOT_INITIALIZED",
+                    message="Background task registry is not initialized.",
+                )
+            async with session_factory() as session:
+                run = await session.get(Run, run_id)
+                if run is None or run.status != "paused":
+                    raise APIException(
+                        status_code=409,
+                        error_code="RUN_NOT_RESUMABLE",
+                        message=f"run_id={run_id} is no longer paused",
+                    )
+                run.status = "running"
+                run.status_reason = None
+                run.finished_at = None
+                await session.commit()
+            execution_config = _graph_invoke_config(run_id=run_id, report_depth=report_depth)
+            task = asyncio.create_task(
+                _execute_run_graph(
+                    run_id=run_id,
+                    graph=graph,
+                    graph_input=None,
+                    domain_hint=domain_hint,
+                    recursion_limit=int(execution_config["recursion_limit"]),
+                    background_tasks=background_tasks,
+                ),
+                name=f"run_graph_{run_id}",
+            )
+            _register_background_task(request, task)
+            log.info("api.run.resume.accepted", from_status="paused")
+            return RunCreateResponse(
+                run_id=run_id,
+                status="running",
+                message="Run resumed from checkpoint.",
+            )
+
         config = _graph_invoke_config(run_id=run_id, report_depth=report_depth)
         graph_state = await graph.ainvoke(None, config=config)
 
@@ -3249,7 +3306,7 @@ async def patch_run(
             run.user_query = payload.user_query
         if payload.title is not None:
             run.title = payload.title
-        if payload.status == "cancelled" and run.status == "running":
+        if payload.status == "cancelled" and run.status in {"running", "paused"}:
             run.status = "cancelled"
             run.status_reason = clip_reason(cancel_reason or DEFAULT_CANCELLED_REASON)
             run.finished_at = datetime.now(timezone.utc)

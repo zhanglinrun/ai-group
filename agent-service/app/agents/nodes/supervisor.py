@@ -2170,7 +2170,7 @@ async def supervisor_node(state: AgentState) -> AgentState:
         ]
         if (
             not report_draft_done
-            or completion_reason in {"max_iterations_hit", "fallback_path"}
+            or completion_reason in {"max_iterations_hit", "budget_exhausted", "fallback_path"}
             or forced_degraded_by_qa
             or writer_fallback
             or researcher_degraded_competitors

@@ -69,3 +69,17 @@ ai-group:
     signing-secret: unit-test-identity-signing-secret!
   internal:
     token: test-internal-token
+
+spring:
+  cloud:
+    nacos:
+      discovery:
+        enabled: false
+      config:
+        enabled: false
+    sentinel:
+      enabled: false
+
+feign:
+  sentinel:
+    enabled: false

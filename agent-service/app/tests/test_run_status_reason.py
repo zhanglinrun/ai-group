@@ -58,6 +58,16 @@ def test_build_degraded_reason_researcher_gap() -> None:
     assert "有效证据" in reason
 
 
+def test_build_degraded_reason_explains_max_iterations() -> None:
+    reason = build_degraded_reason(
+        completion_reason="max_iterations_hit",
+        report_draft_done=True,
+        competitor_count=2,
+    )
+    assert reason == "达到最大迭代次数，已按现有结果收口。"
+
+
+
 def test_humanize_failure_message_redacts_token_errors() -> None:
     raw = (
         "LLMRequestError: openai request failed for model=gpt-5.5: "

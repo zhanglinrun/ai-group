@@ -1,0 +1,19 @@
+# local profile：Feign 直连本机，不走 Nacos 发现
+spring:
+  cloud:
+    nacos:
+      discovery:
+        enabled: false
+      config:
+        enabled: false
+    sentinel:
+      enabled: false
+
+app:
+  config:
+    group-service:
+      api-url: ${GROUP_BUY_API_URL:http://127.0.0.1:8091}
+      source: s01
+      chanel: c01
+    member-service:
+      api-url: ${MEMBER_SERVICE_URL:http://127.0.0.1:18082}

@@ -104,6 +104,10 @@ export function PlanConfirmPage(): JSX.Element {
     if (!runId) {
       return;
     }
+    if (runStatus === "paused") {
+      navigate(`/app/runs/${runId}/live`, { replace: true });
+      return;
+    }
     if (runStatus && TERMINAL_STATUSES.has(runStatus)) {
       navigate(`/app/runs/${runId}`, { replace: true });
       return;

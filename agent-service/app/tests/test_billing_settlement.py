@@ -132,6 +132,65 @@ async def test_confirm_success_marks_settled(monkeypatch: pytest.MonkeyPatch) ->
 
 
 @pytest.mark.asyncio
+async def test_overage_freezes_the_delta_then_confirms_both(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run = _run(reserved_micro_points=50, reservation_id="frz_1")
+    session = _FakeSession(run, [_llm_row(charged_micro_points=80)])
+    monkeypatch.setattr(billing_settlement, "get_session_factory", lambda: _session_factory(session))
+    confirms: list[tuple[str, int]] = []
+
+    async def _reserve(
+        *,
+        user_id: int,
+        amount_micro_points: int,
+        run_id: str,
+        trace_id: str,
+        request_id: str | None = None,
+    ):
+        del user_id, run_id, trace_id
+        assert amount_micro_points == 30
+        assert request_id == "agent:run_1:overage"
+        from service.billing import Reservation
+
+        return Reservation("frz_over", 30, request_id or "", 42)
+
+    async def _confirm(reservation: object, *, actual_micro_points: int, trace_id: str) -> None:
+        del trace_id
+        confirms.append((getattr(reservation, "reservation_id"), actual_micro_points))
+
+    monkeypatch.setattr(billing_settlement.quota_client, "reserve", _reserve)
+    monkeypatch.setattr(billing_settlement.quota_client, "confirm", _confirm)
+    assert await settle_run_billing(run_id="run_1", terminal_status="completed") == "SETTLED"
+    assert confirms == [("frz_1", 50), ("frz_over", 30)]
+    assert run.consumed_micro_points == 80
+    assert run.reserved_micro_points == 80
+
+
+@pytest.mark.asyncio
+async def test_overage_without_quota_stays_pending(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run = _run(reserved_micro_points=50)
+    session = _FakeSession(run, [_llm_row(charged_micro_points=80)])
+    monkeypatch.setattr(billing_settlement, "get_session_factory", lambda: _session_factory(session))
+    confirms: list[int] = []
+
+    async def _reserve(**_: object) -> object:
+        raise RuntimeError("quota insufficient")
+
+    async def _confirm(_reservation: object, *, actual_micro_points: int, trace_id: str) -> None:
+        confirms.append(actual_micro_points)
+
+    monkeypatch.setattr(billing_settlement.quota_client, "reserve", _reserve)
+    monkeypatch.setattr(billing_settlement.quota_client, "confirm", _confirm)
+    assert await settle_run_billing(run_id="run_1", terminal_status="completed") == "PENDING_RECONCILIATION"
+    assert confirms == []
+    assert "quota insufficient" in (run.billing_error or "")
+
+
+
+@pytest.mark.asyncio
 async def test_confirm_failure_stays_pending(monkeypatch: pytest.MonkeyPatch) -> None:
     run = _run()
     session = _FakeSession(run, [_llm_row()])
@@ -183,6 +242,45 @@ async def test_running_unsettled_is_not_settled_on_delete(monkeypatch: pytest.Mo
     assert status == "RESERVED"
     assert called is False
     assert is_unsettled_billing(status) is True
+
+
+@pytest.mark.asyncio
+async def test_paused_unsettled_is_not_settled_on_delete(monkeypatch: pytest.MonkeyPatch) -> None:
+    called = False
+
+    async def _settle(*, run_id: str, terminal_status: str) -> str:
+        del run_id, terminal_status
+        nonlocal called
+        called = True
+        return "SETTLED"
+
+    monkeypatch.setattr(billing_settlement, "settle_run_billing", _settle)
+    status = await settle_if_needed_for_delete(
+        run_id="run_1",
+        status="paused",
+        billing_status="RESERVED",
+    )
+    assert status == "RESERVED"
+    assert called is False
+
+
+@pytest.mark.asyncio
+async def test_payg_run_settles_without_confirming_member(monkeypatch: pytest.MonkeyPatch) -> None:
+    run = _run(billing_status="NOT_STARTED", reservation_id=None, reserved_micro_points=0)
+    session = _FakeSession(run, [_llm_row()])
+    monkeypatch.setattr(billing_settlement, "get_session_factory", lambda: _session_factory(session))
+    confirms: list[int] = []
+
+    async def _confirm(_reservation: object, *, actual_micro_points: int, trace_id: str) -> None:
+        del _reservation, trace_id
+        confirms.append(actual_micro_points)
+
+    monkeypatch.setattr(billing_settlement.quota_client, "confirm", _confirm)
+    assert await settle_run_billing(run_id="run_1", terminal_status="completed") == "SETTLED"
+    assert run.billing_status == "SETTLED"
+    assert run.consumed_micro_points == 35
+    assert confirms == []
+
 
 
 @pytest.mark.asyncio

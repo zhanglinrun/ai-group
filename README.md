@@ -88,7 +88,7 @@ ai-group/
 
 ### 3. Member 积分账本
 
-- **两阶段额度**：创建 Agent Run 时冻结，结束后按实际 Token 确认并释放余量
+- **两阶段额度**：每次模型调用预扣，打完按实际 Token 确认并释放余量；不够则暂停，充值后续跑
 - **幂等结算**：`requestId` / 冻结号关联，流水只追加不更新
 - **微单位计价**：金额、Token 费用与积分使用整数微单位，避免浮点误差
 
@@ -114,11 +114,12 @@ ai-group/
 - **网关 / 会话**：Spring Cloud Gateway、Sa-Token
 - **ORM**：MyBatis-Plus
 - **数据库**：MySQL 8.0+
-- **内部调用**：OpenFeign + Nacos；Gateway 直转 Agent
+- **内部调用**：OpenFeign + Nacos 发现（空 url）；Gateway 直转 Agent（lb://，无实例时 Docker DNS 回退）
 - **缓存 / 锁**：Redis（会话、拼团占库存 / recovery、拼团侧固定窗口限流、短缓存）
 - **消息队列**：Kafka（Outbox 投递；手动 ack + DefaultErrorHandler 有限重试，耗尽进 `{topic}.DLT`；各业务服务有 DLT 回放，失败打 `kafka.dlt.exhausted` 后 ack，不再投 `*.DLT.DLT`）
 - **任务调度**：XXL-JOB 3.4.2（Admin + auth/pay/group/member 执行器；本地 Compose 已内置）
-- **服务发现**：Nacos
+- **服务发现 / 配置**：Nacos Discovery + 薄 Nacos Config（身份令牌、JWT 密钥、Gateway 路由）。身份密钥变更后请重启 Gateway（SCA 2025 WebFlux 不保证热刷新）
+- **限流熔断**：Gateway / Pay Feign 使用 Sentinel（规则以 Nacos 为准，代码内有保守默认）；拼团按用户限流仍在 Group Redis
 - **构建**：Maven
 
 ### Python Agent
@@ -128,7 +129,7 @@ ai-group/
 - **编排**：LangGraph、langchain-core、Postgres Checkpoint
 - **持久化**：SQLAlchemy（asyncio）、asyncpg、Alembic、PostgreSQL
 - **LLM / 检索**：OpenAI 兼容 SDK、Tavily 等工具链
-- **服务发现**：nacos-sdk-python（注册为 `agent-service`；Gateway Compose 走 Docker DNS）
+- **服务发现**：nacos-sdk-python（注册为 `agent-service`；调用 Member 时优先 Nacos 选址，失败再用 `MEMBER_SERVICE_URL`）
 - **可观测**：structlog
 - **测试**：pytest、pytest-asyncio
 
@@ -160,7 +161,7 @@ Group / Pay 采用 api、domain、infrastructure、trigger、app 分层，用聚
 
 ### 4. 积分驱动的 Agent 计费闭环
 
-创建 Run 时一笔冻结（`requestId=agent:{run_id}`）→ LangGraph 累计每次 LLM 的 Token 与价格版本 → 终态按费率 confirm 并释放剩余冻结。额度权威在 Member，Agent 只消费额度契约。
+每次模型调用预扣（`requestId=agent:{run_id}:call:{uuid}`）→ 按真实 Token confirm 并释放差额。额度不够时 Run 暂停，充值后从 Checkpoint 继续。额度权威在 Member，Agent 只消费额度契约。
 
 ### 5. 可恢复的 Agent 运行面
 
@@ -246,7 +247,7 @@ npm run dev
 
 ### Gateway / Auth
 
-- **gateway-service**：统一入口、鉴权、HS256 内部 JWT 签发；`/api/runs/**` 等到 Agent（JSON 45s / SSE 30 分钟）；限流在拼团侧 Redis，不在网关
+- **gateway-service**：统一入口、鉴权、HS256 内部 JWT 签发；`/api/runs/**` 等到 Agent（JSON 45s / SSE 30 分钟）；JSON 走网关 Sentinel 限流+熔断，SSE 不熔断；拼团按用户限流仍在 Group Redis
 - **auth-service**：账号体系与 Sa-Token 会话
 
 ### Member
@@ -268,7 +269,7 @@ npm run dev
 - **service**：Run、事件总线、LLM 路由、计费、证据与关注列表
 - **models / alembic**：Postgres Schema 与迁移
 - **security**：Gateway HS256 内部 JWT 校验
-- **发现**：Compose 下注册 Nacos（`agent-service`）；失败只打日志，不把进程打死
+- **发现**：Compose 下注册 Nacos（`agent-service`）；失败只打日志，不把进程打死。调 Member 时优先 Nacos 选址，无实例回退 `MEMBER_SERVICE_URL`
 
 ### frontend / dev-ops
 
@@ -291,7 +292,7 @@ npm run dev
 - 轮换并妥善保管 `AI_GROUP_INTERNAL_TOKEN`、`AI_GROUP_IDENTITY_SIGNING_SECRET` 与 LLM / 支付密钥
 - 身份三层：Sa-Token 浏览器会话（可撤销）/ Gateway HS256 内部 JWT（约 60s，不是登录态）/ `X-Internal-Token` 服务凭证
 - 已知边界：内部 JWT 不存 nonce 黑名单；密钥为对称共享；回调/Job 没有用户 JWT，只认内部令牌 + 订单里的 userId
-- 限流在 Group 的 Redis，网关没有落地 `RequestRateLimiter`
+- 拼团按用户限流在 Group Redis；网关 Sentinel 做路由级保护（Agent JSON 限流+熔断，SSE 不熔断，Java 路由熔断）。改身份密钥后请重启 Gateway（不承诺 WebFlux 热刷新）
 - 观测栈（ELK 等）在 `dev-ops/observability`，不是启动依赖
 - Group / Pay 的 Java 包名和库名有历史保留（`com.aigroup.paymall`、`group_buy_market`、`s_pay_mall_ddd_market`），运行时服务名以本文模块结构为准
 - JVM 按机器规格设置堆与 GC（例如 G1）

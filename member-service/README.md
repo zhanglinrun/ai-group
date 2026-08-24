@@ -1,6 +1,6 @@
 # `member-service`（额度账户服务）
 
-这是 `ai-group` 里管理「免费额度 + 付费额度」的钱包服务。用户注册后获得每月免费额度，购买额度包并在直购支付成功或拼团成团后获得付费额度。Agent 创建 Run 时冻结一笔上界，图内多次 LLM 只累计 usage，终态再 `confirm` / `release`。
+这是 `ai-group` 里管理「免费额度 + 付费额度」的钱包服务。用户注册后获得每月免费额度，购买额度包并在直购支付成功或拼团成团后获得付费额度。Agent 每次打模型时预扣这一次的预估用量，调用结束后按真实 Token `confirm` / `release`。额度不够时任务暂停，充值后从当前进度继续。
 
 它默认运行在端口 `18082`，数据存储在 `member_db`（额度库，工程库名历史保留），持久层使用 `MyBatis-Plus`。
 
@@ -16,11 +16,11 @@
 
 ### 2. 对话配额（两阶段扣减）
 
-Agent 消耗配额用「预授权 + 确认」两阶段，**当前是一个 Run 一笔冻结**，不是每次 LLM 各冻一笔：
+Agent 消耗配额用「预授权 + 确认」两阶段，**当前是每次真实 LLM 一笔预扣**：
 
-- **预扣（freeze）**：创建 Run 时按输入估算与最大输出冻结一笔上界，`requestId=agent:{run_id}`。
-- **确认（confirm）**：Run 终态按累计真实 Token usage 扣减并释放未使用余量。缺 usage 不估算，Agent 把 Run 标成 `PENDING_RECONCILIATION`，由进程内结算扫描重试。
-- **释放（release）**：预留后未发起供应商调用，或供应商拒绝且没有 usage/输出证据时，释放整笔冻结。普通旧调用的僵尸冻结由 member 定时任务兜底；`ownerService=agent-service` 的冻结由 Agent `service/billing_settlement.py` 的进程内扫描收敛，member 只告警，绝不按超时自动释放，避免供应商已经消耗后被误判成免费调用。
+- **预扣（freeze）**：每次打模型前按这次预估用量预扣，`requestId=agent:{run_id}:call:{uuid}`。
+- **确认（confirm）**：这次调用按真实 Token usage 扣减并释放未使用余量。缺 usage 不估算，Agent 把 Run 标成 `PENDING_RECONCILIATION`，由进程内结算扫描重试。
+- **释放（release）**：预留后未发起供应商调用，或供应商拒绝且没有 usage/输出证据时，释放整笔预扣。普通旧调用的僵尸预扣由 member 定时任务兜底；`ownerService=agent-service` 的预扣由 Agent `service/billing_settlement.py` 的进程内扫描收敛，member 只告警，绝不按超时自动释放，避免供应商已经消耗后被误判成免费调用。
 
  `freeze` 的 `requestId` 是幂等键。同一用户用相同 `requestId` 重试时，请求额度上界、最小额度、能力编码和结算所有者必须完全一致；member 会保存服务端 SHA-256 指纹并拒绝参数漂移。结算所有者只接受 `legacy` 与 `agent-service`，避免未知调用方制造无法自动释放的冻结。`confirm` 与 `release` 都返回冻结的真实终态以及原始请求参数，因此调用方能识别 `CONFIRMED` / `RELEASED` 冲突、核验找回的冻结，并处理网络响应不确定。
 

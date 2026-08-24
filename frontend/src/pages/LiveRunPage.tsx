@@ -12,6 +12,7 @@ import {
   Info,
   Loader2,
   Microscope,
+  PauseCircle,
   PenLine,
   Search,
   Sparkles,
@@ -21,7 +22,7 @@ import {
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
-import { useRunDetail, useRunTrace, useSubmitRunFollowUp } from "@/api/hooks";
+import { useRunDetail, useRunTrace, useResumeRun, useSubmitRunFollowUp } from "@/api/hooks";
 import { useRunEvents } from "@/api/sse";
 import type {
   EvidenceCollectedPayload,
@@ -93,6 +94,7 @@ const TOOL_LABELS: Record<string, string> = {
 };
 
 const TERMINAL_STATUSES = new Set(["completed", "degraded", "failed", "cancelled"]);
+const STOPPED_STATUSES = new Set([...TERMINAL_STATUSES, "paused"]);
 
 // Stuck detection: when the run is still "running" but no SSE traffic has been
 // seen for this long, surface a "可能已中断" hint with a one-tap stop. Long
@@ -209,7 +211,7 @@ export function LiveRunPage(): JSX.Element {
   // threshold check is in the JSX so the badge appears immediately when the
   // bar crosses the line.
   useEffect(() => {
-    if (runStatus === null || TERMINAL_STATUSES.has(runStatus)) {
+    if (runStatus === null || STOPPED_STATUSES.has(runStatus)) {
       return;
     }
     const intervalId = window.setInterval(() => {
@@ -278,13 +280,15 @@ export function LiveRunPage(): JSX.Element {
   }
 
   const isTerminal = runStatus !== null && TERMINAL_STATUSES.has(runStatus);
+  const isStopped = runStatus !== null && STOPPED_STATUSES.has(runStatus);
+  const isQuotaPaused = runStatus === "paused";
   const userQuery = intakeDraft?.user_query ?? runDetail.data?.user_query ?? "";
   const headerTitle = runDetail.data
     ? formatRunTitle(runDetail.data, { max: 50 })
     : userQuery || "正在调研中…";
   const isFailureTerminal = runStatus === "failed" || runStatus === "cancelled";
-  const idleMs = isTerminal ? 0 : now - progressStore.lastActivityAt;
-  const isStuck = !isTerminal && idleMs >= STUCK_HINT_THRESHOLD_MS;
+  const idleMs = isStopped ? 0 : now - progressStore.lastActivityAt;
+  const isStuck = !isStopped && idleMs >= STUCK_HINT_THRESHOLD_MS;
 
   return (
     <div className="space-y-4 px-6 py-6">
@@ -314,7 +318,7 @@ export function LiveRunPage(): JSX.Element {
               已完成 {progress.completed}/{progress.total} · 进行中 {progress.running}
             </Badge>
           ) : null}
-          {!isTerminal ? (
+          {!isStopped && !isQuotaPaused ? (
             <CancelRunButton runId={runId} redirectTo={null} />
           ) : null}
           {isTerminal ? (
@@ -329,30 +333,30 @@ export function LiveRunPage(): JSX.Element {
 
       {runDetail.data ? (
         <>
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
-          <BillingMetric label="预留积分" value={formatMicroPoints(runDetail.data.reserved_micro_points)} />
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
           <BillingMetric label="已扣积分" value={formatMicroPoints(runDetail.data.consumed_micro_points)} />
           <BillingMetric
             label="Token 消耗"
             value={formatTokenCount(tokenUsage.input + tokenUsage.output)}
           />
-          <BillingMetric
-            label="预留余量"
-            value={formatMicroPoints(
-              Math.max(
-                0,
-                (runDetail.data.reserved_micro_points ?? 0) -
-                  (runDetail.data.consumed_micro_points ?? 0),
-              ),
-            )}
-          />
           <BillingMetric label="结算状态" value={billingStatusLabel(runDetail.data.billing_status)} />
         </div>
         <p className="mt-2 text-xs text-foreground-subtle">
           按实际 Token 精确结算：输入每百万 Token {formatCreditsPerMillionTokens(runDetail.data.billing_input_micro_points_per_token ?? 5)} 积分，
-          输出每百万 Token {formatCreditsPerMillionTokens(runDetail.data.billing_output_micro_points_per_token ?? 30)} 积分；不按 1K Token 向上取整，预留积分不是最终扣费。
+          输出每百万 Token {formatCreditsPerMillionTokens(runDetail.data.billing_output_micro_points_per_token ?? 30)} 积分；不按 1K Token 向上取整，额度不够时任务会暂停，充值后可从当前进度继续。
         </p>
         </>
+      ) : null}
+
+      {isQuotaPaused ? (
+        <QuotaPausedAlert
+          message={
+            finishPayload?.status_reason ??
+            runDetail.data?.status_reason ??
+            "积分不足，充值后可从当前进度继续。"
+          }
+          runId={runId}
+        />
       ) : null}
 
       {isFailureTerminal ? (
@@ -399,7 +403,7 @@ export function LiveRunPage(): JSX.Element {
 
       <FollowUpComposer
         runId={runId}
-        isTerminal={isTerminal}
+        isTerminal={isStopped}
         pending={pendingFollowUps}
         onSubmitted={handleFollowUpReceived}
       />
@@ -744,6 +748,47 @@ function formatToolArgs(args: Record<string, unknown> | undefined): string {
   return parts.join(" · ");
 }
 
+interface QuotaPausedAlertProps {
+  message: string;
+  runId: string;
+}
+
+function QuotaPausedAlert({ message, runId }: QuotaPausedAlertProps): JSX.Element {
+  const resumeMutation = useResumeRun();
+
+  async function handleResume(): Promise<void> {
+    try {
+      await resumeMutation.mutateAsync(runId);
+      pushToast({ title: "已继续调研", variant: "success" });
+    } catch (error) {
+      if (error instanceof Error) {
+        pushToast({ title: "还不能继续", description: error.message, variant: "danger" });
+      }
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-3 rounded-2xl border border-warning/40 bg-warning/[0.08] p-4 lg:flex-row lg:items-center lg:justify-between">
+      <div className="flex items-start gap-3">
+        <PauseCircle className="mt-0.5 h-5 w-5 shrink-0 text-warning" />
+        <div className="space-y-1">
+          <div className="text-sm font-medium text-warning">积分不足，调研已暂停</div>
+          <p className="text-sm text-foreground-muted">{message}</p>
+        </div>
+      </div>
+      <div className="flex shrink-0 flex-wrap items-center gap-2">
+        <CancelRunButton runId={runId} label="停止此次调研" redirectTo={null} size="sm" />
+        <Button asChild variant="secondary" size="sm">
+          <Link to="/group-buy">去充值</Link>
+        </Button>
+        <Button size="sm" onClick={() => void handleResume()} disabled={resumeMutation.isPending}>
+          {resumeMutation.isPending ? "继续中…" : "充值后继续"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 interface TerminalAlertProps {
   tone: "danger" | "neutral";
   icon: typeof XCircle;
@@ -830,7 +875,9 @@ function formatCreditsPerMillionTokens(microPointsPerToken: number | undefined):
 function billingStatusLabel(value: string | undefined): string {
   switch (value) {
     case "RESERVED":
-      return "已冻结";
+      return "待确认";
+    case "NOT_STARTED":
+      return "按次扣费";
     case "SETTLED":
       return "已结算";
     case "PENDING_RECONCILIATION":

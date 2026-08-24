@@ -121,7 +121,7 @@ async def lifespan(app: FastAPI):
                         _execute_run_graph(
                             run_id=run_id,
                             graph=compiled_graph,
-                            initial_state=initial_state,
+                            graph_input=initial_state,
                             domain_hint=None,
                             recursion_limit=profile.recursion_limit,
                             background_tasks=bt,

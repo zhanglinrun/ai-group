@@ -107,13 +107,22 @@
         <encoder charset="UTF-8" class="net.logstash.logback.encoder.LogstashEncoder"/>
     </appender>
 
-    <!-- 开发/测试环境：完整 Compose 不启动 Logstash，只输出控制台和本地文件。 -->
-    <springProfile name="dev,test,!prod">
+    <!-- 开发/测试：默认不上报 ELK；观测栈就绪时加 spring.profiles.active=dev,elk -->
+    <springProfile name="dev,test,!prod,!elk">
         <logger name="com.nmys.view" level="debug"/>
         <root level="info">
             <appender-ref ref="CONSOLE"/>
             <appender-ref ref="ASYNC_FILE_INFO"/>
             <appender-ref ref="ASYNC_FILE_ERROR"/>
+        </root>
+    </springProfile>
+
+    <springProfile name="elk">
+        <root level="info">
+            <appender-ref ref="CONSOLE"/>
+            <appender-ref ref="ASYNC_FILE_INFO"/>
+            <appender-ref ref="ASYNC_FILE_ERROR"/>
+            <appender-ref ref="LOGSTASH"/>
         </root>
     </springProfile>
 

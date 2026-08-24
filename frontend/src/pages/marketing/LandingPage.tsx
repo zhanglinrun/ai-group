@@ -39,7 +39,7 @@ export function LandingPage(): JSX.Element {
           <span className="text-primary">可溯源的深度调研</span>
         </h1>
         <p className="mx-auto mt-5 max-w-2xl text-body text-foreground-muted">
-          竞品对比、赛道摸底、领域论文综述都可以。通过拼团获得更划算的 AI 积分，多智能体并行检索公开资料并写作；每次运行都展示 Token 消耗、积分冻结和最终结算。
+          竞品对比、赛道摸底、领域论文综述都可以。通过拼团获得更划算的 AI 积分，多智能体并行检索公开资料并写作；每次运行都展示 Token 消耗和按实际用量结算的积分。
         </p>
         <div className="mt-8 flex items-center justify-center gap-3">
           <Button asChild size="lg">

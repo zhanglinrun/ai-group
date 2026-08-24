@@ -47,6 +47,12 @@ export function statusToLabel(status: RunStatus): string {
   if (status === "failed") {
     return "失败";
   }
+  if (status === "paused") {
+    return "积分不足";
+  }
+  if (status === "cancelled") {
+    return "已停止";
+  }
   return status;
 }
 

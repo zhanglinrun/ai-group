@@ -1,0 +1,5 @@
+ai-group:
+  internal:
+    token: ${AI_GROUP_INTERNAL_TOKEN:change-me-internal-token-32bytes-ok}
+  identity:
+    signing-secret: ${AI_GROUP_IDENTITY_SIGNING_SECRET:change-me-signing-secret-32bytes-ok}

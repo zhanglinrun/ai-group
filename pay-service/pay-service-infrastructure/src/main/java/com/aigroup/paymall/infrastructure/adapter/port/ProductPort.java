@@ -10,6 +10,7 @@ import com.aigroup.paymall.infrastructure.gateway.dto.*;
 import com.aigroup.paymall.infrastructure.gateway.response.Response;
 import com.aigroup.paymall.types.common.JsonUtils;
 import com.aigroup.paymall.types.exception.AppException;
+import com.alibaba.csp.sentinel.slots.block.BlockException;
 import feign.FeignException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -105,6 +106,10 @@ public class ProductPort implements IProductPort {
                 // transport/ambiguous failures.
                 throw e;
             } catch (Exception e) {
+                if (isSentinelBlock(e)) {
+                    log.warn("营销锁单被 Sentinel 阻断 userId:{} orderId:{}", userId, orderId);
+                    return null;
+                }
                 lastFailure = e instanceof IOException ? (IOException) e : new IOException(e);
                 log.warn("营销锁单结果不确定 userId:{} orderId:{} attempt:{}/{} reason:{}",
                         userId, orderId, attempt, attempts, e.getMessage());
@@ -224,6 +229,15 @@ public class ProductPort implements IProductPort {
             log.error("营销退单失败{}", userId, e);
             return false;
         }
+    }
+
+    private static boolean isSentinelBlock(Throwable error) {
+        for (Throwable current = error; current != null; current = current.getCause()) {
+            if (current instanceof BlockException || BlockException.isBlockException(current)) {
+                return true;
+            }
+        }
+        return false;
     }
 
 }

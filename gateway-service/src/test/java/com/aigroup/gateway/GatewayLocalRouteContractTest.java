@@ -26,14 +26,20 @@ class GatewayLocalRouteContractTest {
     @Autowired
     private RouteLocator routeLocator;
 
+
     @Test
-    void memberRouteTargetsMemberServiceDefaultLocalPort() {
-        URI memberUri = routeLocator.getRoutes()
-                .filter(route -> "member".equals(route.getId()))
+    void javaRoutesTargetLocalServicePorts() {
+        assertEquals(URI.create("http://127.0.0.1:8081"), uri("auth"));
+        assertEquals(URI.create("http://127.0.0.1:18082"), uri("member"));
+        assertEquals(URI.create("http://127.0.0.1:8070"), uri("pay"));
+        assertEquals(URI.create("http://127.0.0.1:8091"), uri("group"));
+    }
+
+    private URI uri(String routeId) {
+        return routeLocator.getRoutes()
+                .filter(route -> routeId.equals(route.getId()))
                 .map(Route::getUri)
                 .blockFirst();
-
-        assertEquals(URI.create("http://127.0.0.1:18082"), memberUri);
     }
 
     @Test

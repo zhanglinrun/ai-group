@@ -1,0 +1,2002 @@
+Read "E:\javaproject\ai-group\agent-service\app\router\run_rt.py":
+
+     1	from __future__ import annotations
+     2	
+     3	import asyncio
+     4	import contextlib
+     5	from collections.abc import AsyncIterator
+     6	from dataclasses import asdict
+     7	from datetime import datetime, timedelta, timezone
+     8	from functools import lru_cache
+     9	import hashlib
+    10	import json
+    11	from pathlib import Path
+    12	import re
+    13	from typing import Any, Awaitable, Literal
+    14	from uuid import uuid4
+    15	
+    16	from fastapi import APIRouter, Depends, Header, Query, Request
+    17	from fastapi.responses import StreamingResponse
+    18	from langgraph.types import Command
+    19	from pydantic import BaseModel, Field, field_validator
+    20	from sqlalchemy import case, delete, func, select
+    21	from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+    22	from sqlalchemy.ext.asyncio import AsyncSession
+    23	from sqlalchemy.orm import selectinload
+    24	import yaml
+    25	
+    26	from core.defaults import DEFAULT_FOCUS_DIMENSIONS
+    27	from core.tiers import resolve_tier_profile
+    28	from db.engine import get_session_factory
+    29	from core.config import settings
+    30	from exceptions.base import APIException
+    31	from models.competitor_diff import CompetitorDiff
+    32	from models.conclusion import ConclusionRecord
+    33	from models.evidence import EvidenceRecord
+    34	from models.llm_call import LLMCall
+    35	from models.report import Report
+    36	from models.run import Run
+    37	from models.run_create_request import RunCreateRequestRecord
+    38	from models.skill_candidate import SkillCandidateRecord
+    39	from models.step import Step
+    40	from models.supervisor_decision import SupervisorDecisionRecord
+    41	from models.watchlist import WatchlistItem
+    42	from schemas.ids import make_id
+    43	from schemas.intake import (
+    44	    IntakeClarifyRequest,
+    45	    IntakeExchange,
+    46	    IntakeUserReply,
+    47	    RunIntakeDraft,
+    48	    UserRole,
+    49	    normalize_optional_text,
+    50	    stable_unique_text,
+    51	)
+    52	from schemas.plan import FollowUpEntry, FollowUpRequest, PlanConfirmRequest
+    53	from service.comparison import load_comparisons_for_run
+    54	from service.conclusion import load_conclusions_for_run
+    55	from service.diff.comparator import compute_diff
+    56	from service.event_bus import EventBus, RunEventType, emit_run_event
+    57	from service.billing import QuotaExhaustedError, quota_client
+    58	from service.billing_settlement import (
+    59	    is_unsettled_billing,
+    60	    settle_if_needed_for_delete,
+    61	    settle_run_billing,
+    62	)
+    63	from security.identity import get_identity, require_identity
+    64	from service.knowledge import load_knowledge_for_run
+    65	from service.locale import resolve_report_language
+    66	from service.metrics import RunMetricsSnapshot, build_run_metrics_snapshot, load_run_metrics_snapshot
+    67	from service.skill_curator.tasks import run_skill_curator_for_run
+    68	from service.run_status_reason import (
+    69	    DEFAULT_CANCELLED_REASON,
+    70	    DEFAULT_DEGRADED_REASON,
+    71	    QUOTA_PAUSED_REASON,
+    72	    UNEXPECTED_CANCEL_REASON,
+    73	    clip_reason,
+    74	    humanize_failure_message,
+    75	    resolve_run_status_reason,
+    76	)
+    77	from utils.logger import bind_run, format_exception_for_log, get_logger
+    78	
+    79	router = APIRouter(dependencies=[Depends(require_identity)])
+    80	log = get_logger("router.run_rt")
+    81	
+    82	_RUN_PROGRESS_INTERVAL_SECONDS = 180
+    83	
+    84	
+    85	def _resolve_run_report_depth(run: Run | None) -> str | None:
+    86	    if run is None or not isinstance(run.intake_draft, dict):
+    87	        return None
+    88	    report_depth_raw = run.intake_draft.get("report_depth")
+    89	    if isinstance(report_depth_raw, str):
+    90	        return report_depth_raw
+    91	    return None
+    92	
+    93	
+    94	def _graph_invoke_config(*, run_id: str, report_depth: str | None) -> dict[str, object]:
+    95	    profile = resolve_tier_profile(report_depth)
+    96	    return {
+    97	        "configurable": {"thread_id": run_id},
+    98	        "recursion_limit": profile.recursion_limit,
+    99	    }
+   100	
+   101	
+   102	async def _run_graph_with_progress_heartbeat(
+   103	    *,
+   104	    run_id: str,
+   105	    phase: str,
+   106	    graph: Any,
+   107	    config: dict[str, object],
+   108	    invoke_coro: Awaitable[Any],
+   109	) -> Any:
+   110	    """Emit structlog heartbeats while a long graph.ainvoke is in flight."""
+   111	    started_at = datetime.now(timezone.utc)
+   112	    stop_event = asyncio.Event()
+   113	
+   114	    async def _heartbeat_loop() -> None:
+   115	        while not stop_event.is_set():
+   116	            try:
+   117	                await asyncio.wait_for(stop_event.wait(), timeout=_RUN_PROGRESS_INTERVAL_SECONDS)
+   118	            except asyncio.TimeoutError:
+   119	                checkpoint_next: str | None = None
+   120	                try:
+   121	                    snapshot = await graph.aget_state(config)
+   122	                    if snapshot.next:
+   123	                        checkpoint_next = str(snapshot.next[0])
+   124	                except (AttributeError, RuntimeError, TypeError, ValueError):
+   125	                    checkpoint_next = None
+   126	                log.debug(
+   127	                    "run.progress",
+   128	                    run_id=run_id,
+   129	                    phase=phase,
+   130	                    elapsed_ms=int(
+   131	                        (datetime.now(timezone.utc) - started_at).total_seconds() * 1000
+   132	                    ),
+   133	                    checkpoint_next=checkpoint_next,
+   134	                )
+   135	
+   136	    heartbeat_task = asyncio.create_task(_heartbeat_loop(), name=f"run_progress_{run_id}")
+   137	    try:
+   138	        return await invoke_coro
+   139	    finally:
+   140	        stop_event.set()
+   141	        heartbeat_task.cancel()
+   142	        with contextlib.suppress(asyncio.CancelledError):
+   143	            await heartbeat_task
+   144	
+   145	ResetToStage = Literal["analyst", "writer"]
+   146	RESETTABLE_RUN_STATUS = {"completed", "degraded"}
+   147	RESET_STAGE_AGENT_NAMES: dict[ResetToStage, tuple[str, ...]] = {
+   148	    "writer": ("writer", "qa", "skill_curator"),
+   149	    "analyst": ("analyst", "writer", "qa", "skill_curator"),
+   150	}
+   151	RESET_STAGE_DECISION_TOOLS: dict[ResetToStage, tuple[str, ...]] = {
+   152	    "writer": ("Write", "Finalize"),
+   153	    "analyst": ("Analyze", "Write", "Finalize"),
+   154	}
+   155	
+   156	
+   157	class RunCreateRequest(BaseModel):
+   158	    user_query: str = Field(min_length=1)
+   159	    competitors: list[str] = Field(default_factory=list)
+   160	    domain_hint: str | None = None
+   161	    reference_urls: list[str] | None = None
+   162	    target_roles: list[str] = Field(default_factory=list)
+   163	    report_depth: Literal["debug", "quick", "deep"] = "quick"
+   164	    response_language: Literal["zh", "en"] | None = None
+   165	    self_product: str | None = None
+   166	    market_scope: str | None = None
+   167	    time_context: str | None = None
+   168	    target_category: str | None = None
+   169	    category_aliases: list[str] = Field(default_factory=list)
+   170	    excluded_categories: list[str] = Field(default_factory=list)
+   171	    market_segments: list[str] = Field(default_factory=list)
+   172	    max_micro_points: int | None = Field(default=None, ge=1, le=100_000_000)
+   173	
+   174	    @field_validator("domain_hint", "self_product", "market_scope", "time_context", "target_category")
+   175	    @classmethod
+   176	    def _normalize_domain_hint(cls, value: str | None) -> str | None:
+   177	        return normalize_optional_text(value)
+   178	
+   179	    @field_validator("category_aliases", "excluded_categories", "market_segments", mode="before")
+   180	    @classmethod
+   181	    def _normalize_category_lists(cls, value: object) -> list[str]:
+   182	        if not isinstance(value, list):
+   183	            return []
+   184	        return stable_unique_text([item for item in value if isinstance(item, str)])
+   185	
+   186	    @field_validator("reference_urls")
+   187	    @classmethod
+   188	    def _normalize_reference_urls(cls, value: list[str] | None) -> list[str] | None:
+   189	        if value is None:
+   190	            return None
+   191	        normalized: list[str] = []
+   192	        seen: set[str] = set()
+   193	        for item in value:
+   194	            cleaned = item.strip()
+   195	            if not cleaned or cleaned in seen:
+   196	                continue
+   197	            seen.add(cleaned)
+   198	            normalized.append(cleaned)
+   199	        return normalized
+   200	
+   201	
+   202	class RunCreateResponse(BaseModel):
+   203	    run_id: str
+   204	    status: str
+   205	    message: str
+   206	    reserved_micro_points: int = 0
+   207	
+   208	
+   209	class IntakeCreateRequest(BaseModel):
+   210	    """Body for POST /api/runs/intake.
+   211	
+   212	    Chat mode (default): only `user_query` (+ optional `user_role`) is expected; the
+   213	    Agent clarifies the rest. Expert mode (`?mode=expert`): the caller pre-fills the
+   214	    full draft and the Agent skips clarification.
+   215	    """
+   216	
+   217	    user_query: str
+   218	    user_role: UserRole | None = None
+   219	    domain_hint: str | None = None
+   220	    reference_urls: list[str] | None = None
+   221	    competitors_explicit: list[str] = Field(default_factory=list)
+   222	    competitors_discovery_mode: bool = False
+   223	    focus_dimensions: list[str] = Field(default_factory=list)
+   224	    report_depth: Literal["debug", "quick", "deep"] = "quick"
+   225	    response_language: Literal["zh", "en"] | None = None
+   226	    from_run_id: str | None = None
+   227	    seed_competitor_ids: list[str] = Field(default_factory=list)
+   228	    client_request_id: str | None = None
+   229	    target_category: str | None = None
+   230	    category_aliases: list[str] = Field(default_factory=list)
+   231	    excluded_categories: list[str] = Field(default_factory=list)
+   232	    market_segments: list[str] = Field(default_factory=list)
+   233	
+   234	    @field_validator("client_request_id", "target_category")
+   235	    @classmethod
+   236	    def _normalize_client_request_id(cls, value: str | None) -> str | None:
+   237	        return normalize_optional_text(value)
+   238	
+   239	    @field_validator("from_run_id")
+   240	    @classmethod
+   241	    def _normalize_from_run_id(cls, value: str | None) -> str | None:
+   242	        if value is None:
+   243	            return None
+   244	        normalized = value.strip()
+   245	        return normalized if normalized else None
+   246	
+   247	    @field_validator("seed_competitor_ids")
+   248	    @classmethod
+   249	    def _normalize_seed_competitor_ids(cls, value: list[str]) -> list[str]:
+   250	        normalized: list[str] = []
+   251	        seen: set[str] = set()
+   252	        for raw in value:
+   253	            item = raw.strip()
+   254	            if not item or item in seen:
+   255	                continue
+   256	            seen.add(item)
+   257	            normalized.append(item)
+   258	        return normalized
+   259	
+   260	    @field_validator("category_aliases", "excluded_categories", "market_segments", mode="before")
+   261	    @classmethod
+   262	    def _normalize_category_lists(cls, value: object) -> list[str]:
+   263	        if not isinstance(value, list):
+   264	            return []
+   265	        return stable_unique_text([item for item in value if isinstance(item, str)])
+   266	
+   267	
+   268	class IntakeCreateResponse(BaseModel):
+   269	    run_id: str
+   270	    status: str
+   271	    phase: str
+   272	    intake_draft: RunIntakeDraft
+   273	    # Async create contract: first clarify arrives via SSE. Keep this optional field
+   274	    # for backward-compatibility with older clients that still read it.
+   275	    first_clarify_request: IntakeClarifyRequest | None = None
+   276	
+   277	
+   278	class RunAcceptedResponse(BaseModel):
+   279	    """Async-accept envelope for all resume endpoints (Invariant C)."""
+   280	
+   281	    run_id: str
+   282	    status: str
+   283	
+   284	
+   285	class FollowUpAcceptedResponse(BaseModel):
+   286	    """Phase 4: POST /follow-up response. `follow_up_id` lets the FE display
+   287	    the entry in any "pending instructions" UI before the supervisor consumes it.
+   288	    """
+   289	
+   290	    run_id: str
+   291	    follow_up_id: str
+   292	    received_at: str
+   293	
+   294	
+   295	class RunResetRequest(BaseModel):
+   296	    reset_to: ResetToStage
+   297	
+   298	
+   299	class RunDetailResponse(BaseModel):
+   300	    run_id: str
+   301	    owner_user_id: int = 0
+   302	    reservation_id: str | None = None
+   303	    reserved_micro_points: int = 0
+   304	    consumed_micro_points: int = 0
+   305	    billing_price_version: str = settings.BILLING_PRICE_VERSION
+   306	    billing_input_micro_points_per_token: int = settings.BILLING_INPUT_MICRO_POINTS_PER_TOKEN
+   307	    billing_output_micro_points_per_token: int = settings.BILLING_OUTPUT_MICRO_POINTS_PER_TOKEN
+   308	    billing_status: str = "NOT_STARTED"
+   309	    user_query: str
+   310	    # LLM-generated short label populated at intake.complete. Nullable for
+   311	    # legacy runs and brief intake-only window; FE falls back to truncating
+   312	    # user_query when this is null.
+   313	    title: str | None = None
+   314	    domain_hint: str | None
+   315	    reference_urls: list[str]
+   316	    status: str
+   317	    status_reason: str | None = None
+   318	    target_roles: list[str]
+   319	    competitors: list[str]
+   320	    started_at: str
+   321	    finished_at: str | None
+   322	    created_at: str
+   323	    parent_run_id: str | None = None
+   324	    seed_competitor_ids: list[str] = Field(default_factory=list)
+   325	    # Phase 1b additions: derived from status + intake_draft + plan_tree so the FE
+   326	    # can render the live-run page without re-reading the LangGraph checkpoint.
+   327	    phase: Literal["intake", "planning", "executing", "done"] | None = None
+   328	    intake_draft: dict[str, object] | None = None
+   329	    plan_tree: dict[str, object] | None = None
+   330	
+   331	
+   332	class RunListItemResponse(BaseModel):
+   333	    run_id: str
+   334	    user_query: str
+   335	    title: str | None = None
+   336	    domain_hint: str | None
+   337	    status: str
+   338	    status_reason: str | None = None
+   339	    phase: Literal["intake", "planning", "executing", "done"] | None = None
+   340	    started_at: str
+   341	    finished_at: str | None
+   342	    created_at: str
+   343	    step_count: int
+   344	    evidence_count: int
+   345	    has_report: bool
+   346	
+   347	
+   348	class RunListResponse(BaseModel):
+   349	    items: list[RunListItemResponse]
+   350	    total: int
+   351	    limit: int
+   352	    offset: int
+   353	
+   354	
+   355	class StepTraceResponse(BaseModel):
+   356	    step_id: str
+   357	    run_id: str
+   358	    agent_name: str
+   359	    status: str
+   360	    retry_count: int
+   361	    payload: dict[str, object]
+   362	    rejection_reason: dict[str, object] | None
+   363	    started_at: str
+   364	    finished_at: str | None
+   365	    created_at: str
+   366	
+   367	
+   368	class SupervisorDecisionTraceResponse(BaseModel):
+   369	    id: str
+   370	    run_id: str
+   371	    iteration: int
+   372	    chosen_tool: str
+   373	    tool_args: dict[str, object]
+   374	    reasoning_summary: str
+   375	    triggered_by: str | None
+   376	    outcome: str | None
+   377	    outcome_recorded_at: str | None
+   378	    created_at: str
+   379	
+   380	
+   381	class LLMCallTraceResponse(BaseModel):
+   382	    id: int
+   383	    step_id: str
+   384	    model_slot: str
+   385	    provider: str | None
+   386	    model_name: str | None
+   387	    prompt_hash: str | None
+   388	    prompt_preview: str | None
+   389	    prompt_tokens: int | None
+   390	    completion_tokens: int | None
+   391	    latency_ms: int | None
+   392	    error: str | None
+   393	    retry_count: int
+   394	    fallback_used: bool | None
+   395	    fallback_reason: str | None
+   396	    created_at: str
+   397	
+   398	
+   399	class TraceTimelineItemResponse(BaseModel):
+   400	    kind: Literal["step", "decision", "llm_call"]
+   401	    timestamp: str
+   402	    step_id: str | None
+   403	    agent_name: str | None
+   404	    summary: str
+   405	    payload: dict[str, object]
+   406	
+   407	
+   408	class RunTraceResponse(BaseModel):
+   409	    run: RunDetailResponse
+   410	    steps: list[StepTraceResponse]
+   411	    supervisor_decisions: list[SupervisorDecisionTraceResponse]
+   412	    llm_calls: list[LLMCallTraceResponse]
+   413	    timeline: list[TraceTimelineItemResponse]
+   414	
+   415	
+   416	class EvidenceBriefResponse(BaseModel):
+   417	    evidence_id: str
+   418	    source_type: str
+   419	    source_url: str | None
+   420	    source_title: str | None
+   421	    competitor_id: str | None
+   422	
+   423	
+   424	class RunReportResponse(BaseModel):
+   425	    run_id: str
+   426	    status: str
+   427	    content_markdown: str
+   428	    content_json: dict[str, object]
+   429	    generated_at: str
+   430	    evidence_id_to_brief: dict[str, EvidenceBriefResponse]
+   431	
+   432	
+   433	class EvidenceListItemResponse(BaseModel):
+   434	    evidence_id: str
+   435	    run_id: str
+   436	    source_type: str
+   437	    source_url: str | None
+   438	    source_title: str | None
+   439	    quote: str
+   440	    sanitized_text: str
+   441	    source_language: str | None
+   442	    translated_excerpt: str | None
+   443	    competitor_id: str | None
+   444	    metadata: dict[str, object] | None
+   445	    desensitized: bool
+   446	    collected_at: str
+   447	    created_at: str
+   448	
+   449	
+   450	class CompetitorSeedResponse(BaseModel):
+   451	    id: str
+   452	    display_name: str
+   453	    aliases: list[str] = Field(default_factory=list)
+   454	    official_url: str | None = None
+   455	    category: str | None = None
+   456	
+   457	
+   458	class RunMetricsResponse(BaseModel):
+   459	    run_id: str
+   460	    coverage_rate: float
+   461	    evidence_count_total: int
+   462	    evidence_count_by_competitor: dict[str, int]
+   463	    evidence_count_by_dimension: dict[str, int]
+   464	    comparison_dimensions: list[str]
+   465	    conclusion_sections: list[str]
+   466	    report_section_ids: list[str]
+   467	    dimension_coverage_rate: float
+   468	    evidence_dimension_coverage_rate: float
+   469	    report_char_count: int
+   470	    report_section_count: int
+   471	    report_depth: str
+   472	    report_section_coverage_rate: float
+   473	    knowledge_feature_count: int
+   474	    knowledge_pricing_count: int
+   475	    knowledge_persona_count: int
+   476	    knowledge_schema_coverage_rate: float
+   477	    source_type_distribution: dict[str, int]
+   478	    source_authority_distribution: dict[str, int]
+   479	    locale_match_rate: float
+   480	    locale_distribution: dict[str, int]
+   481	    desensitization_coverage: float
+   482	    qa_total_steps: int
+   483	    qa_rejected_steps: int
+   484	    qa_rejection_rate: float
+   485	    supervisor_iterations: int
+   486	    llm_token_total: int
+   487	    llm_call_count: int
+   488	    llm_latency_p50_ms: int | None
+   489	    llm_provider_error_count: int
+   490	    llm_retry_total: int
+   491	    manual_review_rate: float
+   492	    manual_review_is_proxy: bool
+   493	    run_wall_clock_seconds: int | None
+   494	    evidence_floor_count: int = 0
+   495	    non_floor_grounded_count: int = 0
+   496	
+   497	
+   498	class ConclusionItemResponse(BaseModel):
+   499	    conclusion_id: str
+   500	    run_id: str
+   501	    step_id: str
+   502	    section: str
+   503	    claim: str
+   504	    confidence: str
+   505	    competitor_ids: list[str]
+   506	    risk_flags: list[str]
+   507	    evidence_ids: list[str]
+   508	    created_at: str
+   509	
+   510	
+   511	class RunConclusionsResponse(BaseModel):
+   512	    run_id: str
+   513	    items: list[ConclusionItemResponse]
+   514	
+   515	
+   516	class KnowledgeFeatureResponse(BaseModel):
+   517	    id: str
+   518	    competitor_id: str
+   519	    name: str
+   520	    parent_id: str | None = None
+   521	    description: str | None = None
+   522	    maturity: str | None = None
+   523	    evidence_ids: list[str]
+   524	
+   525	
+   526	class KnowledgePricingResponse(BaseModel):
+   527	    id: str
+   528	    competitor_id: str
+   529	    model: str
+   530	    tiers: list[dict[str, object]]
+   531	    free_plan: bool | None = None
+   532	    enterprise_plan: bool | None = None
+   533	    evidence_ids: list[str]
+   534	
+   535	
+   536	class KnowledgePersonaResponse(BaseModel):
+   537	    id: str
+   538	    competitor_id: str
+   539	    name: str
+   540	    role: str
+   541	    pain_points: list[str]
+   542	    jobs_to_be_done: list[str]
+   543	    evidence_ids: list[str]
+   544	
+   545	
+   546	class KnowledgeFeedbackResponse(BaseModel):
+   547	    id: str
+   548	    competitor_id: str
+   549	    sentiment: str
+   550	    topic: str
+   551	    summary: str
+   552	    evidence_ids: list[str]
+   553	
+   554	
+   555	class KnowledgeCompetitorResponse(BaseModel):
+   556	    competitor_id: str
+   557	    role: str | None = None
+   558	    segment: str | None = None
+   559	    vendor: str | None = None
+   560	    introduction: str | None = None
+   561	
+   562	
+   563	class RunKnowledgeResponse(BaseModel):
+   564	    run_id: str
+   565	    analysis_archetype: str
+   566	    schema_version: str
+   567	    competitors: list[KnowledgeCompetitorResponse]
+   568	    features: list[KnowledgeFeatureResponse]
+   569	    pricings: list[KnowledgePricingResponse]
+   570	    personas: list[KnowledgePersonaResponse]
+   571	    feedback: list[KnowledgeFeedbackResponse]
+   572	    missing_reasons: dict[str, list[str]]
+   573	    coverage: dict[str, object]
+   574	
+   575	
+   576	class ComparisonCellResponse(BaseModel):
+   577	    cell_id: str
+   578	    run_id: str
+   579	    step_id: str
+   580	    dimension: str
+   581	    competitor_id: str
+   582	    stance: str
+   583	    summary: str
+   584	    evidence_ids: list[str]
+   585	    created_at: str
+   586	
+   587	
+   588	class DimensionComparisonResponse(BaseModel):
+   589	    dimension: str
+   590	    cells: list[ComparisonCellResponse]
+   591	
+   592	
+   593	class RunComparisonsResponse(BaseModel):
+   594	    run_id: str
+   595	    items: list[DimensionComparisonResponse]
+   596	
+   597	
+   598	class WatchlistCreateRequest(BaseModel):
+   599	    competitor_id: str
+   600	    note: str | None = None
+   601	    next_refresh_at: datetime | None = None
+   602	    added_from_run_id: str | None = None
+   603	    source_role: str | None = None
+   604	    refresh_interval_hours: int | None = None
+   605	
+   606	    @field_validator("competitor_id")
+   607	    @classmethod
+   608	    def _validate_competitor_id(cls, value: str) -> str:
+   609	        normalized = value.strip()
+   610	        if not normalized:
+   611	            raise ValueError("competitor_id cannot be empty.")
+   612	        return normalized
+   613	
+   614	    @field_validator("note")
+   615	    @classmethod
+   616	    def _normalize_note(cls, value: str | None) -> str | None:
+   617	        if value is None:
+   618	            return None
+   619	        normalized = value.strip()
+   620	        return normalized if normalized else None
+   621	
+   622	    @field_validator("added_from_run_id")
+   623	    @classmethod
+   624	    def _normalize_added_from_run_id(cls, value: str | None) -> str | None:
+   625	        if value is None:
+   626	            return None
+   627	        normalized = value.strip()
+   628	        return normalized if normalized else None
+   629	
+   630	    @field_validator("source_role")
+   631	    @classmethod
+   632	    def _normalize_source_role(cls, value: str | None) -> str | None:
+   633	        if value is None:
+   634	            return None
+   635	        normalized = value.strip()
+   636	        return normalized if normalized else None
+   637	
+   638	    @field_validator("refresh_interval_hours")
+   639	    @classmethod
+   640	    def _validate_refresh_interval(cls, value: int | None) -> int | None:
+   641	        if value is not None and value <= 0:
+   642	            raise ValueError("refresh_interval_hours must be a positive integer.")
+   643	        return value
+   644	
+   645	
+   646	class WatchlistUpdateRequest(BaseModel):
+   647	    note: str | None = None
+   648	    next_refresh_at: datetime | None = None
+   649	    refresh_interval_hours: int | None = None
+   650	
+   651	    @field_validator("refresh_interval_hours")
+   652	    @classmethod
+   653	    def _validate_refresh_interval(cls, value: int | None) -> int | None:
+   654	        if value is not None and value <= 0:
+   655	            raise ValueError("refresh_interval_hours must be a positive integer.")
+   656	        return value
+   657	
+   658	
+   659	class WatchlistItemResponse(BaseModel):
+   660	    watch_id: str
+   661	    competitor_id: str
+   662	    note: str | None
+   663	    next_refresh_at: str | None
+   664	    added_from_run_id: str | None = None
+   665	    source_role: str | None = None
+   666	    last_refreshed_at: str | None = None
+   667	    refresh_interval_hours: int | None = None
+   668	    last_run_id: str | None = None
+   669	    created_at: str
+   670	
+   671	
+   672	class WatchInsightItemResponse(BaseModel):
+   673	    conclusion_id: str
+   674	    run_id: str
+   675	    run_title: str
+   676	    section: str
+   677	    claim: str
+   678	    confidence: str
+   679	    evidence_ids: list[str]
+   680	    created_at: str
+   681	
+   682	
+   683	class WatchlistDigestDeltaResponse(BaseModel):
+   684	    latest_run_id: str | None
+   685	    previous_run_id: str | None
+   686	    added_claims: list[str]
+   687	    removed_claims: list[str]
+   688	
+   689	
+   690	class CompetitorDiffItemResponse(BaseModel):
+   691	    diff_id: str
+   692	    competitor_id: str
+   693	    run_id_new: str
+   694	    run_id_old: str
+   695	    dimension: str
+   696	    change_type: str
+   697	    old_value: dict | None
+   698	    new_value: dict | None
+   699	    significance: str
+   700	    created_at: str
+   701	
+   702	
+   703	class WatchlistDigestItemResponse(BaseModel):
+   704	    watch_id: str
+   705	    competitor_id: str
+   706	    profile: KnowledgeCompetitorResponse | None = None
+   707	    note: str | None
+   708	    created_at: str
+   709	    insight_count: int
+   710	    run_count: int
+   711	    last_updated_at: str | None
+   712	    latest_run_id: str | None
+   713	    added_from_run_id: str | None = None
+   714	    source_role: str | None = None
+   715	    next_refresh_at: str | None = None
+   716	    delta: WatchlistDigestDeltaResponse | None = None
+   717	    last_run_id: str | None = None
+   718	    last_refreshed_at: str | None = None
+   719	    refresh_interval_hours: int | None = None
+   720	    items: list[WatchInsightItemResponse]
+   721	    recent_changes: list[CompetitorDiffItemResponse]
+   722	
+   723	
+   724	def _to_sse_chunk(*, event: str, data: dict[str, object]) -> str:
+   725	    serialized = json.dumps(data, ensure_ascii=False)
+   726	    return f"event: {event}\ndata: {serialized}\n\n"
+   727	
+   728	
+   729	def _event_bus_from_request(request: Request) -> EventBus | None:
+   730	    event_bus = getattr(request.app.state, "event_bus", None)
+   731	    if isinstance(event_bus, EventBus):
+   732	        return event_bus
+   733	    return None
+   734	
+   735	
+   736	def _register_background_task(request: Request, task: asyncio.Task[object]) -> None:
+   737	    background_tasks = getattr(request.app.state, "background_tasks", None)
+   738	    if not isinstance(background_tasks, set):
+   739	        return
+   740	    background_tasks.add(task)
+   741	
+   742	    def _on_done(finished_task: asyncio.Task[object]) -> None:
+   743	        background_tasks.discard(finished_task)
+   744	        if finished_task.cancelled():
+   745	            return
+   746	        task_exc = finished_task.exception()
+   747	        if task_exc is not None:
+   748	            log.error(
+   749	                "api.background_task.failed",
+   750	                task_name=finished_task.get_name(),
+   751	                exc_type=type(task_exc).__name__,
+   752	                error=format_exception_for_log(task_exc),
+   753	            )
+   754	
+   755	    task.add_done_callback(_on_done)
+   756	
+   757	
+   758	def _build_run_finish_payload(
+   759	    *,
+   760	    run_id: str,
+   761	    status: str,
+   762	    error_type: str | None = None,
+   763	    error_message: str | None = None,
+   764	    status_reason: str | None = None,
+   765	) -> dict[str, object]:
+   766	    payload: dict[str, object] = {"run_id": run_id, "status": status}
+   767	    if error_type is not None:
+   768	        payload["error_type"] = error_type
+   769	    if error_message is not None:
+   770	        payload["error_message"] = error_message[:500]
+   771	    if status_reason is not None:
+   772	        payload["status_reason"] = status_reason[:500]
+   773	    return payload
+   774	
+   775	
+   776	def _graph_state_mapping(graph_state: object) -> dict[str, object]:
+   777	    if isinstance(graph_state, dict):
+   778	        return graph_state
+   779	    return {}
+   780	
+   781	
+   782	def _apply_graph_terminal_run_fields(run: Run, graph_state: object) -> str:
+   783	    state = _graph_state_mapping(graph_state)
+   784	    raw = str(state.get("status", "completed"))
+   785	    status = raw if raw in {"completed", "degraded"} else "completed"
+   786	    run.status = status
+   787	    run.finished_at = datetime.now(timezone.utc)
+   788	    reason_raw = state.get("status_reason")
+   789	    if status == "degraded":
+   790	        run.status_reason = (
+   791	            clip_reason(reason_raw)
+   792	            if isinstance(reason_raw, str) and reason_raw.strip()
+   793	            else DEFAULT_DEGRADED_REASON
+   794	        )
+   795	    else:
+   796	        run.status_reason = None
+   797	    competitors = state.get("competitors")
+   798	    if isinstance(competitors, list) and competitors:
+   799	        run.competitors = competitors
+   800	    return status
+   801	
+   802	
+   803	async def _mark_run_paused_for_quota(*, run_id: str, log_event: str) -> None:
+   804	    """Stop the graph without failing it so the user can recharge and resume."""
+   805	    log.info(log_event, error_type="QuotaExhaustedError", status="paused")
+   806	    session_factory = get_session_factory()
+   807	    async with session_factory() as session:
+   808	        run = await session.get(Run, run_id)
+   809	        if run is None:
+   810	            return
+   811	        if run.status in {"completed", "degraded", "failed", "cancelled"}:
+   812	            return
+   813	        run.status = "paused"
+   814	        run.status_reason = QUOTA_PAUSED_REASON
+   815	        run.finished_at = None
+   816	        await session.commit()
+   817	    await emit_run_event(
+   818	        run_id=run_id,
+   819	        event_type=RunEventType.RUN_FINISH,
+   820	        payload=_build_run_finish_payload(
+   821	            run_id=run_id,
+   822	            status="paused",
+   823	            error_type="QuotaExhaustedError",
+   824	            error_message=QUOTA_PAUSED_REASON,
+   825	            status_reason=QUOTA_PAUSED_REASON,
+   826	        ),
+   827	    )
+   828	
+   829	
+   830	async def _handle_graph_failure(*, run_id: str, exc: BaseException, log_event: str) -> None:
+   831	    if isinstance(exc, QuotaExhaustedError):
+   832	        await _mark_run_paused_for_quota(run_id=run_id, log_event=log_event)
+   833	        return
+   834	    await _mark_run_failed_and_emit(run_id=run_id, exc=exc, log_event=log_event)
+   835	
+   836	
+   837	async def _mark_run_failed_and_emit(
+   838	    *,
+   839	    run_id: str,
+   840	    exc: BaseException,
+   841	    log_event: str,
+   842	) -> None:
+   843	    """Background-task boundary cleanup: persist run.status=failed + emit RUN_FINISH.
+   844	
+   845	    Centralises the failure path so all three async graph runners stay in lockstep
+   846	    when a node throws an unexpected error. Without this the asyncio task dies
+   847	    silently ("Task exception was never retrieved") and the Run row stays
+   848	    "running" forever, leaving the UI polling against a corpse.
+   849	    """
+   850	    error_type = type(exc).__name__
+   851	    error_message = format_exception_for_log(exc)
+   852	    status_reason = humanize_failure_message(error_message)
+   853	    log.error(log_event, error_type=error_type, error=error_message)
+   854	    session_factory = get_session_factory()
+   855	    async with session_factory() as session:
+   856	        run = await session.get(Run, run_id)
+   857	        if run is not None:
+   858	            run.status = "failed"
+   859	            run.status_reason = status_reason
+   860	            run.finished_at = datetime.now(timezone.utc)
+   861	            await session.commit()
+   862	    await settle_run_billing(run_id=run_id, terminal_status="failed")
+   863	    await emit_run_event(
+   864	        run_id=run_id,
+   865	        event_type=RunEventType.RUN_FINISH,
+   866	        payload=_build_run_finish_payload(
+   867	            run_id=run_id,
+   868	            status="failed",
+   869	            error_type=error_type,
+   870	            error_message=status_reason,
+   871	            status_reason=status_reason,
+   872	        ),
+   873	    )
+   874	
+   875	
+   876	_RUN_TASK_NAME_PREFIXES: tuple[str, ...] = (
+   877	    "run_graph_",
+   878	    "intake_resume_",
+   879	    "plan_resume_",
+   880	)
+   881	
+   882	
+   883	async def _handle_graph_cancelled(*, run_id: str, log_event: str) -> None:
+   884	    """Reconcile the Run row when a graph task receives CancelledError.
+   885	
+   886	    Two ways this fires:
+   887	      1. User cancel via PATCH /runs — the endpoint already flipped the row to
+   888	         "cancelled" and emitted RUN_FINISH, so this branch is a no-op.
+   889	      2. Unexpected cancellation (e.g. lifespan shutdown asking tasks to stop) —
+   890	         the row is still "running"; mark it failed so the UI doesn't hang.
+   891	    The caller MUST re-raise CancelledError per asyncio's cooperative-cancel
+   892	    contract; failing to do so makes the task look like a normal completion.
+   893	    """
+   894	    session_factory = get_session_factory()
+   895	    async with session_factory() as session:
+   896	        run = await session.get(Run, run_id)
+   897	        if run is None:
+   898	            return
+   899	        if run.status != "running":
+   900	            with bind_run(run_id):
+   901	                log.info(log_event, status=run.status, branch="already_terminal")
+   902	            if run.status not in {"paused"}:
+   903	                await settle_run_billing(run_id=run_id, terminal_status=str(run.status))
+   904	            return
+   905	        run.status = "failed"
+   906	        run.status_reason = UNEXPECTED_CANCEL_REASON
+   907	        run.finished_at = datetime.now(timezone.utc)
+   908	        await session.commit()
+   909	    await settle_run_billing(run_id=run_id, terminal_status="failed")
+   910	    with bind_run(run_id):
+   911	        log.warning(log_event, status="failed", branch="unexpected_cancel")
+   912	    await emit_run_event(
+   913	        run_id=run_id,
+   914	        event_type=RunEventType.RUN_FINISH,
+   915	        payload=_build_run_finish_payload(
+   916	            run_id=run_id,
+   917	            status="failed",
+   918	            error_type="CancelledError",
+   919	            error_message=UNEXPECTED_CANCEL_REASON,
+   920	            status_reason=UNEXPECTED_CANCEL_REASON,
+   921	        ),
+   922	    )
+   923	
+   924	
+   925	def _cancel_background_tasks_for_run(
+   926	    *,
+   927	    background_tasks: set[asyncio.Task[object]] | None,
+   928	    run_id: str,
+   929	) -> int:
+   930	    """Cancel any in-flight graph tasks bound to this run.
+   931	
+   932	    Tasks are named with the run_id suffix on creation (see `name=f"..._{run_id}"`
+   933	    in this module). We don't cancel the skill_curator follow-up — it only fires
+   934	    on terminal completion, so a cancel during execution means there's no curator
+   935	    task to chase yet. CancelledError propagates back through the outer boundary
+   936	    (`_mark_run_failed_and_emit`), which would normally flip the row to failed;
+   937	    PATCH /runs caller flips it to "cancelled" first so the user's intent wins.
+   938	    """
+   939	    if not isinstance(background_tasks, set):
+   940	        return 0
+   941	    cancelled = 0
+   942	    for task in list(background_tasks):
+   943	        name = task.get_name()
+   944	        if not any(name.startswith(prefix) and name.endswith(run_id) for prefix in _RUN_TASK_NAME_PREFIXES):
+   945	            continue
+   946	        if task.done():
+   947	            continue
+   948	        task.cancel()
+   949	        cancelled += 1
+   950	    return cancelled
+   951	
+   952	
+   953	def _coerce_run_status(state: object) -> str:
+   954	    if isinstance(state, dict):
+   955	        status_raw = state.get("status", "completed")
+   956	    else:
+   957	        status_raw = "completed"
+   958	    status = str(status_raw)
+   959	    if status in {"completed", "degraded"}:
+   960	        return status
+   961	    return "completed"
+   962	
+   963	
+   964	def _has_checkpoint_state(values: object) -> bool:
+   965	    if not isinstance(values, dict):
+   966	        return False
+   967	    return bool(values)
+   968	
+   969	
+   970	def _build_reset_state_values(*, reset_to: ResetToStage) -> dict[str, object]:
+   971	    values: dict[str, object] = {
+   972	        "pending_tool_args": {},
+   973	        "pending_review_target_step_id": None,
+   974	        "last_completed_node": None,
+   975	        "qa_outcome": None,
+   976	        "qa_reject_to": None,
+   977	        "qa_rejection_count": 0,
+   978	        "qa_reasons": [],
+   979	        "status": "running",
+   980	        "decisions": [],
+   981	    }
+   982	    if reset_to == "writer":
+   983	        values["next_action"] = "writer"
+   984	        values["report_draft_done"] = False
+   985	        values["pending_tool_args"] = {
+   986	            "template_id": None,
+   987	            "sections": [*DEFAULT_FOCUS_DIMENSIONS, "differentiation"],
+   988	        }
+   989	        return values
+   990	
+   991	    values["next_action"] = "analyst"
+   992	    values["analysis_done"] = False
+   993	    values["report_draft_done"] = False
+   994	    values["pending_tool_args"] = {
+   995	        "focus_dimensions": [*DEFAULT_FOCUS_DIMENSIONS, "positioning"],
+   996	        "parallel_by_dimension": False,
+   997	        "require_cross_competitor": True,
+   998	    }
+   999	    return values
+  1000	
+  1001	
+  1002	async def _cleanup_trace_for_reset(
+  1003	    *,
+  1004	    run_id: str,
+  1005	    reset_to: ResetToStage,
+  1006	) -> None:
+  1007	    session_factory = get_session_factory()
+  1008	    agent_names = RESET_STAGE_AGENT_NAMES[reset_to]
+  1009	    decision_tools = RESET_STAGE_DECISION_TOOLS[reset_to]
+  1010	    async with session_factory() as session:
+  1011	        # NOTE: reset_to replay is an explicit exception to append-only trace:
+  1012	        # we intentionally remove replay-target stages and their downstream data.
+  1013	        if reset_to == "analyst":
+  1014	            await session.execute(
+  1015	                delete(ConclusionRecord).where(ConclusionRecord.run_id == run_id)
+  1016	            )
+  1017	        await session.execute(delete(Report).where(Report.run_id == run_id))
+  1018	        await session.execute(
+  1019	            delete(Step).where(
+  1020	                Step.run_id == run_id,
+  1021	                Step.agent_name.in_(agent_names),
+  1022	            )
+  1023	        )
+  1024	        await session.execute(
+  1025	            delete(SupervisorDecisionRecord).where(
+  1026	                SupervisorDecisionRecord.run_id == run_id,
+  1027	                SupervisorDecisionRecord.chosen_tool.in_(decision_tools),
+  1028	            )
+  1029	        )
+  1030	        await session.commit()
+  1031	
+  1032	
+  1033	async def _run_event_stream(
+  1034	    *,
+  1035	    event_bus: EventBus,
+  1036	    run_id: str,
+  1037	    keepalive_seconds: float = 15.0,
+  1038	    max_events: int | None = None,
+  1039	) -> AsyncIterator[str]:
+  1040	    yield "retry: 15000\n\n"
+  1041	    emitted_count = 0
+  1042	    async with event_bus.subscribe(run_id) as queue:
+  1043	        while True:
+  1044	            try:
+  1045	                event = await asyncio.wait_for(queue.get(), timeout=keepalive_seconds)
+  1046	            except asyncio.TimeoutError:
+  1047	                yield ": keepalive\n\n"
+  1048	                continue
+  1049	            except asyncio.CancelledError:
+  1050	                return
+  1051	            yield _to_sse_chunk(
+  1052	                event=event.event_type.value,
+  1053	                data=event.model_dump(mode="json"),
+  1054	            )
+  1055	            emitted_count += 1
+  1056	            if max_events is not None and emitted_count >= max_events:
+  1057	                return
+  1058	
+  1059	
+  1060	def _to_iso(dt: datetime | None) -> str | None:
+  1061	    if dt is None:
+  1062	        return None
+  1063	    return dt.isoformat()
+  1064	
+  1065	
+  1066	def _derive_run_phase(run: Run) -> Literal["intake", "planning", "executing", "done"] | None:
+  1067	    """Phase is a derived view, not stored — the source of truth is the LangGraph state.
+  1068	
+  1069	    Legacy runs (created via POST /api/runs without intake) have `intake_draft is None`
+  1070	    and return `None` here so the FE renders them with the old layout.
+  1071	
+  1072	    Phase 2: `plan_tree.confirmed_at` is the planning→executing signal. planner_generate
+  1073	    writes `confirmed_at=None`; planner_wait sets it on resume.
+  1074	    """
+  1075	    intake_draft = run.intake_draft
+  1076	    if intake_draft is None:
+  1077	        return None
+  1078	    if run.status in {"completed", "degraded", "failed", "cancelled"}:
+  1079	        return "done"
+  1080	    plan_tree = run.plan_tree
+  1081	    if plan_tree is not None:
+  1082	        if plan_tree.get("confirmed_at") is not None:
+  1083	            return "executing"
+  1084	        return "planning"
+  1085	    intake_complete = bool(intake_draft.get("user_role")) and bool(
+  1086	        intake_draft.get("analysis_intent")
+  1087	    ) and (
+  1088	        bool(intake_draft.get("competitors_explicit"))
+  1089	        or bool(intake_draft.get("competitors_discovery_mode"))
+  1090	    )
+  1091	    if not intake_complete:
+  1092	        return "intake"
+  1093	    return "planning"
+  1094	
+  1095	
+  1096	def _to_run_detail(run: Run, *, status_reason: str | None = None) -> RunDetailResponse:
+  1097	    resolved_reason = status_reason if status_reason is not None else run.status_reason
+  1098	    return RunDetailResponse(
+  1099	        run_id=run.run_id,
+  1100	        owner_user_id=run.owner_user_id,
+  1101	        reservation_id=run.reservation_id,
+  1102	        reserved_micro_points=int(run.reserved_micro_points or 0),
+  1103	        consumed_micro_points=int(run.consumed_micro_points or 0),
+  1104	        billing_status=run.billing_status,
+  1105	        user_query=run.user_query,
+  1106	        title=run.title,
+  1107	        domain_hint=run.domain_hint if run.domain_hint else None,
+  1108	        reference_urls=list(run.reference_urls or []),
+  1109	        status=run.status,
+  1110	        status_reason=resolved_reason,
+  1111	        target_roles=list(run.target_roles),
+  1112	        competitors=list(run.competitors),
+  1113	        started_at=run.started_at.isoformat(),
+  1114	        finished_at=_to_iso(run.finished_at),
+  1115	        created_at=run.created_at.isoformat(),
+  1116	        parent_run_id=run.parent_run_id,
+  1117	        seed_competitor_ids=list(run.seed_competitor_ids or []),
+  1118	        phase=_derive_run_phase(run),
+  1119	        intake_draft=dict(run.intake_draft) if run.intake_draft is not None else None,
+  1120	        plan_tree=dict(run.plan_tree) if run.plan_tree is not None else None,
+  1121	    )
+  1122	
+  1123	
+  1124	def _to_step_trace_response(step: Step) -> StepTraceResponse:
+  1125	    return StepTraceResponse(
+  1126	        step_id=step.step_id,
+  1127	        run_id=step.run_id,
+  1128	        agent_name=step.agent_name,
+  1129	        status=step.status,
+  1130	        retry_count=step.retry_count,
+  1131	        payload=step.payload,
+  1132	        rejection_reason=step.rejection_reason,
+  1133	        started_at=step.started_at.isoformat(),
+  1134	        finished_at=_to_iso(step.finished_at),
+  1135	        created_at=step.created_at.isoformat(),
+  1136	    )
+  1137	
+  1138	
+  1139	def _to_supervisor_decision_trace_response(
+  1140	    decision: SupervisorDecisionRecord,
+  1141	) -> SupervisorDecisionTraceResponse:
+  1142	    return SupervisorDecisionTraceResponse(
+  1143	        id=decision.id,
+  1144	        run_id=decision.run_id,
+  1145	        iteration=decision.iteration,
+  1146	        chosen_tool=decision.chosen_tool,
+  1147	        tool_args=decision.tool_args,
+  1148	        reasoning_summary=decision.reasoning_summary,
+  1149	        triggered_by=decision.triggered_by,
+  1150	        outcome=decision.outcome,
+  1151	        outcome_recorded_at=_to_iso(decision.outcome_recorded_at),
+  1152	        created_at=decision.created_at.isoformat(),
+  1153	    )
+  1154	
+  1155	
+  1156	def _to_llm_call_trace_response(llm_call: LLMCall) -> LLMCallTraceResponse:
+  1157	    return LLMCallTraceResponse(
+  1158	        id=llm_call.id,
+  1159	        step_id=llm_call.step_id,
+  1160	        model_slot=llm_call.model_slot,
+  1161	        provider=llm_call.provider,
+  1162	        model_name=llm_call.model_name,
+  1163	        prompt_hash=llm_call.prompt_hash,
+  1164	        prompt_preview=llm_call.prompt_preview,
+  1165	        prompt_tokens=llm_call.prompt_tokens,
+  1166	        completion_tokens=llm_call.completion_tokens,
+  1167	        latency_ms=llm_call.latency_ms,
+  1168	        error=llm_call.error,
+  1169	        retry_count=llm_call.retry_count,
+  1170	        fallback_used=llm_call.fallback_used,
+  1171	        fallback_reason=llm_call.fallback_reason,
+  1172	        created_at=llm_call.created_at.isoformat(),
+  1173	    )
+  1174	
+  1175	
+  1176	def _build_trace_timeline(
+  1177	    *,
+  1178	    step_rows: list[Step],
+  1179	    decision_rows: list[SupervisorDecisionRecord],
+  1180	    llm_rows: list[LLMCall],
+  1181	) -> list[TraceTimelineItemResponse]:
+  1182	    timeline_rows: list[tuple[datetime, int, TraceTimelineItemResponse]] = []
+  1183	    step_agent_by_id = {step.step_id: step.agent_name for step in step_rows}
+  1184	
+  1185	    for step in step_rows:
+  1186	        timeline_rows.append(
+  1187	            (
+  1188	                step.created_at,
+  1189	                0,
+  1190	                TraceTimelineItemResponse(
+  1191	                    kind="step",
+  1192	                    timestamp=step.created_at.isoformat(),
+  1193	                    step_id=step.step_id,
+  1194	                    agent_name=step.agent_name,
+  1195	                    summary=f"{step.agent_name} {step.status}",
+  1196	                    payload={
+  1197	                        "status": step.status,
+  1198	                        "retry_count": step.retry_count,
+  1199	                        "started_at": step.started_at.isoformat(),
+  1200	                        "finished_at": _to_iso(step.finished_at),
+  1201	                    },
+  1202	                ),
+  1203	            )
+  1204	        )
+  1205	
+  1206	    for decision in decision_rows:
+  1207	        summary_parts = [decision.chosen_tool]
+  1208	        if decision.outcome:
+  1209	            summary_parts.append(decision.outcome)
+  1210	        timeline_rows.append(
+  1211	            (
+  1212	                decision.created_at,
+  1213	                1,
+  1214	                TraceTimelineItemResponse(
+  1215	                    kind="decision",
+  1216	                    timestamp=decision.created_at.isoformat(),
+  1217	                    step_id=None,
+  1218	                    agent_name="supervisor",
+  1219	                    summary=" ".join(summary_parts),
+  1220	                    payload={
+  1221	                        "decision_id": decision.id,
+  1222	                        "iteration": decision.iteration,
+  1223	                        "chosen_tool": decision.chosen_tool,
+  1224	                        "triggered_by": decision.triggered_by,
+  1225	                        "outcome": decision.outcome,
+  1226	                    },
+  1227	                ),
+  1228	            )
+  1229	        )
+  1230	
+  1231	    for llm_call in llm_rows:
+  1232	        provider_label = llm_call.provider or "unknown_provider"
+  1233	        timeline_rows.append(
+  1234	            (
+  1235	                llm_call.created_at,
+  1236	                2,
+  1237	                TraceTimelineItemResponse(
+  1238	                    kind="llm_call",
+  1239	                    timestamp=llm_call.created_at.isoformat(),
+  1240	                    step_id=llm_call.step_id,
+  1241	                    agent_name=step_agent_by_id.get(llm_call.step_id),
+  1242	                    summary=f"{llm_call.model_slot} {provider_label}",
+  1243	                    payload={
+  1244	                        "llm_call_id": llm_call.id,
+  1245	                        "model_slot": llm_call.model_slot,
+  1246	                        "provider": llm_call.provider,
+  1247	                        "model_name": llm_call.model_name,
+  1248	                        "prompt_hash": llm_call.prompt_hash,
+  1249	                        "prompt_preview": llm_call.prompt_preview,
+  1250	                        "prompt_tokens": llm_call.prompt_tokens,
+  1251	                        "completion_tokens": llm_call.completion_tokens,
+  1252	                        "latency_ms": llm_call.latency_ms,
+  1253	                        "error": llm_call.error,
+  1254	                        "retry_count": llm_call.retry_count,
+  1255	                        "fallback_used": llm_call.fallback_used,
+  1256	                        "fallback_reason": llm_call.fallback_reason,
+  1257	                    },
+  1258	                ),
+  1259	            )
+  1260	        )
+  1261	
+  1262	    timeline_rows.sort(key=lambda row: (row[0], row[1]))
+  1263	    return [item for _, _, item in timeline_rows]
+  1264	
+  1265	
+  1266	def _build_run_summary_fields(
+  1267	    *,
+  1268	    snapshot: RunMetricsSnapshot,
+  1269	    status: str,
+  1270	) -> dict[str, object]:
+  1271	    return {
+  1272	        "status": status,
+  1273	        "run_wall_clock_seconds": snapshot.run_wall_clock_seconds,
+  1274	        "llm_call_count": snapshot.llm_call_count,
+  1275	        "llm_token_total": snapshot.llm_token_total,
+  1276	        "llm_latency_p50_ms": snapshot.llm_latency_p50_ms,
+  1277	        "coverage_rate": snapshot.coverage_rate,
+  1278	        "evidence_count_total": snapshot.evidence_count_total,
+  1279	        "qa_rejection_rate": snapshot.qa_rejection_rate,
+  1280	        "supervisor_iterations": snapshot.supervisor_iterations,
+  1281	    }
+  1282	
+  1283	
+  1284	def _to_watchlist_item(item: WatchlistItem) -> WatchlistItemResponse:
+  1285	    return WatchlistItemResponse(
+  1286	        watch_id=item.watch_id,
+  1287	        competitor_id=item.competitor_id,
+  1288	        note=item.note,
+  1289	        next_refresh_at=_to_iso(item.next_refresh_at),
+  1290	        added_from_run_id=item.added_from_run_id,
+  1291	        source_role=item.source_role,
+  1292	        last_refreshed_at=_to_iso(item.last_refreshed_at),
+  1293	        refresh_interval_hours=item.refresh_interval_hours,
+  1294	        last_run_id=item.last_run_id,
+  1295	        created_at=item.created_at.isoformat(),
+  1296	    )
+  1297	
+  1298	
+  1299	def _watchlist_delta_from_insights(
+  1300	    insights: list[WatchInsightItemResponse],
+  1301	) -> WatchlistDigestDeltaResponse | None:
+  1302	    claims_by_run_id: dict[str, set[str]] = {}
+  1303	    ordered_run_ids: list[str] = []
+  1304	    for insight in insights:
+  1305	        if insight.run_id not in claims_by_run_id:
+  1306	            claims_by_run_id[insight.run_id] = set()
+  1307	            ordered_run_ids.append(insight.run_id)
+  1308	        claim = insight.claim.strip()
+  1309	        if claim:
+  1310	            claims_by_run_id[insight.run_id].add(claim)
+  1311	    if len(ordered_run_ids) < 2:
+  1312	        return None
+  1313	    latest_run_id = ordered_run_ids[0]
+  1314	    previous_run_id = ordered_run_ids[1]
+  1315	    latest_claims = claims_by_run_id.get(latest_run_id, set())
+  1316	    previous_claims = claims_by_run_id.get(previous_run_id, set())
+  1317	    return WatchlistDigestDeltaResponse(
+  1318	        latest_run_id=latest_run_id,
+  1319	        previous_run_id=previous_run_id,
+  1320	        added_claims=sorted(latest_claims - previous_claims)[:5],
+  1321	        removed_claims=sorted(previous_claims - latest_claims)[:5],
+  1322	    )
+  1323	
+  1324	
+  1325	def _normalize_competitor_key(value: str) -> str:
+  1326	    lowered = value.casefold().strip()
+  1327	    if not lowered:
+  1328	        return ""
+  1329	    normalized = re.sub(r"[^\w\s\u4e00-\u9fff]+", " ", lowered, flags=re.UNICODE)
+  1330	    tokens = [token for token in normalized.split() if token]
+  1331	    if not tokens:
+  1332	        return ""
+  1333	    # Token sorting absorbs punctuation and token-order variants
+  1334	    # ("Meta Ray-Ban" vs "Ray-Ban Meta").
+  1335	    return " ".join(sorted(tokens))
+  1336	
+  1337	
+  1338	@lru_cache
+  1339	def _competitor_seed_alias_sets() -> tuple[frozenset[str], ...]:
+  1340	    alias_sets: list[frozenset[str]] = []
+  1341	    for row in _load_competitor_seed_rows():
+  1342	        raw_values: list[str] = []
+  1343	        row_id = row.get("id")
+  1344	        if isinstance(row_id, str) and row_id.strip():
+  1345	            raw_values.append(row_id)
+  1346	        display_name = row.get("display_name")
+  1347	        if isinstance(display_name, str) and display_name.strip():
+  1348	            raw_values.append(display_name)
+  1349	        aliases = row.get("aliases")
+  1350	        if isinstance(aliases, list):
+  1351	            for alias in aliases:
+  1352	                if isinstance(alias, str) and alias.strip():
+  1353	                    raw_values.append(alias)
+  1354	        normalized_keys = {
+  1355	            _normalize_competitor_key(raw_value)
+  1356	            for raw_value in raw_values
+  1357	            if _normalize_competitor_key(raw_value)
+  1358	        }
+  1359	        if normalized_keys:
+  1360	            alias_sets.append(frozenset(normalized_keys))
+  1361	    return tuple(alias_sets)
+  1362	
+  1363	
+  1364	def _alias_keys_for_competitor(value: str) -> set[str]:
+  1365	    normalized = _normalize_competitor_key(value)
+  1366	    if not normalized:
+  1367	        return set()
+  1368	    alias_keys = {normalized}
+  1369	    for alias_set in _competitor_seed_alias_sets():
+  1370	        if normalized in alias_set:
+  1371	            alias_keys.update(alias_set)
+  1372	    return alias_keys
+  1373	
+  1374	
+  1375	def _resolve_run_title(*, title: str | None, user_query: str) -> str:
+  1376	    if isinstance(title, str):
+  1377	        normalized = title.strip()
+  1378	        if normalized:
+  1379	            return normalized
+  1380	    return user_query
+  1381	
+  1382	
+  1383	def _extract_competitor_id(span: dict[str, object] | None) -> str | None:
+  1384	    if not isinstance(span, dict):
+  1385	        return None
+  1386	    competitor_id = span.get("competitor_id")
+  1387	    return competitor_id if isinstance(competitor_id, str) else None
+  1388	
+  1389	
+  1390	def _extract_source_language(span: dict[str, object] | None) -> str | None:
+  1391	    if not isinstance(span, dict):
+  1392	        return None
+  1393	    for key in ("source_language", "detected_language"):
+  1394	        value = span.get(key)
+  1395	        if isinstance(value, str):
+  1396	            normalized = value.strip()
+  1397	            if normalized:
+  1398	                return normalized
+  1399	    return None
+  1400	
+  1401	
+  1402	def _extract_translated_excerpt(span: dict[str, object] | None) -> str | None:
+  1403	    if not isinstance(span, dict):
+  1404	        return None
+  1405	    translated_raw = span.get("translated_excerpt")
+  1406	    if not isinstance(translated_raw, str):
+  1407	        return None
+  1408	    translated_excerpt = translated_raw.strip()
+  1409	    return translated_excerpt if translated_excerpt else None
+  1410	
+  1411	
+  1412	def _normalize_competitor_inputs(values: list[str]) -> list[str]:
+  1413	    normalized: list[str] = []
+  1414	    seen: set[str] = set()
+  1415	    for raw in values:
+  1416	        value = raw.strip()
+  1417	        if not value:
+  1418	            continue
+  1419	        if value in seen:
+  1420	            continue
+  1421	        seen.add(value)
+  1422	        normalized.append(value)
+  1423	    return normalized
+  1424	
+  1425	
+  1426	def _competitor_seed_file_path() -> Path:
+  1427	    if settings.DEMO_FIXTURES_DIR:
+  1428	        return Path(settings.DEMO_FIXTURES_DIR) / "competitors_seed.yaml"
+  1429	    docker_mount = Path("/demo_fixtures/competitors_seed.yaml")
+  1430	    if docker_mount.exists():
+  1431	        return docker_mount
+  1432	    # backend/app/router/run_rt.py -> backend/demo_fixtures
+  1433	    return Path(__file__).resolve().parents[2] / "demo_fixtures" / "competitors_seed.yaml"
+  1434	
+  1435	
+  1436	def _load_competitor_seed_rows() -> list[dict[str, object]]:
+  1437	    path = _competitor_seed_file_path()
+  1438	    if not path.exists():
+  1439	        return []
+  1440	    try:
+  1441	        loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
+  1442	    except yaml.YAMLError:
+  1443	        return []
+  1444	    competitors_raw: object
+  1445	    if isinstance(loaded, list):
+  1446	        competitors_raw = loaded
+  1447	    elif isinstance(loaded, dict):
+  1448	        competitors_raw = loaded.get("competitors")
+  1449	    else:
+  1450	        return []
+  1451	    if not isinstance(competitors_raw, list):
+  1452	        return []
+  1453	    rows: list[dict[str, object]] = []
+  1454	    for item in competitors_raw:
+  1455	        if isinstance(item, dict):
+  1456	            rows.append(item)
+  1457	    return rows
+  1458	
+  1459	
+  1460	def _validate_competitors(payload: RunCreateRequest) -> list[str]:
+  1461	    """Normalize competitor inputs. Empty list is allowed (discovery mode)."""
+  1462	    return _normalize_competitor_inputs(payload.competitors)
+  1463	
+  1464	
+  1465	@router.get("/api/runs", response_model=RunListResponse)
+  1466	async def list_runs(
+  1467	    status: str | None = Query(default=None),
+  1468	    limit: int = Query(default=20, ge=1, le=100),
+  1469	    offset: int = Query(default=0, ge=0),
+  1470	) -> RunListResponse:
+  1471	    normalized_status = status.strip() if isinstance(status, str) else None
+  1472	    session_factory = get_session_factory()
+  1473	    identity = get_identity()
+  1474	    async with session_factory() as session:
+  1475	        step_count_subquery = (
+  1476	            select(func.count())
+  1477	            .select_from(Step)
+  1478	            .where(Step.run_id == Run.run_id)
+  1479	            .scalar_subquery()
+  1480	        )
+  1481	        evidence_count_subquery = (
+  1482	            select(func.count())
+  1483	            .select_from(EvidenceRecord)
+  1484	            .where(EvidenceRecord.run_id == Run.run_id)
+  1485	            .scalar_subquery()
+  1486	        )
+  1487	        report_count_subquery = (
+  1488	            select(func.count())
+  1489	            .select_from(Report)
+  1490	            .where(Report.run_id == Run.run_id)
+  1491	            .scalar_subquery()
+  1492	        )
+  1493	        list_query = select(
+  1494	            Run,
+  1495	            step_count_subquery.label("step_count"),
+  1496	            evidence_count_subquery.label("evidence_count"),
+  1497	            report_count_subquery.label("report_count"),
+  1498	        )
+  1499	        total_query = select(func.count()).select_from(Run)
+  1500	        if identity.user_id != 0:
+  1501	            list_query = list_query.where(Run.owner_user_id == identity.user_id)
+  1502	            total_query = total_query.where(Run.owner_user_id == identity.user_id)
+  1503	        if normalized_status:
+  1504	            list_query = list_query.where(Run.status == normalized_status)
+  1505	            total_query = total_query.where(Run.status == normalized_status)
+  1506	        list_query = list_query.order_by(Run.started_at.desc()).limit(limit).offset(offset)
+  1507	        rows = (await session.execute(list_query)).all()
+  1508	        total = int((await session.execute(total_query)).scalar_one())
+  1509	
+  1510	    items: list[RunListItemResponse] = []
+  1511	    for run, step_count, evidence_count, report_count in rows:
+  1512	        items.append(
+  1513	            RunListItemResponse(
+  1514	                run_id=run.run_id,
+  1515	                user_query=run.user_query,
+  1516	                title=run.title,
+  1517	                domain_hint=run.domain_hint if run.domain_hint else None,
+  1518	                status=run.status,
+  1519	                status_reason=run.status_reason,
+  1520	                phase=_derive_run_phase(run),
+  1521	                started_at=run.started_at.isoformat(),
+  1522	                finished_at=_to_iso(run.finished_at),
+  1523	                created_at=run.created_at.isoformat(),
+  1524	                step_count=int(step_count),
+  1525	                evidence_count=int(evidence_count),
+  1526	                has_report=int(report_count) > 0,
+  1527	            )
+  1528	        )
+  1529	    return RunListResponse(
+  1530	        items=items,
+  1531	        total=total,
+  1532	        limit=limit,
+  1533	        offset=offset,
+  1534	    )
+  1535	
+  1536	
+  1537	@router.get("/api/demo-fixtures/competitors", response_model=list[CompetitorSeedResponse])
+  1538	async def list_competitor_seeds() -> list[CompetitorSeedResponse]:
+  1539	    return [CompetitorSeedResponse.model_validate(item) for item in _load_competitor_seed_rows()]
+  1540	
+  1541	
+  1542	async def _execute_run_graph(
+  1543	    *,
+  1544	    run_id: str,
+  1545	    graph: Any,
+  1546	    graph_input: object,
+  1547	    domain_hint: str | None,
+  1548	    recursion_limit: int,
+  1549	    background_tasks: set[asyncio.Task[object]],
+  1550	) -> None:
+  1551	    """Run the supervisor graph to completion off the request path (Phase 0b async).
+  1552	
+  1553	    Mirrors the skill-curator background-task pattern: catch the boundary error
+  1554	    families, persist terminal status, emit run.finish, and return. Unknown errors
+  1555	    propagate to asyncio so they remain visible instead of being silently hidden.
+  1556	    """
+  1557	    session_factory = get_session_factory()
+  1558	    config = {"configurable": {"thread_id": run_id}, "recursion_limit": recursion_limit}
+  1559	    with bind_run(run_id):
+  1560	        try:
+  1561	            graph_state = await _run_graph_with_progress_heartbeat(
+  1562	                run_id=run_id,
+  1563	                phase="execute",
+  1564	                graph=graph,
+  1565	                config=config,
+  1566	                invoke_coro=graph.ainvoke(graph_input, config=config),
+  1567	            )
+  1568	        except asyncio.CancelledError:
+  1569	            await _handle_graph_cancelled(
+  1570	                run_id=run_id, log_event="api.run.execute.cancelled"
+  1571	            )
+  1572	            raise
+  1573	        except Exception as exc:
+  1574	            # Background-task outer boundary: persist failed + RUN_FINISH; do not re-raise
+  1575	            # or asyncio emits unstructured "Task exception was never retrieved" noise.
+  1576	            await _handle_graph_failure(
+  1577	                run_id=run_id, exc=exc, log_event="api.run.execute.failed"
+  1578	            )
+  1579	            return
+  1580	
+  1581	        async with session_factory() as session:
+  1582	            run = await session.get(Run, run_id)
+  1583	            if run is None:
+  1584	                raise RuntimeError(f"run_id={run_id} should exist after creation")
+  1585	            final_status = _apply_graph_terminal_run_fields(run, graph_state)
+  1586	            status_reason = run.status_reason
+  1587	            await session.commit()
+  1588	        await settle_run_billing(run_id=run_id, terminal_status=final_status)
+  1589	        await emit_run_event(
+  1590	            run_id=run_id,
+  1591	            event_type=RunEventType.RUN_FINISH,
+  1592	            payload=_build_run_finish_payload(
+  1593	                run_id=run_id,
+  1594	                status=final_status,
+  1595	                status_reason=status_reason,
+  1596	            ),
+  1597	        )
+  1598	        await _log_run_summary(run_id=run_id, status=final_status)
+  1599	        diff_task = asyncio.create_task(
+  1600	            _compute_and_persist_diffs(run_id=run_id),
+  1601	            name=f"competitor_diff_{run_id}",
+  1602	        )
+  1603	        background_tasks.add(diff_task)
+  1604	        diff_task.add_done_callback(background_tasks.discard)
+  1605	        curator_task = asyncio.create_task(
+  1606	            run_skill_curator_for_run(run_id=run_id, domain_hint=domain_hint),
+  1607	            name=f"skill_curator_{run_id}",
+  1608	        )
+  1609	        background_tasks.add(curator_task)
+  1610	        curator_task.add_done_callback(background_tasks.discard)
+  1611	        log.info("api.run.execute.finish", status=final_status)
+  1612	
+  1613	
+  1614	async def _compute_and_persist_diffs(*, run_id: str) -> None:
+  1615	    """Compute competitive diffs for all watchlisted competitors in this run."""
+  1616	    session_factory = get_session_factory()
+  1617	    try:
+  1618	        async with session_factory() as session:
+  1619	            run = await session.get(Run, run_id)
+  1620	            if run is None or not isinstance(run.competitors, list):
+  1621	                return
+  1622	            watchlist_ids = {
+  1623	                row[0]
+  1624	                for row in (
+  1625	                    await session.execute(
+  1626	                        select(WatchlistItem.competitor_id)
+  1627	                    )
+  1628	                ).all()
+  1629	            }
+  1630	            competitors_to_diff = [c for c in run.competitors if c in watchlist_ids]
+  1631	
+  1632	        for competitor_id in competitors_to_diff:
+  1633	            try:
+  1634	                async with session_factory() as session:
+  1635	                    diffs = await compute_diff(
+  1636	                        run_id_new=run_id,
+  1637	                        competitor_id=competitor_id,
+  1638	                        session=session,
+  1639	                    )
+  1640	                    if diffs:
+  1641	                        session.add_all(diffs)
+  1642	                        await session.commit()
+  1643	                        log.info(
+  1644	                            "diff.persisted",
+  1645	                            run_id=run_id,
+  1646	                            competitor_id=competitor_id,
+  1647	                            count=len(diffs),
+  1648	                        )
+  1649	            except Exception as exc:
+  1650	                log.warning(
+  1651	                    "diff.error",
+  1652	                    run_id=run_id,
+  1653	                    competitor_id=competitor_id,
+  1654	                    error=format_exception_for_log(exc),
+  1655	                )
+  1656	    except Exception as exc:
+  1657	        log.warning("diff.batch.error", run_id=run_id, error=format_exception_for_log(exc))
+  1658	
+  1659	
+  1660	async def _log_run_summary(*, run_id: str, status: str) -> None:
+  1661	    session_factory = get_session_factory()
+  1662	    try:
+  1663	        async with session_factory() as session:
+  1664	            run = await session.get(Run, run_id)
+  1665	            if run is None:
+  1666	                log.warning(
+  1667	                    "api.run.summary.failed",
+  1668	                    reason="run_not_found",
+  1669	                )
+  1670	                return
+  1671	
+  1672	            evidence_rows = (
+  1673	                await session.execute(
+  1674	                    select(EvidenceRecord)
+  1675	                    .where(EvidenceRecord.run_id == run_id)
+  1676	                    .order_by(EvidenceRecord.created_at.asc())
+  1677	                )
+  1678	            ).scalars().all()
+  1679	            step_rows = (
+  1680	                await session.execute(
+  1681	                    select(Step)
+  1682	                    .where(Step.run_id == run_id)
+  1683	                    .order_by(Step.created_at.asc())
+  1684	                )
+  1685	            ).scalars().all()
+  1686	            llm_rows = (
+  1687	                await session.execute(
+  1688	                    select(LLMCall)
+  1689	                    .join(Step, LLMCall.step_id == Step.step_id)
+  1690	                    .where(Step.run_id == run_id)
+  1691	                    .order_by(LLMCall.created_at.asc())
+  1692	                )
+  1693	            ).scalars().all()
+  1694	            decision_rows = (
+  1695	                await session.execute(
+  1696	                    select(SupervisorDecisionRecord)
+  1697	                    .where(SupervisorDecisionRecord.run_id == run_id)
+  1698	                    .order_by(SupervisorDecisionRecord.created_at.asc())
+  1699	                )
+  1700	            ).scalars().all()
+  1701	            report_rows = (
+  1702	                await session.execute(
+  1703	                    select(Report)
+  1704	                    .where(Report.run_id == run_id)
+  1705	                    .order_by(Report.created_at.asc())
+  1706	                )
+  1707	            ).scalars().all()
+  1708	            candidate_rows = (
+  1709	                await session.execute(select(SkillCandidateRecord))
+  1710	            ).scalars().all()
+  1711	            candidate_rows = [
+  1712	                row
+  1713	                for row in candidate_rows
+  1714	                if run_id
+  1715	                in (row.supporting_run_ids if isinstance(row.supporting_run_ids, list) else [])
+  1716	            ]
+  1717	
+  1718	        snapshot = build_run_metrics_snapshot(
+  1719	            run=run,
+  1720	            evidence_rows=list(evidence_rows),
+  1721	            step_rows=list(step_rows),
+  1722	            llm_rows=list(llm_rows),
+  1723	            decision_rows=list(decision_rows),
+  1724	            candidate_rows=list(candidate_rows),
+  1725	            report_rows=list(report_rows),
+  1726	        )
+  1727	        log.info(
+  1728	            "api.run.summary",
+  1729	            **_build_run_summary_fields(snapshot=snapshot, status=status),
+  1730	        )
+  1731	    except (SQLAlchemyError, TypeError, ValueError, AttributeError) as exc:
+  1732	        log.warning(
+  1733	            "api.run.summary.failed",
+  1734	            error=format_exception_for_log(exc),
+  1735	        )
+  1736	
+  1737	
+  1738	@router.post("/api/runs", response_model=RunCreateResponse)
+  1739	async def create_run(payload: RunCreateRequest, request: Request) -> RunCreateResponse:
+  1740	    normalized_competitors = _validate_competitors(payload)
+  1741	    normalized_reference_urls = list(payload.reference_urls or [])
+  1742	    run_id = make_id("run_")
+  1743	    identity = get_identity()
+  1744	    session_factory = get_session_factory()
+  1745	    with bind_run(run_id):
+  1746	        log.info(
+  1747	            "api.run.create.start",
+  1748	            domain_hint=payload.domain_hint,
+  1749	            reference_url_count=len(normalized_reference_urls),
+  1750	            competitor_count=len(normalized_competitors),
+  1751	            target_role_count=len(payload.target_roles),
+  1752	        )
+  1753	
+  1754	        graph = getattr(request.app.state, "compiled_graph", None)
+  1755	        if graph is None:
+  1756	            raise APIException(
+  1757	                status_code=500,
+  1758	                error_code="GRAPH_NOT_INITIALIZED",
+  1759	                message="Compiled LangGraph instance is not initialized.",
+  1760	            )
+  1761	        background_tasks = getattr(request.app.state, "background_tasks", None)
+  1762	        if not isinstance(background_tasks, set):
+  1763	            raise APIException(
+  1764	                status_code=500,
+  1765	                error_code="BACKGROUND_TASKS_NOT_INITIALIZED",
+  1766	                message="Background task registry is not initialized.",
+  1767	            )
+  1768	        direct_user_role = (
+  1769	            payload.target_roles[0]
+  1770	            if payload.target_roles
+  1771	            and payload.target_roles[0] in {"pm", "founder", "sales", "investor"}
+  1772	            else None
+  1773	        )
+  1774	        direct_analysis_archetype = (
+  1775	            "landscape" if payload.self_product is not None or not normalized_competitors else "comparison"
+  1776	        )
+  1777	        direct_intake_draft = RunIntakeDraft(
+  1778	            user_query=payload.user_query,
+  1779	            user_role=direct_user_role,
+  1780	            analysis_intent=payload.user_query,
+  1781	            competitors_explicit=normalized_competitors,
+  1782	            competitors_discovery_mode=not normalized_competitors,
+  1783	            domain_hint=payload.domain_hint,
+  1784	            focus_dimensions=list(DEFAULT_FOCUS_DIMENSIONS),
+  1785	            report_depth=payload.report_depth,
+  1786	            reference_urls=normalized_reference_urls,
+  1787	            self_product=payload.self_product,
+  1788	            market_scope=payload.market_scope,
+  1789	            time_context=payload.time_context,
+  1790	            target_category=payload.target_category,
+  1791	            category_aliases=payload.category_aliases,
+  1792	            excluded_categories=payload.excluded_categories,
+  1793	            market_segments=payload.market_segments,
+  1794	            analysis_archetype=direct_analysis_archetype,
+  1795	            response_language=resolve_report_language(
+  1796	                response_language=payload.response_language,
+  1797	                user_query=payload.user_query,
+  1798	            ),
+  1799	        )
+  1800	
+  1801	        async with session_factory() as session:
+  1802	            session.add(
+  1803	                Run(
+  1804	                    run_id=run_id,
+  1805	                    owner_user_id=identity.user_id,
+  1806	                    user_query=payload.user_query,
+  1807	                    domain_hint=payload.domain_hint,
+  1808	                    reference_urls=normalized_reference_urls,
+  1809	                    status="running",
+  1810	                    target_roles=payload.target_roles,
+  1811	                    competitors=normalized_competitors,
+  1812	                    intake_draft=direct_intake_draft.model_dump(exclude={"is_complete"}),
+  1813	                    billing_status="NOT_STARTED",
+  1814	                )
+  1815	            )
+  1816	            await session.commit()
+  1817	
+  1818	        initial_state: dict[str, object] = {
+  1819	            "run_id": run_id,
+  1820	            "owner_user_id": identity.user_id,
+  1821	            "domain_hint": payload.domain_hint,
+  1822	            "market_scope": direct_intake_draft.market_scope,
+  1823	            "response_language": direct_intake_draft.response_language,
+  1824	            "reference_urls": normalized_reference_urls,
+  1825	            "competitors": normalized_competitors,
+  1826	            "discovered_competitors": [],
+  1827	            "discovered_competitor_sources": {},
+  1828	            "user_query": payload.user_query,
+  1829	            "researched_competitors": [],
+  1830	            "analysis_done": False,
+  1831	            "report_draft_done": False,
+  1832	            "replan_count": 0,
+  1833	            "current_iteration": 0,
+  1834	            "pending_tool_args": {},
+  1835	            "qa_outcome": None,
+  1836	            "qa_reject_to": None,
+  1837	            "qa_rejection_count": 0,
+  1838	            "pending_review_target_step_id": None,
+  1839	            "qa_reasons": [],
+  1840	            "intake_draft": direct_intake_draft,
+  1841	            "status": "running",
+  1842	        }
+  1843	        execution_config = _graph_invoke_config(
+  1844	            run_id=run_id,
+  1845	            report_depth=payload.report_depth,
+  1846	        )
+  1847	        task = asyncio.create_task(
+  1848	            _execute_run_graph(
+  1849	                run_id=run_id,
+  1850	                graph=graph,
+  1851	                graph_input=initial_state,
+  1852	                domain_hint=payload.domain_hint,
+  1853	                recursion_limit=int(execution_config["recursion_limit"]),
+  1854	                background_tasks=background_tasks,
+  1855	            ),
+  1856	            name=f"run_graph_{run_id}",
+  1857	        )
+  1858	        _register_background_task(request, task)
+  1859	        log.info("api.run.create.accepted")
+  1860	
+  1861	    return RunCreateResponse(
+  1862	        run_id=run_id,
+  1863	        status="running",
+  1864	        message="Run accepted; supervisor loop executing in background.",
+  1865	        reserved_micro_points=0,
+  1866	    )
+  1867	
+  1868	
+  1869	# --- Phase 1b Agent-native intake (chat mode). Expert mode and plan/confirm
+  1870	# are intentionally NOT implemented yet — see Phase 2 in the plan doc. ---
+  1871	
+  1872	
+  1873	def _extract_first_interrupt_value(snapshot: Any) -> Any:
+  1874	    """Canonical interrupt-payload extraction for langgraph 0.2.50 (Invariant D)."""
+  1875	    for task in snapshot.tasks:
+  1876	        if task.interrupts:
+  1877	            return task.interrupts[0].value
+  1878	    return None
+  1879	
+  1880	
+  1881	def _coerce_intake_draft_from_state(state_values: dict[str, object]) -> RunIntakeDraft | None:
+  1882	    raw = state_values.get("intake_draft")
+  1883	    if isinstance(raw, RunIntakeDraft):
+  1884	        return raw
+  1885	    if isinstance(raw, dict):
+  1886	        return RunIntakeDraft.model_validate(raw)
+  1887	    return None
+  1888	
+  1889	
+  1890	def _normalize_idempotency_key(
+  1891	    *,
+  1892	    header_value: str | None,
+  1893	    body_value: str | None,
+  1894	) -> str:
+  1895	    """Resolve create-request idempotency key with strict precedence.
+  1896	
+  1897	    Header key is preferred so upstream gateways / SDK retries can inject it
+  1898	    without mutating JSON payloads. Falls back to body field for clients that
+  1899	    cannot set custom headers.
+  1900	    """
+  1901	    header_key = header_value.strip() if isinstance(header_value, str) else ""
+  1902	    if header_key:
+  1903	        return header_key
+  1904	    body_key = body_value.strip() if isinstance(body_value, str) else ""
+  1905	    if body_key:
+  1906	        return body_key
+  1907	    return f"idemp_{uuid4().hex}"
+  1908	
+  1909	
+  1910	def _intake_request_fingerprint(payload: IntakeCreateRequest) -> str:
+  1911	    """Stable hash for idempotency conflict detection (same key, different body)."""
+  1912	    canonical: dict[str, object] = {
+  1913	        "user_query": payload.user_query.strip(),
+  1914	        "user_role": payload.user_role,
+  1915	        "domain_hint": payload.domain_hint,
+  1916	        "reference_urls": list(payload.reference_urls or []),
+  1917	        "competitors_explicit": list(payload.competitors_explicit),
+  1918	        "competitors_discovery_mode": payload.competitors_discovery_mode,
+  1919	        "focus_dimensions": list(payload.focus_dimensions),
+  1920	        "report_depth": payload.report_depth,
+  1921	        "from_run_id": payload.from_run_id,
+  1922	        "seed_competitor_ids": list(payload.seed_competitor_ids),
+  1923	        "target_category": payload.target_category,
+  1924	        "category_aliases": list(payload.category_aliases),
+  1925	        "excluded_categories": list(payload.excluded_categories),
+  1926	        "market_segments": list(payload.market_segments),
+  1927	    }
+  1928	    encoded = json.dumps(canonical, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+  1929	    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+  1930	
+  1931	
+  1932	async def _persist_intake_draft_to_run(
+  1933	    *,
+  1934	    run_id: str,
+  1935	    state_values: dict[str, object],
+  1936	) -> None:
+  1937	    """Snapshot the latest intake_draft from graph state into the Run row.
+  1938	
+  1939	    Allows GET /api/runs/{id} to render the current intake state without
+  1940	    re-reading the LangGraph checkpoint.
+  1941	    """
+  1942	    draft = _coerce_intake_draft_from_state(state_values)
+  1943	    if draft is None:
+  1944	        return
+  1945	    session_factory = get_session_factory()
+  1946	    async with session_factory() as session:
+  1947	        run = await session.get(Run, run_id)
+  1948	        if run is None:
+  1949	            return
+  1950	        run.intake_draft = draft.model_dump(exclude={"is_complete"})
+  1951	        await session.commit()
+  1952	
+  1953	
+  1954	async def _start_intake_graph_in_background(
+  1955	    *,
+  1956	    run_id: str,
+  1957	    graph: Any,
+  1958	    initial_state: dict[str, object],
+  1959	    domain_hint: str | None,
+  1960	    recursion_limit: int,
+  1961	    idempotency_key: str,
+  1962	    background_tasks: set[asyncio.Task[object]],
+  1963	    accepted_at: datetime,
+  1964	) -> None:
+  1965	    """Start intake graph from scratch in background for async create contract."""
+  1966	    session_factory = get_session_factory()
+  1967	    config = {"configurable": {"thread_id": run_id}, "recursion_limit": recursion_limit}
+  1968	    with bind_run(run_id):
+  1969	        try:
+  1970	            await _run_graph_with_progress_heartbeat(
+  1971	                run_id=run_id,
+  1972	                phase="intake_create",
+  1973	                graph=graph,
+  1974	                config=config,
+  1975	                invoke_coro=graph.ainvoke(initial_state, config=config),
+  1976	            )
+  1977	            snapshot = await graph.aget_state(config)
+  1978	        except asyncio.CancelledError:
+  1979	            await _handle_graph_cancelled(
+  1980	                run_id=run_id,
+  1981	                log_event="api.run.intake.create.cancelled",
+  1982	            )
+  1983	            raise
+  1984	        except Exception as exc:
+  1985	            if not isinstance(exc, QuotaExhaustedError):
+  1986	                async with session_factory() as session:
+  1987	                    record = await session.get(RunCreateRequestRecord, idempotency_key)
+  1988	                    if record is not None:
+  1989	                        record.status = "failed"
+  1990	                        record.error_code = type(exc).__name__
+  1991	                        record.error_message = format_exception_for_log(exc)
+  1992	                        await session.commit()
+  1993	            await _handle_graph_failure(
+  1994	                run_id=run_id,
+  1995	                exc=exc,
+  1996	                log_event="api.run.intake.create.background.failed",
+  1997	            )
+  1998	            return
+  1999	
+  2000	        state_values = snapshot.values if isinstance(snapshot.values, dict) else {}

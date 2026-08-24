@@ -79,7 +79,9 @@ export function DashboardPage(): JSX.Element {
   }, [currentItems, searchKeyword]);
 
   const latestRuns = latestRunsQuery.data?.items ?? [];
-  const continueRun = latestRuns.find((i) => i.status === "running" || i.status === "failed");
+  const continueRun = latestRuns.find(
+    (i) => i.status === "running" || i.status === "paused" || i.status === "failed",
+  );
   const hasAnyHistoryTasks = (runsQuery.data?.total ?? 0) > 0;
   const currentPage = Math.floor(offset / PAGE_SIZE) + 1;
   const totalPages = Math.max(1, Math.ceil((runsQuery.data?.total ?? 0) / PAGE_SIZE));
@@ -276,6 +278,10 @@ export function DashboardPage(): JSX.Element {
                 size="sm"
                 onClick={() => {
                   if (continueRun.status === "running") {
+                    navigate(runPhaseRoute(continueRun));
+                    return;
+                  }
+                  if (continueRun.status === "paused") {
                     navigate(runPhaseRoute(continueRun));
                     return;
                   }

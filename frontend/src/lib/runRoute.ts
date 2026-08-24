@@ -7,18 +7,18 @@ interface RouteableRun {
 }
 
 export function runPhaseRoute(run: RouteableRun): string {
-  if (run.status !== "running") {
-    return `/app/runs/${run.run_id}`;
+  if (run.status === "running" || run.status === "paused") {
+    switch (run.phase) {
+      case "planning":
+        return `/app/runs/${run.run_id}/plan`;
+      case "executing":
+        return `/app/runs/${run.run_id}/live`;
+      case "done":
+      case "intake":
+      default:
+        return `/app/runs/${run.run_id}`;
+    }
   }
 
-  switch (run.phase) {
-    case "planning":
-      return `/app/runs/${run.run_id}/plan`;
-    case "executing":
-      return `/app/runs/${run.run_id}/live`;
-    case "done":
-    case "intake":
-    default:
-      return `/app/runs/${run.run_id}`;
-  }
+  return `/app/runs/${run.run_id}`;
 }

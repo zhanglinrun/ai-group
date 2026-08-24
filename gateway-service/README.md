@@ -30,8 +30,8 @@
 ## 端口与路由
 
 - 服务端口：`8080`
-- 路由和下游服务通过 `Nacos`（注册中心）发现，转发到 auth、member、group、pay，以及 `agent-service`（`/api/runs/**` 等）。Agent 进网关路由表，但不进浏览器 Origin；JSON 45s、SSE 30 分钟分路由超时。
-- 网关不做全局限流；拼团热点限流在 Group 的 Redis 固定窗口（`RateLimiterAOP`）。
+- 路由和下游服务通过 `Nacos` 发现，转发到 auth、member、group、pay，以及 `agent-service`。Agent JSON 45s、SSE 30 分钟分路由超时。发现无 Agent 实例时回退 Docker DNS，不再用环境变量盖掉 `lb://agent-service`。
+- 网关 Sentinel：Agent JSON 限流+熔断；Agent SSE 只做宽松流控、不熔断；Java 路由做下游熔断。拼团按用户热点限流仍在 Group Redis（`RateLimiterAOP`）。
 
 核心代码：
 

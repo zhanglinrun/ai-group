@@ -632,8 +632,16 @@ export function useSubmitRunFollowUp(): UseMutationResult<
 }
 
 export function useResumeRun(): UseMutationResult<RunCreateResponse, Error, string> {
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: resumeRun,
+    onSuccess: async (_data, runId) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["run-detail", runId] }),
+        queryClient.invalidateQueries({ queryKey: ["run-trace", runId] }),
+        queryClient.invalidateQueries({ queryKey: ["runs"] }),
+      ]);
+    },
   });
 }
 

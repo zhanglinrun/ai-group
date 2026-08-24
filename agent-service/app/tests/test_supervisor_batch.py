@@ -1388,3 +1388,4 @@ async def test_supervisor_forced_finalize_when_budget_exhausted_with_report(
     assert new_state["next_action"] == "finalize"
     assert new_state["status"] == "degraded"
     assert captured[0][2]["chosen_tool"] == "Finalize"
+

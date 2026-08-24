@@ -72,9 +72,9 @@ xfg:
         port: ${REDIS_PORT:16379}
         password: ${REDIS_PASSWORD:}
 
-# 日志；logstash部署的服务器IP
+# 日志；logstash 部署地址（Docker 全栈 + 观测栈时设为 logstash）
 logstash:
-  host: 127.0.0.1
+  host: ${LOGSTASH_HOST:127.0.0.1}
 
 # 监控配置 Prometheus + Grafana
 management:

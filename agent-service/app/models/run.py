@@ -70,6 +70,14 @@ class Run(Base):
     reservation_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     reserved_micro_points: Mapped[int] = mapped_column(nullable=False, default=0)
     consumed_micro_points: Mapped[int] = mapped_column(nullable=False, default=0)
+    # reservation_id / reserved_micro_points / billing_reservations are leftover
+    # fields from older settlement rows. New runs charge each LLM call in
+    # billing_meter and leave these empty; settle_run_billing only snapshots
+    # consumed_micro_points.
+    billing_reservations: Mapped[list[dict[str, object]] | None] = mapped_column(
+        JSONB(none_as_null=True),
+        nullable=True,
+    )
     billing_status: Mapped[str] = mapped_column(String(32), nullable=False, default="NOT_STARTED")
     billing_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     # User-facing terminal explanation (degraded / failed / cancelled). Nullable

@@ -12,6 +12,38 @@ spring:
         namespace: public
         username: ${NACOS_USERNAME:nacos}
         password: ${NACOS_PASSWORD:nacos}
+      config:
+        enabled: ${NACOS_CONFIG_ENABLED:false}
+        import-check:
+          enabled: false
+        server-addr: ${NACOS_HOST:127.0.0.1}:${NACOS_PORT:8848}
+        username: ${NACOS_USERNAME:nacos}
+        password: ${NACOS_PASSWORD:nacos}
+    sentinel:
+      enabled: ${SENTINEL_ENABLED:false}
+      eager: true
+      filter:
+        enabled: false
+      scg:
+        fallback:
+          mode: response
+          response-status: 503
+          response-body: '{"code":503,"info":"service unavailable"}'
+      datasource:
+        gw-flow:
+          nacos:
+            server-addr: ${NACOS_HOST:127.0.0.1}:${NACOS_PORT:8848}
+            dataId: gateway-sentinel-flow.json
+            groupId: AI_GROUP
+            data-type: json
+            rule-type: gw-flow
+        gw-degrade:
+          nacos:
+            server-addr: ${NACOS_HOST:127.0.0.1}:${NACOS_PORT:8848}
+            dataId: gateway-sentinel-degrade.json
+            groupId: AI_GROUP
+            data-type: json
+            rule-type: degrade
     gateway:
       server:
         webflux:
@@ -54,12 +86,13 @@ sa-token:
 gateway:
   route:
     # 平台服务与 agent 经 Nacos 服务发现 + 负载均衡（lb://服务名）；local profile 覆盖为直连。
-    # Python Nacos 注册是 fail-open，Compose 用 GATEWAY_ROUTE_AGENT_URI 走 Docker DNS。
+    # Agent 注册 fail-open：发现无实例时仅 agent-service 回退 Docker DNS。
     auth-uri: lb://auth-service
     member-uri: lb://member-service
     pay-uri: lb://pay-service
     group-uri: lb://group-service
     agent-uri: lb://agent-service
+    agent-fallback-uri: ${GATEWAY_ROUTE_AGENT_FALLBACK_URI:http://agent-service:8090}
 
 ai-group:
   internal:

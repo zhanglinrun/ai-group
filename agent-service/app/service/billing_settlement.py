@@ -10,7 +10,14 @@ from db.engine import get_session_factory
 from models.llm_call import LLMCall
 from models.run import Run
 from models.step import Step
-from service.billing import Reservation, quota_client
+from service.billing import (
+    FreezeSlice,
+    Reservation,
+    allocate_actual_across_slices,
+    freeze_slices_from_mapping,
+    quota_client,
+    reservation_request_id,
+)
 from utils.logger import get_logger
 
 log = get_logger("service.billing_settlement")
@@ -24,10 +31,11 @@ def is_unsettled_billing(billing_status: str | None) -> bool:
 
 
 async def settle_run_billing(*, run_id: str, terminal_status: str) -> str | None:
-    """Close a Member reservation once and persist the usage snapshot.
+    """Snapshot token usage after a run reaches a terminal status.
 
-    Returns the run's billing_status after the attempt, or None if the run is gone.
-    Missing provider usage never estimates: the row stays PENDING_RECONCILIATION.
+    Pay-as-you-go calls already confirmed themselves. This pass only records
+    consumed_micro_points and marks SETTLED, or PENDING_RECONCILIATION when
+    provider usage is missing.
     """
     session_factory = get_session_factory()
     async with session_factory() as session:
@@ -53,16 +61,15 @@ async def settle_run_billing(*, run_id: str, terminal_status: str) -> str | None
             if not row.error
             and (row.prompt_tokens is None or row.completion_tokens is None)
         )
-        reservation = Reservation(
-            reservation_id=run.reservation_id or run_id,
-            amount_micro_points=max(0, int(run.reserved_micro_points or 0)),
-            request_id=f"agent:{run_id}",
-            user_id=int(run.owner_user_id or 0),
+        user_id = int(run.owner_user_id or 0)
+        slices = freeze_slices_from_mapping(
+            run_id=run_id,
+            reservation_id=run.reservation_id,
+            reserved_micro_points=int(run.reserved_micro_points or 0),
+            billing_reservations=getattr(run, "billing_reservations", None),
         )
-        if unknown_usage_count:
+        if unknown_usage_count and slices:
             # A provider that omits usage must never be charged from an estimate.
-            # Keep the reservation open for a later reconciliation job instead of
-            # silently confirming zero or a partial amount.
             run.consumed_micro_points = actual
             run.billing_status = "PENDING_RECONCILIATION"
             run.billing_error = (
@@ -76,8 +83,45 @@ async def settle_run_billing(*, run_id: str, terminal_status: str) -> str | None
                 unknown_usage_count=unknown_usage_count,
             )
             return run.billing_status
+        if not slices:
+            # Pay-as-you-go: each LLM call already settled itself.
+            run.consumed_micro_points = actual
+            run.billing_status = "SETTLED"
+            run.billing_error = None
+            await session.commit()
+            return run.billing_status
         try:
-            await quota_client.confirm(reservation, actual_micro_points=actual, trace_id=run_id)
+            assignments, overage = allocate_actual_across_slices(slices, actual)
+            if overage > 0:
+                extra = await quota_client.reserve(
+                    user_id=user_id,
+                    amount_micro_points=overage,
+                    run_id=run_id,
+                    trace_id=run_id,
+                    request_id=reservation_request_id(run_id, "overage"),
+                )
+                extra_slice = FreezeSlice(
+                    freeze_id=extra.reservation_id,
+                    request_id=extra.request_id,
+                    amount_micro_points=extra.amount_micro_points,
+                )
+                slices.append(extra_slice)
+                assignments.append((extra_slice, overage))
+                run.billing_reservations = [item.to_record() for item in slices]
+                run.reserved_micro_points = int(run.reserved_micro_points or 0) + extra.amount_micro_points
+                if not run.reservation_id:
+                    run.reservation_id = extra.reservation_id
+            for slice_, charged in assignments:
+                await quota_client.confirm(
+                    Reservation(
+                        reservation_id=slice_.freeze_id,
+                        amount_micro_points=slice_.amount_micro_points,
+                        request_id=slice_.request_id,
+                        user_id=user_id,
+                    ),
+                    actual_micro_points=charged,
+                    trace_id=run_id,
+                )
             run.consumed_micro_points = actual
             run.billing_status = "SETTLED"
             run.billing_error = None
@@ -104,7 +148,7 @@ async def settle_if_needed_for_delete(
     """Settle a deletable run. Running + unsettled is left untouched so mid-flight usage is not clipped."""
     if not is_unsettled_billing(billing_status):
         return billing_status
-    if status == "running":
+    if status in {"running", "paused"}:
         return billing_status
     result = await settle_run_billing(run_id=run_id, terminal_status=status)
     return result or billing_status

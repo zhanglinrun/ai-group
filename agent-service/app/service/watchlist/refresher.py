@@ -185,6 +185,7 @@ class WatchlistRefresher:
             intake_draft=intake_draft.model_dump(exclude={"is_complete"}),
             parent_run_id=parent_run_id,
             seed_competitor_ids=[item.competitor_id],
+            billing_status="NOT_STARTED",
         )
         session.add(run)
         item.last_run_id = run_id

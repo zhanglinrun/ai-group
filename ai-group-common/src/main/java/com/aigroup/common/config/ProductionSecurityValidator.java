@@ -46,8 +46,7 @@ public class ProductionSecurityValidator {
             return false;
         }
         for (String profile : profiles) {
-            if (!"local".equalsIgnoreCase(profile) && !"dev".equalsIgnoreCase(profile)
-                    && !"test".equalsIgnoreCase(profile)) {
+            if (!"local".equalsIgnoreCase(profile) && !"test".equalsIgnoreCase(profile)) {
                 return false;
             }
         }

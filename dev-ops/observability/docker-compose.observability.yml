@@ -1,0 +1,137 @@
+# AI Group 可观测性栈（独立启动，不并入 docker-compose.full.yml）
+#
+# 用法（在 dev-ops/observability 目录）：
+#   1. 先启动业务栈：cd ../compose && docker compose -f docker-compose.full.yml up -d
+#   2. 再启动观测栈：docker compose -f docker-compose.observability.yml up -d
+#
+# 端口：
+#   Elasticsearch 9200 | Logstash 4560 | Kibana 5601
+#   Prometheus 9090    | Grafana 3000  | Grafana MCP 8000
+
+name: ai-group-observability
+
+services:
+  elasticsearch:
+    image: elasticsearch:7.17.28
+    container_name: ai-group-elasticsearch
+    restart: unless-stopped
+    environment:
+      discovery.type: single-node
+      cluster.name: ai-group-elasticsearch
+      ES_JAVA_OPTS: -Xms512m -Xmx512m
+      TZ: Asia/Shanghai
+    ports:
+      - "${ELASTICSEARCH_PUBLISH_PORT:-9200}:9200"
+      - "${ELASTICSEARCH_TRANSPORT_PORT:-9300}:9300"
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    networks:
+      - observability
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9200/_cluster/health >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+
+  logstash:
+    image: logstash:7.17.28
+    container_name: ai-group-logstash
+    restart: unless-stopped
+    environment:
+      LS_JAVA_OPTS: -Xms512m -Xmx512m
+      TZ: Asia/Shanghai
+      MONITORING_ENABLED: "false"
+    ports:
+      - "${LOGSTASH_TCP_PUBLISH_PORT:-4560}:4560"
+      - "${LOGSTASH_API_PUBLISH_PORT:-9600}:9600"
+    volumes:
+      - ./logstash/logstash.conf:/usr/share/logstash/pipeline/logstash.conf:ro
+    networks:
+      - observability
+      - app
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+
+  kibana:
+    image: kibana:7.17.28
+    container_name: ai-group-kibana
+    restart: unless-stopped
+    environment:
+      ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+      I18N_LOCALE: zh-CN
+      TZ: Asia/Shanghai
+    ports:
+      - "${KIBANA_PUBLISH_PORT:-5601}:5601"
+    volumes:
+      - ./kibana/config/kibana.yml:/usr/share/kibana/config/kibana.yml:ro
+    networks:
+      - observability
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+
+  prometheus:
+    image: prom/prometheus:v2.47.2
+    container_name: ai-group-prometheus
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.enable-lifecycle
+    ports:
+      - "${PROMETHEUS_PUBLISH_PORT:-9090}:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    networks:
+      - observability
+      - app
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  grafana:
+    image: grafana/grafana:10.2.0
+    container_name: ai-group-grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_DEFAULT_LANGUAGE: zh-Hans
+      TZ: Asia/Shanghai
+    ports:
+      - "${GRAFANA_PUBLISH_PORT:-3000}:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    networks:
+      - observability
+    depends_on:
+      - prometheus
+
+  grafana-mcp:
+    image: mcp/grafana
+    container_name: ai-group-grafana-mcp
+    restart: unless-stopped
+    profiles: ["mcp"]
+    environment:
+      GRAFANA_URL: http://grafana:3000
+      GRAFANA_API_KEY: ${GRAFANA_API_KEY:-}
+    ports:
+      - "${GRAFANA_MCP_PUBLISH_PORT:-8000}:8000"
+    networks:
+      - observability
+    depends_on:
+      - grafana
+
+networks:
+  observability:
+    driver: bridge
+  app:
+    external: true
+    name: xiongdoctor_default
+
+volumes:
+  elasticsearch_data:
+  prometheus_data:
+  grafana_data:

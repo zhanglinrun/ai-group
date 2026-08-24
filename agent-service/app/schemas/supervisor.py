@@ -116,6 +116,7 @@ class Finalize(BaseModel):
     completion_reason: Literal[
         "all_dimensions_covered",
         "max_iterations_hit",
+        "budget_exhausted",
         "fallback_path",
         "user_requested_stop",
     ]

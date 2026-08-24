@@ -16,13 +16,14 @@ import {
   type FormEvent,
   type KeyboardEvent,
 } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 
 import {
   fetchRunIntakeSession,
   useRunDetail,
   useCreateRunIntake,
   useReplyRunIntake,
+  useResumeRun,
   type CreateRunIntakeVariables,
 } from "@/api/hooks";
 import {
@@ -30,6 +31,7 @@ import {
   type IntakeClarifyEventPayload,
   type IntakeCompletePayload,
   type IntakeUserReplyPayload,
+  type RunFinishPayload,
 } from "@/api/sse";
 import type {
   IntakeClarifyRequest,
@@ -429,6 +431,7 @@ export function NewRunChatPage(): JSX.Element {
   const [searchParams] = useSearchParams();
   const createIntake = useCreateRunIntake();
   const replyIntake = useReplyRunIntake();
+  const resumeRun = useResumeRun();
   const fromRunId = searchParams.get("from")?.trim() || null;
   const seedCompetitorsFromQuery = useMemo(() => {
     const raw = searchParams.get("seed");
@@ -452,6 +455,7 @@ export function NewRunChatPage(): JSX.Element {
     { id: "welcome", kind: "assistant.welcome", text: WELCOME_TEXT },
   ]);
   const [status, setStatus] = useState<ChatStatus>("idle");
+  const [quotaPaused, setQuotaPaused] = useState(false);
   const [composerText, setComposerText] = useState("");
   const [composerOptions, setComposerOptions] = useState<string[]>([]);
   const [reportDepth, setReportDepth] = useState<ReportDepth>("quick");
@@ -735,10 +739,27 @@ export function NewRunChatPage(): JSX.Element {
     [],
   );
 
+  const handleRunFinish = useCallback((payload: RunFinishPayload) => {
+    if (payload.status !== "paused") {
+      return;
+    }
+    setQuotaPaused(true);
+    setStatus("error");
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: newMessageId(),
+        kind: "assistant.error",
+        text: payload.status_reason || "积分不足，充值后可从当前进度继续。",
+      },
+    ]);
+  }, []);
+
   useRunEvents(runId ?? "", {
     onIntakeClarify: handleIntakeClarify,
     onIntakeUserReply: handleIntakeUserReply,
     onIntakeComplete: handleIntakeComplete,
+    onRunFinish: handleRunFinish,
   });
 
   // --- Send handlers --------------------------------------------------------
@@ -1144,6 +1165,34 @@ export function NewRunChatPage(): JSX.Element {
           <p className="text-xs text-primary">
             当前为聚焦模式：继承 run {fromRunId} 的上下文，默认会按 comparison 生成关键维度分析。
           </p>
+        ) : null}
+        {quotaPaused && runId !== null ? (
+          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-warning/40 bg-warning/[0.08] px-3 py-2 text-sm text-foreground">
+            <span>积分不足，调研已暂停。充值后可从刚才的进度继续。</span>
+            <Button asChild size="sm" variant="secondary">
+              <Link to="/group-buy">去充值</Link>
+            </Button>
+            <Button
+              size="sm"
+              disabled={resumeRun.isPending}
+              onClick={() => {
+                void resumeRun
+                  .mutateAsync(runId)
+                  .then(() => {
+                    setQuotaPaused(false);
+                    setStatus("resuming");
+                    pushToast({ title: "已继续调研", variant: "success" });
+                  })
+                  .catch((error: unknown) => {
+                    if (error instanceof Error) {
+                      pushToast({ title: "还不能继续", description: error.message, variant: "danger" });
+                    }
+                  });
+              }}
+            >
+              {resumeRun.isPending ? "继续中…" : "充值后继续"}
+            </Button>
+          </div>
         ) : null}
       </header>
 

@@ -16,12 +16,24 @@ import static org.junit.Assert.assertTrue;
 public class PayConfigurationContractTest {
 
     @Test
-    public void onlyDevDefaultsToTheLocalMemberServicePort() throws IOException {
-        assertEquals("${MEMBER_SERVICE_URL:" + FeignAuthConfig.DEFAULT_MEMBER_SERVICE_URL + "}",
+    public void onlyLocalDefaultsToTheLocalMemberServicePort() throws IOException {
+        assertEquals("${MEMBER_SERVICE_URL:}",
                 property("application-dev.yml", "app.config.member-service.api-url"));
+        assertEquals("${GROUP_BUY_API_URL:}",
+                property("application-dev.yml", "app.config.group-service.api-url"));
         assertEquals("${MEMBER_SERVICE_URL:}",
                 property("application-prod.yml", "app.config.member-service.api-url"));
+        assertEquals("${MEMBER_SERVICE_URL:" + FeignAuthConfig.DEFAULT_MEMBER_SERVICE_URL + "}",
+                property("application-local.yml", "app.config.member-service.api-url"));
         assertEquals("http://127.0.0.1:18082", FeignAuthConfig.DEFAULT_MEMBER_SERVICE_URL);
+    }
+
+    @Test
+    public void feignDefaultsFailFastInsteadOfSixtySecondReads() throws IOException {
+        assertEquals(2000, property("application.yml",
+                "spring.cloud.openfeign.client.config.default.connect-timeout"));
+        assertEquals(5000, property("application.yml",
+                "spring.cloud.openfeign.client.config.default.read-timeout"));
     }
 
     @Test

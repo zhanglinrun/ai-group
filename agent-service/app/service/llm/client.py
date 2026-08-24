@@ -9,6 +9,12 @@ from json import JSONDecodeError
 from time import perf_counter
 
 from core.config import settings
+from service.billing import charge_micro_points
+from service.billing_meter import (
+    acquire_llm_call_hold,
+    estimate_call_hold_micro_points,
+    settle_llm_call_hold,
+)
 from service.llm.exceptions import LLMRequestError, LLMResponseFormatError
 from service.llm.providers import LLMProvider, build_providers
 from service.llm.rate_limiter import AsyncTokenBucket, estimate_tokens
@@ -321,6 +327,48 @@ class LLMClient:
         return None, elapsed_ms or 0, retry_count, request_error
 
     async def complete_json(
+        self,
+        *,
+        model_slot: str = "research",
+        system_prompt: str | None = None,
+        user_prompt: str | None = None,
+        prompt: str | None = None,
+        fallback_system_prompt: str | None = None,
+        fallback_user_prompt: str | None = None,
+    ) -> LLMResponse:
+        estimate_system = system_prompt
+        estimate_user = user_prompt if user_prompt is not None else prompt
+        output_tokens = _resolve_max_tokens(model_slot) or settings.LLM_MAX_TOKENS_RESEARCH
+        # Charge this provider round-trip only. QuotaExhaustedError pauses the Run.
+        hold = await acquire_llm_call_hold(
+            estimated_micro_points=estimate_call_hold_micro_points(
+                prompt_tokens=estimate_tokens(
+                    system_prompt=estimate_system or "",
+                    user_prompt=estimate_user or "",
+                ),
+                output_tokens=output_tokens,
+            )
+        )
+        response: LLMResponse | None = None
+        try:
+            response = await self._complete_json_body(
+                model_slot=model_slot,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                prompt=prompt,
+                fallback_system_prompt=fallback_system_prompt,
+                fallback_user_prompt=fallback_user_prompt,
+            )
+            return response
+        finally:
+            actual = (
+                charge_micro_points(response.prompt_tokens, response.completion_tokens)
+                if response is not None
+                else 0
+            )
+            await settle_llm_call_hold(hold, actual_micro_points=actual)
+
+    async def _complete_json_body(
         self,
         *,
         model_slot: str = "research",

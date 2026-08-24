@@ -71,6 +71,7 @@ export function RunViewPage(): JSX.Element {
 
   const runStatus = detailQuery.data?.status ?? "running";
   const isRunActive = runStatus === "running";
+  const isQuotaPaused = runStatus === "paused";
   const isReportReady = runStatus === "completed" || runStatus === "degraded";
   // failed/cancelled are *terminal-without-output* — KPI cards and Tabs are
   // dead weight (they all collapse to "-" or "生成中" placeholders).
@@ -272,6 +273,18 @@ export function RunViewPage(): JSX.Element {
               <Button asChild size="sm" variant="secondary">
                 <Link to={activeRunRoute}>前往实时进度</Link>
               </Button>
+            </div>
+          {isQuotaPaused ? (
+            <div className="flex flex-col gap-3 rounded-lg border border-warning/40 bg-warning/[0.08] p-4 text-caption text-foreground-muted sm:flex-row sm:items-center sm:justify-between">
+              <span>积分不足，调研已暂停。充值后可从当前进度继续。</span>
+              <div className="flex flex-wrap gap-2">
+                <Button asChild size="sm" variant="secondary">
+                  <Link to="/group-buy">去充值</Link>
+                </Button>
+                <Button asChild size="sm">
+                  <Link to={activeRunRoute ?? `/app/runs/${runId}/live`}>继续调研</Link>
+                </Button>
+              </div>
             </div>
           ) : null}
 

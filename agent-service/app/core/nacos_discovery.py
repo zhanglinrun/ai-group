@@ -10,6 +10,21 @@ from utils.logger import get_logger
 
 log = get_logger("nacos_discovery")
 
+_active: NacosRegistration | None = None
+
+
+def active_registration() -> NacosRegistration | None:
+    return _active
+
+
+def lookup_member_base_url(settings: Settings) -> str:
+    fallback = (settings.MEMBER_SERVICE_URL or "").rstrip("/")
+    registration = _active
+    if registration is None:
+        return fallback
+    discovered = registration.lookup_base_url(settings.MEMBER_SERVICE_NACOS_NAME)
+    return discovered or fallback
+
 
 def _local_ip() -> str:
     probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -60,6 +75,8 @@ class NacosRegistration:
                 target=self._heartbeat_loop, name="nacos-heartbeat", daemon=True
             )
             self._heartbeat.start()
+            global _active
+            _active = self
             log.info(
                 "nacos.registered",
                 service=self._service_name,
@@ -69,7 +86,37 @@ class NacosRegistration:
         except Exception:
             log.exception("nacos.register_failed", service=self._service_name)
 
+    def lookup_base_url(self, service_name: str) -> str | None:
+        if self._client is None or not (service_name or "").strip():
+            return None
+        try:
+            payload = self._client.list_naming_instance(service_name, healthy_only=True)
+        except Exception:
+            log.exception("nacos.lookup_failed", service=service_name)
+            return None
+        hosts: list[Any] = []
+        if isinstance(payload, dict):
+            raw_hosts = payload.get("hosts") or []
+            if isinstance(raw_hosts, list):
+                hosts = raw_hosts
+        elif isinstance(payload, list):
+            hosts = payload
+        for host in hosts:
+            if not isinstance(host, dict):
+                continue
+            if host.get("healthy") is False or host.get("enabled") is False:
+                continue
+            ip = str(host.get("ip") or "").strip()
+            port = host.get("port")
+            if not ip or port is None:
+                continue
+            return f"http://{ip}:{int(port)}"
+        return None
+
     def stop(self) -> None:
+        global _active
+        if _active is self:
+            _active = None
         self._stop.set()
         if self._client is None:
             return

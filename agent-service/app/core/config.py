@@ -178,8 +178,9 @@ class Settings(BaseSettings):
     DEMO_FIXTURES_DIR: str | None = None
 
     # Java platform integration. The Agent is never exposed to the browser;
-    # BFF/Gateway forwards a verified identity and the service credential.
+    # Gateway forwards a verified identity and the service credential.
     MEMBER_SERVICE_URL: str = "http://member-service:8082"
+    MEMBER_SERVICE_NACOS_NAME: str = "member-service"
     INTERNAL_TOKEN: str | None = None
     IDENTITY_SIGNING_SECRET: str | None = None
     IDENTITY_JWT_ISSUER: str = "ai-group-gateway"
@@ -204,7 +205,12 @@ class Settings(BaseSettings):
     # tokens (5 input / 30 output), matching the legacy pricing design.
     BILLING_INPUT_MICRO_POINTS_PER_TOKEN: int = 5
     BILLING_OUTPUT_MICRO_POINTS_PER_TOKEN: int = 30
-    BILLING_DEFAULT_RESERVATION_MICRO_POINTS: int = 500000
+    # Cap for one model-call hold. New runs charge per call in billing_meter.
+    BILLING_RESERVATION_MICRO_POINTS_DEBUG: int = 300_000
+    BILLING_RESERVATION_MICRO_POINTS_QUICK: int = 1_000_000
+    BILLING_RESERVATION_MICRO_POINTS_DEEP: int = 2_000_000
+    BILLING_DEFAULT_RESERVATION_MICRO_POINTS: int = 1_000_000
+    BILLING_MAX_RESERVATION_MICRO_POINTS: int = 100_000_000
     BILLING_SETTLEMENT_INTERVAL_SECONDS: int = 60
     BILLING_SETTLEMENT_BATCH_LIMIT: int = 50
 

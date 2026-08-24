@@ -1,0 +1,7 @@
+[
+  {"resource": "GET:http://member-service/internal/skus/by-goods/{goodsId}", "grade": 1, "count": 0.5, "timeWindow": 10, "minRequestAmount": 5, "statIntervalMs": 10000},
+  {"resource": "POST:http://group-service/api/v1/gbm/trade/lock_market_pay_order", "grade": 1, "count": 0.5, "timeWindow": 10, "minRequestAmount": 5, "statIntervalMs": 10000},
+  {"resource": "POST:http://group-service/api/v1/gbm/trade/query_market_pay_order", "grade": 1, "count": 0.5, "timeWindow": 10, "minRequestAmount": 5, "statIntervalMs": 10000},
+  {"resource": "POST:http://group-service/api/v1/gbm/trade/settlement_market_pay_order", "grade": 1, "count": 0.5, "timeWindow": 10, "minRequestAmount": 5, "statIntervalMs": 10000},
+  {"resource": "POST:http://group-service/api/v1/gbm/trade/refund_market_pay_order", "grade": 1, "count": 0.5, "timeWindow": 10, "minRequestAmount": 5, "statIntervalMs": 10000}
+]

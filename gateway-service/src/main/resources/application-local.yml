@@ -1,9 +1,13 @@
-# local profile：不依赖 Nacos，全部路由走固定端口直连（适合无注册中心的纯本地调试）
+# local profile: skip Nacos; all routes use fixed localhost ports
 spring:
   cloud:
     nacos:
       discovery:
         enabled: false
+      config:
+        enabled: false
+    sentinel:
+      enabled: false
 
 gateway:
   route:

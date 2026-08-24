@@ -64,4 +64,25 @@ public class ProductRPCMemberCatalogTest {
 
         assertThrows(IllegalStateException.class, () -> rpc.queryProductByProductId("9890002"));
     }
+
+    @Test
+    public void sentinelBlockUsesLocalFallbackWhenEnabled() {
+        IMemberCatalogService service = mock(IMemberCatalogService.class);
+        when(service.queryEnabledSkuByGoodsId("9890002"))
+                .thenThrow(new RuntimeException(
+                        new com.alibaba.csp.sentinel.slots.block.flow.FlowException("member-catalog")));
+
+        PayProductCatalogProperties props = new PayProductCatalogProperties();
+        props.setFallbackEnabled(true);
+        PayProductCatalogProperties.Item item = new PayProductCatalogProperties.Item();
+        item.setName("轻量额度包");
+        item.setPrice(new BigDecimal("12.00"));
+        item.setProductCode("QUOTA_LIGHT");
+        item.setBaseQuota(60L);
+        props.setProducts(java.util.Map.of("9890002", item));
+
+        ProductDTO product = new ProductRPC(props, service).queryProductByProductId("9890002");
+        assertEquals("QUOTA_LIGHT", product.getProductCode());
+        assertEquals(Long.valueOf(60L), product.getBaseQuota());
+    }
 }

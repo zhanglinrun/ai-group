@@ -6,6 +6,7 @@ import {
   CircleSlash,
   CircleX,
   LoaderCircle,
+  PauseCircle,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -45,6 +46,11 @@ const STATUS_META: Record<string, StatusMeta> = {
     icon: CircleSlash,
     label: "已停止",
     variant: "secondary",
+  },
+  paused: {
+    icon: PauseCircle,
+    label: "积分不足",
+    variant: "warning",
   },
 };
 

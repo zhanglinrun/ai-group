@@ -11,7 +11,13 @@ class ProductionSecurityValidatorTest {
 
     @Test
     void localProfilesMayUseExplicitLocalConfiguration() {
-        assertDoesNotThrow(validator("dev", "short")::validate);
+        assertDoesNotThrow(validator("local", "short")::validate);
+        assertDoesNotThrow(validator("test", "short")::validate);
+    }
+
+    @Test
+    void devProfileMustNotBypassValidation() {
+        assertThrows(IllegalStateException.class, validator("dev", "short")::validate);
     }
 
     @Test

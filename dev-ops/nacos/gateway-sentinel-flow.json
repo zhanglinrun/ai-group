@@ -1,0 +1,18 @@
+[
+  {
+    "resource": "agent-json",
+    "resourceMode": 0,
+    "grade": 1,
+    "count": 50,
+    "intervalSec": 1,
+    "controlBehavior": 0
+  },
+  {
+    "resource": "agent-sse",
+    "resourceMode": 0,
+    "grade": 1,
+    "count": 2000,
+    "intervalSec": 1,
+    "controlBehavior": 0
+  }
+]

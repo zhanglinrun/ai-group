@@ -1,0 +1,8 @@
+gateway:
+  route:
+    auth-uri: lb://auth-service
+    member-uri: lb://member-service
+    pay-uri: lb://pay-service
+    group-uri: lb://group-service
+    agent-uri: lb://agent-service
+    agent-fallback-uri: http://agent-service:8090

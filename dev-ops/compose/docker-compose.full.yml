@@ -1,5 +1,25 @@
 name: xiongdoctor
 
+x-java-common: &java-common
+  SPRING_PROFILES_ACTIVE: default
+  NACOS_HOST: nacos
+  NACOS_PORT: 8848
+  REDIS_HOST: redis
+  REDIS_PORT: 6379
+  REDIS_PASSWORD: ""
+  KAFKA_BOOTSTRAP_SERVERS: kafka:19092
+  KAFKA_ACK_TIMEOUT_MS: ${KAFKA_ACK_TIMEOUT_MS:-5000}
+  AI_GROUP_INTERNAL_TOKEN: ${AI_GROUP_INTERNAL_TOKEN:-change-me-internal-token-32bytes-ok}
+  AI_GROUP_IDENTITY_SIGNING_SECRET: ${AI_GROUP_IDENTITY_SIGNING_SECRET:-change-me-signing-secret-32bytes-ok}
+  NACOS_CONFIG_ENABLED: "true"
+  SENTINEL_ENABLED: "false"
+  SPRING_CONFIG_IMPORT: optional:nacos:ai-group-identity.yml?group=AI_GROUP
+  XXL_JOB_ENABLED: ${XXL_JOB_ENABLED:-true}
+  XXL_JOB_ADMIN_ADDRESSES: http://xxl-job-admin:8080
+  XXL_JOB_ACCESS_TOKEN: ${XXL_JOB_ACCESS_TOKEN:-default_token}
+  SA_TOKEN_COOKIE_SECURE: ${SA_TOKEN_COOKIE_SECURE:-false}
+
+
 services:
   mysql:
     image: mysql:8.4
@@ -90,6 +110,20 @@ services:
       timeout: 5s
       retries: 30
 
+  nacos-init:
+    image: alpine:3.20
+    environment:
+      NACOS_ADDR: http://nacos:8848
+      CONFIG_DIR: /nacos-config
+      AI_GROUP_INTERNAL_TOKEN: ${AI_GROUP_INTERNAL_TOKEN:-change-me-internal-token-32bytes-ok}
+      AI_GROUP_IDENTITY_SIGNING_SECRET: ${AI_GROUP_IDENTITY_SIGNING_SECRET:-change-me-signing-secret-32bytes-ok}
+    volumes:
+      - ../nacos:/nacos-config:ro
+    depends_on:
+      nacos: {condition: service_healthy}
+    command: ["sh", "-c", "apk add --no-cache curl >/dev/null && sh /nacos-config/provision.sh"]
+    restart: "no"
+
   agent-postgres:
     image: postgres:16-alpine
     environment:
@@ -150,31 +184,17 @@ services:
       args:
         MODULE: gateway-service
         ARTIFACT: gateway-service
-    environment: &java-common
-      SPRING_PROFILES_ACTIVE: default
-      NACOS_HOST: nacos
-      NACOS_PORT: 8848
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      REDIS_PASSWORD: ""
-      KAFKA_BOOTSTRAP_SERVERS: kafka:19092
-      KAFKA_ACK_TIMEOUT_MS: ${KAFKA_ACK_TIMEOUT_MS:-5000}
-      AI_GROUP_INTERNAL_TOKEN: ${AI_GROUP_INTERNAL_TOKEN:-change-me-internal}
-      AI_GROUP_IDENTITY_SIGNING_SECRET: ${AI_GROUP_IDENTITY_SIGNING_SECRET:-change-me-signing-secret-32bytes-ok}
-      # Enable XXL-JOB executors against the Compose admin; disable local Outbox
-      # polling on Pay to avoid double-dispatch of the same handler.
-      XXL_JOB_ENABLED: ${XXL_JOB_ENABLED:-true}
-      # Compose-internal Admin. Do not interpolate host .env (127.0.0.1:18081).
-      # xuxueli/xxl-job-admin:3.4.2 serves at context path /.
-      XXL_JOB_ADMIN_ADDRESSES: http://xxl-job-admin:8080
-      XXL_JOB_ACCESS_TOKEN: ${XXL_JOB_ACCESS_TOKEN:-default_token}
-      SA_TOKEN_COOKIE_SECURE: ${SA_TOKEN_COOKIE_SECURE:-false}
-      GATEWAY_ROUTE_AGENT_URI: ${AGENT_SERVICE_URL:-http://agent-service:8090}
+    environment:
+      <<: *java-common
+      GATEWAY_ROUTE_AGENT_FALLBACK_URI: ${AGENT_SERVICE_URL:-http://agent-service:8090}
+      SENTINEL_ENABLED: "true"
+      SPRING_CONFIG_IMPORT: optional:nacos:ai-group-identity.yml?group=AI_GROUP,optional:nacos:gateway-routes.yml?group=AI_GROUP
     ports:
       - "${GATEWAY_PUBLISH_PORT:-8080}:8080"
     depends_on:
       redis: {condition: service_healthy}
       nacos: {condition: service_healthy}
+      nacos-init: {condition: service_completed_successfully}
       agent-service: {condition: service_started}
 
   auth-service:
@@ -197,6 +217,7 @@ services:
       redis: {condition: service_healthy}
       kafka: {condition: service_healthy}
       nacos: {condition: service_healthy}
+      nacos-init: {condition: service_completed_successfully}
       xxl-job-admin: {condition: service_started}
 
   member-service:
@@ -219,6 +240,7 @@ services:
       redis: {condition: service_healthy}
       kafka: {condition: service_healthy}
       nacos: {condition: service_healthy}
+      nacos-init: {condition: service_completed_successfully}
       xxl-job-admin: {condition: service_started}
 
   group-service:
@@ -237,15 +259,19 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       SERVER_PORT: 8091
-      SPRING_PROFILES_ACTIVE: dev
+      SPRING_PROFILES_ACTIVE: ${GROUP_SPRING_PROFILES_ACTIVE:-dev}
+      LOGSTASH_HOST: ${LOGSTASH_HOST:-}
       # With XXL-JOB enabled, notify_task is driven by groupBuyNotifyJob — not @Scheduled.
       GROUP_OUTBOX_LOCAL_SCHEDULER_ENABLED: ${GROUP_OUTBOX_LOCAL_SCHEDULER_ENABLED:-false}
+    ports:
+      - "${GROUP_METRICS_PUBLISH_PORT:-8091}:8091"
     expose: ["8091", "9999"]
     depends_on:
       mysql: {condition: service_healthy}
       redis: {condition: service_healthy}
       kafka: {condition: service_healthy}
       nacos: {condition: service_healthy}
+      nacos-init: {condition: service_completed_successfully}
       xxl-job-admin: {condition: service_started}
 
   pay-service:
@@ -263,8 +289,7 @@ services:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-xiongdoctor_dev}
       SERVER_PORT: 8070
       SPRING_PROFILES_ACTIVE: dev
-      GROUP_BUY_API_URL: http://group-service:8091
-      MEMBER_SERVICE_URL: http://member-service:8082
+      SENTINEL_ENABLED: "true"
       # With XXL-JOB enabled, Outbox is driven by outboxEventPublishJob — not @Scheduled.
       PAY_OUTBOX_LOCAL_SCHEDULER_ENABLED: ${PAY_OUTBOX_LOCAL_SCHEDULER_ENABLED:-false}
       ALIPAY_ENABLED: ${ALIPAY_ENABLED:-false}
@@ -281,6 +306,7 @@ services:
       mysql: {condition: service_healthy}
       kafka: {condition: service_healthy}
       nacos: {condition: service_healthy}
+      nacos-init: {condition: service_completed_successfully}
       xxl-job-admin: {condition: service_started}
 
   agent-service:
@@ -336,6 +362,10 @@ services:
       - "${WEB_PUBLISH_PORT:-5173}:80"
     depends_on:
       gateway-service: {condition: service_started}
+
+networks:
+  default:
+    name: xiongdoctor_default
 
 volumes:
   mysql_data:

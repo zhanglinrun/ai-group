@@ -10,11 +10,11 @@ app:
     cross-origin: '*'
     # SC 渠道配置 - 拼团对接渠道值
     group-service:
-      api-url: ${GROUP_BUY_API_URL:http://127.0.0.1:8091}
+      api-url: ${GROUP_BUY_API_URL:}
       source: s01
       chanel: c01
     member-service:
-      api-url: ${MEMBER_SERVICE_URL:http://127.0.0.1:18082}
+      api-url: ${MEMBER_SERVICE_URL:}
 
 # 线程池配置
 thread:

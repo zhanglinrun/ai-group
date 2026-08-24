@@ -1,0 +1,24 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  # 与 docker-compose.full.yml 同网段时，通过容器名抓取（需先启动 full 栈）
+  - job_name: ai-group-docker
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets:
+          - gateway-service:8080
+          - group-service:8091
+        labels:
+          stack: docker
+
+  # 本地 IDE / 混合部署：通过宿主机端口抓取（Gateway 默认映射 8080）
+  - job_name: ai-group-host
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets:
+          - host.docker.internal:8080
+          - host.docker.internal:8091
+        labels:
+          stack: host

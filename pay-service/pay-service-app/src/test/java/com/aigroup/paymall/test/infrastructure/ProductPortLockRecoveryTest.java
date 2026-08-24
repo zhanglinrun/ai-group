@@ -16,6 +16,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import java.math.BigDecimal;
 
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -85,6 +86,17 @@ public class ProductPortLockRecoveryTest {
 
         AppException error = assertThrows(AppException.class, this::lock);
         org.junit.Assert.assertEquals("E0103", error.getCode());
+        verify(groupService).lockMarketPayOrder(any(LockMarketPayOrderRequestDTO.class));
+        verify(groupService, never()).queryMarketPayOrder(any(QueryMarketPayOrderRequestDTO.class));
+    }
+
+    @Test
+    public void sentinelBlockDoesNotTreatLockAsSuccess() {
+        when(groupService.lockMarketPayOrder(any()))
+                .thenThrow(new RuntimeException(
+                        new com.alibaba.csp.sentinel.slots.block.flow.FlowException("group-lock")));
+
+        assertNull(lock());
         verify(groupService).lockMarketPayOrder(any(LockMarketPayOrderRequestDTO.class));
         verify(groupService, never()).queryMarketPayOrder(any(QueryMarketPayOrderRequestDTO.class));
     }
