@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal, Self, cast
 
-from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from core.defaults import (
     DEFAULT_FOCUS_DIMENSIONS,
@@ -29,7 +29,7 @@ from schemas.supervisor import (
     Finalize,
     Write,
 )
-from service.llm.prompts import QA_SEMANTIC_ALLOWED_REJECT_TO, SKILL_CURATOR_ALLOWED_TYPES
+from service.llm.prompts import QA_SEMANTIC_ALLOWED_REJECT_TO
 
 from schemas.agent_outputs import stable_unique
 
@@ -46,12 +46,9 @@ ResearcherActionName = Literal[
     "search_web",
     "fetch_url",
     "extract_structured",
-    "load_skill",
-    "read_skill_file",
     "finalize",
 ]
 QASeverity = Literal["blocking", "warning"]
-SkillCuratorCandidateType = Literal["qa_rule", "prompt_template", "source_routing"]
 DiscoveryCandidateRole = Literal[
     "direct_competitor",
     "adjacent_competitor",
@@ -92,9 +89,6 @@ SUPERVISOR_VALID_TOOLS: frozenset[str] = frozenset(
         "Finalize",
     }
 )
-DISCOVERY_MIN_COMPETITORS = 0
-
-
 class IntakeClarifyOutput(BaseModel):
     question: str = Field(min_length=1)
     field_targets: list[str] = Field(default_factory=list)
@@ -531,25 +525,6 @@ class ResearcherDecisionOutput(BaseModel):
                 )
                 return ("extract_structured", normalized)
             return None
-        if action == "load_skill":
-            skill_id_raw = action_args.get("skill_id")
-            if isinstance(skill_id_raw, str) and skill_id_raw.strip():
-                return ("load_skill", {"skill_id": skill_id_raw.strip()})
-            return None
-        if action == "read_skill_file":
-            skill_id_raw = action_args.get("skill_id")
-            filename_raw = action_args.get("filename")
-            if (
-                isinstance(skill_id_raw, str)
-                and skill_id_raw.strip()
-                and isinstance(filename_raw, str)
-                and filename_raw.strip()
-            ):
-                return (
-                    "read_skill_file",
-                    {"skill_id": skill_id_raw.strip(), "filename": filename_raw.strip()},
-                )
-            return None
         return None
 
 
@@ -667,46 +642,3 @@ class QASemanticOutput(BaseModel):
                 item.model_dump(mode="python") for item in self.unsupported_numeric_claims
             ],
         }
-
-
-class SkillCuratorCandidateOutput(BaseModel):
-    candidate_type: SkillCuratorCandidateType
-    tags: list[str] = Field(default_factory=list)
-    payload: dict[str, object]
-    rationale: str = Field(min_length=1)
-    confidence: Literal["low", "medium", "high"] = "medium"
-    supporting_run_ids: list[str] = Field(default_factory=list)
-
-    @field_validator("candidate_type")
-    @classmethod
-    def _validate_candidate_type(cls, value: str) -> str:
-        if value not in SKILL_CURATOR_ALLOWED_TYPES:
-            raise ValueError(f"candidate_type must be one of {SKILL_CURATOR_ALLOWED_TYPES}")
-        return value
-
-
-class SkillCuratorHarnessOutput(BaseModel):
-    candidates: list[SkillCuratorCandidateOutput] = Field(default_factory=list)
-
-    @classmethod
-    def parse_llm_content(
-        cls,
-        content: dict[str, object],
-        *,
-        allowed_types: frozenset[str],
-    ) -> SkillCuratorHarnessOutput:
-        candidates_raw = content.get("candidates")
-        if not isinstance(candidates_raw, list):
-            raise ValueError("candidates must be a list")
-        parsed: list[SkillCuratorCandidateOutput] = []
-        for item in candidates_raw:
-            if not isinstance(item, dict):
-                continue
-            try:
-                candidate = SkillCuratorCandidateOutput.model_validate(item)
-            except ValidationError:
-                continue
-            if candidate.candidate_type not in allowed_types:
-                continue
-            parsed.append(candidate)
-        return cls(candidates=parsed)

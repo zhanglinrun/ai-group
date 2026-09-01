@@ -391,6 +391,50 @@ async def test_provider_wraps_mid_stream_disconnect_as_retryable(
 
 
 @pytest.mark.asyncio
+async def test_provider_wraps_openai_stream_api_error_as_retryable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """OpenAI SDK stream protocol errors must not escape the provider layer."""
+
+    class DummyAPIError(Exception):
+        pass
+
+    async def fake_create(**_: object):
+        async def _stream():
+            yield SimpleNamespace(
+                model="gpt-5.5",
+                usage=None,
+                choices=[SimpleNamespace(delta=SimpleNamespace(content='{"title":'))],
+            )
+            raise DummyAPIError(
+                "stream error: stream disconnected before completion: "
+                "stream closed before response.completed"
+            )
+
+        return _stream()
+
+    fake_client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=fake_create)))
+    monkeypatch.setattr(llm_providers, "APIError", DummyAPIError)
+    monkeypatch.setattr(llm_providers, "AsyncOpenAI", lambda **_: fake_client)
+
+    provider = OpenAIProvider(
+        base_url="https://api.openai.com/v1",
+        api_key="fake-key",
+        default_model="gpt-5.5",
+    )
+    with pytest.raises(LLMRequestError) as exc_info:
+        await provider.complete_json(
+            system_prompt="system",
+            user_prompt="user",
+            model="gpt-5.5",
+            timeout_seconds=180,
+        )
+
+    assert exc_info.value.retryable is True
+    assert exc_info.value.error_class == "connection"
+
+
+@pytest.mark.asyncio
 async def test_doubao_provider_caches_json_mode_unsupported_after_400(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -10,12 +10,14 @@ from agents.nodes.supervisor import (
     _decision_from_tool_output,
     _derive_write_sections,
     _fallback_decision,
+    _filter_decision_for_research_mode,
     _discovery_search_queries,
+    _normalize_discovery_decision_queries,
     _resolve_fallback_dimensions,
     supervisor_node,
 )
 from agents.nodes.planner import planner_generate_node
-from schemas.intake import RunIntakeDraft
+from schemas.intake import RunIntakeDraft, infer_research_mode
 from schemas.agent_outputs import SupervisorToolCallOutput
 from schemas.supervisor import SupervisorDecision
 from service.event_bus import RunEventType
@@ -239,6 +241,109 @@ def test_discovery_search_queries_localize_chinese_market_scope() -> None:
     assert all("中国市场" in query for query in queries)
     assert any("竞品" in query or "替代" in query for query in queries)
     assert not any("competitors alternatives" in query for query in queries)
+
+
+def test_discovery_search_queries_use_academic_vocabulary_for_paper_research() -> None:
+    queries = _discovery_search_queries(
+        user_query="查找自动调制识别（AMR）与大模型结合的相关论文和研究进展",
+        domain_context="自动调制识别（AMR）与大模型结合",
+        market_scope=None,
+        response_language="zh",
+    )
+
+    assert queries
+    assert any("论文" in query for query in queries)
+    assert any("数据集" in query or "评测基准" in query for query in queries)
+    assert not any(
+        term in query
+        for query in queries
+        for term in ("竞品", "替代", "厂商", "定价", "市场", "产品")
+    )
+
+
+def test_infer_research_mode_defaults_to_neutral_general_research() -> None:
+    assert infer_research_mode(user_query="了解某个新兴技术的基本概念") == "general"
+    assert infer_research_mode(user_query="某技术的竞品和定价") == "commercial"
+    assert infer_research_mode(user_query="某技术的论文和数据集") == "academic"
+
+
+def test_infer_research_mode_respects_explicit_mode() -> None:
+    assert infer_research_mode(
+        user_query="了解某个新兴技术的基本概念",
+        user_role="researcher",
+        explicit_mode="general",
+    ) == "general"
+
+
+def test_research_mode_guardrail_removes_commercial_dimensions() -> None:
+    decision = SupervisorDecision(
+        id="decision_test",
+        run_id="run_test",
+        iteration=1,
+        chosen_tool="ConductResearchBatch",
+        tool_args={
+            "topics": [
+                {
+                    "research_topic": "AMR papers",
+                    "competitor_id": "paper_a",
+                    "focus_dimensions": ["feature", "pricing", "user_feedback"],
+                    "max_iterations": 1,
+                    "search_max_results": 3,
+                    "fallback_to_offline": True,
+                }
+            ],
+            "parallelism_rationale": "test",
+        },
+        reasoning_summary="test",
+        triggered_by="user_query",
+        outcome="dispatched",
+        created_at="2026-01-01T00:00:00Z",
+    )
+    filtered = _filter_decision_for_research_mode(decision, research_mode="academic")
+    assert filtered.tool_args["topics"][0]["focus_dimensions"] == [
+        "methods",
+        "datasets",
+        "benchmarks",
+        "limitations",
+    ]
+
+
+def test_supervisor_normalizes_llm_commercial_queries_for_academic_mode() -> None:
+    output = SupervisorToolCallOutput.parse_llm_content(
+        {
+            "chosen_tool": "DiscoverCompetitors",
+            "tool_args": {
+                "search_queries": [
+                    "自动调制识别与大模型 竞品 替代 产品",
+                    "自动调制识别与大模型 对比 评测 厂商",
+                ],
+                "domain_context": "自动调制识别（AMR）与大模型结合",
+                "max_results": 8,
+            },
+            "reasoning_summary": "Discover research objects.",
+        }
+    )
+    decision = _decision_from_tool_output(
+        run_id="run_test",
+        iteration=1,
+        output=output,
+        triggered_by="user_query",
+        fallback_dimensions=["feature"],
+        fallback_sections=["feature"],
+    )
+
+    normalized = _normalize_discovery_decision_queries(
+        decision=decision,
+        user_query="查找自动调制识别与大模型结合的相关论文",
+        domain_context="自动调制识别（AMR）与大模型结合",
+        market_scope=None,
+        response_language="zh",
+        research_mode="academic",
+    )
+    queries = normalized.tool_args["search_queries"]
+    assert isinstance(queries, list)
+    assert any("论文" in query for query in queries)
+    assert not any("竞品" in query or "厂商" in query for query in queries)
 
 
 def test_fallback_decision_uses_localized_discovery_queries() -> None:
@@ -904,6 +1009,63 @@ async def test_supervisor_allows_analyze_after_discovery_attempt_with_empty_comp
 
     assert new_state["next_action"] == "analyst"
     assert captured[0][2]["chosen_tool"] == "Analyze"
+
+
+@pytest.mark.asyncio
+async def test_supervisor_routes_write_through_analyst_after_empty_discovery(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    output = SupervisorToolCallOutput.parse_llm_content(
+        {
+            "chosen_tool": "Write",
+            "tool_args": {
+                "sections": ["problem", "methods", "limitations"],
+            },
+            "reasoning_summary": "Write a degraded report after discovery found no evidence.",
+        }
+    )
+    prior_discovery = SupervisorDecision(
+        id="decision_prior_discovery",
+        run_id="run_test",
+        iteration=0,
+        chosen_tool="DiscoverCompetitors",
+        tool_args={},
+        reasoning_summary="prior discovery attempt",
+        triggered_by="user_query",
+        outcome="dispatched",
+        outcome_recorded_at="2026-01-01T00:00:00Z",
+        created_at="2026-01-01T00:00:00Z",
+    )
+
+    new_state, captured = await _run_supervisor_node_with_output(
+        monkeypatch,
+        output=output,
+        step_id="step_supervisor_empty_discovery_analysis_gate",
+        state={
+            "run_id": "run_test",
+            "user_query": "AMR 与大模型的论文、数据集和 benchmark 综述",
+            "competitors": [],
+            "discovered_competitors": [],
+            "researched_competitors": [],
+            "analysis_done": False,
+            "report_draft_done": False,
+            "current_iteration": 1,
+            "decisions": [prior_discovery],
+            "intake_draft": {
+                "research_mode": "academic",
+                "analysis_archetype": "academic_review",
+                "focus_dimensions": ["methods", "datasets", "benchmarks"],
+            },
+        },
+    )
+
+    assert new_state["next_action"] == "analyst"
+    assert captured[0][2]["chosen_tool"] == "Analyze"
+    assert new_state["pending_tool_args"]["focus_dimensions"] == [
+        "methods",
+        "datasets",
+        "benchmarks",
+    ]
 
 
 @pytest.mark.asyncio

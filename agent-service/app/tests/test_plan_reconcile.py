@@ -338,3 +338,26 @@ def test_reconcile_plan_tree_preserves_existing_research_not_in_discovery() -> N
     ]
     assert research_competitors == ["beisen", "北森", "Moka"]
 
+
+def test_academic_reconcile_materializes_one_literature_scope_task() -> None:
+    plan = PlanTree(
+        tasks=[
+            PlanTask(stage="discover", title="发现竞品", description="discover"),
+            PlanTask(stage="analyze", title="分析", description="analyze"),
+        ],
+        version=1,
+    )
+
+    reconciled = reconcile_plan_tree_after_discovery(
+        plan_tree=plan,
+        discovered_competitors=["Paper A", "Method B", "Dataset C"],
+        research_mode="academic",
+        response_language="en",
+    )
+
+    research_tasks = [task for task in reconciled.tasks if task.stage == "research"]
+    assert len(research_tasks) == 1
+    assert research_tasks[0].competitor_id == "Paper A"
+    assert research_tasks[0].title == "Paper Review: Paper A"
+    assert "methods" in research_tasks[0].focus_dimensions
+

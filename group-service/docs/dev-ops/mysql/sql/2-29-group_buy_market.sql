@@ -99,7 +99,8 @@ CREATE TABLE IF NOT EXISTS `group_buy_order` (
   `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   PRIMARY KEY (`id`),
-  UNIQUE KEY `uq_team_id` (`team_id`)
+  UNIQUE KEY `uq_team_id` (`team_id`),
+  KEY `idx_activity_id` (`activity_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 CREATE TABLE IF NOT EXISTS `group_buy_order_list` (

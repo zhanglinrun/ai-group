@@ -44,7 +44,6 @@ class Settings(BaseSettings):
 
     SERVICE_NAME: str = "xiongdoctor-agent"
     ENVIRONMENT: str = "development"
-    APP_HOST: str = "0.0.0.0"
     APP_PORT: int = 8010
     LOG_LEVEL: str = "INFO"
     HTTP_CLIENT_LOG_LEVEL: str = "WARNING"
@@ -122,6 +121,16 @@ class Settings(BaseSettings):
     LLM_RETRY_WALL_CLOCK_BUDGET_FACTOR: float = 1.15
     LLM_TPM_BUDGET: int = 0
     LLM_JSON_MODE_ENABLED: bool = True
+    # LangSmith is deliberately opt-in. Tracing is fail-open and never changes
+    # Agent execution, billing, retry, or checkpoint behavior.
+    LANGSMITH_TRACING_ENABLED: bool = False
+    LANGSMITH_API_KEY: str | None = None
+    LANGSMITH_ENDPOINT: str = "https://api.smith.langchain.com"
+    LANGSMITH_PROJECT: str = "ai-group-agent"
+    LANGSMITH_SAMPLE_RATE: float = 0.1
+    LANGSMITH_EVALUATION_ENABLED: bool = False
+    LANGSMITH_DATASET_NAME: str = "ai-group-deep-research"
+    LANGSMITH_JUDGE_MODEL: str | None = None
     ORPHAN_RUN_SWEEP_GRACE_SECONDS: int = 300
     COLLECTOR_PER_HOST_QPS: int = 2
     COLLECTOR_USER_AGENT: str = (
@@ -155,7 +164,6 @@ class Settings(BaseSettings):
     # filling an "AI hardware" report). A dimension must hold at least this many
     # on-target evidence rows before adjacent-segment rows may supplement it.
     CATEGORY_TARGET_EVIDENCE_FLOOR: int = 1
-    COLLECTOR_OFFLINE_SNAPSHOT_DIR: str = "./data/snapshots"
     COLLECTOR_FETCH_TIMEOUT_S: int = 10
     COLLECTOR_ROBOTS_CACHE_TTL_S: int = 3600
     WRITER_READ_CONCLUSIONS_FROM_TABLE: bool = True
@@ -169,11 +177,6 @@ class Settings(BaseSettings):
     # A deepened section must clear this body length (chars) AND be at least as long
     # as the first-pass draft before it replaces it, so deepening never downgrades.
     WRITER_SECTION_DEEPEN_MIN_CHARS: int = 360
-    CURATOR_MIN_COVERAGE_RATE: float = 1.0
-    CURATOR_MIN_DIMENSION_COVERAGE_RATE: float = 0.5
-    CURATOR_MIN_REPORT_SECTION_COVERAGE_RATE: float = 1.0
-    CURATOR_MAX_QA_REJECTION_RATE: float = 0.5
-
     CORS_ALLOW_ORIGINS: str = "http://localhost:5173,http://localhost:5174"
     DEMO_FIXTURES_DIR: str | None = None
 
@@ -336,6 +339,14 @@ class Settings(BaseSettings):
             raise ValueError("LLM_RETRY_WALL_CLOCK_BUDGET_FACTOR must be positive.")
         if self.LLM_TPM_BUDGET < 0:
             raise ValueError("LLM_TPM_BUDGET cannot be negative.")
+        if self.LANGSMITH_SAMPLE_RATE < 0 or self.LANGSMITH_SAMPLE_RATE > 1:
+            raise ValueError("LANGSMITH_SAMPLE_RATE must be between 0 and 1.")
+        if not self.LANGSMITH_ENDPOINT.strip():
+            raise ValueError("LANGSMITH_ENDPOINT cannot be empty.")
+        if not self.LANGSMITH_PROJECT.strip():
+            raise ValueError("LANGSMITH_PROJECT cannot be empty.")
+        if not self.LANGSMITH_DATASET_NAME.strip():
+            raise ValueError("LANGSMITH_DATASET_NAME cannot be empty.")
         if self.LLM_GLOBAL_CONCURRENCY <= 0:
             raise ValueError("LLM_GLOBAL_CONCURRENCY must be positive.")
         if self.DB_POOL_SIZE <= 0:
@@ -372,18 +383,6 @@ class Settings(BaseSettings):
             raise ValueError("CATEGORY_TARGET_EVIDENCE_FLOOR cannot be negative.")
         if self.WRITER_SECTION_DEEPEN_MIN_CHARS < 0:
             raise ValueError("WRITER_SECTION_DEEPEN_MIN_CHARS cannot be negative.")
-        for name, value in (
-            ("CURATOR_MIN_COVERAGE_RATE", self.CURATOR_MIN_COVERAGE_RATE),
-            ("CURATOR_MIN_DIMENSION_COVERAGE_RATE", self.CURATOR_MIN_DIMENSION_COVERAGE_RATE),
-            (
-                "CURATOR_MIN_REPORT_SECTION_COVERAGE_RATE",
-                self.CURATOR_MIN_REPORT_SECTION_COVERAGE_RATE,
-            ),
-            ("CURATOR_MAX_QA_REJECTION_RATE", self.CURATOR_MAX_QA_REJECTION_RATE),
-        ):
-            if value < 0 or value > 1:
-                raise ValueError(f"{name} must be between 0 and 1.")
-
         return self
 
 

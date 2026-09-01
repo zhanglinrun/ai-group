@@ -87,7 +87,6 @@ function formatAgentLabel(agentName: string): string {
   const overrides: Record<string, string> = {
     qa: "QA",
     llm: "LLM",
-    skill_curator: "Skill Curator",
   };
   if (overrides[agentName] !== undefined) {
     return overrides[agentName];
@@ -177,7 +176,7 @@ function mapToolToAgent(chosenTool: string): string | null {
     return "writer";
   }
   if (normalized === "finalize") {
-    return "skill_curator";
+    return null;
   }
   return null;
 }

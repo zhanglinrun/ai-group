@@ -4,6 +4,7 @@ import { Link, useNavigate } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { DEFAULT_GROUP_VALID_MINUTES, formatCountdown, PAYMENT_WINDOW_MS, secondsUntil } from "@/lib/countdown";
 import { pricing } from "@/platform/pricing";
 import { createPayQrOrder, type CreatePayOrderRequest, type PurchaseMode } from "@/platform/pay";
@@ -106,6 +107,8 @@ export function GroupHallPage(): JSX.Element {
   const navigate = useNavigate();
   const [packages, setPackages] = useState(FALLBACK_PACKAGES);
   const [teams, setTeams] = useState<GroupTeam[]>([]);
+  const [teamsLoading, setTeamsLoading] = useState(true);
+  const [teamsUnavailable, setTeamsUnavailable] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [paying, setPaying] = useState<string | null>(null);
   const [payment, setPayment] = useState<PaymentDialogState | null>(null);
@@ -124,20 +127,25 @@ export function GroupHallPage(): JSX.Element {
           ? groupBuy as Record<string, unknown>
           : {};
         if (groupBuyData.unavailable === true) {
-          if (!silent) {
-            setMessage("拼团大厅暂时读不到进行中队伍，请稍后刷新。");
-          }
+          setTeamsUnavailable(true);
         } else {
-          setMessage(null);
+          setTeamsUnavailable(false);
+          setTeams(mergeHallTeams(
+            normalizeTeams(groupBuyData.myTeamList),
+            normalizeTeams(groupBuyData.teamList),
+          ));
         }
-        setTeams(mergeHallTeams(
-          normalizeTeams(groupBuyData.myTeamList),
-          normalizeTeams(groupBuyData.teamList),
-        ));
       } catch {
         if (!alive) return;
-        setPackages(FALLBACK_PACKAGES);
-        setTeams([]);
+        setTeamsUnavailable(true);
+        if (!silent) {
+          setPackages(FALLBACK_PACKAGES);
+          setTeams([]);
+        }
+      } finally {
+        if (alive) {
+          setTeamsLoading(false);
+        }
       }
     };
     void loadHall();
@@ -218,7 +226,7 @@ export function GroupHallPage(): JSX.Element {
       <div className="grid gap-5 lg:grid-cols-3">
         {packages.map((item, index) => <PackageCard key={item.code} item={item} featured={index === 1} paying={paying} onPurchase={(mode) => void purchase(item, mode)} />)}
       </div>
-      {teams.length > 0 ? <section className="space-y-3"><div><h2 className="text-xl font-semibold">进行中拼团</h2><p className="mt-1 text-sm text-foreground-muted">这里展示全部进行中队伍。选择同一套餐可加入他人队伍；自己的队伍不能再次加入，可到订单中心继续支付。</p></div><div className="grid gap-3 md:grid-cols-2">{teams.map((team) => <TeamProgressCard key={team.teamId} team={team} packages={packages} now={now} paying={paying} own={team.own} onJoin={team.own ? undefined : (item) => void purchase(item, "group", team.teamId)} />)}</div></section> : <Card><CardContent className="p-8 text-center"><p className="font-medium">暂无进行中拼团</p><p className="mt-2 text-sm text-foreground-muted">当前没有有效队伍；你可以点击额度包的“拼团购买（发起新团）”创建自己的队伍。</p></CardContent></Card>}
+      {teamsLoading ? <section className="space-y-3"><div><h2 className="text-xl font-semibold">进行中拼团</h2><p className="mt-1 text-sm text-foreground-muted">正在读取有效队伍与支付进度。</p></div><div className="grid gap-3 md:grid-cols-2"><Skeleton className="h-44 w-full" /><Skeleton className="h-44 w-full" /></div></section> : teams.length > 0 ? <section className="space-y-3"><div><h2 className="text-xl font-semibold">进行中拼团</h2><p className="mt-1 text-sm text-foreground-muted">这里展示全部进行中队伍。选择同一套餐可加入他人队伍；自己的队伍不能再次加入，可到订单中心继续支付。</p></div><div className="grid gap-3 md:grid-cols-2">{teams.map((team) => <TeamProgressCard key={team.teamId} team={team} packages={packages} now={now} paying={paying} own={team.own} onJoin={team.own ? undefined : (item) => void purchase(item, "group", team.teamId)} />)}</div></section> : teamsUnavailable ? <Card><CardContent className="p-8 text-center"><p className="font-medium">拼团列表暂时无法加载</p><p className="mt-2 text-sm text-foreground-muted">系统正在自动重试，不会把请求失败误判为暂无队伍。</p></CardContent></Card> : <Card><CardContent className="p-8 text-center"><p className="font-medium">暂无进行中拼团</p><p className="mt-2 text-sm text-foreground-muted">当前没有有效队伍；你可以点击额度包的“拼团购买（发起新团）”创建自己的队伍。</p></CardContent></Card>}
       <div className="grid gap-4 md:grid-cols-3">
         <Info icon={<Users />} title="真实拼团" text="同一活动共享队伍库存，成团后订单进入权益发放流程。" />
         <Info icon={<WalletCards />} title="积分账本" text="冻结、确认、释放和赠送均追加流水，重复回调不会重复入账。" />

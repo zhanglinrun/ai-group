@@ -17,6 +17,7 @@ RunPhase = Literal["intake", "planning", "executing", "done"]
 
 class AgentState(TypedDict, total=False):
     run_id: str
+    source: Literal["ui", "eval", "api"]
     user_query: str
     domain_hint: str | None
     market_scope: str | None

@@ -3,12 +3,14 @@ export type RunStatus = "running" | "completed" | "degraded" | "failed" | string
 
 export type RunPhase = "intake" | "planning" | "executing" | "done";
 
-export type UserRole = "pm" | "founder" | "sales" | "investor";
+export type UserRole = "researcher" | "engineer" | "pm" | "founder" | "sales" | "investor";
 export type ReportDepth = "debug" | "quick" | "deep";
+export type ResearchMode = "academic" | "technical" | "commercial" | "general";
 
 export interface RunCreateRequest {
   user_query: string;
   competitors: string[];
+  research_mode?: ResearchMode | null;
   domain_hint?: string | null;
   reference_urls?: string[] | null;
   target_roles: string[];
@@ -23,6 +25,7 @@ export interface RunCreateRequest {
 
 export interface RunIntakeDraft {
   user_query: string;
+  research_mode: ResearchMode | null;
   user_role: UserRole | null;
   analysis_intent: string | null;
   competitors_explicit: string[];
@@ -53,6 +56,7 @@ export interface IntakeUserReply {
 
 export interface IntakeCreateRequest {
   user_query: string;
+  research_mode?: ResearchMode | null;
   response_language?: "zh" | "en" | null;
   user_role?: UserRole | null;
   domain_hint?: string | null;
@@ -322,8 +326,6 @@ export interface RunMetricsResponse {
   llm_latency_p50_ms: number | null;
   llm_provider_error_count: number;
   llm_retry_total: number;
-  manual_review_rate: number;
-  manual_review_is_proxy: boolean;
   run_wall_clock_seconds: number | null;
 }
 
@@ -566,45 +568,4 @@ export interface CompetitorSeedResponse {
   aliases: string[];
   official_url: string | null;
   category: string | null;
-}
-
-export interface SkillCandidateResponse {
-  id: string;
-  candidate_type: string;
-  applies_to: string;
-  tags: string[];
-  payload: Record<string, unknown>;
-  rationale: string;
-  supporting_run_ids: string[];
-  confidence: "low" | "medium" | "high" | string;
-  status: "staging" | "approved" | "rejected" | string;
-  reviewed_by: string | null;
-  reviewed_at: string | null;
-  error: string | null;
-  created_at: string;
-}
-
-export interface SkillCandidateListResponse {
-  items: SkillCandidateResponse[];
-  total: number;
-  limit: number;
-  offset: number;
-}
-
-export interface SkillCandidateReviewRequest {
-  reviewed_by: string;
-}
-
-export interface SkillCandidateReviewResponse {
-  id: string;
-  status: string;
-  reviewed_by: string;
-  reviewed_at: string;
-  promoted_artifacts: PromotedArtifactResponse[];
-}
-
-export interface PromotedArtifactResponse {
-  path: string;
-  action: "created" | "updated" | string;
-  entry_id: string;
 }

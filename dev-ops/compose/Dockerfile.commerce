@@ -9,9 +9,14 @@ ARG POM_PATH
 RUN mvn -s /workspace/dev-ops/compose/maven-settings.xml -pl ai-group-common -am install -Dmaven.test.skip=true --no-transfer-progress \
  && mvn -s /workspace/dev-ops/compose/maven-settings.xml -f "${POM_PATH}" clean package -Dmaven.test.skip=true --no-transfer-progress
 
+FROM apache/skywalking-java-agent:9.3.0-java21 AS skywalking-agent
+
 FROM public.ecr.aws/docker/library/eclipse-temurin:21-jre
 WORKDIR /app
 ARG ARTIFACT_PATH
 COPY --from=build /workspace/${ARTIFACT_PATH} /app/app.jar
+# Agent is present but inert unless SKYWALKING_OPTS is set at runtime.
+COPY --from=skywalking-agent /skywalking/agent /skywalking/agent
 ENV JAVA_OPTS="-XX:MaxRAMPercentage=75 -Djava.security.egd=file:/dev/./urandom"
-ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar /app/app.jar"]
+ENV SKYWALKING_OPTS=""
+ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS $SKYWALKING_OPTS -jar /app/app.jar"]

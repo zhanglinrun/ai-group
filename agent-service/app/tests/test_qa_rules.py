@@ -16,6 +16,7 @@ from service.qa.engine import (
     _semantic_dimension_rule_results,
     _unsupported_numeric_claims,
     _target_sections_for_report,
+    _load_versioned_qa_policy_rules,
     build_qa_outcome,
 )
 from service.qa.rules import (
@@ -533,6 +534,47 @@ def test_rule_structured_sections_present_ignores_degraded_required_sections() -
     )
 
     assert result.passed is True
+
+
+def test_academic_qa_uses_academic_outline_and_skips_commercial_landscape_rules() -> None:
+    academic_json = {
+        "sections": [
+            {"section_id": section_id}
+            for section_id in (
+                "problem",
+                "methods",
+                "datasets",
+                "benchmarks",
+                "experimental_results",
+                "research_gaps",
+                "limitations",
+                "methodology_limits",
+            )
+        ]
+    }
+
+    structured = rule_structured_sections_present(
+        content_json=academic_json,
+        analysis_archetype="landscape",
+        research_mode="academic",
+    )
+    commercial_core = rule_landscape_core_commercial_sections_present(
+        content_json=academic_json,
+        analysis_archetype="landscape",
+        research_mode="academic",
+    )
+    legacy = rule_landscape_no_legacy_workbench_sections(
+        content_json=academic_json,
+        content_markdown="## Methods\nEvidence-grounded synthesis.",
+        analysis_archetype="landscape",
+        research_mode="academic",
+    )
+
+    assert structured.passed is True
+    assert commercial_core.passed is True
+    assert legacy.passed is True
+    assert _load_versioned_qa_policy_rules(research_mode="academic") == []
+    assert _load_versioned_qa_policy_rules(research_mode="commercial")
 
 
 def test_rule_landscape_no_legacy_workbench_sections_blocks_old_output() -> None:

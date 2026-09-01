@@ -12,7 +12,7 @@ from core.defaults import (
 )
 from models.evidence import EvidenceRecord
 from schemas.contracts import validate_section_id
-from schemas.report_sections import required_sections_for_archetype
+from schemas.report_sections import outline_for_research_mode, required_sections_for_archetype
 from service.collector.source_quality import source_blocklist_reason
 from service.locale import normalize_report_language, source_locale, target_country_from_scope
 
@@ -337,14 +337,15 @@ def rule_landscape_no_legacy_workbench_sections(
     content_json: dict[str, object],
     content_markdown: str,
     analysis_archetype: str,
+    research_mode: str = "commercial",
 ) -> RuleResult:
-    if analysis_archetype != "landscape":
+    if research_mode != "commercial" or analysis_archetype != "landscape":
         return RuleResult(
             rule_id="rule_landscape_no_legacy_workbench_sections",
             passed=True,
             severity="blocking",
             reject_to="writer",
-            message="Legacy workbench section check skipped for non-landscape report.",
+            message="Legacy commercial workbench check skipped for this report mode.",
         )
     section_ids = [
         section_id
@@ -387,8 +388,9 @@ def rule_landscape_core_commercial_sections_present(
     *,
     content_json: dict[str, object],
     analysis_archetype: str,
+    research_mode: str = "commercial",
 ) -> RuleResult:
-    if analysis_archetype != "landscape":
+    if research_mode != "commercial" or analysis_archetype != "landscape":
         return RuleResult(
             rule_id="rule_landscape_core_commercial_sections_present",
             passed=True,
@@ -716,8 +718,14 @@ def rule_structured_sections_present(
     *,
     content_json: dict[str, object],
     analysis_archetype: str,
+    research_mode: str = "commercial",
 ) -> RuleResult:
-    required_sections = list(required_sections_for_archetype(analysis_archetype))
+    mode_outline = outline_for_research_mode(research_mode)
+    required_sections = list(
+        mode_outline
+        if mode_outline is not None
+        else required_sections_for_archetype(analysis_archetype)
+    )
     degraded_required_raw = content_json.get("report_degraded_required_sections")
     degraded_required = (
         {item for item in degraded_required_raw if isinstance(item, str)}
@@ -735,8 +743,8 @@ def rule_structured_sections_present(
         severity="blocking",
         reject_to="writer",
         message=(
-            "Commercial report skeleton must include required structured sections "
-            f"(missing={missing})."
+            "Report skeleton must include sections required by its research mode "
+            f"(research_mode={research_mode}, missing={missing})."
         ),
     )
 
@@ -1166,6 +1174,7 @@ def evaluate_fast_path_rules(
     response_language: str | None = None,
     knowledge: dict[str, object] | None = None,
     analysis_archetype: str = "comparison",
+    research_mode: str = "commercial",
     profile_competitors: list[str] | None = None,
 ) -> list[RuleResult]:
     effective_knowledge = knowledge if isinstance(knowledge, dict) else {}
@@ -1189,10 +1198,12 @@ def evaluate_fast_path_rules(
             content_json=content_json,
             content_markdown=content_markdown,
             analysis_archetype=analysis_archetype,
+            research_mode=research_mode,
         ),
         rule_landscape_core_commercial_sections_present(
             content_json=content_json,
             analysis_archetype=analysis_archetype,
+            research_mode=research_mode,
         ),
         rule_evidence_must_be_desensitized(evidence_items),
         rule_buyer_critical_sections_need_official_source(
@@ -1206,6 +1217,7 @@ def evaluate_fast_path_rules(
         rule_structured_sections_present(
             content_json=content_json,
             analysis_archetype=analysis_archetype,
+            research_mode=research_mode,
         ),
         rule_triplet_coverage_for_profile_competitors(
             knowledge=effective_knowledge,

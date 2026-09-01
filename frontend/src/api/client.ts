@@ -1,6 +1,6 @@
 import axios from "axios";
 
-// Agent JSON goes through Gateway `/api/runs/**` (and watchlist / skill / fixtures).
+// Agent JSON goes through Gateway `/api/runs/**` (and watchlist / fixtures).
 // The browser never receives the Python service address.
 const DEFAULT_API_BASE_URL = import.meta.env.DEV ? "" : "";
 

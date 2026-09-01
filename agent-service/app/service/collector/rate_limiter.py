@@ -12,16 +12,18 @@ class PerHostLimiter:
         if qps <= 0:
             raise ValueError("PerHostLimiter qps must be positive.")
         self._qps = qps
-        self._limiters: dict[str, AsyncLimiter] = {}
+        self._limiters: dict[str, tuple[asyncio.AbstractEventLoop, AsyncLimiter]] = {}
         self._lock = asyncio.Lock()
 
     async def _get_or_create(self, host: str) -> AsyncLimiter:
+        current_loop = asyncio.get_running_loop()
         async with self._lock:
-            limiter = self._limiters.get(host)
-            if limiter is None:
+            cached = self._limiters.get(host)
+            if cached is None or cached[0] is not current_loop:
                 limiter = AsyncLimiter(self._qps, 1)
-                self._limiters[host] = limiter
-            return limiter
+                self._limiters[host] = (current_loop, limiter)
+                return limiter
+            return cached[1]
 
     async def acquire(self, host: str, *, timeout_seconds: float | None = None) -> None:
         if not host:

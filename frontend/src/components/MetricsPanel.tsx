@@ -110,12 +110,6 @@ export function MetricsPanel({ runId, isRunActive }: MetricsPanelProps): JSX.Ele
         hint: "rejection 的 QA step 数 / QA step 总数",
       },
       {
-        key: "manual_review",
-        label: "人工修正率*",
-        value: formatPercent(metrics.manual_review_rate),
-        hint: "代理指标：reviewed skill candidate / run 相关 candidate 总数",
-      },
-      {
         key: "desensitization",
         label: "脱敏覆盖率",
         value: formatPercent(metrics.desensitization_coverage),
@@ -251,10 +245,6 @@ export function MetricsPanel({ runId, isRunActive }: MetricsPanelProps): JSX.Ele
                 <p>{formatDistribution(metricsQuery.data!.locale_distribution)}</p>
               </div>
             </div>
-
-            <p className="text-xs text-muted-foreground">
-              * 人工修正率是代理指标，基于与本 run 相关的 skill candidate 审核状态计算。
-            </p>
           </>
         ) : null}
       </CardContent>

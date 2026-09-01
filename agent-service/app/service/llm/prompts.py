@@ -5,7 +5,6 @@ from collections.abc import Sequence
 
 from core.config import settings
 from schemas.report_sections import SECTION_REGISTRY, default_outline_for_archetype
-from service.skill_store import get_skill_store
 
 QA_SEMANTIC_ALLOWED_REJECT_TO: tuple[str, ...] = (
     "supervisor",
@@ -13,70 +12,17 @@ QA_SEMANTIC_ALLOWED_REJECT_TO: tuple[str, ...] = (
     "analyst",
     "writer",
 )
-SKILL_CURATOR_ALLOWED_TYPES: tuple[str, ...] = (
-    "qa_rule",
-    "prompt_template",
-    "source_routing",
-)
-
-
-def build_skill_catalog_block(
-    *,
-    applies_to_filter: Sequence[str] | None = None,
-    max_entries: int = 24,
-) -> str:
-    store = get_skill_store()
-    metadata_map = store.scan()
-    metadata_items = sorted(metadata_map.values(), key=lambda item: item.name.lower())
-    if applies_to_filter is not None:
-        normalized_filters = {item.strip().lower() for item in applies_to_filter if item.strip()}
-        metadata_items = [
-            item for item in metadata_items if item.applies_to.strip().lower() in normalized_filters
-        ]
-    selected_items = metadata_items[:max_entries]
-    if not selected_items:
-        return "<skill_catalog>\n<skill><name>none</name><description>No skills loaded.</description></skill>\n</skill_catalog>"
-
-    lines = ["<skill_catalog>"]
-    for item in selected_items:
-        files = store.list_supporting_files(item.name)
-        files_text = ",".join(files) if files else "none"
-        tags_text = ",".join(item.tags) if item.tags else "none"
-        lines.append(
-            (
-                "<skill>"
-                f"<name>{item.name}</name>"
-                f"<description>{item.description}</description>"
-                f"<applies_to>{item.applies_to}</applies_to>"
-                f"<tags>{tags_text}</tags>"
-                f"<supporting_files>{files_text}</supporting_files>"
-                "</skill>"
-            )
-        )
-    lines.append("</skill_catalog>")
-    return "\n".join(lines)
-
-
-def _inject_catalog(base_prompt: str, *, applies_to_filter: Sequence[str] | None = None) -> str:
-    catalog_block = build_skill_catalog_block(applies_to_filter=applies_to_filter)
-    return (
-        f"{base_prompt}\n\n"
-        "Skill guidance:\n"
-        "- Use load_skill when you need domain-specific constraints/templates before finalizing output.\n"
-        "- Use read_skill_file only after load_skill indicates a required supporting file.\n"
-        "- Do not fabricate skill names; choose from skill_catalog.\n\n"
-        f"{catalog_block}"
-    )
-
 INTAKE_SYSTEM_PROMPT = """You are the XiongDoctor Intake assistant.
-You clarify the user's competitive analysis intent through ONE targeted question per turn,
+You clarify the user's deep-research intent through ONE targeted question per turn,
 building up a structured RunIntakeDraft until it is complete.
 
 Required fields for completion (the draft is complete iff ALL three are filled):
-1. user_role: one of "pm" | "founder" | "sales" | "investor"
+1. user_role (the report's primary use/audience): one of
+   "researcher" | "engineer" | "pm" | "founder" | "sales" | "investor"
 2. analysis_intent: a clear, normalized phrase describing what the user wants to learn
-3. competitors path: EITHER competitors_explicit (non-empty list of competitor names)
-   OR competitors_discovery_mode=true (let XiongDoctor discover competitors for the user)
+3. research-object path: EITHER competitors_explicit (named products, organizations,
+   methods, papers, or other objects) OR competitors_discovery_mode=true (let
+   XiongDoctor discover relevant products, papers, reports, and sources by topic)
 
 Optional fields (do NOT block completion; ask only if their value would materially improve the analysis):
 - domain_hint, focus_dimensions, reference_urls
@@ -88,7 +34,7 @@ Output JSON schema (return STRICT JSON, no markdown, no commentary):
 {
   "action": "ask" | "complete",
   "draft_patch": {                           // partial; include ONLY fields you are inferring this turn
-    "user_role": "pm" | "founder" | "sales" | "investor" | null,
+    "user_role": "researcher" | "engineer" | "pm" | "founder" | "sales" | "investor" | null,
     "analysis_intent": str | null,
     "competitors_explicit": list[str] | null,
     "competitors_discovery_mode": bool | null,
@@ -115,6 +61,12 @@ Rules:
 - EXTRACT FIRST, ASK SECOND. Before deciding to ask anything, scan user_query
   and the latest exchange_history reply, and emit ALL fields you can confidently
   infer into draft_patch. Example signals you must catch:
+    * Requests for papers, literature reviews, academic surveys, research progress,
+      arXiv work, or thesis background → user_role="researcher",
+      competitors_discovery_mode=true, analysis_archetype="landscape". Do NOT ask
+      the user to choose a commercial job role for these requests.
+    * Requests centered on implementation, architecture, benchmarks, deployment,
+      or technical selection → user_role="engineer" when no academic signal dominates.
     * "我是产品经理" / "I'm a PM at..." → user_role="pm"
     * "我们是做工业自动化设备销售的" / "我是销售运营" → user_role="sales"
     * "我们是初创公司创始人" / "I'm a co-founder" → user_role="founder"
@@ -141,10 +93,12 @@ Rules:
       (features / pricing / personas / positioning). Signals: "对比 X 和 Y",
       "我们 vs 竞品", "选型", "battlecard", a list of named competitors.
     * "landscape" — the user wants opportunity / trend / whitespace / market
-      scanning where there is NO fixed comparable product set; the entities found
-      are heterogeneous companies/products or approaches, not apples-to-apples products.
+      scanning or an academic literature/method survey where there is NO fixed
+      comparable product set; the entities found are heterogeneous companies,
+      products, papers, methods, or approaches, not apples-to-apples products.
       Signals: "有哪些能赚钱的 X 项目", "X 赛道的机会", "怎么变现", "trends in X",
-      "where is the opportunity", "市场全景". When in doubt between the two and the
+      "where is the opportunity", "市场全景", "论文综述", "研究进展",
+      "literature review". When in doubt between the two and the
       user is asking what to BUILD/PURSUE rather than which product to PICK, choose
       "landscape". This selection changes downstream output form, so do not skip it.
 - If user intent is trend/opportunity/landscape scanning without a fixed comparable
@@ -171,12 +125,20 @@ Rules:
   market_scope (source scoping) > focus_dimensions/time_context. Skip any
   optional you already inferred. Never ask more than 1-2 optional questions total — if the
   user gives a short/skip answer ("不用了" / "skip" / "随便"), complete immediately.
+- For user_role="researcher", self_product and market_scope are normally irrelevant.
+  Do not ask them unless the user explicitly frames an organizational or regional
+  comparison. If one academic clarification is genuinely valuable, prefer time_context
+  (publication window) or focus_dimensions (methods, datasets, benchmarks, limitations).
+- For non-academic roles, once the three required fields are complete, prefer
+  action="complete" instead of asking optional self_product/market_scope questions;
+  optional context can still be supplied in the conversation when it materially helps.
 - self_product is most valuable when analysis_intent implies a "我方该怎么做" decision
   (投入方向 / 定位 / 差异化); for a pure neutral market scan it may be irrelevant — use judgment.
 - Prefer suggested_options for closed-set fields (user_role, competitors_discovery_mode).
 - suggested_options should be USER-FRIENDLY bilingual labels, NOT raw enum values.
-  Good: ["PM / 产品经理", "Founder / 创业者", "Sales / 销售", "Investor / 投资人"]
-  Bad:  ["pm", "founder", "sales", "investor"]
+  Good: ["Researcher / 学术研究与论文综述", "Engineer / 工程研发与技术路线",
+         "PM / 产品与竞品决策", "Founder / 赛道与创业判断"]
+  Bad:  ["researcher", "engineer", "pm", "founder"]
   Good: ["我已有名单 (explicit)", "让 Agent 帮我发现 (auto-discover)"]
   The backend wait-node normalizes labels back to enum values, so options can be
   freely phrased. Always pair the localized term with its internal English keyword
@@ -214,8 +176,10 @@ Rules:
 - User-facing wording contract (applies to clarify_request.question /
   clarify_request.suggested_options / clarify_request.suggested_answer /
   summary_title):
-    * Use professional product and business language.
-    * In Chinese, prefer terms such as 竞品 / 厂商 / 产品 / 企业 / 参与方.
+    * Match the vocabulary to the research archetype. For academic requests, use
+      论文 / 文献 / 方法 / 数据集 / 评测基准 / 研究进展; never force commercial
+      vocabulary or commercial job roles. For commercial requests, use professional
+      product and business language such as 竞品 / 厂商 / 产品 / 企业 / 参与方.
     * Avoid colloquial labels such as 玩家、玩具、玩具型.
     * Keep statements neutral and decision-oriented; avoid slang, hype, and
       emotional wording.
@@ -372,6 +336,7 @@ Rules:
 - If competitors list is empty, you MUST call DiscoverCompetitors first before any ConductResearch.
 - If competitors list is non-empty, ConductResearch/ConductResearchBatch competitor_id must be from the known competitors list.
 - For DiscoverCompetitors, construct 2-4 search queries that cover the track/domain from different angles; when market_scope is provided, include that geography/segment and use language variants aligned with the user's language.
+- Respect research_mode: academic searches target papers, literature, methods, datasets, benchmarks, and research progress; technical searches target principles, implementations, architecture, deployment, and evaluation; commercial searches target products, vendors, pricing, market, and user feedback; general searches stay neutral.
 - For ConductResearch and ConductResearchBatch, choose 3-5 focus_dimensions in concise snake_case aligned with user_query.
 - Each focus_dimension MUST be <= 32 chars, use a-z0-9_ only, and be 1-3 words.
 - Set max_iterations >= the number of focus_dimensions so each requested dimension can get at least one tool turn.
@@ -591,7 +556,8 @@ Output JSON schema:
 
 Rules:
 - Use deterministic judgment: same input should produce the same JSON.
-- depth: true only when a deep report gives concrete cross-competitor analysis, not thin summaries.
+- depth: true only when a deep report gives concrete synthesis appropriate to research_mode
+  (papers/methods, architecture/projects, products/market, or general evidence), not thin summaries.
 - citation_coverage: true only when important claims are tied to evidence_refs from the prompt.
 - faithfulness: true only when claims are supported by the provided evidence and do not invent sources.
 - instruction_following: true only when sections match requested target sections and report_depth.
@@ -653,23 +619,6 @@ Rules:
 - Return JSON object only.
 """
 
-# No skill catalog for the researcher: it no longer has load_skill/read_skill_file
-# actions, and source_routing skills are applied deterministically by the
-# researcher subgraph (not chosen by the LLM), so the catalog would only add
-# tokens and tempt the model toward an action it cannot take.
-ANALYST_SYSTEM_PROMPT = _inject_catalog(
-    ANALYST_SYSTEM_PROMPT,
-    applies_to_filter=("general",),
-)
-KNOWLEDGE_EXTRACTION_SYSTEM_PROMPT = _inject_catalog(
-    KNOWLEDGE_EXTRACTION_SYSTEM_PROMPT,
-    applies_to_filter=("general",),
-)
-WRITER_SYSTEM_PROMPT = _inject_catalog(
-    WRITER_SYSTEM_PROMPT,
-    applies_to_filter=("general",),
-)
-
 WRITER_SECTION_SYSTEM_PROMPT = """You are XiongDoctor Section Writer.
 Rewrite ONE report section into deeper, evidence-grounded analytical prose, in STRICT JSON.
 
@@ -693,16 +642,6 @@ Rules:
 - Use business-report wording; in Chinese prefer 竞品/厂商/产品/企业 and avoid colloquial labels.
 - Return JSON object only.
 """
-WRITER_SECTION_SYSTEM_PROMPT = _inject_catalog(
-    WRITER_SECTION_SYSTEM_PROMPT,
-    applies_to_filter=("general",),
-)
-
-QA_SEMANTIC_SYSTEM_PROMPT = _inject_catalog(
-    QA_SEMANTIC_SYSTEM_PROMPT,
-    applies_to_filter=("general", "qa_rule"),
-)
-
 def _json(value: object) -> str:
     return json.dumps(value, ensure_ascii=False)
 
@@ -1080,6 +1019,7 @@ def build_supervisor_user_prompt(
     qa_reasons: Sequence[str],
     market_scope: str | None = None,
     domain_context: str | None = None,
+    research_mode: str = "general",
     pending_follow_ups: Sequence[dict[str, object]] | None = None,
     user_pinned_research: Sequence[dict[str, object]] | None = None,
     plan_tree: dict[str, object] | None = None,
@@ -1090,15 +1030,26 @@ def build_supervisor_user_prompt(
 
     constraints: str
     if discovery_needed:
-        constraints = (
-            "Hard constraints:\n"
-            "1) competitors list is EMPTY — you MUST call DiscoverCompetitors first.\n"
-            "2) Construct 2-4 search queries covering resolved_domain_context from different angles.\n"
-            "   If market_scope is set, include it in discovery search queries and prefer that region/segment.\n"
-            "   If user_query contains an ambiguous acronym, use resolved_domain_context instead of the raw acronym.\n"
-            "3) Do NOT call ConductResearch or ConductResearchBatch until competitors are discovered.\n"
-            "4) Return exactly one tool decision in this iteration.\n"
-        )
+        if research_mode == "academic":
+            constraints = (
+                "Hard constraints:\n"
+                "1) competitors list is EMPTY — call DiscoverCompetitors to establish one academic literature scope.\n"
+                "2) Construct 2-4 paper/literature search queries covering resolved_domain_context from different angles.\n"
+                "3) Do not use vendor, pricing, competitor, or user-feedback vocabulary for academic retrieval.\n"
+                "4) Return exactly one tool decision in this iteration.\n"
+            )
+        else:
+            constraints = (
+                "Hard constraints:\n"
+                "1) competitors list is EMPTY — you MUST call DiscoverCompetitors first.\n"
+                "2) Construct 2-4 search queries covering resolved_domain_context from different angles.\n"
+                "   If market_scope is set, include it in discovery search queries and prefer that region/segment.\n"
+                "   If user_query contains an ambiguous acronym, use resolved_domain_context instead of the raw acronym.\n"
+                f"   research_mode={research_mode}: use the corresponding retrieval vocabulary; academic=论文/文献/方法/数据集/评测基准, technical=技术原理/实现/部署/基准, commercial=产品/厂商/定价/用户反馈, general=定义/进展/方法/应用.\n"
+                "   Do not add commercial terms to an academic or technical search unless the user explicitly asks for them.\n"
+                "3) Do NOT call ConductResearch or ConductResearchBatch until competitors are discovered.\n"
+                "4) Return exactly one tool decision in this iteration.\n"
+            )
     else:
         constraints = (
             "Hard constraints:\n"
@@ -1117,6 +1068,7 @@ def build_supervisor_user_prompt(
         f"- user_query: {user_query}\n"
         f"- resolved_domain_context: {domain_context}\n"
         f"- market_scope: {market_scope}\n"
+        f"- research_mode: {research_mode}\n"
         f"- competitors: {_json(list(competitors))}\n"
         f"- researched_competitors: {_json(list(researched_competitors))}\n"
         f"- pending_competitors: {_json(pending_competitors)}\n"
@@ -1143,6 +1095,7 @@ def build_supervisor_fallback_user_prompt(
     report_draft_done: bool,
     market_scope: str | None = None,
     domain_context: str | None = None,
+    research_mode: str = "general",
     pending_follow_ups: Sequence[dict[str, object]] | None = None,
     user_pinned_research: Sequence[dict[str, object]] | None = None,
     plan_tree: dict[str, object] | None = None,
@@ -1167,6 +1120,7 @@ def build_supervisor_fallback_user_prompt(
         f"- user_query: {user_query}\n"
         f"- resolved_domain_context: {domain_context}\n"
         f"- market_scope: {market_scope}\n"
+        f"- research_mode: {research_mode}\n"
         f"- competitors: {_json(list(competitors))}\n"
         f"- pending_competitors: {_json(pending_competitors)}\n"
         f"- analysis_done: {analysis_done}\n"
@@ -1178,6 +1132,7 @@ def build_supervisor_fallback_user_prompt(
         f"{_format_pending_follow_ups(pending_follow_ups)}\n"
         "Pick exactly one next tool and keep tool_args minimal but valid.\n"
         "If competitors is empty, you MUST use DiscoverCompetitors and search resolved_domain_context, not ambiguous raw acronyms.\n"
+        "Use research_mode to choose neutral academic, technical, commercial, or general search vocabulary.\n"
         "When pending_competitors has 2+ entries, prefer ConductResearchBatch "
         "with one unique competitor per topic; if any user-pinned research "
         "targets are still unresearched, include them first."
@@ -1195,6 +1150,7 @@ def build_researcher_user_prompt(
     max_turns: int,
     observation_briefs: Sequence[dict[str, object]],
     response_language: str | None = None,
+    research_mode: str | None = None,
     compressed_summary: str = "",
     domain_hint: str | None = None,
     target_category: str | None = None,
@@ -1224,6 +1180,7 @@ def build_researcher_user_prompt(
         f"- competitor_id: {competitor_id}\n"
         f"- focus_dimensions: {_json(list(focus_dimensions))}\n"
         f"- response_language: {response_language}\n"
+        f"- research_mode: {research_mode}\n"
         f"- pending_dimensions: {_json(list(pending_dimensions))}\n"
         f"- queried_dimensions: {_json(list(queried_dimensions))}\n"
         f"- turn_count: {turn_count}\n"
@@ -1242,6 +1199,7 @@ def build_researcher_user_prompt(
         f"- observation_briefs: {briefs_payload}\n\n"
         "Action guidance:\n"
         "1) Follow source-first: for each pending dimension, prioritize fetch_url on resolved_official_urls/reference_urls before search_web.\n"
+        "1.1) For academic mode, treat competitor_id as the literature scope; search papers, methods, datasets, benchmarks, experiments, and limitations. Do not search vendor sites or pricing.\n"
         "2) Use search_web only for uncovered gaps in coverage_matrix after source-first fetch attempts.\n"
         "2.1) Every search query must include the target_category or one category_alias unless the dimension is explicitly value-chain/ecosystem.\n"
         "2.2) Do not use evidence from excluded_categories for the requested feature/pricing/feedback dimensions.\n"
@@ -1539,14 +1497,34 @@ def build_qa_semantic_user_prompt(
     failed_rule_ids: Sequence[str],
     evidence_briefs: Sequence[dict[str, object]],
     report_depth: str = "quick",
+    research_mode: str = "general",
     target_sections: Sequence[str] = (),
     numeric_claims: Sequence[dict[str, object]] = (),
     response_language: str | None = None,
 ) -> str:
     selected_evidence_briefs = select_layered_evidence_briefs(evidence_briefs)
+    mode_rubric = {
+        "academic": (
+            "Judge literature relevance, method synthesis, datasets/benchmarks, experimental "
+            "results, research gaps, citation consistency, and stated limitations."
+        ),
+        "technical": (
+            "Judge architecture and implementation detail, performance evidence, engineering "
+            "constraints, and open-source project usability."
+        ),
+        "commercial": (
+            "Judge competitor coverage, feature/pricing comparison, user feedback, market "
+            "reasoning, and whether conclusions are actionable."
+        ),
+        "general": (
+            "Judge topic coverage, evidence synthesis, current state, trends, and limitations."
+        ),
+    }.get(research_mode, "Judge the report against its requested scope and evidence.")
     return (
         "QA semantic audit context:\n"
         f"- report_depth: {report_depth}\n"
+        f"- research_mode: {research_mode}\n"
+        f"- mode_rubric: {mode_rubric}\n"
         f"- response_language: {response_language}\n"
         f"- target_sections: {_json(list(target_sections))}\n"
         f"- failed_rule_ids: {_json(list(failed_rule_ids))}\n"
@@ -1875,8 +1853,10 @@ def build_supervisor_repair_user_prompt(
 
 
 DISCOVERY_EXTRACT_SYSTEM_PROMPT = (
-    "You extract grounded competitor candidates from search results. Return valid JSON only. "
-    "Use only names and evidence that appear in the provided search_results. Do not invent competitors."
+    "You extract grounded research candidates from search results. Return valid JSON only. "
+    "Use only names and evidence that appear in the provided search_results. Do not invent entities. "
+    "The candidate may be a product, company, paper, method, dataset, benchmark, or technical project "
+    "depending on research_mode; do not assume every research task is commercial competitor analysis."
 )
 
 
@@ -1894,13 +1874,41 @@ def build_discovery_extract_user_prompt(
     market_segments: Sequence[str] | None = None,
     scope_policy: str | None = None,
     response_language: str | None = None,
+    research_mode: str = "general",
 ) -> str:
     reason_language = (
         "Chinese" if response_language == "zh" else "English" if response_language == "en" else "the user query language"
     )
+    mode_directive = {
+        "academic": (
+            "research_mode=academic: this is a literature/research survey. Extract papers, methods, "
+            "datasets, benchmarks, research systems, or survey reports as relevant. Do NOT force product, "
+            "company, vendor, pricing, or commercial competitor vocabulary. A paper title or method name "
+            "is a valid candidate; official_url may be a DOI, arXiv, publisher, or project page."
+        ),
+        "technical": (
+            "research_mode=technical: extract technical approaches, models, frameworks, implementations, "
+            "benchmarks, and open-source projects. Do not force market, vendor, pricing, or user-feedback framing."
+        ),
+        "commercial": (
+            "research_mode=commercial: extract specific comparable products and the companies behind them, "
+            "with product, market, pricing, and user-feedback relevance."
+        ),
+        "general": (
+            "research_mode=general: extract the most relevant grounded entities or references for the question "
+            "without assuming a commercial competitor set."
+        ),
+    }.get(research_mode, "research_mode=general: extract the most relevant grounded entities or references for the question.")
+    candidate_name_hint = {
+        "academic": "Paper title, method, dataset, benchmark, or research system name",
+        "technical": "Method, model, framework, implementation, or project name",
+        "commercial": "Specific product or model name",
+        "general": "Relevant entity, reference, or project name",
+    }.get(research_mode, "Relevant entity, reference, or project name")
     return (
-        "You are a competitive intelligence analyst.\n"
-        "Given the following search results about a market/track, extract competitor candidates.\n\n"
+        "You are an evidence-grounded research analyst.\n"
+        "Given the following search results, extract relevant research candidates or objects.\n"
+        f"{mode_directive}\n\n"
         "Context:\n"
         f"- domain_context: {domain_context}\n"
         f"- user_query: {user_query}\n"
@@ -1913,9 +1921,10 @@ def build_discovery_extract_user_prompt(
         f"- market_segments: {_json(list(market_segments or []))}\n"
         f"- scope_policy: {scope_policy}\n"
         f"- response_language: {response_language}\n\n"
+        f"- research_mode: {research_mode}\n\n"
         "Rules:\n"
         "- Return ONLY a JSON object with this schema:\n"
-        '  {"candidates":[{"name":"Specific product/model name","is_competitor":true,'
+        f'  {{"candidates":[{{"name":"{candidate_name_hint}","is_competitor":true,'
         '"candidate_role":"direct_competitor",'
         '"segment":"Sub-track this product belongs to, e.g. AI录音笔 / AI PC / 家庭AI中枢 / AI眼镜 / 陪伴玩具",'
         '"vendor":"Parent company or brand behind the product, e.g. 华为 / Meta",'
@@ -1959,6 +1968,7 @@ def build_discovery_extract_user_prompt(
         "- If no search-grounded competitor exists, return {\"candidates\":[]}.\n"
         "- Each name should be the commonly known product name.\n"
         "- Deduplicate and return at most 10 candidates.\n\n"
+        f"IMPORTANT MODE OVERRIDE: {mode_directive} The commercial product/company granularity rules above apply only when research_mode=commercial.\n\n"
         f"Search results:\n{search_results}\n\n"
         "Use only the Search results above for names and evidence quotes."
     )
@@ -1968,11 +1978,13 @@ def build_discovery_extract_fallback_user_prompt(
     *,
     domain_context: str,
     user_query: str,
+    research_mode: str = "general",
 ) -> str:
     return (
-        "Fallback competitor extraction request:\n"
+        "Fallback research extraction request:\n"
         f"- domain_context: {domain_context}\n"
         f"- user_query: {user_query}\n\n"
+        f"- research_mode: {research_mode}\n\n"
         "No trustworthy search-grounded candidates are available in this fallback path.\n"
         'Return minimal valid JSON: {"candidates":[]}.'
     )

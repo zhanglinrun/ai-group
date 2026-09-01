@@ -22,12 +22,12 @@ from typing import Any, Callable, TypedDict
 
 import pytest
 from langgraph.checkpoint.memory import MemorySaver
-from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
 from sqlalchemy import create_engine, text
 
 from core.config import settings
+from service.checkpoint import postgres_checkpointer
 
 
 class _SpikeState(TypedDict, total=False):
@@ -197,14 +197,14 @@ async def test_invariant_c_e_postgres_resume_across_fresh_checkpointer() -> None
     def on_generate() -> None:
         call_counter["generate"] += 1
 
-    def compile_with(checkpointer: AsyncPostgresSaver) -> Any:
+    def compile_with(checkpointer: Any) -> Any:
         graph = _build_two_node_intake_graph(on_generate=on_generate)
         graph.add_edge(START, "generate_clarify")
         return graph.compile(checkpointer=checkpointer)
 
     try:
         # Instance #1: run until the interrupt, then drop the connection.
-        async with AsyncPostgresSaver.from_conn_string(dsn) as checkpointer_1:
+        async with postgres_checkpointer(dsn) as checkpointer_1:
             app_1 = compile_with(checkpointer_1)
             await app_1.ainvoke({"phase": "intake"}, config=cfg)
             snapshot = await app_1.aget_state(cfg)
@@ -212,7 +212,7 @@ async def test_invariant_c_e_postgres_resume_across_fresh_checkpointer() -> None
             assert _extract_first_interrupt_value(snapshot) == {"q": "enter x"}
 
         # Instance #2: a fresh connection resumes purely from persisted PG state.
-        async with AsyncPostgresSaver.from_conn_string(dsn) as checkpointer_2:
+        async with postgres_checkpointer(dsn) as checkpointer_2:
             app_2 = compile_with(checkpointer_2)
             result = await app_2.ainvoke(Command(resume="answer-42"), config=cfg)
             assert result["answer"] == "answer-42"

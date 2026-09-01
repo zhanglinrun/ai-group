@@ -89,6 +89,7 @@ def test_lookup_prefers_healthy_instance_then_falls_back(monkeypatch) -> None:
 
         def list_naming_instance(self, service_name, healthy_only=False):
             assert service_name == "member-service"
+            assert healthy_only is True
             return {
                 "hosts": [
                     {"ip": "10.0.0.9", "port": 8082, "healthy": True, "enabled": True},

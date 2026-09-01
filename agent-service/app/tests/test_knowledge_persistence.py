@@ -150,6 +150,7 @@ async def test_load_knowledge_for_run_returns_empty_payload_without_rows() -> No
                 "feedback": [],
                 "missing_reasons": {},
                 "coverage": {},
+                "supporting_target_evidence_ids": {},
             }
     finally:
         await engine.dispose()

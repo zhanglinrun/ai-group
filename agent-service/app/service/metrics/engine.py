@@ -3,7 +3,6 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import dataclass
 from statistics import median
-
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,7 +13,6 @@ from models.knowledge import RunKnowledgeRecord
 from models.llm_call import LLMCall
 from models.report import Report
 from models.run import Run
-from models.skill_candidate import SkillCandidateRecord
 from models.step import Step
 from models.supervisor_decision import SupervisorDecisionRecord
 from schemas.contracts import DERIVED_DIMENSIONS, validate_dimension
@@ -62,8 +60,6 @@ class RunMetricsSnapshot:
     llm_latency_p50_ms: int | None
     llm_provider_error_count: int
     llm_retry_total: int
-    manual_review_rate: float
-    manual_review_is_proxy: bool
     run_wall_clock_seconds: int | None
     evidence_floor_count: int = 0
     non_floor_grounded_count: int = 0
@@ -470,7 +466,6 @@ def build_run_metrics_snapshot(
     step_rows: list[Step],
     llm_rows: list[LLMCall],
     decision_rows: list[SupervisorDecisionRecord],
-    candidate_rows: list[SkillCandidateRecord],
     report_rows: list[Report] | None = None,
     comparison_rows: list[ComparisonCellRecord] | None = None,
     conclusion_rows: list[ConclusionRecord] | None = None,
@@ -608,18 +603,6 @@ def build_run_metrics_snapshot(
     llm_provider_error_count = sum(1 for row in llm_rows if row.error is not None)
     llm_retry_total = sum(row.retry_count or 0 for row in llm_rows)
 
-    supporting_candidates = []
-    for candidate in candidate_rows:
-        supporting_run_ids = [
-            run_id for run_id in candidate.supporting_run_ids if isinstance(run_id, str)
-        ]
-        if run.run_id in supporting_run_ids:
-            supporting_candidates.append(candidate)
-    reviewed_candidates_count = sum(
-        1 for candidate in supporting_candidates if candidate.reviewed_by is not None
-    )
-    manual_review_rate = _safe_rate(reviewed_candidates_count, len(supporting_candidates))
-
     run_wall_clock_seconds: int | None = None
     if run.finished_at is not None:
         delta = int((run.finished_at - run.started_at).total_seconds())
@@ -663,8 +646,6 @@ def build_run_metrics_snapshot(
         llm_latency_p50_ms=_calc_latency_p50_ms(llm_rows),
         llm_provider_error_count=llm_provider_error_count,
         llm_retry_total=llm_retry_total,
-        manual_review_rate=manual_review_rate,
-        manual_review_is_proxy=True,
         run_wall_clock_seconds=run_wall_clock_seconds,
         evidence_floor_count=evidence_floor_count,
         non_floor_grounded_count=non_floor_grounded_count,
@@ -739,20 +720,12 @@ async def load_run_metrics_snapshot(
             .order_by(RunKnowledgeRecord.created_at.asc(), RunKnowledgeRecord.sequence_id.asc())
         )
     ).scalars().all()
-    candidate_rows = (await session.execute(select(SkillCandidateRecord))).scalars().all()
-    candidate_rows = [
-        row
-        for row in candidate_rows
-        if run_id in (row.supporting_run_ids if isinstance(row.supporting_run_ids, list) else [])
-    ]
-
     return build_run_metrics_snapshot(
         run=run,
         evidence_rows=list(evidence_rows),
         step_rows=list(step_rows),
         llm_rows=list(llm_rows),
         decision_rows=list(decision_rows),
-        candidate_rows=list(candidate_rows),
         report_rows=list(report_rows),
         comparison_rows=list(comparison_rows),
         conclusion_rows=list(conclusion_rows),

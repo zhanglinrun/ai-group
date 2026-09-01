@@ -12,8 +12,6 @@ import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 
 import { useEffect, useState } from "react";
 
-import { useSkillCandidates } from "@/api/hooks";
-import { Badge } from "@/components/ui/badge";
 import { Logo } from "@/components/Logo";
 import { cn } from "@/lib/utils";
 import { currentUser, isAdmin, logout, type PlatformUser } from "@/platform/client";
@@ -55,15 +53,6 @@ const NAV_ITEMS: readonly NavItem[] = [
 ];
 
 export function WorkspaceShell(): JSX.Element {
-  const pendingCandidatesQuery = useSkillCandidates(
-    {
-      status: "staging",
-      limit: 1,
-      offset: 0,
-    },
-    { errorToast: false },
-  );
-  const pendingCount = pendingCandidatesQuery.data?.total ?? 0;
   const location = useLocation();
   const navigate = useNavigate();
   const [user, setUser] = useState<PlatformUser | null>(null);
@@ -152,15 +141,10 @@ export function WorkspaceShell(): JSX.Element {
                 isActive && "bg-secondary text-foreground",
               )
             }
-            to="/app/settings/skill-admin"
+            to="/app/settings"
           >
             <Settings2 className="h-4 w-4 shrink-0" />
             设置
-            {pendingCount > 0 && (
-              <Badge variant="default" className="ml-auto">
-                {pendingCount}
-              </Badge>
-            )}
           </NavLink>
           <button
             type="button"

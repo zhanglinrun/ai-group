@@ -18,6 +18,10 @@ import java.util.Date;
 @NoArgsConstructor
 public class Sku {
 
+    public static String cacheRedisKey(String goodsId) {
+        return "group_buy_market_com.aigroup.groupbuy.infrastructure.dao.po.Sku_" + goodsId;
+    }
+
     /** 自增 */
     private Long id;
     /** 来源 */

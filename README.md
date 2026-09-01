@@ -14,6 +14,7 @@ ai-group 是一套全栈微服务平台：用户通过拼团购买积分，再�
 - **双栈分工**：Java 处理交易边界与一致性；Python 处理 LangGraph 与模型调用
 - **DDD 设计**：Group / Pay 沿用领域分层（api / domain / infrastructure / trigger / app）
 - **最终一致性**：本地消息表（Outbox）+ Kafka + 定时补偿
+- **观测解耦**：业务 Compose 不含 ELK / Prometheus / Grafana / SkyWalking；按需单独启动，挂掉不影响交易
 - **身份边界**：Sa-Token 管浏览器会话；Gateway 验完后签发 60 秒 HS256 内部 JWT。用户 API（含 Group 查询/锁单、Pay 下单）验 JWT，不以 body / `X-User-Id` 当身份；支付宝回调和补偿 Job 只认内部令牌，userId 来自已落库订单。JWT 不是用户登录态，浏览器拿不到。
 
 ### 核心领域
@@ -66,8 +67,11 @@ ai-group/
 │   └── app/                   # router / agents / service / models / alembic
 ├── frontend/                  # React + TypeScript + Vite 工作台
 ├── ai-group-common/           # Java 共享安全头、统一响应与基础配置
-├── dev-ops/                   # Docker Compose、数据库初始化、中间件
-├── eval/                      # Gateway 黑盒冒烟与回归入口
+├── dev-ops/                   # 运行资产（Compose / SQL / 观测 / 压测）
+│   ├── compose/               # full / dev Compose 与 Dockerfile
+│   ├── mysql/ · nacos/ · xxl-job/
+│   ├── observability/         # ELK + Prometheus/Grafana + SkyWalking（按需）
+│   └── jmeter/                # Gateway / Group / Member HTTP 压测
 └── scripts/                   # 演示数据、产物清理
 ```
 
@@ -130,7 +134,7 @@ ai-group/
 - **持久化**：SQLAlchemy（asyncio）、asyncpg、Alembic、PostgreSQL
 - **LLM / 检索**：OpenAI 兼容 SDK、Tavily 等工具链
 - **服务发现**：nacos-sdk-python（注册为 `agent-service`；调用 Member 时优先 Nacos 选址，失败再用 `MEMBER_SERVICE_URL`）
-- **可观测**：structlog
+- **可观测**：structlog；LangSmith 链路追踪与数据集回归（默认关闭，fail-open）
 - **测试**：pytest、pytest-asyncio
 
 ### 前端
@@ -143,7 +147,11 @@ ai-group/
 ### 工程与运维
 
 - **容器**：Docker Compose（`dev-ops/compose/`）
-- **日志**：Logback（Java）、structlog（Python）
+- **日志**：Logback（Java，可选 LogstashEncoder 上报 ELK）、structlog（Python）
+- **指标**：Micrometer → Prometheus；Grafana 面板（Gateway / Group 等）
+- **APM**：SkyWalking（OAP + UI；Java Agent 按需注入，默认关闭）
+- **压测**：Apache JMeter（`dev-ops/jmeter/`，宿主机执行）
+- **Agent 评测**：LangSmith experiment（`agent-service/eval/langsmith/`）
 
 ## 技术亮点
 
@@ -157,7 +165,7 @@ Group / Pay 采用 api、domain、infrastructure、trigger、app 分层，用聚
 
 ### 3. 分布式事务最终一致性
 
-支付与拼团结算落地本地消息任务，异步投递 MQ；定时任务 + 分布式锁做多实例幂等抢占与失败重试，保证支付成功、成团通知与积分发放可靠触达。
+支付与拼团结算落地本地消息任务，异步投递 Kafka；定时任务 + 分布式锁做多实例幂等抢占与失败重试，保证支付成功、成团通知与积分发放可靠触达。
 
 ### 4. 积分驱动的 Agent 计费闭环
 
@@ -167,9 +175,12 @@ Group / Pay 采用 api、domain、infrastructure、trigger、app 分层，用聚
 
 Run / Event 持久化，SSE 支持断线后按事件游标回放；LangGraph Checkpoint 落 Postgres，避免把运行状态绑死在浏览器长连接上。
 
-### 6. 冒烟门禁
+### 6. 冒烟、压测与观测
 
-`eval/http-smoke.ps1` 做 Gateway 黑盒冒烟。跨服务字段以 Pay `TradeCompletedEvent`、Auth Outbox JSON、Member DTO 为准。
+- Gateway 黑盒冒烟：本地 `eval/http-smoke.ps1`（工作区脚本，不进业务镜像）
+- HTTP 压测：`dev-ops/jmeter/`（登录→下单、Group 锁单、Member 配额等场景）
+- 观测栈按需启动：ELK（日志）+ Prometheus/Grafana（指标）+ SkyWalking（全链路）；业务栈不依赖它们
+- Agent 质量回归：LangSmith 数据集 + 确定性 evaluators（可选 LLM judge）
 
 ## 环境要求
 
@@ -183,6 +194,7 @@ Run / Event 持久化，SSE 支持断线后按事件游标回放；LangGraph Che
 - **Kafka**：3.8+（KRaft）
 - **Nacos**：2.x（Compose 内可一键拉起）
 - **Docker / Docker Compose**（推荐全栈启动）
+- **（可选）JMeter 5.6+**：HTTP 压测；观测栈见 `dev-ops/observability`
 
 ## 快速开始
 
@@ -213,7 +225,36 @@ docker compose --env-file .env -f dev-ops/compose/docker-compose.full.yml up --b
 - Kafka：<http://localhost:9092>
 - XXL-JOB Admin：<http://localhost:18081/xxl-job-admin>（默认账号 `admin` / `123456`）
 
-### 3. 仅启动依赖（本地分别跑服务）
+### 3. 可选：观测栈与压测
+
+业务栈起来后（需已有 `xiongdoctor_default` 网络），可按需启动观测与压测：
+
+```powershell
+# ELK + Prometheus/Grafana + SkyWalking
+cd dev-ops/observability
+docker compose -f docker-compose.observability.yml up -d
+
+# 可选：给 Java 服务挂上 SkyWalking Agent 后重建
+cd ../compose
+docker compose --env-file ../observability/skywalking-agents.env -f docker-compose.full.yml up -d --build `
+  gateway-service auth-service member-service group-service pay-service
+
+# JMeter（需本机安装 JMeter，并设置 JMETER_HOME；保持 ALIPAY_ENABLED=false）
+powershell -ExecutionPolicy Bypass -File ../jmeter/run-login-group-order.ps1
+```
+
+常用入口：
+
+| 组件 | 地址 |
+|------|------|
+| Kibana | <http://localhost:5601> |
+| Prometheus | <http://localhost:9090> |
+| Grafana | <http://localhost:3000>（`admin` / `admin`） |
+| SkyWalking UI | <http://localhost:8088> |
+
+细节见 [dev-ops/observability/README.md](dev-ops/observability/README.md)、[dev-ops/jmeter/README.md](dev-ops/jmeter/README.md)。
+
+### 4. 仅启动依赖（本地分别跑服务）
 
 ```powershell
 docker compose --env-file .env -f dev-ops/compose/docker-compose.dev.yml up
@@ -221,13 +262,13 @@ docker compose --env-file .env -f dev-ops/compose/docker-compose.dev.yml up
 
 该模式通常只拉起 MySQL、Redis、Kafka、Postgres、Agent 与 Vite 等开发依赖，Java 服务可本地 `mvn` 启动。
 
-### 4. 编译 Java 模块
+### 5. 编译 Java 模块
 
 ```powershell
 mvn clean install -DskipTests
 ```
 
-### 5. 单独启动 Agent / 前端
+### 6. 单独启动 Agent / 前端
 
 ```powershell
 # Agent
@@ -274,7 +315,11 @@ npm run dev
 ### frontend / dev-ops
 
 - **frontend**：研究工作台、拼团、支付与管理页
-- **dev-ops**：Compose、库表初始化与中间件配置
+- **dev-ops/compose**：全栈与开发 Compose、Java/Agent/Web 镜像
+- **dev-ops/mysql · nacos · xxl-job**：库表初始化、Nacos 配置种子、XXL-JOB Admin SQL
+- **dev-ops/observability**：ELK + Prometheus/Grafana + SkyWalking（独立 Compose，按需启动）
+- **dev-ops/jmeter**：可重复 HTTP 压测脚本与报告目录
+- 中间件进程写在 Compose 里，不另建 `postgres/` / `redis/` / `kafka/` 配置目录
 
 ## 部署说明
 
@@ -284,8 +329,9 @@ npm run dev
 
 - `dev-ops/compose/docker-compose.full.yml`：全栈（中间件 + Java + Agent + Web）
 - `dev-ops/compose/docker-compose.dev.yml`：开发依赖为主
+- `dev-ops/observability/docker-compose.observability.yml`：观测栈（与业务解耦）
 
-数据库初始化脚本与中间件配置位于 `dev-ops/`。
+数据库初始化与 Nacos / XXL-JOB 种子位于 `dev-ops/`；消息队列为 **Kafka**（KRaft）。
 
 ### 生产环境建议
 
@@ -293,7 +339,7 @@ npm run dev
 - 身份三层：Sa-Token 浏览器会话（可撤销）/ Gateway HS256 内部 JWT（约 60s，不是登录态）/ `X-Internal-Token` 服务凭证
 - 已知边界：内部 JWT 不存 nonce 黑名单；密钥为对称共享；回调/Job 没有用户 JWT，只认内部令牌 + 订单里的 userId
 - 拼团按用户限流在 Group Redis；网关 Sentinel 做路由级保护（Agent JSON 限流+熔断，SSE 不熔断，Java 路由熔断）。改身份密钥后请重启 Gateway（不承诺 WebFlux 热刷新）
-- 观测栈（ELK 等）在 `dev-ops/observability`，不是启动依赖
+- 观测与压测都不是启动依赖；生产按容量单独部署 ELK / Prometheus / Grafana / SkyWalking，压测只在预发或隔离环境跑
 - Group / Pay 的 Java 包名和库名有历史保留（`com.aigroup.paymall`、`group_buy_market`、`s_pay_mall_ddd_market`），运行时服务名以本文模块结构为准
 - JVM 按机器规格设置堆与 GC（例如 G1）
 - MySQL / Redis / Kafka / Postgres 开启持久化与高可用
@@ -306,6 +352,8 @@ mvn test
 cd agent-service; python -m pytest -q; cd ..
 cd frontend; npm ci; npm run lint; npm run build; cd ..
 powershell -ExecutionPolicy Bypass -File eval/http-smoke.ps1
+# 可选压测（需本机 JMeter + 已启动 Gateway）
+powershell -ExecutionPolicy Bypass -File dev-ops/jmeter/run-login-group-order.ps1
 ```
 
 离线 Agent 单元测试示例（不连外部库或 LLM）：

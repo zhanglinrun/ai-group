@@ -42,6 +42,7 @@ from schemas.contracts import (
     research_focus_dimensions,
 )
 from schemas.ids import make_id
+from schemas.intake import infer_research_mode
 from schemas.supervisor import (
     Analyze,
     ConductResearch,
@@ -79,6 +80,114 @@ _DIMENSIONAL_SUPERVISOR_TOOLS = frozenset(
 _LANDSCAPE_CORE_ROLES = frozenset(
     {"direct_competitor", "adjacent_competitor", "substitute"}
 )
+
+# Academic and technical studies must not inherit the comparison template's
+# commercial dimensions. The planner may still emit the legacy trio, so this
+# guardrail is applied at the final supervisor boundary before dispatch.
+_MODE_FORBIDDEN_DIMENSIONS: dict[str, frozenset[str]] = {
+    "academic": frozenset(
+        {"feature", "pricing", "user_feedback", "positioning", "go_to_market"}
+    ),
+    "technical": frozenset(
+        {"pricing", "user_feedback", "positioning", "go_to_market", "market_differences"}
+    ),
+}
+_ACADEMIC_DIMENSION_ALIASES: dict[str, str] = {
+    "key_papers": "methods",
+    "method_evolution": "methods",
+    "experimental_results": "benchmarks",
+    "evaluation": "benchmarks",
+    "benchmark": "benchmarks",
+    "dataset": "datasets",
+}
+_MODE_REPORT_SECTIONS: dict[str, list[str]] = {
+    "academic": [
+        "problem",
+        "methods",
+        "datasets",
+        "benchmarks",
+        "experimental_results",
+        "research_gaps",
+        "limitations",
+        "methodology_limits",
+    ],
+    "technical": [
+        "problem",
+        "architecture",
+        "implementation",
+        "open_source_projects",
+        "performance",
+        "engineering_constraints",
+        "limitations",
+        "methodology_limits",
+    ],
+}
+
+
+def _filter_dimensions_for_research_mode(
+    dimensions: object,
+    *,
+    research_mode: str | None,
+) -> list[str]:
+    if not isinstance(dimensions, list):
+        return []
+    normalized = normalize_dimensions(
+        [item for item in dimensions if isinstance(item, str)],
+        allow_empty=True,
+    )
+    if str(research_mode or "").lower() == "academic":
+        normalized = list(dict.fromkeys(
+            _ACADEMIC_DIMENSION_ALIASES.get(item, item) for item in normalized
+        ))
+    forbidden = _MODE_FORBIDDEN_DIMENSIONS.get(
+        str(research_mode or "").lower(), frozenset()
+    )
+    filtered = [dimension for dimension in normalized if dimension not in forbidden]
+    if filtered:
+        if str(research_mode or "").lower() == "academic":
+            # The academic report contract always needs method, dataset, and
+            # benchmark evidence. Preserve any valid LLM-selected dimensions,
+            # then add missing required dimensions so a model cannot silently
+            # reduce the research scope to only papers or datasets.
+            for required in ("methods", "datasets", "benchmarks"):
+                if required not in filtered:
+                    filtered.append(required)
+        return filtered
+    if research_mode == "academic":
+        return ["methods", "datasets", "benchmarks", "limitations"]
+    if research_mode == "technical":
+        return ["architecture", "implementation", "performance", "limitations"]
+    return normalized
+
+
+def _filter_decision_for_research_mode(
+    decision: SupervisorDecision,
+    *,
+    research_mode: str | None,
+) -> SupervisorDecision:
+    if research_mode not in _MODE_FORBIDDEN_DIMENSIONS:
+        return decision
+    args = dict(decision.tool_args)
+    if decision.chosen_tool in {"ConductResearch", "Analyze"}:
+        args["focus_dimensions"] = _filter_dimensions_for_research_mode(
+            args.get("focus_dimensions"), research_mode=research_mode
+        )
+    elif decision.chosen_tool == "ConductResearchBatch":
+        topics_raw = args.get("topics")
+        if isinstance(topics_raw, list):
+            topics: list[dict[str, object]] = []
+            for topic in topics_raw:
+                if not isinstance(topic, dict):
+                    continue
+                copied = dict(topic)
+                copied["focus_dimensions"] = _filter_dimensions_for_research_mode(
+                    copied.get("focus_dimensions"), research_mode=research_mode
+                )
+                topics.append(copied)
+            args["topics"] = topics
+    elif decision.chosen_tool == "Write":
+        args["sections"] = list(_MODE_REPORT_SECTIONS[research_mode])
+    return decision.model_copy(update={"tool_args": args})
 
 
 def _resolve_triggered_by(
@@ -166,11 +275,15 @@ def _discovery_search_queries(
     domain_context: str | None,
     market_scope: str | None,
     response_language: str,
+    research_mode: str | None = None,
 ) -> list[str]:
     query_basis = domain_context.strip() if isinstance(domain_context, str) and domain_context.strip() else user_query
     scope_prefix = f"{market_scope} " if market_scope else ""
     combined_context = f"{user_query} {query_basis}".casefold()
-    lowered_basis = query_basis.casefold()
+    mode = research_mode or infer_research_mode(
+        user_query=user_query,
+        domain_context=domain_context,
+    )
     is_broad_market_query = any(
         term in combined_context
         for term in ("全景", "趋势", "市场", "赛道", "行业", "landscape", "market", "trend")
@@ -180,42 +293,93 @@ def _discovery_search_queries(
         and "眼镜" not in combined_context
         and "glasses" not in combined_context
     )
-    if response_language == "zh":
-        if is_broad_market_query:
+    if mode == "academic":
+        if response_language == "zh":
             candidates = [
-                f"{scope_prefix}{query_basis} 细分赛道 产品类型 应用场景 代表产品",
-                f"{scope_prefix}{query_basis} 主流产品 新品 发布 厂商",
-                f"{scope_prefix}{query_basis} 市场格局 代表产品 厂商 终端设备",
-                f"{scope_prefix}{query_basis} 趋势 报告 产品类型 应用场景",
+                f"{scope_prefix}{query_basis} 相关论文 文献 研究进展",
+                f"{scope_prefix}{query_basis} 方法 算法 模型 技术路线",
+                f"{scope_prefix}{query_basis} 数据集 评测基准 实验结果",
+                f"{scope_prefix}{query_basis} 研究现状 挑战 未来方向",
+                f"{scope_prefix}{query_basis} survey review arXiv",
             ]
-            if is_broad_ai_hardware:
-                candidates.append(
-                    f"{scope_prefix}{query_basis} AI眼镜 AI录音笔 AI玩具 AI PC 机器人 家庭AI终端 可穿戴"
-                )
         else:
             candidates = [
-                f"{scope_prefix}{query_basis} 竞品 替代 产品",
-                f"{scope_prefix}{query_basis} 对比 评测 厂商",
-                f"{scope_prefix}{query_basis} 市场 解决方案",
+                f"{scope_prefix}{query_basis} papers literature review research progress",
+                f"{scope_prefix}{query_basis} methods algorithms models technical approaches",
+                f"{scope_prefix}{query_basis} datasets benchmarks experimental results",
+                f"{scope_prefix}{query_basis} state of the art challenges future directions",
+                f"{scope_prefix}{query_basis} survey review arXiv",
             ]
+    elif mode == "technical":
+        if response_language == "zh":
+            candidates = [
+                f"{scope_prefix}{query_basis} 技术原理 方法 技术路线",
+                f"{scope_prefix}{query_basis} 系统架构 实现 工程实践 开源",
+                f"{scope_prefix}{query_basis} benchmark 评测 性能",
+                f"{scope_prefix}{query_basis} 应用场景 部署 局限性",
+                f"{scope_prefix}{query_basis} 技术报告 发展趋势",
+            ]
+        else:
+            candidates = [
+                f"{scope_prefix}{query_basis} principles methods technical approaches",
+                f"{scope_prefix}{query_basis} system architecture implementation engineering open source",
+                f"{scope_prefix}{query_basis} benchmarks evaluation performance",
+                f"{scope_prefix}{query_basis} use cases deployment limitations",
+                f"{scope_prefix}{query_basis} technical reports development trends",
+            ]
+    elif mode == "commercial":
+        if response_language == "zh":
+            if is_broad_market_query:
+                candidates = [
+                    f"{scope_prefix}{query_basis} 细分赛道 产品类型 应用场景 代表产品",
+                    f"{scope_prefix}{query_basis} 主流产品 新品 发布 厂商",
+                    f"{scope_prefix}{query_basis} 市场格局 代表产品 厂商 终端设备",
+                    f"{scope_prefix}{query_basis} 趋势 报告 产品类型 应用场景",
+                ]
+                if is_broad_ai_hardware:
+                    candidates.append(
+                        f"{scope_prefix}{query_basis} AI眼镜 AI录音笔 AI玩具 AI PC 机器人 家庭AI终端 可穿戴"
+                    )
+            else:
+                candidates = [
+                    f"{scope_prefix}{query_basis} 竞品 替代 产品",
+                    f"{scope_prefix}{query_basis} 对比 评测 厂商",
+                    f"{scope_prefix}{query_basis} 市场 解决方案",
+                ]
+        else:
+            if is_broad_market_query:
+                candidates = [
+                    f"{scope_prefix}{query_basis} product segments product types use cases representative products",
+                    f"{scope_prefix}{query_basis} mainstream products new launches vendors",
+                    f"{scope_prefix}{query_basis} market landscape representative products vendors edge devices",
+                    f"{scope_prefix}{query_basis} trends report product types applications",
+                ]
+                if is_broad_ai_hardware:
+                    candidates.append(
+                        f"{scope_prefix}{query_basis} smart glasses AI recorder AI toys AI PC robots home AI terminal wearable"
+                    )
+            else:
+                candidates = [
+                    f"{scope_prefix}{query_basis} competitors alternatives",
+                    f"{scope_prefix}{query_basis} comparison reviews vendors",
+                    f"{scope_prefix}{query_basis} market solutions",
+                ]
+    elif response_language == "zh":
+        candidates = [
+            f"{scope_prefix}{query_basis} 概念 定义 核心内容",
+            f"{scope_prefix}{query_basis} 研究进展 发展趋势",
+            f"{scope_prefix}{query_basis} 方法 实践 案例",
+            f"{scope_prefix}{query_basis} 评测 对比 优缺点",
+            f"{scope_prefix}{query_basis} 权威资料 技术报告",
+        ]
     else:
-        if is_broad_market_query:
-            candidates = [
-                f"{scope_prefix}{query_basis} product segments product types use cases representative products",
-                f"{scope_prefix}{query_basis} mainstream products new launches vendors",
-                f"{scope_prefix}{query_basis} market landscape representative products vendors edge devices",
-                f"{scope_prefix}{query_basis} trends report product types applications",
-            ]
-            if is_broad_ai_hardware:
-                candidates.append(
-                    f"{scope_prefix}{query_basis} smart glasses AI recorder AI toys AI PC robots home AI terminal wearable"
-                )
-        else:
-            candidates = [
-                f"{scope_prefix}{query_basis} competitors alternatives",
-                f"{scope_prefix}{query_basis} comparison reviews vendors",
-                f"{scope_prefix}{query_basis} market solutions",
-            ]
+        candidates = [
+            f"{scope_prefix}{query_basis} definition concepts fundamentals",
+            f"{scope_prefix}{query_basis} research progress development trends",
+            f"{scope_prefix}{query_basis} methods practice use cases",
+            f"{scope_prefix}{query_basis} evaluation comparison strengths limitations",
+            f"{scope_prefix}{query_basis} authoritative sources technical reports",
+        ]
     return _stable_unique([item.strip() for item in candidates if item.strip()])[:5]
 
 
@@ -251,22 +415,6 @@ def _derive_hint_focus_dimensions(
     if len(derived) < 3:
         derived.extend(DEFAULT_FOCUS_DIMENSIONS)
     return _stable_unique(derived)[:max_dimensions]
-
-
-def _derive_focus_dimensions(
-    *,
-    user_query: str,
-    competitors: list[str],
-    max_dimensions: int,
-) -> list[str]:
-    hint_dimensions = _derive_hint_focus_dimensions(
-        user_query=user_query,
-        competitors=competitors,
-        max_dimensions=max_dimensions,
-    )
-    if hint_dimensions:
-        return hint_dimensions
-    return list(DEFAULT_FOCUS_DIMENSIONS)[:max_dimensions]
 
 
 def _current_plan_stage(
@@ -592,6 +740,7 @@ def _fallback_decision(
     market_scope: str | None = None,
     domain_context: str | None = None,
     response_language: str = "en",
+    research_mode: str | None = None,
 ) -> SupervisorDecision:
     effective_profile = profile or resolve_tier_profile(None)
     now = _now_iso()
@@ -603,6 +752,7 @@ def _fallback_decision(
                 domain_context=domain_context,
                 market_scope=market_scope,
                 response_language=response_language,
+                research_mode=research_mode,
             ),
             domain_context=domain_context or user_query,
             max_results=DEFAULT_DISCOVER_MAX_RESULTS,
@@ -613,7 +763,11 @@ def _fallback_decision(
             iteration=iteration,
             chosen_tool="DiscoverCompetitors",
             tool_args=args,
-            reasoning_summary="No competitors provided; fallback triggers discovery phase.",
+            reasoning_summary=(
+                "No execution targets provided; fallback triggers academic literature discovery."
+                if research_mode == "academic"
+                else "No competitors provided; fallback triggers discovery phase."
+            ),
             triggered_by=triggered_by,
             outcome="dispatched",
             outcome_recorded_at=now,
@@ -626,7 +780,11 @@ def _fallback_decision(
     if len(pending_competitors) >= 2:
         topics = [
             ConductResearch(
-                research_topic=f"{competitor_id} vs user_query={user_query}",
+                research_topic=(
+                    f"Literature review: {user_query}"
+                    if research_mode == "academic"
+                    else f"{competitor_id} vs user_query={user_query}"
+                ),
                 competitor_id=competitor_id,
                 focus_dimensions=fallback_dimensions,
                 max_iterations=effective_profile.react_turns,
@@ -660,7 +818,11 @@ def _fallback_decision(
     if len(pending_competitors) == 1:
         competitor_id = pending_competitors[0]
         args = ConductResearch(
-            research_topic=f"{competitor_id} vs user_query={user_query}",
+            research_topic=(
+                f"Literature review: {user_query}"
+                if research_mode == "academic"
+                else f"{competitor_id} vs user_query={user_query}"
+            ),
             competitor_id=competitor_id,
             focus_dimensions=fallback_dimensions,
             max_iterations=effective_profile.react_turns,
@@ -673,7 +835,11 @@ def _fallback_decision(
             iteration=iteration,
             chosen_tool="ConductResearch",
             tool_args=args,
-            reasoning_summary=f"Fallback planner selects pending competitor `{competitor_id}`.",
+            reasoning_summary=(
+                f"Fallback planner selects the academic literature scope `{competitor_id}`."
+                if research_mode == "academic"
+                else f"Fallback planner selects pending competitor `{competitor_id}`."
+            ),
             triggered_by=triggered_by,
             outcome="dispatched",
             outcome_recorded_at=now,
@@ -999,6 +1165,67 @@ def _decision_from_tool_output(
         outcome=outcome,
         outcome_recorded_at=now,
         created_at=now,
+    )
+
+
+_NON_COMMERCIAL_DISCOVERY_TERMS: tuple[str, ...] = (
+    "竞品",
+    "替代",
+    "厂商",
+    "定价",
+    "价格",
+    "用户反馈",
+    "解决方案",
+    "市场",
+    "产品",
+    "competitors",
+    "alternatives",
+    "vendors",
+    "pricing",
+    "commercial",
+    "market",
+    "product",
+    "user feedback",
+    "market solutions",
+)
+
+
+def _normalize_discovery_decision_queries(
+    *,
+    decision: SupervisorDecision,
+    user_query: str,
+    domain_context: str | None,
+    market_scope: str | None,
+    response_language: str,
+    research_mode: str,
+) -> SupervisorDecision:
+    """Keep LLM-produced discovery args aligned with the inferred research mode."""
+    if decision.chosen_tool != "DiscoverCompetitors" or research_mode == "commercial":
+        return decision
+    expected = _discovery_search_queries(
+        user_query=user_query,
+        domain_context=domain_context,
+        market_scope=market_scope,
+        response_language=response_language,
+        research_mode=research_mode,
+    )
+    raw_queries = decision.tool_args.get("search_queries")
+    accepted: list[str] = []
+    if isinstance(raw_queries, list):
+        for item in raw_queries:
+            if not isinstance(item, str) or not item.strip():
+                continue
+            lowered = item.casefold()
+            if research_mode in {"academic", "technical", "general"} and any(
+                term.casefold() in lowered for term in _NON_COMMERCIAL_DISCOVERY_TERMS
+            ):
+                continue
+            accepted.append(item.strip())
+    normalized = _stable_unique(accepted + expected)[:5]
+    if not normalized:
+        return decision
+    return decision.model_copy(
+        update={"tool_args": {**decision.tool_args, "search_queries": normalized}}
     )
 
 
@@ -1694,6 +1921,38 @@ def _enforce_deliverable_before_finalize(
     )
 
 
+def _enforce_analysis_before_deliverable(
+    *,
+    decision: SupervisorDecision,
+    analysis_done: bool,
+    fallback_dimensions: list[str],
+) -> SupervisorDecision:
+    """Keep writer/finalize from bypassing the analyst state contract."""
+
+    if analysis_done or decision.chosen_tool not in {"Write", "Finalize"}:
+        return decision
+    now = _now_iso()
+    return SupervisorDecision(
+        id=make_id("decision_"),
+        run_id=decision.run_id,
+        iteration=decision.iteration,
+        chosen_tool="Analyze",
+        tool_args=Analyze(
+            focus_dimensions=fallback_dimensions,
+            parallel_by_dimension=False,
+            require_cross_competitor=True,
+        ).model_dump(),
+        reasoning_summary=(
+            f"{decision.chosen_tool} blocked: analysis has not completed; "
+            "route through analyst before producing the deliverable."
+        ),
+        triggered_by=decision.triggered_by,
+        outcome="dispatched",
+        outcome_recorded_at=now,
+        created_at=now,
+    )
+
+
 @log_node("supervisor")
 async def supervisor_node(state: AgentState) -> AgentState:
     session_factory = _resolve_session_factory(state)
@@ -1708,6 +1967,14 @@ async def supervisor_node(state: AgentState) -> AgentState:
         or _state_or_intake_string(state, "analysis_intent")
     )
     response_language = _state_response_language(state, user_query=user_query)
+    research_mode = infer_research_mode(
+        user_query=user_query,
+        domain_context=domain_context,
+        analysis_intent=_state_or_intake_string(state, "analysis_intent"),
+        user_role=_state_or_intake_string(state, "user_role"),
+        analysis_archetype=_state_or_intake_string(state, "analysis_archetype"),
+        explicit_mode=_state_or_intake_string(state, "research_mode"),
+    )
     competitors_raw = list(state.get("competitors", []))
     discovered_competitors = list(state.get("discovered_competitors", []))
     researched_competitors = list(state.get("researched_competitors", []))
@@ -1843,6 +2110,7 @@ async def supervisor_node(state: AgentState) -> AgentState:
                     domain_context=domain_context,
                     market_scope=market_scope,
                     response_language=response_language,
+                    research_mode=research_mode,
                 ),
                 domain_context=domain_for_discovery,
                 max_results=DEFAULT_DISCOVER_MAX_RESULTS,
@@ -1916,6 +2184,7 @@ async def supervisor_node(state: AgentState) -> AgentState:
             qa_reasons=qa_reasons,
             market_scope=market_scope,
             domain_context=domain_context,
+            research_mode=research_mode,
             pending_follow_ups=pending_follow_ups,
             user_pinned_research=user_pinned_research,
             plan_tree=plan_tree_for_prompt,
@@ -1929,6 +2198,7 @@ async def supervisor_node(state: AgentState) -> AgentState:
             report_draft_done=report_draft_done,
             market_scope=market_scope,
             domain_context=domain_context,
+            research_mode=research_mode,
             pending_follow_ups=pending_follow_ups,
             user_pinned_research=user_pinned_research,
             plan_tree=plan_tree_for_prompt,
@@ -1962,6 +2232,14 @@ async def supervisor_node(state: AgentState) -> AgentState:
                 fallback_sections=fallback_sections,
                 profile=tier_profile,
             )
+            decision = _normalize_discovery_decision_queries(
+                decision=decision,
+                user_query=user_query,
+                domain_context=domain_context,
+                market_scope=market_scope,
+                response_language=response_language,
+                research_mode=research_mode,
+            )
             if (
                 decision.chosen_tool == "DiscoverCompetitors"
                 and discovery_completed
@@ -1990,6 +2268,7 @@ async def supervisor_node(state: AgentState) -> AgentState:
                     market_scope=market_scope,
                     domain_context=domain_context,
                     response_language=response_language,
+                    research_mode=research_mode,
                 )
             if (
                 decision.chosen_tool == "Analyze"
@@ -2036,6 +2315,7 @@ async def supervisor_node(state: AgentState) -> AgentState:
                 market_scope=market_scope,
                 domain_context=domain_context,
                 response_language=response_language,
+                research_mode=research_mode,
             )
             decision_dimension_source = dimension_source
 
@@ -2068,6 +2348,7 @@ async def supervisor_node(state: AgentState) -> AgentState:
             market_scope=market_scope,
             domain_context=domain_context,
             response_language=response_language,
+            research_mode=research_mode,
         )
         decision_dimension_source = dimension_source
 
@@ -2083,6 +2364,15 @@ async def supervisor_node(state: AgentState) -> AgentState:
         fallback_dimensions=fallback_dimensions,
         profile=tier_profile,
         user_query=user_query,
+    )
+    decision = _filter_decision_for_research_mode(
+        decision,
+        research_mode=research_mode,
+    )
+    decision = _enforce_analysis_before_deliverable(
+        decision=decision,
+        analysis_done=analysis_done,
+        fallback_dimensions=fallback_dimensions,
     )
     decision = _enforce_deliverable_before_finalize(
         decision=decision,

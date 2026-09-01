@@ -33,10 +33,7 @@ const WORKSPACE_CHILDREN = [
   },
   {
     path: "runs/new/expert",
-    lazy: async () => {
-      const module = await import("@/pages/NewRunPage");
-      return { Component: module.NewRunPage };
-    },
+    element: <Navigate replace to="/app/runs/new" />,
   },
   {
     path: "runs/:runId",
@@ -96,13 +93,6 @@ const WORKSPACE_CHILDREN = [
     lazy: async () => {
       const module = await import("@/pages/app/SettingsPage");
       return { Component: module.SettingsPage };
-    },
-  },
-  {
-    path: "settings/skill-admin",
-    lazy: async () => {
-      const module = await import("@/pages/SkillStagingPage");
-      return { Component: module.SkillStagingPage };
     },
   },
   {
@@ -219,10 +209,6 @@ export const appRouter = createBrowserRouter([
       {
         path: "/runs/:runId/evidence",
         loader: ({ params }) => redirect(`/app/runs/${params.runId ?? ""}/evidence`),
-      },
-      {
-        path: "/skills/staging",
-        element: <Navigate replace to="/app/settings/skill-admin" />,
       },
     ],
   },

@@ -7,7 +7,14 @@ from typing import Any, ClassVar, Protocol
 
 import httpx
 import structlog
-from openai import APIConnectionError, APIStatusError, APITimeoutError, AsyncOpenAI, RateLimitError
+from openai import (
+    APIConnectionError,
+    APIError,
+    APIStatusError,
+    APITimeoutError,
+    AsyncOpenAI,
+    RateLimitError,
+)
 
 from core.config import settings
 from service.llm.exceptions import LLMRequestError, LLMResponseFormatError
@@ -418,7 +425,13 @@ class _OpenAICompatibleProvider:
                         http_status=http_status,
                         retry_after_seconds=retry_after_seconds,
                     )
-                except (APIConnectionError, APITimeoutError, RateLimitError, httpx.TransportError) as fallback_exc:
+                except (
+                    APIConnectionError,
+                    APITimeoutError,
+                    RateLimitError,
+                    APIError,
+                    httpx.TransportError,
+                ) as fallback_exc:
                     error_class, retryable, http_status, retry_after_seconds = _classify_transport_error(
                         fallback_exc
                     )
@@ -466,9 +479,16 @@ class _OpenAICompatibleProvider:
         # Streaming iteration surfaces raw httpx transport errors (e.g. a peer
         # that closes the connection mid-stream -> RemoteProtocolError, the
         # symptom DashScope shows on long generations). The OpenAI SDK does NOT
-        # wrap these into APIConnectionError; catch httpx.TransportError too so a
-        # mid-stream drop degrades to fallback instead of crashing the node.
-        except (APIConnectionError, APITimeoutError, RateLimitError, httpx.TransportError) as exc:
+        # wrap these into APIConnectionError. Catch APIError as well because
+        # some OpenAI-compatible gateways report an incomplete event stream as
+        # a generic APIError instead of a transport exception.
+        except (
+            APIConnectionError,
+            APITimeoutError,
+            RateLimitError,
+            APIError,
+            httpx.TransportError,
+        ) as exc:
             error_class, retryable, http_status, retry_after_seconds = _classify_transport_error(exc)
             log.warning(
                 "llm.provider.error",

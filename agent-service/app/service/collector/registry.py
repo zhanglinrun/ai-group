@@ -20,9 +20,6 @@ class ChannelRegistry:
         for channel in channels:
             self.register(channel)
 
-    def has(self, action: str) -> bool:
-        return action in self._channels
-
     def get(self, action: str) -> BaseChannel:
         channel = self._channels.get(action)
         if channel is None:
@@ -42,7 +39,6 @@ def _register_builtin_channels(registry: ChannelRegistry) -> None:
     from agents.tools.fetch_url import FetchUrlChannel
     from agents.tools.search_bocha import BochaSearchChannel
     from agents.tools.search_router import SearchWebRouterChannel
-    from agents.tools.skill_tools import LoadSkillChannel, ReadSkillFileChannel
 
     registry.register_many(
         [
@@ -50,8 +46,6 @@ def _register_builtin_channels(registry: ChannelRegistry) -> None:
             SearchWebRouterChannel(),
             BochaSearchChannel(),
             ExtractStructuredChannel(),
-            LoadSkillChannel(),
-            ReadSkillFileChannel(),
         ]
     )
 

@@ -260,15 +260,16 @@ async def qa_node(state: AgentState) -> AgentState:
     degraded_required_sections = _report_degraded_required_sections(report.content_json)
     data_degraded_by_writer = bool(degraded_required_sections)
     writer_fallback_mode = _report_has_writer_fallback_mode(report.content_json)
-    approval_blocked_for_fallback = (
-        isinstance(review_result, Approval) and writer_fallback_mode
-    )
     if data_degraded_by_writer:
         updated_rejection_count = qa_rejection_count
         is_force_degraded = True
-    elif approval_blocked_for_fallback:
-        updated_rejection_count = qa_rejection_count + 1
-        is_force_degraded = updated_rejection_count > qa_reject_budget
+    elif writer_fallback_mode:
+        # The deterministic fallback is emitted only after the structured
+        # writer exhausted its primary, fallback, and repair attempts. Sending
+        # it back to the writer repeats the same failed work without adding
+        # evidence, so finalize this run as explicitly degraded immediately.
+        updated_rejection_count = qa_rejection_count
+        is_force_degraded = True
     else:
         updated_rejection_count = (
             qa_rejection_count + 1 if isinstance(review_result, Rejection) else qa_rejection_count
@@ -290,12 +291,13 @@ async def qa_node(state: AgentState) -> AgentState:
         qa_payload["failed_rule_count"] = 1
         qa_payload["qa_degrade_reason"] = "report_degraded_required_sections"
         qa_payload["qa_degraded_required_sections"] = degraded_required_sections
-    elif approval_blocked_for_fallback:
-        qa_payload["qa_outcome"] = "force_degraded" if is_force_degraded else "rejected"
-        qa_payload["qa_reject_to"] = "supervisor" if is_force_degraded else "writer"
-        qa_payload["reject_to"] = "supervisor" if is_force_degraded else "writer"
+    elif writer_fallback_mode:
+        qa_payload["qa_outcome"] = "force_degraded"
+        qa_payload["qa_reject_to"] = "supervisor"
+        qa_payload["reject_to"] = "supervisor"
         qa_payload["failed_rule_ids"] = ["rule_writer_no_fallback_mode"]
         qa_payload["failed_rule_count"] = 1
+        qa_payload["qa_degrade_reason"] = "writer_fallback_mode"
     elif isinstance(review_result, Rejection) and is_force_degraded:
         qa_payload["qa_outcome"] = "force_degraded"
         qa_payload["qa_reject_to"] = "supervisor"
@@ -339,7 +341,7 @@ async def qa_node(state: AgentState) -> AgentState:
         await session.commit()
     if (
         isinstance(review_result, Approval)
-        and not approval_blocked_for_fallback
+        and not writer_fallback_mode
         and not data_degraded_by_writer
     ):
         event_qa_outcome = "approved"
@@ -349,16 +351,12 @@ async def qa_node(state: AgentState) -> AgentState:
         event_reject_to = (
             "supervisor"
             if is_force_degraded
-            else (
-                "writer"
-                if approval_blocked_for_fallback
-                else review_result.reject_to
-            )
+            else review_result.reject_to
         )
 
     if (
         isinstance(review_result, Approval)
-        and not approval_blocked_for_fallback
+        and not writer_fallback_mode
         and not data_degraded_by_writer
     ):
         log.info(
@@ -414,7 +412,7 @@ async def qa_node(state: AgentState) -> AgentState:
         if data_degraded_by_writer
         else (
             ["rule_writer_no_fallback_mode"]
-            if approval_blocked_for_fallback
+            if writer_fallback_mode
             else review_result.failed_rule_ids
         )
     )
@@ -451,7 +449,7 @@ async def qa_node(state: AgentState) -> AgentState:
         if data_degraded_by_writer
         else (
             ["Report must not be generated in deterministic writer fallback mode."]
-            if approval_blocked_for_fallback
+            if writer_fallback_mode
             else _to_qa_reasons(review_result)
         )
     )
@@ -475,7 +473,9 @@ async def qa_node(state: AgentState) -> AgentState:
         "qa_unsupported_numeric_claims": unsupported_numeric_claims,
         "qa_numeric_claim_blocklist": numeric_claim_blocklist,
         "qa_degrade_reason": (
-            "report_degraded_required_sections" if data_degraded_by_writer else None
+            "report_degraded_required_sections"
+            if data_degraded_by_writer
+            else ("writer_fallback_mode" if writer_fallback_mode else None)
         ),
         "qa_degraded_required_sections": degraded_required_sections,
         "status": "running",

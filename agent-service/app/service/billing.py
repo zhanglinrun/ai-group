@@ -7,7 +7,7 @@ import httpx
 from core.config import settings
 from core.nacos_discovery import lookup_member_base_url
 from core.tiers import normalize_analysis_tier
-from security.identity import current_internal_jwt
+from security.identity import current_internal_jwt, mint_current_identity_jwt
 from utils.logger import get_logger
 
 log = get_logger("service.billing")
@@ -76,10 +76,6 @@ def resolve_reservation_amount(
     return clamp_reservation_amount(settings.BILLING_DEFAULT_RESERVATION_MICRO_POINTS)
 
 
-def default_reservation_amount(requested: int | None) -> int:
-    return resolve_reservation_amount(report_depth="quick", requested=requested)
-
-
 def reservation_request_id(run_id: str, kind: str = "primary") -> str:
     """Idempotency key for leftover settlement slices.
 
@@ -88,16 +84,6 @@ def reservation_request_id(run_id: str, kind: str = "primary") -> str:
     if kind == "primary":
         return f"agent:{run_id}"
     return f"agent:{run_id}:{kind}"
-
-
-def freeze_records_from_reservation(reservation: Reservation) -> list[dict[str, object]]:
-    return [
-        FreezeSlice(
-            freeze_id=reservation.reservation_id,
-            request_id=reservation.request_id,
-            amount_micro_points=reservation.amount_micro_points,
-        ).to_record()
-    ]
 
 
 def freeze_slices_from_mapping(
@@ -194,7 +180,11 @@ class MemberQuotaClient:
 
     def _headers(self) -> dict[str, str]:
         headers = {"X-Internal-Token": settings.INTERNAL_TOKEN or ""}
-        jwt = current_internal_jwt()
+        # A Gateway JWT expires after 60 seconds, while a deep run may last
+        # many minutes. Refresh from the verified identity context for each
+        # Member call so long-running billing requests are not rejected with
+        # 401 after the original request token expires.
+        jwt = mint_current_identity_jwt() or current_internal_jwt()
         if jwt:
             headers["X-Internal-Jwt"] = jwt
         return headers

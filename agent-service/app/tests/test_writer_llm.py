@@ -341,6 +341,7 @@ def test_fallback_report_render_contains_evidence_citations() -> None:
 
     assert "[ev_001]" in markdown
     assert "## Feature" in markdown or "Feature" in markdown
+    assert "writer_fallback_mode" in report_content["risk_callouts"]
 
 
 def test_report_markdown_sanitizes_internal_ids() -> None:
@@ -499,6 +500,7 @@ def test_fallback_report_sections_follow_target_sections() -> None:
     assert section_ids == ["feature", "pricing"]
     pricing_section = report_content["sections"][1]
     assert pricing_section["evidence_refs"] == []
+    assert "writer_fallback_mode" in report_content["risk_callouts"]
     assert "uncovered_section:pricing" in report_content["risk_callouts"]
 
 

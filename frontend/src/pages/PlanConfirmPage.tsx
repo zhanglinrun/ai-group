@@ -26,6 +26,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { pushToast } from "@/components/ui/toaster";
 import { groupCompetitorRoles } from "@/lib/competitorRoles";
+import { researchRoleLabel } from "@/lib/researchRoles";
 import { cn } from "@/lib/utils";
 
 const STAGE_META: Record<PlanTaskStage, { label: string; icon: typeof Compass; description: string }> = {
@@ -707,7 +708,10 @@ function IntakeSummaryCard({
         ) : (
           <>
             <SummaryRow label="原始诉求" value={draft.user_query} />
-            <SummaryRow label="用户角色" value={draft.user_role ?? "—"} />
+            <SummaryRow
+              label="调研用途"
+              value={draft.user_role ? researchRoleLabel(draft.user_role) : "—"}
+            />
             <SummaryRow label="调研意图" value={draft.analysis_intent ?? "—"} />
             <SummaryRow
               label="调研形态"

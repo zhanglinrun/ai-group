@@ -27,8 +27,6 @@ class CollectorHTTPClient:
     ) -> None:
         if timeout_seconds <= 0:
             raise ValueError("CollectorHTTPClient timeout_seconds must be positive.")
-        self._user_agent = user_agent
-        self._timeout_seconds = timeout_seconds
         self._client = httpx.AsyncClient(
             timeout=httpx.Timeout(timeout_seconds),
             follow_redirects=True,

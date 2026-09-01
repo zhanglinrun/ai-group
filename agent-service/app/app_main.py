@@ -9,7 +9,6 @@ from typing import Any
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from sqlalchemy import select, update
 
 from agents.graph import compile_graph
@@ -19,11 +18,11 @@ from core.tiers import resolve_tier_profile
 from db.engine import dispose_engine, get_session_factory, init_engine
 from exceptions.base import APIException
 from models.run import Run
-from router import health_rt, run_rt, skill_rt
+from router import health_rt, run_rt
 from service.billing_settlement import settle_run_ids, start_loop as start_billing_settlement_loop
+from service.checkpoint import postgres_checkpointer
 from service.event_bus import EventBus, RunEventType, emit_run_event, set_event_bus
 from service.run_status_reason import ORPHAN_RESTART_REASON
-from service.skill_store import get_skill_store
 from service.watchlist.refresher import WatchlistRefresher
 from utils.logger import bind_request_id, clear_request_id, configure_logging, get_logger
 from utils.request_id import new_request_id, request_id_ctx
@@ -90,7 +89,6 @@ async def _sweep_orphan_running_runs() -> list[str]:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_engine()
-    get_skill_store().scan()
     background_tasks: set[asyncio.Task[Any]] = set()
     app.state.background_tasks = background_tasks
     event_bus = EventBus(dsn=settings.DATABASE_URL_SYNC)
@@ -104,7 +102,7 @@ async def lifespan(app: FastAPI):
     if checkpoint_dsn is None:
         raise RuntimeError("LANGGRAPH_CHECKPOINT_DSN must be configured before service startup.")
     try:
-        async with AsyncPostgresSaver.from_conn_string(checkpoint_dsn) as checkpointer:
+        async with postgres_checkpointer(checkpoint_dsn) as checkpointer:
             setup_result = checkpointer.setup()
             if inspect.isawaitable(setup_result):
                 await setup_result
@@ -122,7 +120,6 @@ async def lifespan(app: FastAPI):
                             run_id=run_id,
                             graph=compiled_graph,
                             graph_input=initial_state,
-                            domain_hint=None,
                             recursion_limit=profile.recursion_limit,
                             background_tasks=bt,
                         ),
@@ -228,4 +225,3 @@ async def unhandled_exception_handler(_: Request, exc: Exception) -> JSONRespons
 
 app.include_router(health_rt.router)
 app.include_router(run_rt.router)
-app.include_router(skill_rt.router)

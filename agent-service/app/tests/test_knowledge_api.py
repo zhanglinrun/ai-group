@@ -165,18 +165,16 @@ def test_get_run_knowledge_returns_empty_payload_when_no_knowledge_exists(
         payload = response.json()
 
         assert response.status_code == 200
-        assert payload == {
-            "run_id": run_id,
-            "analysis_archetype": "comparison",
-            "schema_version": "schema_v0.2",
-            "competitors": [],
-            "features": [],
-            "pricings": [],
-            "personas": [],
-            "feedback": [],
-            "missing_reasons": {},
-            "coverage": {},
-        }
+        assert payload["run_id"] == run_id
+        assert payload["analysis_archetype"] == "comparison"
+        assert payload["schema_version"] == "schema_v0.2"
+        assert [item["competitor_id"] for item in payload["competitors"]] == ["Cursor"]
+        assert payload["features"] == []
+        assert payload["pricings"] == []
+        assert payload["personas"] == []
+        assert payload["feedback"] == []
+        assert payload["missing_reasons"] == {}
+        assert payload["coverage"] == {}
     finally:
         _delete_run(run_id)
 

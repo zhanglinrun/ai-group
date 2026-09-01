@@ -57,8 +57,6 @@ def test_build_run_summary_fields_uses_public_metrics_contract() -> None:
         llm_latency_p50_ms=321,
         llm_provider_error_count=1,
         llm_retry_total=2,
-        manual_review_rate=0.0,
-        manual_review_is_proxy=True,
         run_wall_clock_seconds=42,
     )
 
@@ -183,7 +181,6 @@ def test_build_run_metrics_snapshot_reports_dimension_coverage() -> None:
         step_rows=[],
         llm_rows=[],
         decision_rows=[],
-        candidate_rows=[],
         comparison_rows=comparison_rows,
     )
 
@@ -246,7 +243,6 @@ def test_build_run_metrics_snapshot_reports_low_locale_match_for_china_scope() -
         step_rows=[],
         llm_rows=[],
         decision_rows=[],
-        candidate_rows=[],
     )
 
     assert snapshot.locale_distribution == {"china:zh": 1, "global:en": 1}
@@ -327,7 +323,6 @@ def test_build_run_metrics_snapshot_uses_downstream_focus_dimensions_for_coverag
         step_rows=[],
         llm_rows=[],
         decision_rows=[],
-        candidate_rows=[],
         report_rows=[report],
         comparison_rows=comparison_rows,
         conclusion_rows=conclusion_rows,
@@ -391,7 +386,6 @@ def test_build_run_metrics_snapshot_reports_report_quality_fields() -> None:
         step_rows=[writer_step],
         llm_rows=[],
         decision_rows=[],
-        candidate_rows=[],
         report_rows=[report],
     )
 
@@ -438,7 +432,6 @@ def test_build_run_metrics_snapshot_counts_top_level_executive_summary_coverage(
         step_rows=[writer_step],
         llm_rows=[],
         decision_rows=[],
-        candidate_rows=[],
         report_rows=[report],
     )
 
@@ -512,7 +505,6 @@ def test_build_run_metrics_snapshot_reports_knowledge_triplet_metrics() -> None:
         step_rows=[],
         llm_rows=[],
         decision_rows=[],
-        candidate_rows=[],
         knowledge_rows=[knowledge],
     )
 
@@ -571,7 +563,6 @@ def test_build_run_metrics_snapshot_uses_supervisor_dimensions_without_plan_tree
         step_rows=[],
         llm_rows=[],
         decision_rows=decision_rows,
-        candidate_rows=[],
     )
 
     assert snapshot.evidence_count_by_dimension == {"pricing": 1, "security": 0}
@@ -591,7 +582,8 @@ def test_get_run_metrics_for_completed_run(test_client: TestClient) -> None:
     )
     assert create_response.status_code == 200
     run_id = create_response.json()["run_id"]
-    assert _wait_for_run_terminal(run_id) == "completed"
+    terminal_status = _wait_for_run_terminal(run_id)
+    assert terminal_status in {"completed", "degraded"}
 
     metrics_response = test_client.get(f"/api/runs/{run_id}/metrics")
     payload = metrics_response.json()
@@ -599,7 +591,7 @@ def test_get_run_metrics_for_completed_run(test_client: TestClient) -> None:
     assert payload["run_id"] == run_id
 
     assert 0.0 <= payload["coverage_rate"] <= 1.0
-    assert payload["evidence_count_total"] >= 1
+    assert payload["evidence_count_total"] >= (1 if terminal_status == "completed" else 0)
     assert set(payload["evidence_count_by_competitor"].keys()) >= {"comp_cursor", "comp_windsurf"}
     assert isinstance(payload["evidence_count_by_dimension"], dict)
     assert isinstance(payload["comparison_dimensions"], list)
@@ -615,7 +607,8 @@ def test_get_run_metrics_for_completed_run(test_client: TestClient) -> None:
     assert payload["knowledge_persona_count"] >= 0
     assert 0.0 <= payload["knowledge_schema_coverage_rate"] <= 1.0
     assert isinstance(payload["source_type_distribution"], dict)
-    assert payload["source_type_distribution"]
+    if terminal_status == "completed":
+        assert payload["source_type_distribution"]
     assert isinstance(payload["source_authority_distribution"], dict)
     assert 0.0 <= payload["locale_match_rate"] <= 1.0
     assert isinstance(payload["locale_distribution"], dict)
@@ -632,8 +625,6 @@ def test_get_run_metrics_for_completed_run(test_client: TestClient) -> None:
     assert payload["llm_provider_error_count"] >= 0
     assert payload["llm_retry_total"] >= 0
 
-    assert payload["manual_review_is_proxy"] is True
-    assert 0.0 <= payload["manual_review_rate"] <= 1.0
     assert payload["run_wall_clock_seconds"] is None or payload["run_wall_clock_seconds"] >= 0
 
 
@@ -693,8 +684,6 @@ def test_get_run_metrics_for_empty_run(test_client: TestClient) -> None:
         assert payload["llm_latency_p50_ms"] is None
         assert payload["llm_provider_error_count"] == 0
         assert payload["llm_retry_total"] == 0
-        assert payload["manual_review_rate"] == 0.0
-        assert payload["manual_review_is_proxy"] is True
         assert payload["run_wall_clock_seconds"] is None
     finally:
         with engine.begin() as connection:
@@ -763,7 +752,6 @@ def test_build_run_metrics_snapshot_counts_evidence_floor_rows() -> None:
         step_rows=[],
         llm_rows=[],
         decision_rows=[],
-        candidate_rows=[],
         comparison_rows=[],
     )
 

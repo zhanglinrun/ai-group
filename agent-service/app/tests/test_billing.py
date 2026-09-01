@@ -5,13 +5,12 @@ from service.billing import (
     QuotaExhaustedError,
     allocate_actual_across_slices,
     charge_micro_points,
-    default_reservation_amount,
     freeze_slices_from_mapping,
     reservation_amount_for_tier,
     resolve_reservation_amount,
     _member_data,
 )
-from security.identity import bind_internal_jwt
+from security.identity import IdentityContext, bind_internal_jwt
 
 
 def test_charge_uses_exact_input_and_output_token_rates() -> None:
@@ -25,16 +24,12 @@ def test_missing_usage_is_not_charged() -> None:
     assert charge_micro_points(0, 0) == 0
 
 
-def test_reservation_amount_is_bounded() -> None:
-    assert default_reservation_amount(None) == 1_000_000
-    assert default_reservation_amount(2_000_000_000) == 100_000_000
-
-
 def test_reservation_amount_follows_report_depth() -> None:
     assert reservation_amount_for_tier("debug") == 300_000
     assert reservation_amount_for_tier("quick") == 1_000_000
     assert reservation_amount_for_tier("deep") == 2_000_000
     assert resolve_reservation_amount(report_depth="quick", requested=50_000) == 50_000
+    assert resolve_reservation_amount(report_depth="quick", requested=2_000_000_000) == 100_000_000
     assert resolve_reservation_amount(report_depth="deep") == 2_000_000
 
 
@@ -78,6 +73,25 @@ def test_member_headers_stay_token_only_without_jwt(monkeypatch) -> None:
     bind_internal_jwt(None)
     headers = MemberQuotaClient()._headers()
     assert headers == {"X-Internal-Token": "internal-token"}
+
+
+def test_member_headers_refresh_expired_run_identity_jwt(monkeypatch) -> None:
+    monkeypatch.setattr("service.billing.settings.INTERNAL_TOKEN", "internal-token")
+    monkeypatch.setattr("service.billing.settings.IDENTITY_SIGNING_SECRET", "identity-secret")
+    monkeypatch.setattr("service.billing.settings.IDENTITY_JWT_ISSUER", "ai-group-gateway")
+    monkeypatch.setattr("service.billing.settings.IDENTITY_JWT_AUDIENCE", "ai-group-internal")
+    from security import identity as identity_module
+
+    identity_module._identity_ctx.set(IdentityContext(user_id=42, username="alice", role="USER"))
+    bind_internal_jwt("expired-request-jwt")
+    try:
+        headers = MemberQuotaClient()._headers()
+        assert headers["X-Internal-Token"] == "internal-token"
+        assert headers["X-Internal-Jwt"] != "expired-request-jwt"
+        assert headers["X-Internal-Jwt"].count(".") == 2
+    finally:
+        identity_module._identity_ctx.set(None)
+        bind_internal_jwt(None)
 
 
 def test_member_quota_insufficient_code_raises() -> None:

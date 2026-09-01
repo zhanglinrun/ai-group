@@ -10,7 +10,7 @@ import hashlib
 import json
 from pathlib import Path
 import re
-from typing import Any, Awaitable, Literal
+from typing import Any, Literal
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, Header, Query, Request
@@ -35,7 +35,6 @@ from models.llm_call import LLMCall
 from models.report import Report
 from models.run import Run
 from models.run_create_request import RunCreateRequestRecord
-from models.skill_candidate import SkillCandidateRecord
 from models.step import Step
 from models.supervisor_decision import SupervisorDecisionRecord
 from models.watchlist import WatchlistItem
@@ -64,7 +63,12 @@ from security.identity import get_identity, require_identity
 from service.knowledge import load_knowledge_for_run
 from service.locale import resolve_report_language
 from service.metrics import RunMetricsSnapshot, build_run_metrics_snapshot, load_run_metrics_snapshot
-from service.skill_curator.tasks import run_skill_curator_for_run
+from service.observability import (
+    langsmith_tracing_context,
+    langsmith_client_for_source,
+    trace_metadata_from_state,
+    traceable_graph_call,
+)
 from service.run_status_reason import (
     DEFAULT_CANCELLED_REASON,
     DEFAULT_DEGRADED_REASON,
@@ -80,6 +84,11 @@ router = APIRouter(dependencies=[Depends(require_identity)])
 log = get_logger("router.run_rt")
 
 _RUN_PROGRESS_INTERVAL_SECONDS = 180
+
+
+def _trace_source(request: Request) -> str:
+    value = request.headers.get("X-Agent-Source", "ui").strip().lower()
+    return value if value in {"ui", "eval", "api"} else "ui"
 
 
 def _resolve_run_report_depth(run: Run | None) -> str | None:
@@ -105,7 +114,7 @@ async def _run_graph_with_progress_heartbeat(
     phase: str,
     graph: Any,
     config: dict[str, object],
-    invoke_coro: Awaitable[Any],
+    graph_input: object,
 ) -> Any:
     """Emit structlog heartbeats while a long graph.ainvoke is in flight."""
     started_at = datetime.now(timezone.utc)
@@ -134,8 +143,61 @@ async def _run_graph_with_progress_heartbeat(
                 )
 
     heartbeat_task = asyncio.create_task(_heartbeat_loop(), name=f"run_progress_{run_id}")
+    trace_metadata: dict[str, object] = {"run_id": run_id, "phase": phase}
+    if isinstance(graph_input, dict):
+        trace_metadata.update(trace_metadata_from_state(graph_input))
+    else:
+        # Resume/reset commands do not carry the full state in their input. Read
+        # the checkpoint first so source=eval survives every interrupt/resume.
+        # The Run row intentionally does not persist this diagnostic-only field.
+        checkpoint_metadata_loaded = False
+        try:
+            snapshot = await graph.aget_state(config)
+            if isinstance(snapshot.values, dict) and snapshot.values:
+                trace_metadata.update(trace_metadata_from_state(snapshot.values))
+                checkpoint_metadata_loaded = True
+        except Exception as exc:  # pragma: no cover - diagnostics must not block runs
+            log.debug("langsmith.checkpoint_metadata.lookup_failed", run_id=run_id, error=str(exc)[:200])
+
+        # Legacy checkpoints may not contain values; retain the Run-row fallback
+        # for mode/depth metadata in that case.
+        try:
+            if not checkpoint_metadata_loaded:
+                async with get_session_factory()() as session:
+                    run = await session.get(Run, run_id)
+                if run is not None:
+                    trace_metadata.update(
+                        trace_metadata_from_state(
+                            {
+                                "run_id": run_id,
+                                "user_query": run.user_query,
+                                "domain_hint": run.domain_hint,
+                                "intake_draft": run.intake_draft or {},
+                            }
+                        )
+                    )
+        except Exception as exc:  # pragma: no cover - diagnostics must not block runs
+            log.debug("langsmith.trace_metadata.lookup_failed", run_id=run_id, error=str(exc)[:200])
+    trace_tags = ["ai-group", "agent", "langgraph", phase]
+    if isinstance(trace_metadata.get("research_mode"), str):
+        trace_tags.append(str(trace_metadata["research_mode"]))
     try:
-        return await invoke_coro
+        with langsmith_tracing_context():
+            return await traceable_graph_call(
+                graph=graph,
+                graph_input=graph_input,
+                config=config,
+                metadata=trace_metadata,
+                langsmith_extra={
+                    "metadata": trace_metadata,
+                    "tags": trace_tags,
+                    "client": langsmith_client_for_source(
+                        trace_metadata.get("source")
+                        if isinstance(trace_metadata.get("source"), str)
+                        else None
+                    ),
+                },
+            )
     finally:
         stop_event.set()
         heartbeat_task.cancel()
@@ -144,9 +206,11 @@ async def _run_graph_with_progress_heartbeat(
 
 ResetToStage = Literal["analyst", "writer"]
 RESETTABLE_RUN_STATUS = {"completed", "degraded"}
+RESUMABLE_RUN_STATUS = {"running", "paused", "failed"}
+BACKGROUND_RESUMABLE_RUN_STATUS = {"paused", "failed"}
 RESET_STAGE_AGENT_NAMES: dict[ResetToStage, tuple[str, ...]] = {
-    "writer": ("writer", "qa", "skill_curator"),
-    "analyst": ("analyst", "writer", "qa", "skill_curator"),
+    "writer": ("writer", "qa"),
+    "analyst": ("analyst", "writer", "qa"),
 }
 RESET_STAGE_DECISION_TOOLS: dict[ResetToStage, tuple[str, ...]] = {
     "writer": ("Write", "Finalize"),
@@ -156,10 +220,12 @@ RESET_STAGE_DECISION_TOOLS: dict[ResetToStage, tuple[str, ...]] = {
 
 class RunCreateRequest(BaseModel):
     user_query: str = Field(min_length=1)
+    research_mode: Literal["academic", "technical", "commercial", "general"] | None = None
     competitors: list[str] = Field(default_factory=list)
     domain_hint: str | None = None
     reference_urls: list[str] | None = None
     target_roles: list[str] = Field(default_factory=list)
+    focus_dimensions: list[str] = Field(default_factory=list)
     report_depth: Literal["debug", "quick", "deep"] = "quick"
     response_language: Literal["zh", "en"] | None = None
     self_product: str | None = None
@@ -209,12 +275,13 @@ class RunCreateResponse(BaseModel):
 class IntakeCreateRequest(BaseModel):
     """Body for POST /api/runs/intake.
 
-    Chat mode (default): only `user_query` (+ optional `user_role`) is expected; the
-    Agent clarifies the rest. Expert mode (`?mode=expert`): the caller pre-fills the
-    full draft and the Agent skips clarification.
+    The Agent conversation is the only supported intake path. Callers may provide
+    optional structured context, but the graph remains responsible for clarifying
+    missing intent before it creates and waits for a plan confirmation.
     """
 
     user_query: str
+    research_mode: Literal["academic", "technical", "commercial", "general"] | None = None
     user_role: UserRole | None = None
     domain_hint: str | None = None
     reference_urls: list[str] | None = None
@@ -488,8 +555,6 @@ class RunMetricsResponse(BaseModel):
     llm_latency_p50_ms: int | None
     llm_provider_error_count: int
     llm_retry_total: int
-    manual_review_rate: float
-    manual_review_is_proxy: bool
     run_wall_clock_seconds: int | None
     evidence_floor_count: int = 0
     non_floor_grounded_count: int = 0
@@ -930,9 +995,7 @@ def _cancel_background_tasks_for_run(
     """Cancel any in-flight graph tasks bound to this run.
 
     Tasks are named with the run_id suffix on creation (see `name=f"..._{run_id}"`
-    in this module). We don't cancel the skill_curator follow-up — it only fires
-    on terminal completion, so a cancel during execution means there's no curator
-    task to chase yet. CancelledError propagates back through the outer boundary
+    in this module). CancelledError propagates back through the outer boundary
     (`_mark_run_failed_and_emit`), which would normally flip the row to failed;
     PATCH /runs caller flips it to "cancelled" first so the user's intent wins.
     """
@@ -1544,14 +1607,13 @@ async def _execute_run_graph(
     run_id: str,
     graph: Any,
     graph_input: object,
-    domain_hint: str | None,
     recursion_limit: int,
     background_tasks: set[asyncio.Task[object]],
 ) -> None:
     """Run the supervisor graph to completion off the request path (Phase 0b async).
 
-    Mirrors the skill-curator background-task pattern: catch the boundary error
-    families, persist terminal status, emit run.finish, and return. Unknown errors
+    Catch the boundary error families, persist terminal status, emit run.finish,
+    and return. Unknown errors
     propagate to asyncio so they remain visible instead of being silently hidden.
     """
     session_factory = get_session_factory()
@@ -1563,7 +1625,7 @@ async def _execute_run_graph(
                 phase="execute",
                 graph=graph,
                 config=config,
-                invoke_coro=graph.ainvoke(graph_input, config=config),
+                graph_input=graph_input,
             )
         except asyncio.CancelledError:
             await _handle_graph_cancelled(
@@ -1602,12 +1664,6 @@ async def _execute_run_graph(
         )
         background_tasks.add(diff_task)
         diff_task.add_done_callback(background_tasks.discard)
-        curator_task = asyncio.create_task(
-            run_skill_curator_for_run(run_id=run_id, domain_hint=domain_hint),
-            name=f"skill_curator_{run_id}",
-        )
-        background_tasks.add(curator_task)
-        curator_task.add_done_callback(background_tasks.discard)
         log.info("api.run.execute.finish", status=final_status)
 
 
@@ -1705,23 +1761,12 @@ async def _log_run_summary(*, run_id: str, status: str) -> None:
                     .order_by(Report.created_at.asc())
                 )
             ).scalars().all()
-            candidate_rows = (
-                await session.execute(select(SkillCandidateRecord))
-            ).scalars().all()
-            candidate_rows = [
-                row
-                for row in candidate_rows
-                if run_id
-                in (row.supporting_run_ids if isinstance(row.supporting_run_ids, list) else [])
-            ]
-
         snapshot = build_run_metrics_snapshot(
             run=run,
             evidence_rows=list(evidence_rows),
             step_rows=list(step_rows),
             llm_rows=list(llm_rows),
             decision_rows=list(decision_rows),
-            candidate_rows=list(candidate_rows),
             report_rows=list(report_rows),
         )
         log.info(
@@ -1776,12 +1821,13 @@ async def create_run(payload: RunCreateRequest, request: Request) -> RunCreateRe
         )
         direct_intake_draft = RunIntakeDraft(
             user_query=payload.user_query,
+            research_mode=payload.research_mode,
             user_role=direct_user_role,
             analysis_intent=payload.user_query,
             competitors_explicit=normalized_competitors,
             competitors_discovery_mode=not normalized_competitors,
             domain_hint=payload.domain_hint,
-            focus_dimensions=list(DEFAULT_FOCUS_DIMENSIONS),
+            focus_dimensions=list(payload.focus_dimensions or DEFAULT_FOCUS_DIMENSIONS),
             report_depth=payload.report_depth,
             reference_urls=normalized_reference_urls,
             self_product=payload.self_product,
@@ -1817,6 +1863,7 @@ async def create_run(payload: RunCreateRequest, request: Request) -> RunCreateRe
 
         initial_state: dict[str, object] = {
             "run_id": run_id,
+            "source": _trace_source(request),
             "owner_user_id": identity.user_id,
             "domain_hint": payload.domain_hint,
             "market_scope": direct_intake_draft.market_scope,
@@ -1849,7 +1896,6 @@ async def create_run(payload: RunCreateRequest, request: Request) -> RunCreateRe
                 run_id=run_id,
                 graph=graph,
                 graph_input=initial_state,
-                domain_hint=payload.domain_hint,
                 recursion_limit=int(execution_config["recursion_limit"]),
                 background_tasks=background_tasks,
             ),
@@ -1866,16 +1912,8 @@ async def create_run(payload: RunCreateRequest, request: Request) -> RunCreateRe
     )
 
 
-# --- Phase 1b Agent-native intake (chat mode). Expert mode and plan/confirm
-# are intentionally NOT implemented yet — see Phase 2 in the plan doc. ---
-
-
-def _extract_first_interrupt_value(snapshot: Any) -> Any:
-    """Canonical interrupt-payload extraction for langgraph 0.2.50 (Invariant D)."""
-    for task in snapshot.tasks:
-        if task.interrupts:
-            return task.interrupts[0].value
-    return None
+# --- Agent-native intake and plan-confirm flow. The conversation path is the
+# only supported entry; legacy POST /api/runs remains for API compatibility. ---
 
 
 def _coerce_intake_draft_from_state(state_values: dict[str, object]) -> RunIntakeDraft | None:
@@ -1911,6 +1949,7 @@ def _intake_request_fingerprint(payload: IntakeCreateRequest) -> str:
     """Stable hash for idempotency conflict detection (same key, different body)."""
     canonical: dict[str, object] = {
         "user_query": payload.user_query.strip(),
+        "research_mode": payload.research_mode,
         "user_role": payload.user_role,
         "domain_hint": payload.domain_hint,
         "reference_urls": list(payload.reference_urls or []),
@@ -1956,10 +1995,8 @@ async def _start_intake_graph_in_background(
     run_id: str,
     graph: Any,
     initial_state: dict[str, object],
-    domain_hint: str | None,
     recursion_limit: int,
     idempotency_key: str,
-    background_tasks: set[asyncio.Task[object]],
     accepted_at: datetime,
 ) -> None:
     """Start intake graph from scratch in background for async create contract."""
@@ -1972,7 +2009,7 @@ async def _start_intake_graph_in_background(
                 phase="intake_create",
                 graph=graph,
                 config=config,
-                invoke_coro=graph.ainvoke(initial_state, config=config),
+                graph_input=initial_state,
             )
             snapshot = await graph.aget_state(config)
         except asyncio.CancelledError:
@@ -2038,28 +2075,19 @@ async def _start_intake_graph_in_background(
                 status_reason=status_reason,
             ),
         )
-        curator_task = asyncio.create_task(
-            run_skill_curator_for_run(run_id=run_id, domain_hint=domain_hint),
-            name=f"skill_curator_{run_id}",
-        )
-        background_tasks.add(curator_task)
-        curator_task.add_done_callback(background_tasks.discard)
-
 
 async def _resume_plan_graph_in_background(
     *,
     run_id: str,
     graph: Any,
     resume_payload: dict[str, object],
-    domain_hint: str | None,
     recursion_limit: int,
-    background_tasks: set[asyncio.Task[object]],
 ) -> None:
     """Resume the planner-paused graph after the user confirms the plan.
 
     After planner_wait returns, the graph proceeds to the supervisor and the
     rest of the executor. Terminal handling mirrors `_execute_run_graph`
-    (status update, RUN_FINISH event, skill curator follow-up).
+    (status update and RUN_FINISH event).
     """
     session_factory = get_session_factory()
     config = {"configurable": {"thread_id": run_id}, "recursion_limit": recursion_limit}
@@ -2070,7 +2098,7 @@ async def _resume_plan_graph_in_background(
                 phase="plan_resume",
                 graph=graph,
                 config=config,
-                invoke_coro=graph.ainvoke(Command(resume=resume_payload), config=config),
+                graph_input=Command(resume=resume_payload),
             )
         except asyncio.CancelledError:
             await _handle_graph_cancelled(
@@ -2100,12 +2128,6 @@ async def _resume_plan_graph_in_background(
                 status_reason=status_reason,
             ),
         )
-        curator_task = asyncio.create_task(
-            run_skill_curator_for_run(run_id=run_id, domain_hint=domain_hint),
-            name=f"skill_curator_{run_id}",
-        )
-        background_tasks.add(curator_task)
-        curator_task.add_done_callback(background_tasks.discard)
         log.info("api.run.plan.resume.finish", status=final_status)
 
 
@@ -2114,9 +2136,7 @@ async def _resume_intake_graph_in_background(
     run_id: str,
     graph: Any,
     resume_payload: dict[str, object],
-    domain_hint: str | None,
     recursion_limit: int,
-    background_tasks: set[asyncio.Task[object]],
 ) -> None:
     """Resume the intake-paused graph; either pause again or run to END.
 
@@ -2124,8 +2144,7 @@ async def _resume_intake_graph_in_background(
       - paused again (more clarification needed): intake_generate already emitted
         INTAKE_CLARIFY_REQUEST inside the graph, so this background path only
         updates the Run row's intake_draft snapshot.
-      - reached END: same finalization as `_execute_run_graph` (status, RUN_FINISH,
-        skill curator follow-up).
+      - reached END: same finalization as `_execute_run_graph` (status and RUN_FINISH).
     """
     session_factory = get_session_factory()
     config = {"configurable": {"thread_id": run_id}, "recursion_limit": recursion_limit}
@@ -2136,7 +2155,7 @@ async def _resume_intake_graph_in_background(
                 phase="intake_resume",
                 graph=graph,
                 config=config,
-                invoke_coro=graph.ainvoke(Command(resume=resume_payload), config=config),
+                graph_input=Command(resume=resume_payload),
             )
             snapshot = await graph.aget_state(config)
         except asyncio.CancelledError:
@@ -2176,12 +2195,6 @@ async def _resume_intake_graph_in_background(
                 status_reason=status_reason,
             ),
         )
-        curator_task = asyncio.create_task(
-            run_skill_curator_for_run(run_id=run_id, domain_hint=domain_hint),
-            name=f"skill_curator_{run_id}",
-        )
-        background_tasks.add(curator_task)
-        curator_task.add_done_callback(background_tasks.discard)
         log.info("api.run.intake.resume.finish", status=final_status)
 
 
@@ -2189,7 +2202,6 @@ async def _resume_intake_graph_in_background(
 async def create_run_intake(
     payload: IntakeCreateRequest,
     request: Request,
-    mode: Literal["chat", "expert"] = Query(default="chat"),
     idempotency_key_header: str | None = Header(default=None, alias="Idempotency-Key"),
 ) -> IntakeCreateResponse:
     """Async intake creation: accept quickly, run graph in background.
@@ -2199,13 +2211,6 @@ async def create_run_intake(
     - retries / double-clicks should replay idempotently;
     - graph failures are surfaced via events + terminal run status.
     """
-    if mode == "expert":
-        raise APIException(
-            status_code=422,
-            error_code="EXPERT_MODE_NOT_AVAILABLE",
-            message="Expert mode requires the planner node; available from Phase 2.",
-        )
-
     graph = getattr(request.app.state, "compiled_graph", None)
     if graph is None:
         raise APIException(
@@ -2296,11 +2301,14 @@ async def create_run_intake(
     )
     inherited_user_role = (
         inherited_user_role_raw
-        if inherited_user_role_raw in {"pm", "founder", "sales", "investor"}
+        if inherited_user_role_raw
+        in {"researcher", "engineer", "pm", "founder", "sales", "investor"}
         else None
     )
     initial_draft = RunIntakeDraft(
         user_query=payload.user_query,
+        research_mode=payload.research_mode
+        or (inherited_draft_raw.get("research_mode") if isinstance(inherited_draft_raw, dict) else None),
         user_role=payload.user_role or inherited_user_role,
         domain_hint=_pick_non_empty_string(
             payload.domain_hint,
@@ -2474,6 +2482,7 @@ async def create_run_intake(
 
         initial_state: dict[str, object] = {
             "run_id": run_id,
+            "source": _trace_source(request),
             "owner_user_id": identity.user_id,
             "user_query": payload.user_query,
             "domain_hint": initial_draft.domain_hint,
@@ -2510,10 +2519,8 @@ async def create_run_intake(
                 run_id=run_id,
                 graph=graph,
                 initial_state=initial_state,
-                domain_hint=payload.domain_hint,
                 recursion_limit=int(intake_config["recursion_limit"]),
                 idempotency_key=idempotency_key,
-                background_tasks=background_tasks,
                 accepted_at=accepted_at,
             ),
             name=f"intake_create_{run_id}",
@@ -2581,7 +2588,6 @@ async def reply_run_intake(
                     error_code="RUN_NOT_RESUMABLE",
                     message=f"run status={run.status} is not resumable",
                 )
-            domain_hint = run.domain_hint
             report_depth = _resolve_run_report_depth(run)
 
         # Verify the graph is paused at a reply-compatible node. We reuse the
@@ -2607,9 +2613,7 @@ async def reply_run_intake(
                 run_id=run_id,
                 graph=graph,
                 resume_payload=resume_payload,
-                domain_hint=domain_hint,
                 recursion_limit=int(intake_resume_config["recursion_limit"]),
-                background_tasks=background_tasks,
             ),
             name=f"intake_resume_{run_id}",
         )
@@ -2668,7 +2672,6 @@ async def confirm_run_plan(
                     error_code="RUN_NOT_RESUMABLE",
                     message=f"run status={run.status} is not resumable",
                 )
-            domain_hint = run.domain_hint
             report_depth = _resolve_run_report_depth(run)
 
         # Verify the graph is actually paused at planner_wait. Resuming from a
@@ -2695,9 +2698,7 @@ async def confirm_run_plan(
                 run_id=run_id,
                 graph=graph,
                 resume_payload=resume_payload,
-                domain_hint=domain_hint,
                 recursion_limit=int(plan_resume_config["recursion_limit"]),
-                background_tasks=background_tasks,
             ),
             name=f"plan_resume_{run_id}",
         )
@@ -2842,7 +2843,7 @@ async def resume_run(run_id: str, request: Request) -> RunCreateResponse:
                     error_code="RUN_NOT_FOUND",
                     message=f"run_id={run_id} does not exist",
                 )
-            if run.status not in {"running", "paused"}:
+            if run.status not in RESUMABLE_RUN_STATUS:
                 raise APIException(
                     status_code=409,
                     error_code="RUN_NOT_RESUMABLE",
@@ -2850,8 +2851,7 @@ async def resume_run(run_id: str, request: Request) -> RunCreateResponse:
                 )
             report_depth = _resolve_run_report_depth(run)
             owner_user_id = int(run.owner_user_id or 0)
-            domain_hint = run.domain_hint
-            was_paused = run.status == "paused"
+            resume_from_status = run.status
 
         graph = getattr(request.app.state, "compiled_graph", None)
         if graph is None:
@@ -2860,7 +2860,15 @@ async def resume_run(run_id: str, request: Request) -> RunCreateResponse:
                 error_code="GRAPH_NOT_INITIALIZED",
                 message="Compiled LangGraph instance is not initialized.",
             )
-        if was_paused:
+        if resume_from_status in BACKGROUND_RESUMABLE_RUN_STATUS:
+            config = _graph_invoke_config(run_id=run_id, report_depth=report_depth)
+            state_snapshot = await graph.aget_state(config)
+            if not _has_checkpoint_state(state_snapshot.values):
+                raise APIException(
+                    status_code=409,
+                    error_code="RUN_CHECKPOINT_NOT_FOUND",
+                    message=f"run_id={run_id} has no checkpoint state to resume from",
+                )
             try:
                 available = await quota_client.available_micro_points(user_id=owner_user_id)
             except Exception:
@@ -2880,30 +2888,30 @@ async def resume_run(run_id: str, request: Request) -> RunCreateResponse:
                 )
             async with session_factory() as session:
                 run = await session.get(Run, run_id)
-                if run is None or run.status != "paused":
+                if run is None or run.status != resume_from_status:
                     raise APIException(
                         status_code=409,
                         error_code="RUN_NOT_RESUMABLE",
-                        message=f"run_id={run_id} is no longer paused",
+                        message=(
+                            f"run_id={run_id} is no longer {resume_from_status}"
+                        ),
                     )
                 run.status = "running"
                 run.status_reason = None
                 run.finished_at = None
                 await session.commit()
-            execution_config = _graph_invoke_config(run_id=run_id, report_depth=report_depth)
             task = asyncio.create_task(
                 _execute_run_graph(
                     run_id=run_id,
                     graph=graph,
                     graph_input=None,
-                    domain_hint=domain_hint,
-                    recursion_limit=int(execution_config["recursion_limit"]),
+                    recursion_limit=int(config["recursion_limit"]),
                     background_tasks=background_tasks,
                 ),
                 name=f"run_graph_{run_id}",
             )
             _register_background_task(request, task)
-            log.info("api.run.resume.accepted", from_status="paused")
+            log.info("api.run.resume.accepted", from_status=resume_from_status)
             return RunCreateResponse(
                 run_id=run_id,
                 status="running",
@@ -2911,7 +2919,26 @@ async def resume_run(run_id: str, request: Request) -> RunCreateResponse:
             )
 
         config = _graph_invoke_config(run_id=run_id, report_depth=report_depth)
-        graph_state = await graph.ainvoke(None, config=config)
+        resume_trace_metadata = trace_metadata_from_state(
+            {
+                "run_id": run_id,
+                "user_query": run.user_query,
+                "domain_hint": run.domain_hint,
+                "intake_draft": run.intake_draft or {},
+                "source": _trace_source(request),
+            }
+        )
+        with langsmith_tracing_context():
+            graph_state = await traceable_graph_call(
+                graph=graph,
+                graph_input=None,
+                config=config,
+                metadata=resume_trace_metadata,
+                langsmith_extra={
+                    "metadata": {**resume_trace_metadata, "phase": "resume"},
+                    "tags": ["ai-group", "agent", "langgraph", "resume"],
+                },
+            )
 
         async with session_factory() as session:
             run = await session.get(Run, run_id)
@@ -2921,7 +2948,6 @@ async def resume_run(run_id: str, request: Request) -> RunCreateResponse:
                     error_code="RUN_NOT_FOUND",
                     message=f"run_id={run_id} should exist before resume update",
                 )
-            run_domain_hint = run.domain_hint
             final_status = _apply_graph_terminal_run_fields(run, graph_state)
             status_reason = run.status_reason
             await session.commit()
@@ -2934,11 +2960,6 @@ async def resume_run(run_id: str, request: Request) -> RunCreateResponse:
                 status_reason=status_reason,
             ),
         )
-        task = asyncio.create_task(
-            run_skill_curator_for_run(run_id=run_id, domain_hint=run_domain_hint),
-            name=f"skill_curator_{run_id}",
-        )
-        _register_background_task(request, task)
         log.info("api.run.resume.finish", status=final_status)
 
     return RunCreateResponse(
@@ -2967,7 +2988,6 @@ async def reset_run(run_id: str, payload: RunResetRequest, request: Request) -> 
                     error_code="RUN_NOT_RESETTABLE",
                     message=f"run_id={run_id} status={run.status} cannot reset",
                 )
-            run_domain_hint = run.domain_hint
             report_depth = _resolve_run_report_depth(run)
 
         graph = getattr(request.app.state, "compiled_graph", None)
@@ -3002,7 +3022,26 @@ async def reset_run(run_id: str, payload: RunResetRequest, request: Request) -> 
 
         reset_values = _build_reset_state_values(reset_to=payload.reset_to)
         await graph.aupdate_state(config, reset_values, as_node="supervisor")
-        graph_state = await graph.ainvoke(None, config=config)
+        reset_trace_metadata = trace_metadata_from_state(
+            {
+                "run_id": run_id,
+                "user_query": run.user_query,
+                "domain_hint": run.domain_hint,
+                "intake_draft": run.intake_draft or {},
+                "source": _trace_source(request),
+            }
+        )
+        with langsmith_tracing_context():
+            graph_state = await traceable_graph_call(
+                graph=graph,
+                graph_input=None,
+                config=config,
+                metadata=reset_trace_metadata,
+                langsmith_extra={
+                    "metadata": {**reset_trace_metadata, "phase": "reset"},
+                    "tags": ["ai-group", "agent", "langgraph", "reset"],
+                },
+            )
 
         async with session_factory() as session:
             run = await session.get(Run, run_id)
@@ -3021,11 +3060,6 @@ async def reset_run(run_id: str, payload: RunResetRequest, request: Request) -> 
             event_type=RunEventType.RUN_FINISH,
             payload=_build_run_finish_payload(run_id=run_id, status=run.status),
         )
-        task = asyncio.create_task(
-            run_skill_curator_for_run(run_id=run_id, domain_hint=run_domain_hint),
-            name=f"skill_curator_{run_id}",
-        )
-        _register_background_task(request, task)
         log.info("api.run.reset.finish", reset_to=payload.reset_to, status=run.status)
 
     return RunCreateResponse(
@@ -3117,6 +3151,14 @@ async def get_run_intake_session(run_id: str, request: Request) -> IntakeSession
         )
     snapshot = await graph.aget_state({"configurable": {"thread_id": run_id}})
     values: dict[str, object] = snapshot.values or {}
+
+    # A structurally complete draft may still be waiting on one optional
+    # clarification. The graph checkpoint is authoritative for session resume;
+    # deriving phase from draft fields alone would disable that pending question.
+    if snapshot.next == ("intake_wait",):
+        phase = "intake"
+    elif snapshot.next == ("planning_profile_wait",):
+        phase = "planning"
 
     draft = _coerce_intake_draft_from_state(values) or db_draft
 
@@ -3210,28 +3252,6 @@ class ClearRunsResponse(BaseModel):
     deleted_run_ids: list[str]
     skipped_running_count: int
     skipped_unsettled_count: int = 0
-    pruned_skill_candidate_refs: int
-
-
-async def _prune_supporting_run_refs(
-    *,
-    session: Any,
-    deleted_run_ids: set[str],
-) -> int:
-    if not deleted_run_ids:
-        return 0
-    candidates = (await session.execute(select(SkillCandidateRecord))).scalars().all()
-    pruned_refs = 0
-    for candidate in candidates:
-        kept_ids: list[str] = []
-        for run_id in candidate.supporting_run_ids:
-            if run_id in deleted_run_ids:
-                pruned_refs += 1
-                continue
-            kept_ids.append(run_id)
-        if len(kept_ids) != len(candidate.supporting_run_ids):
-            candidate.supporting_run_ids = kept_ids
-    return pruned_refs
 
 
 async def _ensure_settled_for_delete(*, run_id: str, status: str, billing_status: str) -> None:
@@ -3416,11 +3436,6 @@ async def clear_runs(payload: ClearRunsRequest) -> ClearRunsResponse:
         run_ids_to_delete.append(run_id)
 
     async with session_factory() as session:
-        deleted_run_ids_set = set(run_ids_to_delete)
-        pruned_skill_candidate_refs = await _prune_supporting_run_refs(
-            session=session,
-            deleted_run_ids=deleted_run_ids_set,
-        )
         if run_ids_to_delete:
             await session.execute(delete(Run).where(Run.run_id.in_(run_ids_to_delete)))
         await session.commit()
@@ -3429,7 +3444,6 @@ async def clear_runs(payload: ClearRunsRequest) -> ClearRunsResponse:
         deleted_run_ids=run_ids_to_delete,
         skipped_running_count=skipped_running_count,
         skipped_unsettled_count=skipped_unsettled_count,
-        pruned_skill_candidate_refs=pruned_skill_candidate_refs,
     )
 
 
@@ -4195,8 +4209,8 @@ async def get_run_metrics(run_id: str) -> RunMetricsResponse:
     """
     Runtime business-loop metrics for scoring and demo checkpoints.
 
-    manual_review_rate is a proxy metric based on reviewed skill candidates
-    linked to this run, not direct evaluator edits on report content.
+    Quality metrics are computed from persisted research, QA, and LLM records.
+    Detailed evaluator scores are published by LangSmith evaluation runs.
     """
 
     session_factory = get_session_factory()

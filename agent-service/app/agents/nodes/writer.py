@@ -2249,7 +2249,8 @@ def _build_fallback_report(
         "sections": sections,
         "risk_callouts": _stable_unique(
             [
-                *(risk_flags or ["writer_fallback_mode"]),
+                "writer_fallback_mode",
+                *risk_flags,
                 *(f"uncovered_section:{section_id}" for section_id in uncovered_sections),
             ]
         ),
@@ -2466,6 +2467,7 @@ async def writer_node(state: AgentState) -> AgentState:
         analyst_output=analyst_output,
         allowed_evidence_ids=allowed_evidence_ids,
         allowed_insight_ids=allowed_insight_ids,
+        research_mode=intake_draft.research_mode,
     )
     target_sections = execution_context.target_sections
     report_depth = _report_depth_from_state(state)
@@ -2762,7 +2764,13 @@ async def deepen_node(state: AgentState) -> AgentState:
         },
     )
 
-    if not settings.WRITER_SECTION_DEEPENING_ENABLED:
+    report_depth = _report_depth_from_state(state)
+    if not settings.WRITER_SECTION_DEEPENING_ENABLED or report_depth == "quick":
+        skipped_reason = (
+            "quick_report_skips_section_deepening"
+            if report_depth == "quick"
+            else "writer_section_deepening_disabled"
+        )
         async with session_factory() as session:
             session.add(
                 Step(
@@ -2773,7 +2781,8 @@ async def deepen_node(state: AgentState) -> AgentState:
                     retry_count=0,
                     payload={
                         "deepen_enabled": False,
-                        "skipped_reason": "writer_section_deepening_disabled",
+                        "skipped_reason": skipped_reason,
+                        "report_depth": report_depth,
                         "deepened_sections": [],
                         "deepen_attempts": 0,
                     },
@@ -2794,7 +2803,6 @@ async def deepen_node(state: AgentState) -> AgentState:
         return {"status": "running"}
 
     intake_draft = coerce_intake_draft_or_default(state)
-    report_depth = _report_depth_from_state(state)
     evidence_rows, analyst_output, knowledge_payload = await _load_writer_inputs(
         session_factory=session_factory,
         run_id=run_id,

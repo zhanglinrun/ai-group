@@ -4,7 +4,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-AgentName = Literal["supervisor", "researcher", "analyst", "writer", "qa", "skill_curator"]
+AgentName = Literal["supervisor", "researcher", "analyst", "writer", "qa"]
 AgentMessageStatus = Literal[
     "pending",
     "running",

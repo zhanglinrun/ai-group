@@ -7,6 +7,7 @@
 # 端口：
 #   Elasticsearch 9200 | Logstash 4560 | Kibana 5601
 #   Prometheus 9090    | Grafana 3000  | Grafana MCP 8000
+#   SkyWalking OAP 11800/12800 | SkyWalking UI 8088
 
 name: ai-group-observability
 
@@ -123,6 +124,54 @@ services:
       - observability
     depends_on:
       - grafana
+
+  # APM: Java agents report here when SKYWALKING_OPTS_* is set on business services.
+  # Uses the same Elasticsearch as ELK (SW 9.7 + ES 7.17).
+  skywalking-oap:
+    image: apache/skywalking-oap-server:9.7.0
+    container_name: ai-group-skywalking-oap
+    restart: unless-stopped
+    environment:
+      SW_STORAGE: elasticsearch
+      SW_STORAGE_ES_CLUSTER_NODES: elasticsearch:9200
+      SW_HEALTH_CHECKER: default
+      SW_TELEMETRY: prometheus
+      TZ: Asia/Shanghai
+    ports:
+      - "${SKYWALKING_OAP_GRPC_PORT:-11800}:11800"
+      - "${SKYWALKING_OAP_HTTP_PORT:-12800}:12800"
+    networks:
+      - observability
+      - app
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "bash",
+          "-c",
+          "curl -sf http://localhost:12800/internal/l7check || curl -sf http://localhost:12800/healthcheck || exit 1",
+        ]
+      interval: 20s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+
+  skywalking-ui:
+    image: apache/skywalking-ui:9.7.0
+    container_name: ai-group-skywalking-ui
+    restart: unless-stopped
+    environment:
+      SW_OAP_ADDRESS: http://skywalking-oap:12800
+      TZ: Asia/Shanghai
+    ports:
+      - "${SKYWALKING_UI_PUBLISH_PORT:-8088}:8080"
+    networks:
+      - observability
+    depends_on:
+      - skywalking-oap
 
 networks:
   observability:

@@ -42,13 +42,13 @@ import type {
   UserRole,
 } from "@/api/types";
 import { CancelRunButton } from "@/components/CancelRunButton";
-import { IntakeModeSwitcher } from "@/components/intake/IntakeModeSwitcher";
 import { ReportDepthSelector } from "@/components/intake/ReportDepthSelector";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { NativeSelect } from "@/components/ui/native-select";
 import { track } from "@/lib/analytics";
+import { researchRoleLabel } from "@/lib/researchRoles";
 import { cn } from "@/lib/utils";
 import { pushToast } from "@/components/ui/toaster";
 
@@ -79,7 +79,7 @@ type ChatStatus =
   | "error";
 
 const WELCOME_TEXT =
-  "你好，我是熊博士。告诉我你想做的深度调研——可以是竞品对比，也可以是某个领域的论文综述或技术摸底。我会先对齐身份、意图和调研对象，再开始抓取证据。";
+  "你好，我是熊博士。告诉我你想做的深度调研——可以是论文与文献综述、技术路线调研，也可以是竞品或赛道分析。我会先识别调研用途、核心问题和资料范围，再开始抓取证据。";
 
 const POST_COMPLETE_DELAY_MS = 1500;
 
@@ -120,7 +120,7 @@ function reportDepthLabel(depth: ReportDepth): string {
 // Raw schema keys (market_scope, domain_hint, …) are debug-grade. Map them to
 // user-facing labels for the clarify bubble; unknown keys are hidden, not shown raw.
 const FIELD_TARGET_LABELS: Record<string, string> = {
-  user_role: "用户身份",
+  user_role: "调研用途",
   analysis_intent: "调研意图",
   competitors_explicit: "调研对象",
   competitors_discovery_mode: "调研对象",
@@ -162,7 +162,7 @@ interface ExamplePrompt {
 const ANALYSIS_PIPELINE_STEPS: Array<{ title: string; text: string }> = [
   {
     title: "澄清需求",
-    text: "Intake Agent 根据你的描述追问，补齐角色、意图与调研对象（左侧清单同步更新）",
+    text: "Intake Agent 识别学术、工程或商业调研用途，补齐核心问题与资料范围",
   },
   {
     title: "确认计划",
@@ -219,6 +219,7 @@ function newMessageId(): string {
 function emptyDraft(userQuery: string): RunIntakeDraft {
   return {
     user_query: userQuery,
+    research_mode: null,
     user_role: null,
     analysis_intent: null,
     competitors_explicit: [],
@@ -246,6 +247,13 @@ function normalizeIntakeDraft(raw: unknown, fallbackQuery: string): RunIntakeDra
   return {
     ...base,
     user_query: typeof source.user_query === "string" ? source.user_query : base.user_query,
+    research_mode:
+      source.research_mode === "academic" ||
+      source.research_mode === "technical" ||
+      source.research_mode === "commercial" ||
+      source.research_mode === "general"
+        ? source.research_mode
+        : null,
     user_role: source.user_role ?? null,
     analysis_intent: typeof source.analysis_intent === "string" ? source.analysis_intent : null,
     competitors_explicit: list(source.competitors_explicit),
@@ -321,11 +329,11 @@ function deriveChecklistRows(
   return [
     {
       id: "identity",
-      label: "用户身份",
+      label: "调研用途",
       hint:
         identitySatisfied && draft
-          ? roleLabel(draft.user_role as UserRole)
-          : "产品经理 / 创业者 / 销售 / 投资人",
+          ? researchRoleLabel(draft.user_role as UserRole)
+          : "学术研究 / 工程研发 / 产品与市场 / 投资战略",
       satisfied: identitySatisfied,
       active: !identitySatisfied && activeRowIds.has("identity"),
     },
@@ -357,21 +365,6 @@ function activeRowIdsFromFieldTargets(fieldTargets: string[]): Set<string> {
     }
   }
   return ids;
-}
-
-function roleLabel(role: UserRole): string {
-  switch (role) {
-    case "pm":
-      return "产品经理";
-    case "founder":
-      return "创业者";
-    case "sales":
-      return "销售";
-    case "investor":
-      return "投资人";
-    default:
-      return role;
-  }
 }
 
 function competitorHint(draft: RunIntakeDraft | null): string {
@@ -1154,12 +1147,11 @@ export function NewRunChatPage(): JSX.Element {
                 size="sm"
               />
             )}
-            <IntakeModeSwitcher active="chat" />
           </div>
         </div>
         <p className="text-caption text-foreground-muted">
-          告诉 Agent 你想调研什么，我会用对话帮你确认身份、意图和调研对象，再开始抓取证据。
-          竞品对比、赛道摸底、某个领域的论文综述都可以。想跳过澄清直接填表单，可以切到「专家表单」。
+          告诉 Agent 你想调研什么，我会识别论文、技术、商业或通用调研模式，确认核心问题与资料范围后开始抓取证据。
+          研究进展、技术路线、产品市场和领域综述都可以直接从对话开始。
         </p>
         {fromRunId !== null ? (
           <p className="text-xs text-primary">
@@ -1433,7 +1425,7 @@ export function NewRunChatPage(): JSX.Element {
             </CardHeader>
             <CardContent className="space-y-3 pt-0 text-xs text-foreground-muted">
               <p className="leading-relaxed text-foreground-muted">
-                Agent 会先与你对齐角色、意图和调研对象，再开始抓取证据——这样可以避免「报告生成了但方向错」的浪费。
+                Agent 会先识别调研用途、核心问题和资料范围，再开始抓取证据——这样可以避免「报告生成了但方向错」的浪费。
                 竞品只是深度调研的一种，领域论文和技术摸底同样适用。
               </p>
               <div className="space-y-2.5 border-t border-white/[0.06] pt-3">
@@ -1450,7 +1442,7 @@ export function NewRunChatPage(): JSX.Element {
                 ))}
               </div>
               <p className="border-t border-white/[0.06] pt-3 text-foreground-subtle">
-                如果你已经清楚自己要什么，可以切到右上「专家表单」一次性填完。
+                你可以直接补充研究对象、范围或关注维度，Agent 会据此继续完善计划。
               </p>
             </CardContent>
           </Card>

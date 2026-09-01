@@ -7,7 +7,12 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, ValidationIn
 from schemas.business import Feature, Persona, Pricing, UserFeedback
 from schemas.contracts import normalize_dimension_or_none, validate_dimension, validate_section_id, validate_template_id
 from schemas.ids import make_id
-from schemas.report_sections import default_outline_for_archetype, get_section_spec, is_known_section
+from schemas.report_sections import (
+    default_outline_for_archetype,
+    get_section_spec,
+    is_known_section,
+    outline_for_research_mode,
+)
 
 ConfidenceLevel = Literal["high", "medium", "low"]
 ComparisonStance = Literal["leader", "competitive", "laggard", "unknown"]
@@ -39,8 +44,22 @@ def resolve_writer_target_sections(
     recommended_sections: list[str],
     report_outline: list[OutlineItem] | None = None,
     analysis_archetype: str = "comparison",
+    research_mode: str | None = None,
 ) -> list[str]:
     """Single source of truth for writer section targets across analyst → writer."""
+    mode_outline = outline_for_research_mode(research_mode)
+    if mode_outline is not None:
+        allowed = set(mode_outline)
+        targets = list(mode_outline)
+        for section_id in [*(requested_sections or []), *recommended_sections]:
+            try:
+                canonical = validate_section_id(section_id)
+            except ValueError:
+                continue
+            if canonical in allowed:
+                targets.append(canonical)
+        return stable_unique(targets)
+
     targets: list[str] = list(default_outline_for_archetype(analysis_archetype))
     for item in report_outline or []:
         if _section_allowed_for_archetype(item.section_id, analysis_archetype):
@@ -792,6 +811,7 @@ class WriterExecutionContext(BaseModel):
         allowed_evidence_ids: set[str],
         allowed_insight_ids: set[str],
         analysis_archetype: str = "comparison",
+        research_mode: str | None = None,
         default_risk_callouts: list[str] | None = None,
     ) -> WriterExecutionContext:
         target_sections = resolve_writer_target_sections(
@@ -799,6 +819,7 @@ class WriterExecutionContext(BaseModel):
             recommended_sections=analyst_output.recommended_sections,
             report_outline=analyst_output.report_outline,
             analysis_archetype=analysis_archetype,
+            research_mode=research_mode,
         )
         return cls(
             template_id=template_id,
@@ -923,7 +944,6 @@ from schemas.agent_outputs_pipeline import (  # noqa: E402
     ReplannerOutput,
     ResearcherCompressionOutput,
     ResearcherDecisionOutput,
-    SkillCuratorHarnessOutput,
     SupervisorToolCallOutput,
 )
 
@@ -945,7 +965,6 @@ __all__ = [
     "ReplannerOutput",
     "ResearcherCompressionOutput",
     "ResearcherDecisionOutput",
-    "SkillCuratorHarnessOutput",
     "SupervisorToolCallOutput",
     "WriterExecutionContext",
     "WriterReportOutput",

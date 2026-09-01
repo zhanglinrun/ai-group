@@ -17,7 +17,6 @@ from datetime import datetime, timezone
 from typing import Any
 
 import pytest
-from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.types import Command
 from sqlalchemy import create_engine, select, text
 
@@ -30,6 +29,7 @@ from models.step import Step
 from schemas.ids import make_id
 from schemas.intake import RunIntakeDraft
 from schemas.plan import PlanConfirmRequest, PlanTree
+from service.checkpoint import postgres_checkpointer
 
 
 @pytest.fixture(autouse=True)
@@ -118,7 +118,7 @@ async def test_plan_flow_real_graph_postgres_resume() -> None:
     await _create_run_row(run_id, "对比 Notion 与 Cursor 的定价")
 
     try:
-        async with AsyncPostgresSaver.from_conn_string(dsn) as checkpointer:
+        async with postgres_checkpointer(dsn) as checkpointer:
             graph_builder = build_graph_uncompiled()
             # Stop before supervisor so the test focuses on planner_generate and
             # planner_wait. We do NOT interrupt_before planner_generate — we want

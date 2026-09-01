@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from contextvars import ContextVar
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from secrets import compare_digest
 import hashlib
 import re
@@ -124,6 +125,33 @@ def get_identity() -> IdentityContext:
 
 def current_internal_jwt() -> str | None:
     return _internal_jwt_ctx.get()
+
+
+def mint_current_identity_jwt(*, ttl_seconds: int = 60) -> str | None:
+    """Mint a fresh internal identity token for long-running service calls.
+
+    Gateway identity tokens intentionally have a short lifetime. Agent runs can
+    last much longer than that, so internal calls (for example Member quota
+    reservations) must refresh the token from the already verified identity
+    context instead of replaying the original request token.
+    """
+
+    identity = _identity_ctx.get()
+    secret = _jwt_secret()
+    if identity is None or identity.user_id == 0 or not secret:
+        return None
+    now = datetime.now(timezone.utc)
+    payload = {
+        "sub": str(identity.user_id),
+        "username": identity.username,
+        "role": identity.role,
+        "iss": settings.IDENTITY_JWT_ISSUER,
+        "aud": settings.IDENTITY_JWT_AUDIENCE,
+        "iat": now,
+        "exp": now + timedelta(seconds=max(1, int(ttl_seconds))),
+        "jti": hashlib.sha256(f"{identity.user_id}:{now.timestamp()}".encode("utf-8")).hexdigest(),
+    }
+    return str(jwt.encode(payload, _signing_key(secret), algorithm="HS256"))
 
 
 def bind_internal_jwt(token: str | None) -> None:

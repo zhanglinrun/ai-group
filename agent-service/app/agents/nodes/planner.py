@@ -54,7 +54,7 @@ log = get_logger("agents.planner")
 
 # Phase β: user injections never include "discover" — that stage is the
 # discovery node's exclusive output. Allowing it would let two discoveries
-# compete and would also bypass `_derive_focus_dimensions`.
+# compete and bypass the planner's research-mode dimension guards.
 _USER_ALLOWED_STAGES: frozenset[str] = frozenset({"research", "analyze", "write"})
 _PLAN_STAGE_ORDER: tuple[PlanTaskStage, ...] = ("discover", "research", "analyze", "write")
 _COMPETITOR_ROLE_LABELS: dict[str, str] = {
@@ -72,6 +72,32 @@ _REPORT_DEPTH_KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("debug", ("debug", "调试", "极速", "超快")),
     ("quick", ("quick", "速览", "快速", "标准", "平衡")),
     ("deep", ("deep", "深度", "完整", "详细")),
+)
+_MODE_FORBIDDEN_DIMENSIONS: dict[str, frozenset[str]] = {
+    "academic": frozenset(
+        {"feature", "pricing", "user_feedback", "positioning", "go_to_market"}
+    ),
+    "technical": frozenset(
+        {"pricing", "user_feedback", "positioning", "go_to_market", "market_differences"}
+    ),
+}
+_MODE_DEFAULT_DIMENSIONS: dict[str, tuple[str, ...]] = {
+    "academic": ("methods", "datasets", "benchmarks", "limitations"),
+    "technical": ("architecture", "implementation", "performance", "limitations"),
+}
+_COMMERCIAL_PLAN_TERMS: tuple[str, ...] = (
+    "pricing",
+    "price",
+    "user feedback",
+    "vendor",
+    "competitor",
+    "market size",
+    "定价",
+    "价格",
+    "用户反馈",
+    "厂商",
+    "竞品",
+    "市场规模",
 )
 
 
@@ -140,6 +166,171 @@ def _canonical_focus_dimensions(
         cap = max(max_dimensions, len(COMPARISON_SCHEMA_BASE_DIMENSIONS))
         return ordered[:cap]
     return canonical[:max_dimensions]
+
+
+def _mode_focus_dimensions(
+    values: list[str],
+    *,
+    research_mode: str | None,
+    max_dimensions: int,
+) -> list[str]:
+    mode = str(research_mode or "").lower()
+    normalized = normalize_dimensions(values, allow_empty=True)
+    if mode == "academic":
+        academic_aliases = {
+            "key_papers": "methods",
+            "method_evolution": "methods",
+            "experimental_results": "benchmarks",
+            "evaluation": "benchmarks",
+            "benchmark": "benchmarks",
+            "dataset": "datasets",
+        }
+        normalized = list(dict.fromkeys(academic_aliases.get(item, item) for item in normalized))
+    forbidden = _MODE_FORBIDDEN_DIMENSIONS.get(mode, frozenset())
+    filtered = [item for item in normalized if item not in forbidden]
+    if not filtered and mode in _MODE_DEFAULT_DIMENSIONS:
+        filtered = list(_MODE_DEFAULT_DIMENSIONS[mode])
+    return filtered[:max_dimensions]
+
+
+def _contains_commercial_plan_terms(value: str) -> bool:
+    normalized = value.casefold()
+    return any(term in normalized for term in _COMMERCIAL_PLAN_TERMS)
+
+
+def _mode_task_copy(
+    task: PlanTask,
+    *,
+    research_mode: str | None,
+    response_language: str | None,
+    max_dimensions: int,
+) -> PlanTask:
+    mode = str(research_mode or "").lower()
+    focus_dimensions = _mode_focus_dimensions(
+        list(task.focus_dimensions),
+        research_mode=mode,
+        max_dimensions=max_dimensions,
+    )
+    if mode not in {"academic", "technical", "general"}:
+        return task.model_copy(update={"focus_dimensions": focus_dimensions})
+    # Academic runs always use literature semantics, even when the upstream
+    # planner emitted legacy competitor wording. This prevents paper names from
+    # becoming commercial battlecard tasks.
+    if mode != "academic" and not (
+        _contains_commercial_plan_terms(task.title)
+        or _contains_commercial_plan_terms(task.description)
+    ):
+        return task.model_copy(update={"focus_dimensions": focus_dimensions})
+
+    competitor = task.competitor_id or "the selected subject"
+    if response_language == "zh":
+        templates = {
+            "academic": {
+                "discover": ("学术文献发现", "检索论文、方法、数据集、评测基准与研究进展。"),
+                "research": (f"论文调研：{competitor}", f"围绕 {competitor} 收集方法、数据集、实验结果与局限性证据。"),
+                "analyze": ("学术证据综合", "归纳方法差异、实验结论、研究空白与证据限制。"),
+                "write": ("生成学术调研报告", "形成包含方法、数据集、评测、实验结果、研究空白与局限性的报告。"),
+            },
+            "technical": {
+                "discover": ("技术资料发现", "检索架构、实现、性能、开源项目与工程实践资料。"),
+                "research": (f"技术调研：{competitor}", f"围绕 {competitor} 收集架构、实现、性能与工程约束证据。"),
+                "analyze": ("技术证据综合", "比较技术路线、实现权衡、性能与工程限制。"),
+                "write": ("生成技术调研报告", "形成架构、实现、性能、开源可用性与工程约束报告。"),
+            },
+            "general": {
+                "discover": ("主题资料发现", "检索主题相关的权威资料、现状与实践案例。"),
+                "research": (f"主题调研：{competitor}", f"围绕 {competitor} 收集可验证的事实证据。"),
+                "analyze": ("证据综合", "归纳核心概念、现状、趋势与局限。"),
+                "write": ("生成通用调研报告", "形成中性的主题概览、证据分析、趋势与局限报告。"),
+            },
+        }
+    else:
+        templates = {
+            "academic": {
+                "discover": ("Academic Literature Discovery", "Find papers, methods, datasets, benchmarks, and research progress."),
+                "research": (f"Paper Review: {competitor}", f"Collect evidence on {competitor}'s methods, datasets, experiments, and limitations."),
+                "analyze": ("Academic Evidence Synthesis", "Synthesize methods, experimental findings, research gaps, and evidence limitations."),
+                "write": ("Academic Research Report", "Produce a report covering methods, datasets, benchmarks, experiments, research gaps, and limitations."),
+            },
+            "technical": {
+                "discover": ("Technical Source Discovery", "Find architecture, implementation, performance, open source, and engineering sources."),
+                "research": (f"Technical Review: {competitor}", f"Collect evidence on {competitor}'s architecture, implementation, performance, and constraints."),
+                "analyze": ("Technical Evidence Synthesis", "Compare technical approaches, implementation tradeoffs, performance, and constraints."),
+                "write": ("Technical Research Report", "Produce an architecture, implementation, performance, open source, and constraints report."),
+            },
+            "general": {
+                "discover": ("Topic Source Discovery", "Find authoritative sources, current developments, and practical examples."),
+                "research": (f"Topic Review: {competitor}", f"Collect verifiable evidence about {competitor}."),
+                "analyze": ("Evidence Synthesis", "Synthesize key concepts, current state, trends, and limitations."),
+                "write": ("General Research Report", "Produce a neutral overview, evidence analysis, trends, and limitations report."),
+            },
+        }
+    title, description = templates[mode][task.stage]
+    return task.model_copy(
+        update={
+            "title": title[:PLAN_TASK_TITLE_MAX_LEN],
+            "description": description[:PLAN_TASK_DESCRIPTION_MAX_LEN],
+            "focus_dimensions": focus_dimensions,
+        }
+    )
+
+
+def _guard_plan_tasks_for_research_mode(
+    tasks: list[PlanTask],
+    *,
+    research_mode: str | None,
+    response_language: str | None,
+    max_dimensions: int,
+) -> list[PlanTask]:
+    return [
+        _mode_task_copy(
+            task,
+            research_mode=research_mode,
+            response_language=response_language,
+            max_dimensions=max_dimensions,
+        )
+        for task in tasks
+    ]
+
+
+def _guard_plan_rationale(rationale: str, *, research_mode: str | None) -> str:
+    mode = str(research_mode or "").lower()
+    if mode not in {"academic", "technical", "general"}:
+        return rationale
+    if rationale and not _contains_commercial_plan_terms(rationale):
+        return rationale
+    return {
+        "academic": "Plan the literature search, paper-level evidence collection, academic synthesis, and grounded report in sequence.",
+        "technical": "Plan technical source collection, architecture and implementation analysis, performance review, and grounded reporting in sequence.",
+        "general": "Plan neutral source collection, evidence synthesis, trend analysis, and grounded reporting in sequence.",
+    }[mode]
+
+
+def _normalize_academic_plan_tasks(
+    tasks: list[PlanTask],
+    *,
+    draft: RunIntakeDraft,
+    max_dimensions: int,
+) -> list[PlanTask]:
+    """Prevent auto-discovered papers from becoming pre-discovery targets."""
+    if draft.research_mode != "academic" or not draft.competitors_discovery_mode:
+        return tasks
+    normalized = [task for task in tasks if task.stage != "research"]
+    if not any(task.stage == "discover" and task.enabled for task in normalized):
+        normalized.insert(
+            0,
+            PlanTask(
+                stage="discover",
+                title="Academic Literature Discovery",
+                description="Find papers, methods, datasets, benchmarks, and research progress.",
+                focus_dimensions=_mode_focus_dimensions(
+                    list(draft.focus_dimensions),
+                    research_mode="academic",
+                    max_dimensions=max_dimensions,
+                ),
+            ),
+        )
+    return normalized
 
 
 def _fallback_tasks(
@@ -540,6 +731,8 @@ def reconcile_plan_tree_after_discovery(
     max_competitors: int = MAX_RESEARCH_COMPETITORS,
     max_dimensions: int = MAX_FOCUS_DIMENSIONS,
     landscape_core_deepdive_n: int = 3,
+    research_mode: str | None = None,
+    response_language: str | None = None,
 ) -> PlanTree:
     """Materialize per-competitor research tasks after discovery completes."""
     plan = coerce_plan_tree(plan_tree)
@@ -547,6 +740,11 @@ def reconcile_plan_tree_after_discovery(
         raise ValueError("plan_tree is required to reconcile after discovery.")
     if not discovered_competitors:
         return plan
+    if str(research_mode or "").lower() == "academic":
+        # Discovery may return several paper/method entities for diagnostics;
+        # academic execution is one literature-scope research task, not a
+        # per-paper competitor fan-out.
+        discovered_competitors = discovered_competitors[:1]
     if analysis_archetype == "landscape":
         plan = plan.model_copy(
             update={
@@ -638,6 +836,11 @@ def reconcile_plan_tree_after_discovery(
             if analysis_archetype == "landscape"
             else list(research_focus)[:max_dimensions]
         )
+        competitor_focus = _mode_focus_dimensions(
+            competitor_focus,
+            research_mode=research_mode,
+            max_dimensions=max_dimensions,
+        )
         new_research_tasks.append(
             PlanTask(
                 stage="research",
@@ -653,6 +856,12 @@ def reconcile_plan_tree_after_discovery(
                 enabled=True,
             )
         )
+    new_research_tasks = _guard_plan_tasks_for_research_mode(
+        new_research_tasks,
+        research_mode=research_mode,
+        response_language=response_language,
+        max_dimensions=max_dimensions,
+    )
 
     merged_competitor_sources = dict(plan.competitor_sources)
     if isinstance(discovered_competitor_sources, dict):
@@ -980,6 +1189,18 @@ async def planner_generate_node(state: AgentState) -> AgentState:
         max_competitors=tier_profile.max_competitors,
         max_dimensions=tier_profile.max_dimensions,
     )
+    tasks = _guard_plan_tasks_for_research_mode(
+        tasks,
+        research_mode=draft.research_mode,
+        response_language=draft.response_language,
+        max_dimensions=tier_profile.max_dimensions,
+    )
+    tasks = _normalize_academic_plan_tasks(
+        tasks,
+        draft=draft,
+        max_dimensions=tier_profile.max_dimensions,
+    )
+    rationale = _guard_plan_rationale(rationale, research_mode=draft.research_mode)
 
     plan = PlanTree(tasks=tasks, rationale=rationale, version=1, confirmed_at=None)
 
@@ -1097,6 +1318,17 @@ async def planner_wait_node(state: AgentState) -> AgentState:
         merged_candidates,
         analysis_archetype=draft.analysis_archetype,
         max_competitors=tier_profile.max_competitors,
+        max_dimensions=tier_profile.max_dimensions,
+    )
+    merged_tasks = _guard_plan_tasks_for_research_mode(
+        merged_tasks,
+        research_mode=draft.research_mode,
+        response_language=draft.response_language,
+        max_dimensions=tier_profile.max_dimensions,
+    )
+    merged_tasks = _normalize_academic_plan_tasks(
+        merged_tasks,
+        draft=draft,
         max_dimensions=tier_profile.max_dimensions,
     )
     confirmed = PlanTree(

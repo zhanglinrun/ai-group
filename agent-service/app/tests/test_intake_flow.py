@@ -20,7 +20,6 @@ from datetime import datetime, timezone
 from typing import Any
 
 import pytest
-from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.types import Command
 from sqlalchemy import create_engine, select, text
 
@@ -32,6 +31,7 @@ from models.run import Run
 from models.step import Step
 from schemas.ids import make_id
 from schemas.intake import IntakeUserReply, RunIntakeDraft
+from service.checkpoint import postgres_checkpointer
 
 
 @pytest.fixture(autouse=True)
@@ -114,7 +114,7 @@ async def test_intake_flow_real_graph_postgres_resume() -> None:
     await _create_run_row(run_id, "我想分析定价竞品")
 
     try:
-        async with AsyncPostgresSaver.from_conn_string(dsn) as checkpointer:
+        async with postgres_checkpointer(dsn) as checkpointer:
             graph_builder = build_graph_uncompiled()
             # Stop before planner_generate AND supervisor so the test stays scoped
             # to intake invariants. Phase 2: intake.complete now routes through
@@ -226,7 +226,7 @@ async def test_intake_skip_when_phase_not_intake_routes_to_supervisor() -> None:
     await _create_run_row(run_id, "legacy run without intake")
 
     try:
-        async with AsyncPostgresSaver.from_conn_string(dsn) as checkpointer:
+        async with postgres_checkpointer(dsn) as checkpointer:
             graph_builder = build_graph_uncompiled()
             app = graph_builder.compile(
                 checkpointer=checkpointer,

@@ -19,6 +19,51 @@ from agents.nodes.researcher import researcher_node
 from agents.nodes.supervisor import supervisor_node
 from agents.nodes.writer import deepen_node, writer_node
 from agents.state import AgentState
+from service.observability import (
+    current_trace_metadata,
+    langsmith_client_for_source,
+    trace_metadata_from_state,
+    traceable_node_call,
+)
+
+
+def _traced_node(node_name: str, node: Any):
+    async def _wrapped(state: AgentState) -> AgentState:
+        metadata = trace_metadata_from_state(state, node_name=node_name)
+        parent_metadata = current_trace_metadata()
+        if (
+            parent_metadata.get("research_mode") not in {None, "general"}
+            and metadata.get("research_mode") == "general"
+        ):
+            metadata["research_mode"] = parent_metadata["research_mode"]
+        if (
+            parent_metadata.get("source") not in {None, "ui"}
+            and metadata.get("source") == "ui"
+        ):
+            metadata["source"] = parent_metadata["source"]
+        for key in (
+            "analysis_archetype",
+            "report_depth",
+            "response_language",
+            "request_summary",
+        ):
+            if metadata.get(key) is None and parent_metadata.get(key) is not None:
+                metadata[key] = parent_metadata[key]
+        return await traceable_node_call(
+            node_name=node_name,
+            node=node,
+            state=state,
+            langsmith_extra={
+                "metadata": metadata,
+                "tags": ["ai-group", "agent", "langgraph", "node", node_name],
+                "client": langsmith_client_for_source(
+                    metadata.get("source") if isinstance(metadata.get("source"), str) else None
+                ),
+            },
+        )
+
+    _wrapped.__name__ = f"traced_{node_name}"
+    return _wrapped
 
 
 def _route_after_supervisor(
@@ -77,8 +122,8 @@ def _route_after_qa(state: AgentState) -> Literal["replanner", "supervisor", "de
 def _route_entry(state: AgentState) -> Literal["intake_generate", "planner_generate", "supervisor"]:
     # Invariant B: drive entry from explicit `phase`. Legacy runs without `phase`
     # default to `supervisor` so POST /api/runs keeps its synchronous-bus contract.
-    # Phase 2: `phase="planning"` entry skips intake (e.g. expert-mode runs that
-    # arrive with a fully-formed intake_draft already).
+    # Phase 2: `phase="planning"` entry is used by a resumed Agent conversation
+    # after intake has completed and the depth profile is known.
     phase = state.get("phase")
     if phase == "intake":
         return "intake_generate"
@@ -110,19 +155,22 @@ def _route_after_planner_generate(state: AgentState) -> Literal["planner_wait"]:
 
 def build_graph_uncompiled() -> StateGraph:
     graph = StateGraph(AgentState)
-    graph.add_node("supervisor", supervisor_node)
-    graph.add_node("discovery", discovery_node)
-    graph.add_node("researcher", researcher_node)
-    graph.add_node("analyst", analyst_node)
-    graph.add_node("writer", writer_node)
-    graph.add_node("deepen", deepen_node)
-    graph.add_node("qa", qa_node)
-    graph.add_node("replanner", replanner_node)
-    graph.add_node("intake_generate", intake_generate_node)
-    graph.add_node("intake_wait", intake_wait_node)
-    graph.add_node("planning_profile_wait", planning_profile_wait_node)
-    graph.add_node("planner_generate", planner_generate_node)
-    graph.add_node("planner_wait", planner_wait_node)
+    graph.add_node("supervisor", _traced_node("supervisor", supervisor_node))
+    graph.add_node("discovery", _traced_node("discovery", discovery_node))
+    graph.add_node("researcher", _traced_node("researcher", researcher_node))
+    graph.add_node("analyst", _traced_node("analyst", analyst_node))
+    graph.add_node("writer", _traced_node("writer", writer_node))
+    graph.add_node("deepen", _traced_node("deepen", deepen_node))
+    graph.add_node("qa", _traced_node("qa", qa_node))
+    graph.add_node("replanner", _traced_node("replanner", replanner_node))
+    graph.add_node("intake_generate", _traced_node("intake_generate", intake_generate_node))
+    graph.add_node("intake_wait", _traced_node("intake_wait", intake_wait_node))
+    graph.add_node(
+        "planning_profile_wait",
+        _traced_node("planning_profile_wait", planning_profile_wait_node),
+    )
+    graph.add_node("planner_generate", _traced_node("planner_generate", planner_generate_node))
+    graph.add_node("planner_wait", _traced_node("planner_wait", planner_wait_node))
     graph.add_conditional_edges(
         START,
         _route_entry,

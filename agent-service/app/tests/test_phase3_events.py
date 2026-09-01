@@ -285,11 +285,14 @@ async def test_tool_exec_emits_start_and_finish_on_success(
     assert start_payload["competitor_id"] == "Notion"
     assert start_payload["dimension"] == "pricing"
     assert start_payload["turn"] == 1
-    assert start_payload["args_summary"] == {
-        "query": "notion pricing",
-        "max_results": 5,
-        "dimension": "pricing",
-    }
+    args_summary = start_payload["args_summary"]
+    assert args_summary["query"] == "notion pricing"
+    assert args_summary["max_results"] == 5
+    assert args_summary["dimension"] == "pricing"
+    assert args_summary["query_variants"][0] == "notion pricing"
+    assert args_summary["query_variants"][1].startswith("site:")
+    assert "Notion pricing" in args_summary["query_variants"][1]
+    assert args_summary["query_variants"][2] == "Notion pricing reviews comparison"
 
     finish_event_type, finish_step_id, finish_payload = captured[1]
     assert finish_event_type == RunEventType.TOOL_FINISH

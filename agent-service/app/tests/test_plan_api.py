@@ -111,6 +111,13 @@ def _drive_intake_to_planner_pause(
         run_id=run_id,
         body={"text": "Notion, Cursor", "selected_options": ["已有名单"]},
     )
+    _wait_for_intake_field(test_client, run_id, "competitors_explicit")
+
+    _post_intake_reply_when_ready(
+        test_client,
+        run_id=run_id,
+        body={"text": "", "selected_options": ["quick"]},
+    )
 
     deadline = time.time() + 30.0
     plan_tree: dict[str, object] | None = None

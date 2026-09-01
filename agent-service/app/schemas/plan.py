@@ -48,12 +48,6 @@ class PlanTree(BaseModel):
     competitor_sources: dict[str, dict[str, str | None]] = Field(default_factory=dict)
 
 
-class PlanDepthSelectRequest(BaseModel):
-    """Resume payload for the depth-selection interrupt before planning."""
-
-    report_depth: Literal["debug", "quick", "deep"]
-
-
 class PlanConfirmRequest(BaseModel):
     """Resume payload for the plan-confirm interrupt."""
 

@@ -35,8 +35,34 @@ if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 
+class _OfflineLLMClient:
+    async def complete_json(
+        self,
+        *,
+        model_slot: str,
+        system_prompt: str,
+        user_prompt: str,
+        **_: object,
+    ) -> object:
+        from service.llm.response import LLMResponse
+
+        del system_prompt, user_prompt
+        return LLMResponse(
+            model_slot=model_slot,
+            provider="offline-test",
+            model_name="offline-test",
+            prompt_preview="offline-test",
+            prompt_hash="offline-test",
+            content={},
+            prompt_tokens=0,
+            completion_tokens=0,
+            latency_ms=0,
+            error="offline test fixture: external LLM calls are disabled",
+        )
+
+
 @pytest.fixture()
-def test_client() -> Generator[TestClient, None, None]:
+def test_client(monkeypatch: pytest.MonkeyPatch) -> Generator[TestClient, None, None]:
     """Use the real FastAPI lifespan for API tests.
 
     The full API suite intentionally needs the Postgres/ checkpoint services
@@ -45,6 +71,9 @@ def test_client() -> Generator[TestClient, None, None]:
     """
 
     from app_main import app
+
+    offline_client = _OfflineLLMClient()
+    monkeypatch.setattr("service.llm.harness.get_llm_client", lambda: offline_client)
 
     with TestClient(app) as client:
         yield client

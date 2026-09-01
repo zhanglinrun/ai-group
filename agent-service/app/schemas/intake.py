@@ -5,7 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, computed_field, field_validator, model_validator
 
-UserRole = Literal["pm", "founder", "sales", "investor"]
+UserRole = Literal["researcher", "engineer", "pm", "founder", "sales", "investor"]
 FocusDimension = str
 # Output archetype (intent classification → adaptive output form). `comparison`:
 # head-to-head over a comparable competitor set (per-competitor feature/pricing/
@@ -13,6 +13,79 @@ FocusDimension = str
 # no fixed comparable set (per-competitor schema is optional, framing is a map).
 AnalysisArchetype = Literal["comparison", "landscape"]
 ScopePolicy = Literal["explicit_category", "broad_market"]
+ResearchMode = Literal["academic", "technical", "commercial", "general"]
+
+_ACADEMIC_RESEARCH_TERMS: tuple[str, ...] = (
+    "论文",
+    "文献",
+    "学术",
+    "综述",
+    "研究进展",
+    "研究现状",
+    "研究脉络",
+    "科研",
+    "期刊",
+    "会议论文",
+    "学位论文",
+    "开题",
+    "毕业设计",
+    "数据集",
+    "评测基准",
+    "benchmark",
+    "arxiv",
+    "literature review",
+    "systematic review",
+    "research paper",
+    "state of the art",
+    "survey",
+    "sota",
+)
+_TECHNICAL_RESEARCH_TERMS: tuple[str, ...] = (
+    "技术路线",
+    "技术原理",
+    "方法",
+    "算法",
+    "模型",
+    "系统架构",
+    "工程实践",
+    "开源实现",
+    "部署",
+    "训练",
+    "推理",
+    "协议",
+    "实现方案",
+    "技术选型",
+    "implementation",
+    "architecture",
+    "deployment",
+    "inference",
+    "training",
+    "protocol",
+    "technical approach",
+)
+_COMMERCIAL_RESEARCH_TERMS: tuple[str, ...] = (
+    "竞品",
+    "对标",
+    "对比",
+    "替代",
+    "产品",
+    "厂商",
+    "定价",
+    "收费",
+    "用户反馈",
+    "市场",
+    "赛道",
+    "商业",
+    "变现",
+    "解决方案",
+    "pricing",
+    "vendors",
+    "market",
+    "competitors",
+    "alternatives",
+    "monetization",
+    "go-to-market",
+)
 
 _UNKNOWN_OPTIONAL_VALUES: frozenset[str] = frozenset(
     {
@@ -99,6 +172,39 @@ def stable_unique_text(values: list[str]) -> list[str]:
     return ordered
 
 
+def infer_research_mode(
+    *,
+    user_query: str | None,
+    domain_context: str | None = None,
+    analysis_intent: str | None = None,
+    user_role: str | None = None,
+    analysis_archetype: str | None = None,
+    explicit_mode: str | None = None,
+) -> ResearchMode:
+    """Infer the retrieval vocabulary from intent, without coupling it to UI roles.
+
+    Academic signals take precedence because a paper survey can mention products,
+    markets, or deployment while still requiring a literature-oriented search.
+    """
+    if explicit_mode in {"academic", "technical", "commercial", "general"}:
+        return explicit_mode  # type: ignore[return-value]
+    combined = " ".join(
+        value.strip()
+        for value in (user_query, domain_context, analysis_intent)
+        if isinstance(value, str) and value.strip()
+    ).casefold()
+    role = user_role.strip().casefold() if isinstance(user_role, str) else ""
+    if role == "researcher" or any(term.casefold() in combined for term in _ACADEMIC_RESEARCH_TERMS):
+        return "academic"
+    if role == "engineer" or any(term.casefold() in combined for term in _TECHNICAL_RESEARCH_TERMS):
+        return "technical"
+    if role in {"pm", "founder", "sales", "investor"} or any(
+        term.casefold() in combined for term in _COMMERCIAL_RESEARCH_TERMS
+    ):
+        return "commercial"
+    return "general"
+
+
 def infer_target_category(
     *,
     user_query: str,
@@ -162,6 +268,7 @@ class RunIntakeDraft(BaseModel):
     """
 
     user_query: str
+    research_mode: ResearchMode | None = None
     user_role: UserRole | None = None
     analysis_intent: str | None = None
     competitors_explicit: list[str] = Field(default_factory=list)
@@ -244,8 +351,8 @@ class RunIntakeDraft(BaseModel):
     @computed_field
     @property
     def is_complete(self) -> bool:
-        # Completion gate (product decision): know who the user is, what they want,
-        # and either an explicit competitor set or an opt-in to Agent discovery.
+        # Completion gate: know the report's audience/use, what the user wants,
+        # and either explicit research objects or an opt-in to Agent discovery.
         has_identity = self.user_role is not None
         has_intent = bool(self.analysis_intent and self.analysis_intent.strip())
         has_competitor_path = bool(self.competitors_explicit) or self.competitors_discovery_mode

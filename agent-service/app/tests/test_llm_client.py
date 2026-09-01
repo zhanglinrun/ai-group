@@ -61,7 +61,6 @@ def _make_client(provider: _SequencedProvider, *, max_retries: int = 2, concurre
     return LLMClient(
         providers={"doubao": provider},
         max_retries=max_retries,
-        timeout_seconds=10,
         global_concurrency=concurrency,
         retry_base_seconds=0.0,
         retry_cap_seconds=0.0,
@@ -410,7 +409,6 @@ async def test_llm_client_full_jitter_uses_configured_upper_bound(
     client = LLMClient(
         providers={"doubao": provider},
         max_retries=2,
-        timeout_seconds=10,
         global_concurrency=2,
         retry_base_seconds=2.0,
         retry_cap_seconds=3.0,

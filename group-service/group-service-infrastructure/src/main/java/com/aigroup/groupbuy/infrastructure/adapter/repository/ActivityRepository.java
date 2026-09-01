@@ -5,6 +5,7 @@ import com.aigroup.groupbuy.domain.activity.model.entity.UserGroupBuyOrderDetail
 import com.aigroup.groupbuy.domain.activity.model.valobj.*;
 import com.aigroup.groupbuy.infrastructure.dao.*;
 import com.aigroup.groupbuy.infrastructure.dao.po.*;
+import com.aigroup.groupbuy.infrastructure.cache.MarketConfigLocalCache;
 import com.aigroup.groupbuy.infrastructure.dcc.DCCService;
 import com.aigroup.groupbuy.infrastructure.redis.IRedisService;
 import org.redisson.api.RBitSet;
@@ -32,6 +33,8 @@ public class ActivityRepository extends AbstractRepository implements IActivityR
     @Resource
     private IRedisService redisService;
     @Resource
+    private MarketConfigLocalCache marketConfigLocalCache;
+    @Resource
     private DCCService dccService;
     @Resource
     private IGroupBuyOrderDao groupBuyOrderDao;
@@ -40,6 +43,14 @@ public class ActivityRepository extends AbstractRepository implements IActivityR
 
     @Override
     public GroupBuyActivityDiscountVO queryGroupBuyActivityDiscountVO(Long activityId) {
+        if (dccService.isCacheOpenSwitch()) {
+            return marketConfigLocalCache.getOrLoad(activityDiscountCacheKey(activityId),
+                    () -> loadGroupBuyActivityDiscountVO(activityId));
+        }
+        return loadGroupBuyActivityDiscountVO(activityId);
+    }
+
+    private GroupBuyActivityDiscountVO loadGroupBuyActivityDiscountVO(Long activityId) {
         // 优先从缓存获取&写缓存，注意如果实现了后台配置，在更新时要更库，删缓存。
         GroupBuyActivity groupBuyActivityRes = getFromCacheOrDb(GroupBuyActivity.cacheRedisKey(activityId),
                 () -> groupBuyActivityDao.queryValidGroupBuyActivityId(activityId));
@@ -79,13 +90,26 @@ public class ActivityRepository extends AbstractRepository implements IActivityR
 
     @Override
     public SkuVO querySkuByGoodsId(String goodsId) {
-        Sku sku = skuDao.querySkuByGoodsId(goodsId);
+        if (dccService.isCacheOpenSwitch()) {
+            return marketConfigLocalCache.getOrLoad(Sku.cacheRedisKey(goodsId), () -> loadSkuVO(goodsId));
+        }
+        return loadSkuVO(goodsId);
+    }
+
+    private SkuVO loadSkuVO(String goodsId) {
+        // 商品目录与活动、折扣一样属于运营配置。锁单高峰不应为同一 SKU
+        // 反复访问数据库；运营更新会在 GroupBuyAdminController 中逐出该缓存。
+        Sku sku = getFromCacheOrDb(Sku.cacheRedisKey(goodsId), () -> skuDao.querySkuByGoodsId(goodsId));
         if (null == sku) return null;
         return SkuVO.builder()
                 .goodsId(sku.getGoodsId())
                 .goodsName(sku.getGoodsName())
                 .originalPrice(sku.getOriginalPrice())
                 .build();
+    }
+
+    public static String activityDiscountCacheKey(Long activityId) {
+        return "group_buy_market_activity_discount_" + activityId;
     }
 
     @Override
@@ -231,30 +255,19 @@ public class ActivityRepository extends AbstractRepository implements IActivityR
 
     @Override
     public TeamStatisticVO queryTeamStatisticByActivityId(Long activityId) {
-        // 1. 根据活动ID查询拼团队伍
-        List<GroupBuyOrderList> groupBuyOrderLists = groupBuyOrderListDao.queryInProgressUserGroupBuyOrderDetailListByActivityId(activityId);
-
-        if (null == groupBuyOrderLists || groupBuyOrderLists.isEmpty()) {
+        GroupBuyTeamStatistic statistic = groupBuyOrderDao.queryTeamStatisticByActivityId(activityId);
+        if (statistic == null) {
             return new TeamStatisticVO(0, 0, 0);
         }
-
-        // 2. 过滤队伍获取 TeamId
-        Set<String> teamIds = groupBuyOrderLists.stream()
-                .map(GroupBuyOrderList::getTeamId)
-                .filter(teamId -> teamId != null && !teamId.isEmpty()) // 过滤非空和非空字符串
-                .collect(Collectors.toSet());
-
-        // 3. 统计数据
-        Integer allTeamCount = groupBuyOrderDao.queryAllTeamCount(teamIds);
-        Integer allTeamCompleteCount = groupBuyOrderDao.queryAllTeamCompleteCount(teamIds);
-        Integer allTeamUserCount = groupBuyOrderDao.queryAllUserCount(teamIds);
-
-        // 4. 构建对象
         return TeamStatisticVO.builder()
-                .allTeamCount(allTeamCount)
-                .allTeamCompleteCount(allTeamCompleteCount)
-                .allTeamUserCount(allTeamUserCount)
+                .allTeamCount(toInt(statistic.getAllTeamCount()))
+                .allTeamCompleteCount(toInt(statistic.getAllTeamCompleteCount()))
+                .allTeamUserCount(toInt(statistic.getAllTeamUserCount()))
                 .build();
+    }
+
+    private static int toInt(Long value) {
+        return value == null ? 0 : Math.toIntExact(value);
     }
 
 }

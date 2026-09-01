@@ -80,8 +80,6 @@ const TOOL_ICONS: Record<string, typeof Wrench> = {
   fetch_url: Globe2,
   parse_page: Globe2,
   extract_structured: Hammer,
-  load_skill: Wrench,
-  read_skill_file: Wrench,
 };
 
 const TOOL_LABELS: Record<string, string> = {
@@ -89,8 +87,6 @@ const TOOL_LABELS: Record<string, string> = {
   fetch_url: "网页抓取",
   parse_page: "网页解析",
   extract_structured: "结构化抽取",
-  load_skill: "策略加载",
-  read_skill_file: "策略详情",
 };
 
 const TERMINAL_STATUSES = new Set(["completed", "degraded", "failed", "cancelled"]);
@@ -736,7 +732,7 @@ function formatToolArgs(args: Record<string, unknown> | undefined): string {
     return "—";
   }
   const parts: string[] = [];
-  for (const key of ["query", "url", "skill_id", "path"]) {
+  for (const key of ["query", "url", "path"]) {
     const value = args[key];
     if (typeof value === "string" && value.length > 0) {
       parts.push(value);

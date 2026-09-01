@@ -18,12 +18,6 @@ from schemas.contracts import (
     validate_token_list,
 )
 from schemas.qa import Approval, Rejection, RetryPolicy
-from schemas.skill import (
-    PromptTemplateCandidatePayload,
-    QARuleCandidatePayload,
-    SkillCandidate,
-    SourceRoutingCandidatePayload,
-)
 from schemas.supervisor import (
     Analyze,
     ConductResearch,
@@ -48,12 +42,8 @@ __all__ = [
     "Finalize",
     "Persona",
     "Pricing",
-    "PromptTemplateCandidatePayload",
-    "QARuleCandidatePayload",
     "Rejection",
     "RetryPolicy",
-    "SkillCandidate",
-    "SourceRoutingCandidatePayload",
     "SupervisorDecision",
     "UserFeedback",
     "Write",

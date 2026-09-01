@@ -30,6 +30,7 @@ logs/
 **/logs/
 /data/
 agent-service/data/
+agent-service/artifacts/
 agent-service/demo_fixtures/generated/
 
 # OS junk
@@ -47,3 +48,7 @@ Desktop.ini
 /study/
 /eval/
 AGENTS.md
+
+# JMeter local outputs (generated .jmx + HTML/JTL reports)
+dev-ops/jmeter/reports/
+dev-ops/jmeter/plans/*.jmx

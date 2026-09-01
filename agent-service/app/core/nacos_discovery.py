@@ -13,10 +13,6 @@ log = get_logger("nacos_discovery")
 _active: NacosRegistration | None = None
 
 
-def active_registration() -> NacosRegistration | None:
-    return _active
-
-
 def lookup_member_base_url(settings: Settings) -> str:
     fallback = (settings.MEMBER_SERVICE_URL or "").rstrip("/")
     registration = _active

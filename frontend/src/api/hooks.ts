@@ -30,9 +30,6 @@ import type {
   RunConclusionsResponse,
   RunReportResponse,
   RunTraceResponse,
-  SkillCandidateListResponse,
-  SkillCandidateReviewRequest,
-  SkillCandidateReviewResponse,
   WatchlistCreateRequest,
   WatchlistDigestItemResponse,
   WatchlistItemResponse,
@@ -59,19 +56,6 @@ export interface QueryBehaviorOptions {
   refetchInterval?: number | false;
   /** Keep invalid/unauthorized detail queries from opening an SSE stream. */
   events?: boolean;
-}
-
-export interface SkillCandidatesQuery {
-  status?: string;
-  applies_to?: string;
-  tag?: string;
-  limit?: number;
-  offset?: number;
-}
-
-export interface ReviewSkillCandidateMutationVariables {
-  candidateId: string;
-  reviewedBy: string;
 }
 
 async function fetchRunsList(query: RunsListQuery): Promise<RunListResponse> {
@@ -251,7 +235,6 @@ interface ClearRunsResponse {
   deleted_run_ids: string[];
   skipped_running_count: number;
   skipped_unsettled_count?: number;
-  pruned_skill_candidate_refs: number;
 }
 
 async function clearRuns(payload: ClearRunsRequest): Promise<ClearRunsResponse> {
@@ -389,43 +372,6 @@ async function submitRunFollowUp(
 
 async function resumeRun(runId: string): Promise<RunCreateResponse> {
   const { data } = await apiClient.post<RunCreateResponse>(`/api/runs/${runId}/resume`);
-  return data;
-}
-
-async function fetchSkillCandidates(
-  query: SkillCandidatesQuery,
-): Promise<SkillCandidateListResponse> {
-  const { data } = await apiClient.get<SkillCandidateListResponse>("/api/skill-candidates", {
-    params: {
-      status: query.status,
-      applies_to: query.applies_to,
-      tag: query.tag,
-      limit: query.limit ?? 20,
-      offset: query.offset ?? 0,
-    },
-  });
-  return data;
-}
-
-async function approveSkillCandidate(
-  candidateId: string,
-  payload: SkillCandidateReviewRequest,
-): Promise<SkillCandidateReviewResponse> {
-  const { data } = await apiClient.post<SkillCandidateReviewResponse>(
-    `/api/skill-candidates/${candidateId}/approve`,
-    payload,
-  );
-  return data;
-}
-
-async function rejectSkillCandidate(
-  candidateId: string,
-  payload: SkillCandidateReviewRequest,
-): Promise<SkillCandidateReviewResponse> {
-  const { data } = await apiClient.post<SkillCandidateReviewResponse>(
-    `/api/skill-candidates/${candidateId}/reject`,
-    payload,
-  );
   return data;
 }
 
@@ -713,46 +659,6 @@ export function useRunDiff(
     queryKey: ["run-diff", runId],
     queryFn: () => fetchRunDiff(runId!),
     enabled: Boolean(runId),
-  });
-}
-
-export function useSkillCandidates(
-  query: SkillCandidatesQuery = {},
-  options?: { errorToast?: boolean },
-): UseQueryResult<SkillCandidateListResponse, Error> {
-  return useQuery({
-    queryKey: [
-      "skill-candidates",
-      query.status ?? "",
-      query.applies_to ?? "",
-      query.tag ?? "",
-      query.limit ?? 20,
-      query.offset ?? 0,
-    ],
-    queryFn: () => fetchSkillCandidates(query),
-    meta: { errorToast: options?.errorToast ?? true },
-  });
-}
-
-export function useApproveCandidate(): UseMutationResult<
-  SkillCandidateReviewResponse,
-  Error,
-  ReviewSkillCandidateMutationVariables
-> {
-  return useMutation({
-    mutationFn: ({ candidateId, reviewedBy }) =>
-      approveSkillCandidate(candidateId, { reviewed_by: reviewedBy }),
-  });
-}
-
-export function useRejectCandidate(): UseMutationResult<
-  SkillCandidateReviewResponse,
-  Error,
-  ReviewSkillCandidateMutationVariables
-> {
-  return useMutation({
-    mutationFn: ({ candidateId, reviewedBy }) =>
-      rejectSkillCandidate(candidateId, { reviewed_by: reviewedBy }),
   });
 }
 

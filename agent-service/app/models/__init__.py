@@ -9,7 +9,6 @@ from models.llm_call import LLMCall
 from models.report import Report
 from models.run import Run
 from models.run_create_request import RunCreateRequestRecord
-from models.skill_candidate import SkillCandidateRecord
 from models.step import Step
 from models.supervisor_decision import SupervisorDecisionRecord
 from models.watchlist import WatchlistItem
@@ -25,7 +24,6 @@ __all__ = [
     "Report",
     "Run",
     "RunCreateRequestRecord",
-    "SkillCandidateRecord",
     "Step",
     "SupervisorDecisionRecord",
     "WatchlistItem",

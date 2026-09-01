@@ -8,6 +8,9 @@ import re
 from json import JSONDecodeError
 from time import perf_counter
 
+import structlog
+from langchain_core.runnables import RunnableConfig, RunnableLambda
+
 from core.config import settings
 from service.billing import charge_micro_points
 from service.billing_meter import (
@@ -21,9 +24,14 @@ from service.llm.rate_limiter import AsyncTokenBucket, estimate_tokens
 from service.llm.response import LLMResponse, ProviderRawResponse
 from service.llm.routing import resolve_slot
 from service.llm.trace import build_prompt_preview, build_prompt_trace_text, sanitize_trace_text
+from service.observability import (
+    current_trace_metadata,
+    langsmith_client_for_source,
+    langsmith_tracing_context,
+    traceable_llm_call,
+)
 from utils.logger import get_logger
 
-LEGACY_SYSTEM_PROMPT = "legacy_supervisor_prompt"
 log = get_logger("service.llm.client")
 _EXHAUSTED_TIMEOUT_RATIO = 0.95
 
@@ -213,7 +221,6 @@ class LLMClient:
         *,
         providers: dict[str, LLMProvider],
         max_retries: int,
-        timeout_seconds: int,
         global_concurrency: int,
         retry_base_seconds: float | None = None,
         retry_cap_seconds: float | None = None,
@@ -221,7 +228,6 @@ class LLMClient:
     ) -> None:
         self._providers = providers
         self._max_retries = max_retries
-        self._timeout_seconds = timeout_seconds
         self._semaphore = asyncio.Semaphore(global_concurrency)
         self._retry_base_seconds = (
             settings.LLM_RETRY_BASE_SECONDS if retry_base_seconds is None else retry_base_seconds
@@ -234,6 +240,36 @@ class LLMClient:
             provider_name: AsyncTokenBucket(tpm_budget=resolved_tpm_budget)
             for provider_name in providers
         }
+        self._json_runnables: dict[str, RunnableLambda] = {}
+
+    def _json_runnable(self, model_slot: str) -> RunnableLambda:
+        runnable = self._json_runnables.get(model_slot)
+        if runnable is not None:
+            return runnable
+
+        async def _invoke(payload: dict[str, object], config: RunnableConfig | None = None) -> LLMResponse:
+            del config
+            system_prompt = payload.get("system_prompt")
+            user_prompt = payload.get("user_prompt")
+            if not isinstance(system_prompt, str) or not isinstance(user_prompt, str):
+                raise ValueError(
+                    "LLMClient.complete_json requires both system_prompt and user_prompt."
+                )
+            return await self._complete_json_body(
+                model_slot=model_slot,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                fallback_system_prompt=payload.get("fallback_system_prompt")
+                if isinstance(payload.get("fallback_system_prompt"), str)
+                else None,
+                fallback_user_prompt=payload.get("fallback_user_prompt")
+                if isinstance(payload.get("fallback_user_prompt"), str)
+                else None,
+            )
+
+        runnable = RunnableLambda(_invoke, name=f"agent.llm.{model_slot}")
+        self._json_runnables[model_slot] = runnable
+        return runnable
 
     async def _complete_raw_with_retries(
         self,
@@ -264,13 +300,33 @@ class LLMClient:
                 if bucket is not None:
                     await bucket.acquire(estimated_tokens)
                 async with self._semaphore:
-                    raw_response = await provider.complete_json(
-                        system_prompt=system_prompt,
-                        user_prompt=user_prompt,
-                        model=model_name,
-                        timeout_seconds=timeout_seconds,
-                        max_tokens=max_tokens,
-                    )
+                    with langsmith_tracing_context():
+                        trace_metadata = current_trace_metadata()
+                        raw_response = await traceable_llm_call(
+                            provider=provider,
+                            provider_name=provider_name,
+                            model_slot=model_slot,
+                            model_name=model_name,
+                            system_prompt=system_prompt,
+                            user_prompt=user_prompt,
+                            timeout_seconds=timeout_seconds,
+                            max_tokens=max_tokens,
+                            retry_count=retry_count,
+                            langsmith_extra={
+                                "metadata": {
+                                    **trace_metadata,
+                                    "provider": provider_name,
+                                    "model_slot": model_slot,
+                                    "model_name": model_name,
+                                },
+                                "tags": ["ai-group", "agent", "llm", model_slot],
+                                "client": langsmith_client_for_source(
+                                    trace_metadata.get("source")
+                                    if isinstance(trace_metadata.get("source"), str)
+                                    else None
+                                ),
+                            },
+                        )
                 elapsed_ms = int((perf_counter() - started_at) * 1000)
                 return raw_response, elapsed_ms, retry_count, None
             except LLMRequestError as exc:
@@ -330,35 +386,42 @@ class LLMClient:
         self,
         *,
         model_slot: str = "research",
-        system_prompt: str | None = None,
-        user_prompt: str | None = None,
-        prompt: str | None = None,
+        system_prompt: str,
+        user_prompt: str,
         fallback_system_prompt: str | None = None,
         fallback_user_prompt: str | None = None,
     ) -> LLMResponse:
-        estimate_system = system_prompt
-        estimate_user = user_prompt if user_prompt is not None else prompt
         output_tokens = _resolve_max_tokens(model_slot) or settings.LLM_MAX_TOKENS_RESEARCH
         # Charge this provider round-trip only. QuotaExhaustedError pauses the Run.
         hold = await acquire_llm_call_hold(
             estimated_micro_points=estimate_call_hold_micro_points(
                 prompt_tokens=estimate_tokens(
-                    system_prompt=estimate_system or "",
-                    user_prompt=estimate_user or "",
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
                 ),
                 output_tokens=output_tokens,
             )
         )
         response: LLMResponse | None = None
         try:
-            response = await self._complete_json_body(
-                model_slot=model_slot,
-                system_prompt=system_prompt,
-                user_prompt=user_prompt,
-                prompt=prompt,
-                fallback_system_prompt=fallback_system_prompt,
-                fallback_user_prompt=fallback_user_prompt,
-            )
+            payload = {
+                "system_prompt": system_prompt,
+                "user_prompt": user_prompt,
+                "fallback_system_prompt": fallback_system_prompt,
+                "fallback_user_prompt": fallback_user_prompt,
+            }
+            run_context = structlog.contextvars.get_contextvars()
+            response = await self._json_runnable(model_slot).with_config(
+                {
+                    "run_name": f"agent.llm.{model_slot}",
+                    "tags": ["ai-group", "agent", "llm", model_slot],
+                    "metadata": {
+                        "run_id": run_context.get("run_id"),
+                        "step_id": run_context.get("step_id"),
+                        "model_slot": model_slot,
+                    },
+                }
+            ).ainvoke(payload)
             return response
         finally:
             actual = (
@@ -372,61 +435,11 @@ class LLMClient:
         self,
         *,
         model_slot: str = "research",
-        system_prompt: str | None = None,
-        user_prompt: str | None = None,
-        prompt: str | None = None,
+        system_prompt: str,
+        user_prompt: str,
         fallback_system_prompt: str | None = None,
         fallback_user_prompt: str | None = None,
     ) -> LLMResponse:
-        if prompt is not None and system_prompt is None and user_prompt is None:
-            # Keep old supervisor path stable until all callers are migrated.
-            system_prompt = LEGACY_SYSTEM_PROMPT
-            user_prompt = prompt
-            prompt_text = build_prompt_trace_text(
-                system_prompt=system_prompt,
-                user_prompt=user_prompt,
-            )
-            prompt_preview = build_prompt_preview(prompt_text)
-            log.debug(
-                "llm.call.start",
-                model_slot=model_slot,
-                provider_target="legacy_stub",
-                prompt_hash=_prompt_hash(system_prompt=system_prompt, user_prompt=user_prompt),
-                prompt_preview_len=len(prompt_preview),
-                fallback_configured=False,
-            )
-            response = LLMResponse(
-                model_slot=model_slot,
-                provider="legacy_stub",
-                model_name="legacy_stub",
-                prompt_preview=prompt_preview,
-                prompt_hash=_prompt_hash(system_prompt=system_prompt, user_prompt=user_prompt),
-                content={},
-                prompt_tokens=None,
-                completion_tokens=None,
-                latency_ms=0,
-                error=None,
-                prompt_text=prompt_text,
-            )
-            _log_finish(
-                model_slot=model_slot,
-                provider=response.provider,
-                model_name=response.model_name,
-                prompt_hash=response.prompt_hash,
-                prompt_preview_len=len(response.prompt_preview),
-                prompt_tokens=response.prompt_tokens,
-                completion_tokens=response.completion_tokens,
-                latency_ms=response.latency_ms,
-                error=response.error,
-                fallback_used=response.fallback_used,
-                fallback_reason=response.fallback_reason,
-            )
-            return response
-
-        if system_prompt is None or user_prompt is None:
-            raise ValueError(
-                "LLMClient.complete_json requires both system_prompt and user_prompt for provider mode."
-            )
         if (fallback_system_prompt is None) ^ (fallback_user_prompt is None):
             raise ValueError(
                 "LLMClient.complete_json requires fallback_system_prompt and fallback_user_prompt "
@@ -735,7 +748,6 @@ def get_llm_client() -> LLMClient:
         _module_llm_client = LLMClient(
             providers=build_providers(),
             max_retries=settings.LLM_MAX_RETRIES,
-            timeout_seconds=settings.LLM_TIMEOUT_SECONDS,
             global_concurrency=settings.LLM_GLOBAL_CONCURRENCY,
             retry_base_seconds=settings.LLM_RETRY_BASE_SECONDS,
             retry_cap_seconds=settings.LLM_RETRY_CAP_SECONDS,

@@ -19,6 +19,7 @@ import {
   useRunKnowledge,
   useRunMetrics,
   useRunReport,
+  useResumeRun,
   useRunTrace,
 } from "@/api/hooks";
 import { useRunEvents } from "@/api/sse";
@@ -58,6 +59,7 @@ export function RunViewPage(): JSX.Element {
   const [activeTab, setActiveTab] = useState<RunViewTab>("report");
   const [activeDimensions, setActiveDimensions] = useState<Set<string> | null>(null);
   const createWatchlistMutation = useCreateWatchlistItem();
+  const resumeRunMutation = useResumeRun();
 
   const detailQuery = useRunDetail(runId, { events: false });
   const traceQuery = useRunTrace(runId, {
@@ -138,6 +140,20 @@ export function RunViewPage(): JSX.Element {
       params.set("seed", seedCompetitorIds.join(","));
     }
     navigate(`/app/runs/new?${params.toString()}`);
+  }
+
+  async function handleResumeFailedRun(): Promise<void> {
+    try {
+      await resumeRunMutation.mutateAsync(runId);
+      track("run_view.resume_failed_run", { run_id: runId });
+      navigate(`/app/runs/${runId}/live`);
+    } catch (error) {
+      pushToast({
+        title: "继续调研失败",
+        description: error instanceof Error ? error.message : "未知错误",
+        variant: "danger",
+      });
+    }
   }
 
   async function handleAddWatchlist(competitorId: string, sourceRole?: string): Promise<void> {
@@ -257,6 +273,8 @@ export function RunViewPage(): JSX.Element {
           reason={detailQuery.data.status_reason}
           startedAt={detailQuery.data.started_at}
           finishedAt={detailQuery.data.finished_at}
+          isResuming={resumeRunMutation.isPending}
+          onResume={() => void handleResumeFailedRun()}
           onReanalyze={() => navigateToFocusedRun([])}
         />
       )}
@@ -274,6 +292,7 @@ export function RunViewPage(): JSX.Element {
                 <Link to={activeRunRoute}>前往实时进度</Link>
               </Button>
             </div>
+          ) : null}
           {isQuotaPaused ? (
             <div className="flex flex-col gap-3 rounded-lg border border-warning/40 bg-warning/[0.08] p-4 text-caption text-foreground-muted sm:flex-row sm:items-center sm:justify-between">
               <span>积分不足，调研已暂停。充值后可从当前进度继续。</span>
@@ -525,6 +544,8 @@ interface RunOutcomeCardProps {
   reason?: string | null;
   startedAt: string;
   finishedAt: string | null;
+  isResuming: boolean;
+  onResume: () => void;
   onReanalyze: () => void;
 }
 
@@ -543,6 +564,8 @@ function RunOutcomeCard({
   reason,
   startedAt,
   finishedAt,
+  isResuming,
+  onResume,
   onReanalyze,
 }: RunOutcomeCardProps): JSX.Element {
   const isFailed = status === "failed";
@@ -576,7 +599,7 @@ function RunOutcomeCard({
               {reason?.trim()
                 ? reason
                 : isFailed
-                  ? "运行过程中发生错误，可在「执行回放」查看 Agent 最后操作以定位原因，或直接基于此重新发起一次。"
+                  ? "运行过程中发生错误，可从失败节点继续本次调研；已完成的检索与分析结果会保留。"
                   : "你在调研进行中点击了停止；可以基于同一需求重新发起一次。"}
             </p>
           </div>
@@ -599,10 +622,17 @@ function RunOutcomeCard({
             </div>
           </dl>
           <div className="flex flex-wrap gap-2 pt-1">
-            <Button onClick={onReanalyze} size="sm">
-              <RotateCcw className="h-3.5 w-3.5" />
-              基于此重新调研
-            </Button>
+            {isFailed ? (
+              <Button disabled={isResuming} onClick={onResume} size="sm">
+                <RotateCcw className={cn("h-3.5 w-3.5", isResuming && "animate-spin")} />
+                {isResuming ? "正在恢复..." : "从失败节点继续"}
+              </Button>
+            ) : (
+              <Button onClick={onReanalyze} size="sm">
+                <RotateCcw className="h-3.5 w-3.5" />
+                基于此重新调研
+              </Button>
+            )}
             <Button asChild size="sm" variant="outline">
               <Link to={`/app/runs/${runId}/trace`}>查看执行回放</Link>
             </Button>

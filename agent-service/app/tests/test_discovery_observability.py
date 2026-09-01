@@ -109,6 +109,8 @@ def test_filter_discovery_candidates_keeps_grounded_competitor() -> None:
         {
             "name": "Cursor",
             "candidate_role": "direct_competitor",
+            "admission_status": "main_player",
+            "admission_reason": "no_target_category_available",
             "relevance_reason": "AI coding product in the target market.",
             "evidence_quote_preview": quote,
         }
@@ -210,10 +212,13 @@ def test_filter_discovery_candidates_backfills_validated_official_source() -> No
         {
             "name": "Cursor",
             "candidate_role": "direct_competitor",
+            "admission_status": "main_player",
+            "admission_reason": "no_target_category_available",
             "relevance_reason": "AI coding product in the target market.",
             "evidence_quote_preview": quote,
             "official_url": "https://cursor.com/pricing",
             "source_domain": "cursor.com",
+            "official_url_confidence": "corroborated",
         }
     ]
 

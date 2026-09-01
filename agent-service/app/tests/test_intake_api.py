@@ -233,7 +233,7 @@ def test_run_evidence_api_exposes_language_and_translation_fields(test_client: T
     assert japanese_item["translated_excerpt"] is None
 
 
-def test_intake_expert_mode_returns_422(test_client: TestClient) -> None:
+def test_intake_legacy_mode_query_uses_agent_conversation(test_client: TestClient) -> None:
     response = test_client.post(
         "/api/runs/intake?mode=expert",
         json={
@@ -242,9 +242,8 @@ def test_intake_expert_mode_returns_422(test_client: TestClient) -> None:
             "competitors_explicit": ["Notion", "Cursor"],
         },
     )
-    assert response.status_code == 422
-    body = response.json()
-    assert body["error_code"] == "EXPERT_MODE_NOT_AVAILABLE"
+    assert response.status_code == 200, response.text
+    assert response.json()["phase"] == "intake"
 
 
 def test_intake_create_idempotency_replay_returns_same_run(test_client: TestClient) -> None:

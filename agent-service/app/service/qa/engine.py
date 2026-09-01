@@ -34,7 +34,7 @@ from service.qa.rules import (
     evaluate_fast_path_rules,
     rule_knowledge_schema_conformance,
 )
-from service.skill_store import get_skill_store
+from service.policies import qa_policies
 from utils.logger import get_logger
 
 MAX_QA_REJECTIONS = 3
@@ -123,8 +123,6 @@ _PROMOTED_RULE_REQUIRED_FIELDS = [
     "reports.content_json.sections[].evidence_refs",
     "reports.content_json.sections[].content_markdown",
 ]
-_RULE_YAML_BLOCK_PATTERN = re.compile(r"```yaml\s*(?P<rule_yaml>.*?)```", re.DOTALL | re.IGNORECASE)
-_RULE_ID_PATTERN = re.compile(r"^\s*id:\s*(?P<rule_id>[a-z0-9_:-]+)\s*$", re.IGNORECASE)
 _KNOWLEDGE_FAILURE_PATTERN = re.compile(r"\[(?P<failure_type>[a-z_]+)\]")
 _KNOWLEDGE_REQUIRED_FIELDS_BY_FAILURE_TYPE: dict[str, list[str]] = {
     "no_evidence": [
@@ -162,7 +160,7 @@ _KNOWLEDGE_REQUIRED_FIELDS_BY_FAILURE_TYPE: dict[str, list[str]] = {
 
 
 @dataclass(slots=True)
-class PromotedQARulePayload:
+class QAPolicyRulePayload:
     rule_id: str
     rule_yaml: str
 
@@ -314,6 +312,17 @@ def _analysis_archetype_from_run(run: Run | None) -> str:
     return archetype_raw if archetype_raw in {"comparison", "landscape"} else "comparison"
 
 
+def _research_mode_from_run(run: Run | None) -> str:
+    if run is None or not isinstance(run.intake_draft, dict):
+        return "commercial"
+    mode_raw = run.intake_draft.get("research_mode")
+    return (
+        mode_raw
+        if mode_raw in {"academic", "technical", "commercial", "general"}
+        else "commercial"
+    )
+
+
 def _profile_competitors_for_qa(
     *,
     run: Run | None,
@@ -381,40 +390,16 @@ def _target_sections_for_report(*, run: Run | None, writer_step: Step | None) ->
     return sections
 
 
-def _extract_rule_yaml_from_skill_content(content: str) -> str | None:
-    matched = _RULE_YAML_BLOCK_PATTERN.search(content)
-    if matched is None:
-        stripped = content.strip()
-        return stripped if stripped else None
-    rule_yaml = matched.group("rule_yaml").strip()
-    return rule_yaml or None
-
-
-def _extract_rule_id(rule_yaml: str, *, fallback_id: str) -> str:
-    for line in rule_yaml.splitlines():
-        matched = _RULE_ID_PATTERN.match(line)
-        if matched is not None:
-            return matched.group("rule_id")
-    return fallback_id
-
-
-def _load_promoted_qa_rules_from_skill_store() -> list[PromotedQARulePayload]:
-    store = get_skill_store()
-    promoted_rules: list[PromotedQARulePayload] = []
-    for skill_name in store.list_by_applies_to("qa_rule"):
-        parsed = store.load(skill_name)
-        if parsed is None:
-            continue
-        rule_yaml = _extract_rule_yaml_from_skill_content(parsed.content)
-        if rule_yaml is None:
-            continue
-        promoted_rules.append(
-            PromotedQARulePayload(
-                rule_id=_extract_rule_id(rule_yaml, fallback_id=skill_name),
-                rule_yaml=rule_yaml,
-            )
-        )
-    return promoted_rules
+def _load_versioned_qa_policy_rules(
+    *, research_mode: str = "commercial"
+) -> list[QAPolicyRulePayload]:
+    """Return the reviewed, source-controlled QA policy set for every run."""
+    if research_mode != "commercial":
+        return []
+    return [
+        QAPolicyRulePayload(rule_id=policy.rule_id, rule_yaml=policy.rule_yaml)
+        for policy in qa_policies()
+    ]
 
 
 def _semantic_rule_result(semantic_output: dict[str, object]) -> RuleResult:
@@ -560,7 +545,7 @@ def _apply_numeric_claim_gate(
 
 def _build_promoted_rule_results(
     *,
-    promoted_qa_rules: list[PromotedQARulePayload],
+    promoted_qa_rules: list[QAPolicyRulePayload],
     content_json: dict[str, object],
     evidence_items: list[EvidenceRecord],
     now: datetime | None = None,
@@ -710,10 +695,8 @@ async def evaluate_report(
     reviewer_step_id: str,
     session_factory: async_sessionmaker[AsyncSession],
     qa_rejection_count: int,
-    promoted_qa_rules: list[PromotedQARulePayload] | None = None,
+    promoted_qa_rules: list[QAPolicyRulePayload] | None = None,
 ) -> tuple[Approval | Rejection, LLMResponse | None, dict[str, object]]:
-    promoted_rules = promoted_qa_rules or _load_promoted_qa_rules_from_skill_store()
-    promoted_rule_ids = [item.rule_id for item in promoted_rules]
     async with session_factory() as session:
         run = await session.get(Run, run_id)
         report = await session.get(Report, report_id)
@@ -724,6 +707,13 @@ async def evaluate_report(
             )
         ).scalars().all()
         knowledge = await load_knowledge_for_run(session=session, run_id=run_id)
+    research_mode = _research_mode_from_run(run)
+    promoted_rules = (
+        promoted_qa_rules
+        if promoted_qa_rules is not None
+        else _load_versioned_qa_policy_rules(research_mode=research_mode)
+    )
+    promoted_rule_ids = [item.rule_id for item in promoted_rules]
     qa_reject_budget = _qa_reject_budget_from_run(run)
 
     if report is None or report.run_id != run_id:
@@ -775,13 +765,23 @@ async def evaluate_report(
         else None
     )
     analysis_archetype = _analysis_archetype_from_run(run)
-    require_competitor_schema = analysis_archetype != "landscape"
-    profile_competitors = _profile_competitors_for_qa(
-        run=run,
-        analysis_archetype=analysis_archetype,
-        report_depth=report_depth,
+    require_competitor_schema = (
+        research_mode == "commercial" and analysis_archetype != "landscape"
     )
-    expected_competitors = run.competitors if run is not None else None
+    profile_competitors = (
+        _profile_competitors_for_qa(
+            run=run,
+            analysis_archetype=analysis_archetype,
+            report_depth=report_depth,
+        )
+        if research_mode == "commercial"
+        else []
+    )
+    expected_competitors = (
+        run.competitors
+        if run is not None and research_mode == "commercial"
+        else []
+    )
     rule_results = evaluate_fast_path_rules(
         content_markdown=report.content_markdown,
         content_json=report.content_json,
@@ -793,6 +793,7 @@ async def evaluate_report(
         response_language=response_language,
         knowledge=knowledge,
         analysis_archetype=analysis_archetype,
+        research_mode=research_mode,
         profile_competitors=profile_competitors,
     )
     promoted_rule_results, promoted_rule_metadata = _build_promoted_rule_results(
@@ -835,6 +836,7 @@ async def evaluate_report(
         failed_rule_ids=failed_rule_ids,
         evidence_briefs=evidence_briefs,
         report_depth=report_depth,
+        research_mode=research_mode,
         target_sections=target_sections,
         numeric_claims=numeric_claims_for_prompt,
         response_language=response_language,

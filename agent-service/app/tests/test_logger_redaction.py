@@ -67,7 +67,6 @@ async def test_llm_client_logs_redact_prompt_and_fake_key(
     client = LLMClient(
         providers={"doubao": provider},
         max_retries=0,
-        timeout_seconds=5,
         global_concurrency=1,
     )
 
@@ -127,7 +126,6 @@ async def test_llm_client_logs_call_error_on_terminal_failure(
     client = LLMClient(
         providers={"doubao": provider},
         max_retries=0,
-        timeout_seconds=5,
         global_concurrency=1,
     )
 

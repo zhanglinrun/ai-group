@@ -1,6 +1,7 @@
 package com.aigroup.groupbuy.infrastructure.dao;
 
 import com.aigroup.groupbuy.infrastructure.dao.po.GroupBuyOrder;
+import com.aigroup.groupbuy.infrastructure.dao.po.GroupBuyTeamStatistic;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
@@ -41,11 +42,7 @@ public interface IGroupBuyOrderDao {
      */
     List<GroupBuyOrder> queryGroupBuyProgressByTeamIdsForOwner(@Param("teamIds") Set<String> teamIds);
 
-    Integer queryAllTeamCount(@Param("teamIds") Set<String> teamIds);
-
-    Integer queryAllTeamCompleteCount(@Param("teamIds") Set<String> teamIds);
-
-    Integer queryAllUserCount(@Param("teamIds") Set<String> teamIds);
+    GroupBuyTeamStatistic queryTeamStatisticByActivityId(Long activityId);
 
     int unpaid2Refund(GroupBuyOrder groupBuyOrderReq);
 

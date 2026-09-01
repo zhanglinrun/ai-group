@@ -10,19 +10,6 @@ from schemas.contracts import validate_source_type
 from service.prompt_safety.sanitizer import sanitize_text
 
 SourceType = str
-KNOWN_SOURCE_TYPES: frozenset[str] = frozenset(
-    {
-        "official_site",
-        "docs",
-        "official_doc",
-        "pricing_page",
-        "market_report",
-        "public_review",
-        "article",
-        "local_note",
-        "offline_snapshot",
-    }
-)
 
 
 class CollectorSnippet(BaseModel):

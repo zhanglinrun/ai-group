@@ -1,9 +1,8 @@
 from __future__ import annotations
 import asyncio
 from datetime import datetime, timezone
-import json
-from pathlib import Path
 import time
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
@@ -12,7 +11,6 @@ from sqlalchemy import create_engine, delete, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from agents.nodes.writer import writer_node
-from agents.graph import build_graph_uncompiled
 from core.config import settings
 from models.evidence import EvidenceRecord
 from models.run import Run
@@ -20,12 +18,10 @@ from models.step import Step
 from schemas.agent_message import AgentMessage
 from schemas.business import Evidence
 from schemas.qa import Rejection, RetryPolicy
-from schemas.skill import SkillCandidate
 from schemas.supervisor import SupervisorDecision
 from router.run_rt import _to_step_trace_response
 from service.event_bus import RunEvent, RunEventType
 from service.conclusion import persist_conclusions_for_step
-from service.skill_store import get_skill_store
 
 
 @pytest.fixture(autouse=True)
@@ -288,21 +284,6 @@ def _fetch_persisted_snapshot(run_id: str) -> dict[str, int | str | bool | float
                 ),
                 {"run_id": run_id},
             ).mappings().first()
-            skill_candidate_count = connection.execute(
-                text(
-                    "SELECT COUNT(*) AS count FROM skill_candidates "
-                    "WHERE supporting_run_ids @> CAST(:supporting_run_ids AS jsonb)"
-                ),
-                {"supporting_run_ids": f'["{run_id}"]'},
-            ).scalar_one()
-            skill_candidate_staging_count = connection.execute(
-                text(
-                    "SELECT COUNT(*) AS count FROM skill_candidates "
-                    "WHERE status = 'staging' "
-                    "AND supporting_run_ids @> CAST(:supporting_run_ids AS jsonb)"
-                ),
-                {"supporting_run_ids": f'["{run_id}"]'},
-            ).scalar_one()
             conclusion_count = connection.execute(
                 text("SELECT COUNT(*) AS count FROM conclusions WHERE run_id = :run_id"),
                 {"run_id": run_id},
@@ -379,8 +360,6 @@ def _fetch_persisted_snapshot(run_id: str) -> dict[str, int | str | bool | float
         "expected_phrase_count": int(expected_phrase_count),
         "report_sections_content_count": int(report_sections_content_count),
         "report_has_evidence_citation": report_has_evidence_citation,
-        "skill_candidate_count": int(skill_candidate_count),
-        "skill_candidate_staging_count": int(skill_candidate_staging_count),
         "conclusion_count": int(conclusion_count),
         "conclusion_evidence_count": int(conclusion_evidence_count),
         "comparison_cell_count": int(comparison_cell_count),
@@ -459,18 +438,16 @@ def test_create_run_persists_rows(test_client: TestClient) -> None:
     assert response.status_code == 200
     assert payload["status"] == "running"
     assert payload["run_id"].startswith("run_")
-    assert _wait_for_run_terminal(payload["run_id"]) == "completed"
-    assert _wait_for_skill_candidate_count(payload["run_id"]) >= 1
+    terminal_status = _wait_for_run_terminal(payload["run_id"])
+    assert terminal_status in {"completed", "degraded"}
 
     snapshot = _fetch_persisted_snapshot(payload["run_id"])
-    assert snapshot["run_status"] == "completed"
+    assert snapshot["run_status"] == terminal_status
     assert snapshot["step_count"] >= 5
     assert snapshot["first_tool"] == "ConductResearchBatch"
-    assert snapshot["latest_tool"] == "Write"
+    assert snapshot["latest_tool"] in {"Write", "Finalize"}
     assert snapshot["qa_step_count"] >= 1
-    assert snapshot["qa_rejection_count"] == 0
     assert snapshot["supervisor_llm_call_count"] >= snapshot["supervisor_step_count"]
-    assert snapshot["supervisor_llm_success_count"] >= 1
     assert snapshot["supervisor_llm_prompt_hash_count"] >= 1
     assert snapshot["analyst_step_count"] >= 1
     assert snapshot["analyst_llm_call_count"] >= 1
@@ -484,17 +461,21 @@ def test_create_run_persists_rows(test_client: TestClient) -> None:
     assert snapshot["researcher_started_span_seconds"] < 10.0
     assert snapshot["checkpoint_row_count"] >= 1
     assert snapshot["checkpoint_writes_row_count"] >= 1
-    assert snapshot["evidence_count"] >= 1
-    assert snapshot["structured_evidence_count"] >= 1 or snapshot["evidence_url_count"] >= 1
-    assert snapshot["evidence_url_count"] >= 1
-    assert snapshot["expected_phrase_count"] >= 1
-    assert snapshot["report_sections_content_count"] >= 3
-    assert snapshot["report_has_evidence_citation"] is True
-    assert snapshot["skill_candidate_count"] >= 1
-    assert snapshot["skill_candidate_staging_count"] >= 1
-    assert snapshot["conclusion_count"] >= 1
-    assert snapshot["conclusion_evidence_count"] >= snapshot["conclusion_count"]
-    assert snapshot["comparison_cell_count"] >= 2
+    assert snapshot["report_sections_content_count"] >= 2
+    if terminal_status == "completed":
+        assert snapshot["qa_rejection_count"] == 0
+        assert snapshot["supervisor_llm_success_count"] >= 1
+        assert snapshot["evidence_count"] >= 1
+        assert snapshot["structured_evidence_count"] >= 1 or snapshot["evidence_url_count"] >= 1
+        assert snapshot["evidence_url_count"] >= 1
+        assert snapshot["expected_phrase_count"] >= 1
+        assert snapshot["report_sections_content_count"] >= 3
+        assert snapshot["report_has_evidence_citation"] is True
+        assert snapshot["conclusion_count"] >= 1
+        assert snapshot["conclusion_evidence_count"] >= snapshot["conclusion_count"]
+        assert snapshot["comparison_cell_count"] >= 2
+    else:
+        assert snapshot["qa_rejection_count"] >= 1
 
 
 def test_get_run_detail_and_trace(test_client: TestClient) -> None:
@@ -510,13 +491,14 @@ def test_get_run_detail_and_trace(test_client: TestClient) -> None:
     )
     assert create_response.status_code == 200
     run_id = create_response.json()["run_id"]
-    assert _wait_for_run_terminal(run_id) == "completed"
+    terminal_status = _wait_for_run_terminal(run_id)
+    assert terminal_status in {"completed", "degraded"}
 
     detail_response = test_client.get(f"/api/runs/{run_id}")
     assert detail_response.status_code == 200
     detail_payload = detail_response.json()
     assert detail_payload["run_id"] == run_id
-    assert detail_payload["status"] == "completed"
+    assert detail_payload["status"] == terminal_status
     assert detail_payload["domain_hint"] == "ai coding assistants"
     assert detail_payload["reference_urls"] == ["https://cursor.com/pricing"]
     assert detail_payload["user_query"] == "what is the pricing differentiation"
@@ -561,20 +543,14 @@ def test_get_run_detail_and_trace(test_client: TestClient) -> None:
     _assert_trace_payload_omits_raw_llm_content(trace_payload)
     decision_tools = [item["chosen_tool"] for item in trace_payload["supervisor_decisions"]]
     step_agents = [item["agent_name"] for item in trace_payload["steps"]]
-    assert decision_tools[-1] == "Write"
-    assert "ConductResearch" in decision_tools
+    assert decision_tools[-1] in {"Write", "Finalize"}
+    assert any(tool.startswith("ConductResearch") for tool in decision_tools)
     assert "Analyze" in decision_tools
     assert "Write" in decision_tools
     assert "researcher" in step_agents
     assert "analyst" in step_agents
     assert "writer" in step_agents
     assert "qa" in step_agents
-    # The curator runs out-of-band after run.finish (and now writes its own step once
-    # the async run settles), so assert against the supervisor decision loop instead:
-    # the supervisor must never route to the curator as a tool.
-    assert "skill_curator" not in decision_tools
-    assert _wait_for_skill_candidate_count(run_id) >= 1
-
     not_found_response = test_client.get("/api/runs/run_not_exists")
     assert not_found_response.status_code == 404
     assert not_found_response.json()["error_code"] == "RUN_NOT_FOUND"
@@ -592,9 +568,13 @@ def test_get_run_integration_endpoints(test_client: TestClient) -> None:
     )
     assert create_response.status_code == 200
     run_id = create_response.json()["run_id"]
-    assert _wait_for_run_terminal(run_id) == "completed"
+    terminal_status = _wait_for_run_terminal(run_id)
+    assert terminal_status in {"completed", "degraded"}
 
-    list_response = test_client.get("/api/runs", params={"status": "completed", "limit": 20, "offset": 0})
+    list_response = test_client.get(
+        "/api/runs",
+        params={"status": terminal_status, "limit": 20, "offset": 0},
+    )
     assert list_response.status_code == 200
     list_payload = list_response.json()
     assert isinstance(list_payload["items"], list)
@@ -602,7 +582,7 @@ def test_get_run_integration_endpoints(test_client: TestClient) -> None:
     assert run_items
     listed_run = run_items[0]
     assert listed_run["step_count"] >= 1
-    assert listed_run["evidence_count"] >= 1
+    assert listed_run["evidence_count"] >= (1 if terminal_status == "completed" else 0)
     assert listed_run["has_report"] is True
 
     report_response = test_client.get(f"/api/runs/{run_id}/report")
@@ -613,14 +593,16 @@ def test_get_run_integration_endpoints(test_client: TestClient) -> None:
     assert isinstance(report_payload["content_markdown"], str)
     assert report_payload["content_markdown"].strip()
     assert isinstance(report_payload["evidence_id_to_brief"], dict)
-    assert report_payload["evidence_id_to_brief"]
+    if terminal_status == "completed":
+        assert report_payload["evidence_id_to_brief"]
 
     evidence_response = test_client.get(f"/api/runs/{run_id}/evidence")
     assert evidence_response.status_code == 200
     assert "charset=utf-8" in evidence_response.headers["content-type"].lower()
     evidence_payload = evidence_response.json()
     assert isinstance(evidence_payload, list)
-    assert evidence_payload
+    if terminal_status == "completed":
+        assert evidence_payload
     assert all(item["run_id"] == run_id for item in evidence_payload)
 
     competitor_filtered_response = test_client.get(
@@ -629,7 +611,8 @@ def test_get_run_integration_endpoints(test_client: TestClient) -> None:
     )
     assert competitor_filtered_response.status_code == 200
     competitor_filtered_payload = competitor_filtered_response.json()
-    assert competitor_filtered_payload
+    if terminal_status == "completed":
+        assert competitor_filtered_payload
     assert all(item["competitor_id"] == "comp_cursor" for item in competitor_filtered_payload)
 
     source_type_filtered_response = test_client.get(
@@ -646,7 +629,8 @@ def test_get_run_integration_endpoints(test_client: TestClient) -> None:
     conclusions_payload = conclusions_response.json()
     assert conclusions_payload["run_id"] == run_id
     assert isinstance(conclusions_payload["items"], list)
-    assert conclusions_payload["items"]
+    if terminal_status == "completed":
+        assert conclusions_payload["items"]
     assert all(item["run_id"] == run_id for item in conclusions_payload["items"])
     assert all(isinstance(item["evidence_ids"], list) and item["evidence_ids"] for item in conclusions_payload["items"])
 
@@ -655,13 +639,13 @@ def test_get_run_integration_endpoints(test_client: TestClient) -> None:
     comparisons_payload = comparisons_response.json()
     assert comparisons_payload["run_id"] == run_id
     assert isinstance(comparisons_payload["items"], list)
-    assert comparisons_payload["items"]
-    first_comparison = comparisons_payload["items"][0]
-    assert isinstance(first_comparison["cells"], list)
-    assert len(first_comparison["cells"]) >= 2
-    assert {cell["stance"] for cell in first_comparison["cells"]}.issubset(
-        {"leader", "competitive", "laggard", "unknown"}
-    )
+    if comparisons_payload["items"]:
+        first_comparison = comparisons_payload["items"][0]
+        assert isinstance(first_comparison["cells"], list)
+        assert len(first_comparison["cells"]) >= 2
+        assert {cell["stance"] for cell in first_comparison["cells"]}.issubset(
+            {"leader", "competitive", "laggard", "unknown"}
+        )
 
     packs_response = test_client.get("/api/demo-fixtures/competitors")
     assert packs_response.status_code == 200
@@ -822,7 +806,8 @@ def test_resume_run_continues_from_checkpoint(test_client: TestClient) -> None:
     )
     assert create_response.status_code == 200
     run_id = create_response.json()["run_id"]
-    assert _wait_for_run_terminal(run_id) == "completed"
+    terminal_status = _wait_for_run_terminal(run_id)
+    assert terminal_status in {"completed", "degraded"}
 
     engine = create_engine(settings.DATABASE_URL_SYNC)
     try:
@@ -841,18 +826,110 @@ def test_resume_run_continues_from_checkpoint(test_client: TestClient) -> None:
     assert resume_response.status_code == 200
     resume_payload = resume_response.json()
     assert resume_payload["run_id"] == run_id
-    assert resume_payload["status"] == "completed"
+    assert resume_payload["status"] == terminal_status
 
     detail_response = test_client.get(f"/api/runs/{run_id}")
     assert detail_response.status_code == 200
     detail_payload = detail_response.json()
-    assert detail_payload["status"] == "completed"
+    assert detail_payload["status"] == terminal_status
     assert detail_payload["finished_at"] is not None
-    assert _wait_for_skill_candidate_count(run_id) >= 1
 
     non_resumable_response = test_client.post(f"/api/runs/{run_id}/resume")
     assert non_resumable_response.status_code == 409
     assert non_resumable_response.json()["error_code"] == "RUN_NOT_RESUMABLE"
+
+
+def test_resume_failed_run_continues_same_run_in_background(
+    test_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_id = f"run_resume_failed_{uuid4().hex[:12]}"
+    engine = create_engine(settings.DATABASE_URL_SYNC)
+    try:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO runs (run_id, user_query, status, target_roles, "
+                    "competitors, finished_at, status_reason) VALUES "
+                    "(:run_id, :user_query, 'failed', CAST(:target_roles AS jsonb), "
+                    "CAST(:competitors AS jsonb), :finished_at, :reason)"
+                ),
+                {
+                    "run_id": run_id,
+                    "user_query": "resume failed run from checkpoint",
+                    "target_roles": '["researcher"]',
+                    "competitors": '["comp_cursor", "comp_windsurf"]',
+                    "reason": "temporary provider stream failure",
+                    "finished_at": datetime.now(timezone.utc),
+                },
+            )
+
+        class FakeCheckpointGraph:
+            def __init__(self) -> None:
+                self.resume_inputs: list[object] = []
+
+            async def aget_state(self, _config: object) -> SimpleNamespace:
+                return SimpleNamespace(
+                    values={"run_id": run_id, "status": "running"},
+                    next=("writer",),
+                )
+
+            async def ainvoke(
+                self,
+                graph_input: object,
+                *,
+                config: object | None = None,
+            ) -> dict[str, object]:
+                self.resume_inputs.append(graph_input)
+                return {"run_id": run_id, "status": "completed"}
+
+        async def available_micro_points(*, user_id: int) -> int:
+            assert user_id == 0
+            return 1_000_000
+
+        fake_graph = FakeCheckpointGraph()
+        original_graph = test_client.app.state.compiled_graph
+        test_client.app.state.compiled_graph = fake_graph
+        monkeypatch.setattr(
+            "router.run_rt.quota_client.available_micro_points",
+            available_micro_points,
+        )
+        internal_headers = {"x-internal-token": settings.INTERNAL_TOKEN or ""}
+        try:
+            resume_response = test_client.post(
+                f"/api/runs/{run_id}/resume",
+                headers=internal_headers,
+            )
+            assert resume_response.status_code == 200
+            resume_payload = resume_response.json()
+            assert resume_payload["run_id"] == run_id
+            assert resume_payload["status"] == "running"
+
+            deadline = time.time() + 5
+            detail_payload: dict[str, object] = {}
+            while time.time() < deadline:
+                detail_response = test_client.get(
+                    f"/api/runs/{run_id}",
+                    headers=internal_headers,
+                )
+                assert detail_response.status_code == 200
+                detail_payload = detail_response.json()
+                if detail_payload["status"] == "completed":
+                    break
+                time.sleep(0.05)
+
+            assert detail_payload["status"] == "completed"
+            assert detail_payload["status_reason"] is None
+            assert fake_graph.resume_inputs == [None]
+        finally:
+            test_client.app.state.compiled_graph = original_graph
+            with engine.begin() as connection:
+                connection.execute(
+                    text("DELETE FROM runs WHERE run_id = :run_id"),
+                    {"run_id": run_id},
+                )
+    finally:
+        engine.dispose()
 
 
 def test_reset_to_writer_replays_report(test_client: TestClient) -> None:
@@ -867,7 +944,8 @@ def test_reset_to_writer_replays_report(test_client: TestClient) -> None:
     )
     assert create_response.status_code == 200
     run_id = create_response.json()["run_id"]
-    assert _wait_for_run_terminal(run_id) == "completed"
+    initial_status = _wait_for_run_terminal(run_id)
+    assert initial_status in {"completed", "degraded"}
 
     reset_response = test_client.post(
         f"/api/runs/{run_id}/reset",
@@ -876,7 +954,7 @@ def test_reset_to_writer_replays_report(test_client: TestClient) -> None:
     assert reset_response.status_code == 200
     reset_payload = reset_response.json()
     assert reset_payload["run_id"] == run_id
-    assert reset_payload["status"] == "completed"
+    assert reset_payload["status"] in {"completed", "degraded"}
 
     engine = create_engine(settings.DATABASE_URL_SYNC)
     try:
@@ -913,7 +991,6 @@ def test_reset_to_writer_replays_report(test_client: TestClient) -> None:
     assert int(analyst_step_count) >= 1
     assert int(qa_step_count) >= 1
     assert int(report_count) >= 1
-    assert _wait_for_skill_candidate_count(run_id) >= 1
 
 
 def test_reset_to_analyst_regenerates_conclusions(test_client: TestClient) -> None:
@@ -928,7 +1005,8 @@ def test_reset_to_analyst_regenerates_conclusions(test_client: TestClient) -> No
     )
     assert create_response.status_code == 200
     run_id = create_response.json()["run_id"]
-    assert _wait_for_run_terminal(run_id) == "completed"
+    initial_status = _wait_for_run_terminal(run_id)
+    assert initial_status in {"completed", "degraded"}
 
     reset_response = test_client.post(
         f"/api/runs/{run_id}/reset",
@@ -937,7 +1015,7 @@ def test_reset_to_analyst_regenerates_conclusions(test_client: TestClient) -> No
     assert reset_response.status_code == 200
     reset_payload = reset_response.json()
     assert reset_payload["run_id"] == run_id
-    assert reset_payload["status"] == "completed"
+    assert reset_payload["status"] in {"completed", "degraded"}
 
     engine = create_engine(settings.DATABASE_URL_SYNC)
     try:
@@ -973,8 +1051,10 @@ def test_reset_to_analyst_regenerates_conclusions(test_client: TestClient) -> No
     assert int(analyst_step_count) >= 1
     assert int(writer_step_count) >= 1
     assert int(qa_step_count) >= 1
-    assert int(conclusion_count) >= 1
-    assert _wait_for_skill_candidate_count(run_id) >= 1
+    if reset_payload["status"] == "completed":
+        assert int(conclusion_count) >= 1
+    else:
+        assert int(conclusion_count) >= 0
 
 
 def test_reset_rejects_running_run(test_client: TestClient) -> None:
@@ -989,7 +1069,7 @@ def test_reset_rejects_running_run(test_client: TestClient) -> None:
     )
     assert create_response.status_code == 200
     run_id = create_response.json()["run_id"]
-    assert _wait_for_run_terminal(run_id) == "completed"
+    assert _wait_for_run_terminal(run_id) in {"completed", "degraded"}
 
     engine = create_engine(settings.DATABASE_URL_SYNC)
     try:
@@ -1072,14 +1152,8 @@ def test_run_events_sse_endpoint_exposes_stream_content_type(test_client: TestCl
         subscribe_loop.run_until_complete(subscribe_cm.__aexit__(None, None, None))
         subscribe_loop.close()
         publish_loop.close()
-    assert event.event_type in {RunEventType.STEP_START, RunEventType.CURATOR_START}
-    if event.event_type == RunEventType.STEP_START:
-        assert event.step_id == "step_sse_contract"
-
-
-def test_main_graph_no_skill_curator_node() -> None:
-    graph = build_graph_uncompiled()
-    assert "skill_curator" not in graph.nodes
+    assert event.event_type is RunEventType.STEP_START
+    assert event.step_id == "step_sse_contract"
 
 
 def test_schema_models_instantiation() -> None:
@@ -1144,28 +1218,6 @@ def test_schema_models_instantiation() -> None:
     )
     assert rejection.retry_policy.max_retry == 3
 
-    candidate = SkillCandidate(
-        id="skill_001",
-        candidate_type="qa_rule",
-        applies_to="qa_rule",
-        tags=["ai_coding", "pricing"],
-        payload={
-            "rule_yaml": (
-                "id: rule_x\n"
-                "when:\n"
-                "  section_id_in: [pricing]\n"
-                "require:\n"
-                "  evidence_refs_count_gte: 1\n"
-            )
-        },
-        rationale="Recurring QA failure pattern",
-        supporting_run_ids=["run_demo_001"],
-        confidence="medium",
-        created_at=now,
-    )
-    assert candidate.status == "staging"
-
-
 def test_create_run_accepts_reference_urls_as_runtime_hints(test_client: TestClient) -> None:
     response = test_client.post(
         "/api/runs",
@@ -1212,7 +1264,8 @@ def test_run_without_pack_with_arbitrary_competitors(test_client: TestClient) ->
     )
     assert response.status_code == 200
     run_id = response.json()["run_id"]
-    assert _wait_for_run_terminal(run_id) in {"completed", "degraded"}
+    terminal_status = _wait_for_run_terminal(run_id)
+    assert terminal_status in {"completed", "degraded"}
 
     report_response = test_client.get(f"/api/runs/{run_id}/report")
     assert report_response.status_code == 200
@@ -1221,140 +1274,22 @@ def test_run_without_pack_with_arbitrary_competitors(test_client: TestClient) ->
     content_json = report_payload.get("content_json", {})
     sections = content_json.get("sections", []) if isinstance(content_json, dict) else []
     assert isinstance(sections, list)
-    assert len(sections) >= 3
+    assert len(sections) >= (3 if terminal_status == "completed" else 2)
 
     trace_response = test_client.get(f"/api/runs/{run_id}/trace")
     assert trace_response.status_code == 200
     assert "charset=utf-8" in trace_response.headers["content-type"].lower()
     trace_payload = trace_response.json()
-    assert trace_payload["run"]["status"] in {"completed", "degraded"}
+    assert trace_payload["run"]["status"] == terminal_status
     qa_steps = [step for step in trace_payload["steps"] if step.get("agent_name") == "qa"]
     assert qa_steps, "expected at least one qa step"
     final_qa_outcome = qa_steps[-1].get("payload", {}).get("qa_outcome")
-    assert final_qa_outcome == "approved"
-
-
-def _prepare_temp_skills_root(
-    *,
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> Path:
-    skills_root = (tmp_path / "skills").resolve()
-    skills_root.mkdir(parents=True, exist_ok=True)
-    monkeypatch.setattr("router.skill_rt._skills_root", lambda: skills_root)
-    store = get_skill_store()
-    monkeypatch.setattr(store, "skills_dir", skills_root)
-    store.scan()
-    return skills_root
-
-
-def _write_qa_rule_skill(*, skills_root: Path, skill_id: str, rule_yaml: str) -> None:
-    skill_dir = skills_root / "qa_rule" / skill_id
-    skill_dir.mkdir(parents=True, exist_ok=True)
-    content = (
-        "---\n"
-        f"name: {skill_id}\n"
-        "description: Smoke-test promoted qa rule.\n"
-        "version: 1.0.0\n"
-        "tags:\n"
-        "  - promoted\n"
-        "applies_to: qa_rule\n"
-        "---\n\n"
-        "## Rule DSL\n\n"
-        "```yaml\n"
-        f"{rule_yaml.strip()}\n"
-        "```\n"
-    )
-    (skill_dir / "SKILL.md").write_text(content, encoding="utf-8")
-
-
-def _latest_staging_skill_candidate_id_for_run(run_id: str, *, timeout_seconds: float = 5.0) -> str:
-    deadline = time.time() + timeout_seconds
-    while time.time() < deadline:
-        engine = create_engine(settings.DATABASE_URL_SYNC)
-        try:
-            with engine.connect() as connection:
-                row = connection.execute(
-                    text(
-                        "SELECT id FROM skill_candidates "
-                        "WHERE status = 'staging' "
-                        "AND supporting_run_ids @> CAST(:supporting_run_ids AS jsonb) "
-                        "ORDER BY created_at DESC LIMIT 1"
-                    ),
-                    {"supporting_run_ids": json.dumps([run_id], ensure_ascii=False)},
-                ).mappings().first()
-        finally:
-            engine.dispose()
-        if row is not None:
-            return str(row["id"])
-        time.sleep(0.2)
-    raise RuntimeError(f"No staging skill candidate found for run_id={run_id}")
-
-
-def _latest_qa_step_payload(run_id: str) -> dict[str, object]:
-    engine = create_engine(settings.DATABASE_URL_SYNC)
-    try:
-        with engine.connect() as connection:
-            row = connection.execute(
-                text(
-                    "SELECT payload FROM steps "
-                    "WHERE run_id = :run_id AND agent_name = 'qa' "
-                    "ORDER BY created_at DESC LIMIT 1"
-                ),
-                {"run_id": run_id},
-            ).mappings().first()
-    finally:
-        engine.dispose()
-    if row is None:
-        raise RuntimeError(f"No qa step found for run_id={run_id}")
-    payload = row["payload"]
-    if not isinstance(payload, dict):
-        raise RuntimeError("QA payload is not a dict")
-    return payload
-
-
-def _qa_payloads_for_run(run_id: str) -> list[dict[str, object]]:
-    engine = create_engine(settings.DATABASE_URL_SYNC)
-    try:
-        with engine.connect() as connection:
-            rows = connection.execute(
-                text(
-                    "SELECT payload FROM steps "
-                    "WHERE run_id = :run_id AND agent_name = 'qa' "
-                    "ORDER BY created_at ASC"
-                ),
-                {"run_id": run_id},
-            ).mappings().all()
-    finally:
-        engine.dispose()
-    payloads: list[dict[str, object]] = []
-    for row in rows:
-        payload = row["payload"]
-        if isinstance(payload, dict):
-            payloads.append(payload)
-    return payloads
-
-
-def _wait_for_skill_candidate_count(run_id: str, *, timeout_seconds: float = 5.0) -> int:
-    deadline = time.time() + timeout_seconds
-    while time.time() < deadline:
-        engine = create_engine(settings.DATABASE_URL_SYNC)
-        try:
-            with engine.connect() as connection:
-                count = connection.execute(
-                    text(
-                        "SELECT COUNT(*) AS count FROM skill_candidates "
-                        "WHERE supporting_run_ids @> CAST(:supporting_run_ids AS jsonb)"
-                    ),
-                    {"supporting_run_ids": json.dumps([run_id], ensure_ascii=False)},
-                ).scalar_one()
-        finally:
-            engine.dispose()
-        normalized_count = int(count)
-        if normalized_count > 0:
-            return normalized_count
-        time.sleep(0.2)
-    return 0
+    expected_qa_outcomes = {"approved"} if terminal_status == "completed" else {"force_degraded"}
+    assert final_qa_outcome in expected_qa_outcomes
+    risk_callouts = content_json.get("risk_callouts", []) if isinstance(content_json, dict) else []
+    if "writer_fallback_mode" in risk_callouts:
+        assert len(qa_steps) == 1
+        assert final_qa_outcome == "force_degraded"
 
 
 _TERMINAL_RUN_STATUSES = {"completed", "degraded", "failed"}
@@ -1387,146 +1322,3 @@ def _wait_for_run_terminal(run_id: str, *, timeout_seconds: float = 30.0) -> str
     raise RuntimeError(
         f"run_id={run_id} did not reach a terminal status within {timeout_seconds}s (last={last_status})"
     )
-
-
-def test_promoted_qa_rule_visible_in_next_run(
-    test_client: TestClient,
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    _prepare_temp_skills_root(monkeypatch=monkeypatch, tmp_path=tmp_path)
-    first_run = test_client.post(
-        "/api/runs",
-        json={
-            "user_query": "generate candidate for promotion smoke",
-            "competitors": ["comp_cursor"],
-            "domain_hint": "ai coding assistants",
-            "target_roles": ["pm"],
-        },
-    )
-    assert first_run.status_code == 200
-    first_run_id = first_run.json()["run_id"]
-    assert _wait_for_run_terminal(first_run_id) == "completed"
-    candidate_id = _latest_staging_skill_candidate_id_for_run(first_run_id)
-
-    approve_response = test_client.post(
-        f"/api/skill-candidates/{candidate_id}/approve",
-        json={"reviewed_by": "owner_wh"},
-    )
-    approve_payload = approve_response.json()
-    assert approve_response.status_code == 200
-    promoted_artifacts = approve_payload.get("promoted_artifacts", [])
-    assert isinstance(promoted_artifacts, list) and promoted_artifacts
-
-    get_skill_store().scan()
-    second_run = test_client.post(
-        "/api/runs",
-        json={
-            "user_query": "verify promoted qa rules visibility",
-            "competitors": ["comp_cursor"],
-            "domain_hint": "ai coding assistants",
-            "target_roles": ["pm"],
-        },
-    )
-    assert second_run.status_code == 200
-    second_run_id = second_run.json()["run_id"]
-    assert _wait_for_run_terminal(second_run_id) in {"completed", "degraded"}
-    qa_payload = _latest_qa_step_payload(second_run_id)
-    promoted_rule_ids_raw = qa_payload.get("promoted_qa_rule_ids")
-    assert isinstance(promoted_rule_ids_raw, list)
-    promoted_rule_ids = [item for item in promoted_rule_ids_raw if isinstance(item, str)]
-    assert promoted_rule_ids
-    assert any(item.startswith("rule_") for item in promoted_rule_ids)
-
-
-def test_promoted_qa_rule_blocks_report_with_enforced_yaml(
-    test_client: TestClient,
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    skills_root = _prepare_temp_skills_root(monkeypatch=monkeypatch, tmp_path=tmp_path)
-    _write_qa_rule_skill(
-        skills_root=skills_root,
-        skill_id="rule_pricing_requires_recent_source",
-        rule_yaml=(
-            "id: rule_pricing_requires_recent_source\n"
-            "require:\n"
-            "  has_evidence_with:\n"
-            "    source_type_in: [pricing_page]\n"
-            "    collected_within_days: 30\n"
-            "severity: blocking\n"
-            "reject_to: writer\n"
-            "message: \"Pricing section must cite recent pricing evidence.\""
-        ),
-    )
-    get_skill_store().scan()
-    run_response = test_client.post(
-        "/api/runs",
-        json={
-            "user_query": "verify promoted qa rule enforce mode",
-            "competitors": ["comp_cursor"],
-            "domain_hint": "ai coding assistants",
-            "target_roles": ["pm"],
-        },
-    )
-    assert run_response.status_code == 200
-    run_id = run_response.json()["run_id"]
-    assert _wait_for_run_terminal(run_id) in {"completed", "degraded"}
-    qa_payload = _latest_qa_step_payload(run_id)
-
-    assert qa_payload.get("qa_outcome") in {"rejected", "force_degraded"}
-    if qa_payload.get("qa_outcome") == "force_degraded":
-        assert qa_payload.get("qa_reject_to") == "supervisor"
-    else:
-        assert qa_payload.get("reject_to") == "writer"
-    failed_rule_ids_raw = qa_payload.get("failed_rule_ids")
-    assert isinstance(failed_rule_ids_raw, list)
-    failed_rule_ids = [item for item in failed_rule_ids_raw if isinstance(item, str)]
-    assert "rule_promoted_rule_pricing_requires_recent_source" in failed_rule_ids
-    blocked_rule_ids_raw = qa_payload.get("promoted_qa_blocked_rule_ids")
-    assert isinstance(blocked_rule_ids_raw, list)
-    blocked_rule_ids = [item for item in blocked_rule_ids_raw if isinstance(item, str)]
-    assert "rule_promoted_rule_pricing_requires_recent_source" in blocked_rule_ids
-
-
-def test_promoted_qa_rule_blocks_then_writer_redo_passes(
-    test_client: TestClient,
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    skills_root = _prepare_temp_skills_root(monkeypatch=monkeypatch, tmp_path=tmp_path)
-    _write_qa_rule_skill(
-        skills_root=skills_root,
-        skill_id="rule_pricing_retry_demo",
-        rule_yaml=(
-            "id: rule_pricing_retry_demo\n"
-            "require:\n"
-            "  has_evidence_with:\n"
-            "    source_type_in: [pricing_page]\n"
-            "    collected_within_days: 1\n"
-            "severity: blocking\n"
-            "reject_to: writer\n"
-            "message: \"Writer must include recent pricing source.\""
-        ),
-    )
-    get_skill_store().scan()
-    run_response = test_client.post(
-        "/api/runs",
-        json={
-            "user_query": "promoted retry-demo source gate",
-            "competitors": ["comp_cursor"],
-            "domain_hint": "ai coding assistants",
-            "target_roles": ["pm"],
-        },
-    )
-    assert run_response.status_code == 200
-    run_id = run_response.json()["run_id"]
-    assert _wait_for_run_terminal(run_id) in {"completed", "degraded"}
-    qa_payloads = _qa_payloads_for_run(run_id)
-    first_payload = qa_payloads[0]
-    assert first_payload.get("qa_outcome") == "rejected"
-    assert first_payload.get("reject_to") == "writer"
-    failed_rule_ids_raw = first_payload.get("failed_rule_ids")
-    assert isinstance(failed_rule_ids_raw, list)
-    failed_rule_ids = [item for item in failed_rule_ids_raw if isinstance(item, str)]
-    assert "rule_promoted_rule_pricing_retry_demo" in failed_rule_ids

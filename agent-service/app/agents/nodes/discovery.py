@@ -21,7 +21,12 @@ from db.engine import get_session_factory
 from models.run import Run
 from models.step import Step
 from schemas.ids import make_id
-from schemas.intake import category_aliases_for_target, normalize_optional_text, text_mentions_any_term
+from schemas.intake import (
+    category_aliases_for_target,
+    infer_research_mode,
+    normalize_optional_text,
+    text_mentions_any_term,
+)
 from service.collector.errors import ChannelError
 from service.event_bus import RunEventType, emit_run_event
 from schemas.agent_outputs import DiscoveryExtractOutput
@@ -36,6 +41,7 @@ from utils.log_node import log_node
 from utils.logger import bind_step, get_logger
 
 log = get_logger("agents.discovery")
+_ACADEMIC_SCOPE_TARGET_MAX_LEN = 96
 _DISCOVERY_SNIPPET_SAMPLE_LIMIT = 3
 _DISCOVERY_SNIPPET_PREVIEW_LIMIT = 220
 _DISCOVERY_EVIDENCE_PREVIEW_LIMIT = 220
@@ -124,6 +130,48 @@ _DISCOVERY_SEGMENT_HINTS: tuple[str, ...] = (
     "wearable",
     "可穿戴",
 )
+
+
+def _academic_scope_target(*, domain_context: str | None, user_query: str) -> str:
+    """Return one stable execution target for a literature survey.
+
+    Discovery still extracts paper/method/dataset entities for evidence and
+    diagnostics, but those entities are not independent competitor work items.
+    A single scope target keeps the graph's legacy ``competitor_id`` contract
+    while making the execution semantics explicitly academic.
+    """
+    base = normalize_optional_text(domain_context) or normalize_optional_text(user_query) or "research topic"
+    prefix = "学术文献范围：" if any("\u4e00" <= char <= "\u9fff" for char in base) else "Academic literature scope: "
+    return f"{prefix}{base}"[:_ACADEMIC_SCOPE_TARGET_MAX_LEN]
+
+
+def _research_scope_target(
+    *,
+    domain_context: str | None,
+    user_query: str,
+    research_mode: str,
+) -> str:
+    """Return a stable execution target when entity extraction yields none.
+
+    Technical and general research can legitimately have no named product or
+    competitor.  The graph still requires a ``competitor_id`` for researcher
+    tasks, so use one deterministic scope target while retaining the raw search
+    snippets as evidence.  Commercial mode deliberately does not use this
+    fallback because it must identify actual products/vendors.
+    """
+    if research_mode == "academic":
+        return _academic_scope_target(
+            domain_context=domain_context,
+            user_query=user_query,
+        )
+    base = normalize_optional_text(domain_context) or normalize_optional_text(user_query) or "research topic"
+    has_cjk = any("\u4e00" <= char <= "\u9fff" for char in base)
+    labels = {
+        "technical": ("技术研究范围：", "Technical research scope: "),
+        "general": ("通用研究范围：", "General research scope: "),
+    }
+    cjk_label, ascii_label = labels.get(research_mode, ("研究范围：", "Research scope: "))
+    return f"{cjk_label if has_cjk else ascii_label}{base}"[:_ACADEMIC_SCOPE_TARGET_MAX_LEN]
 
 
 def _clean_optional_string(value: object) -> str | None:
@@ -323,6 +371,16 @@ def _reconcile_candidate_role(
     if llm_candidate_role == "direct_competitor" and inferred_role == "substitute":
         return "substitute"
     if (
+        llm_candidate_role == "trend_reference"
+        and inferred_role == "direct_competitor"
+        and isinstance(self_product, str)
+        and self_product.strip()
+    ):
+        # In landscape research an extracted product can be mislabeled as a
+        # trend source. Keep actual media/research entities on the watchlist,
+        # but promote a product-like candidate next to the stated self product.
+        return "adjacent_competitor"
+    if (
         llm_candidate_role == "direct_competitor"
         and inferred_role == "adjacent_competitor"
         and landscape_signal
@@ -479,6 +537,7 @@ def _filter_discovery_candidates(
     excluded_categories: list[str] | None = None,
     market_segments: list[str] | None = None,
     scope_policy: str | None = None,
+    research_mode: str | None = None,
 ) -> tuple[list[str], list[dict[str, object]], list[dict[str, object]]]:
     discovered: list[str] = []
     filtered_out: list[dict[str, object]] = []
@@ -519,7 +578,7 @@ def _filter_discovery_candidates(
         if not name:
             filtered_out.append({"name": "", "reason": "blank_name"})
             continue
-        if not is_competitor:
+        if not is_competitor and research_mode != "academic":
             filtered_out.append({"name": name, "reason": "not_competitor"})
             continue
         if admission_status == "excluded":
@@ -532,7 +591,11 @@ def _filter_discovery_candidates(
                 }
             )
             continue
-        if candidate_role not in _DISCOVERY_CORE_ROLES and analysis_archetype != "landscape":
+        if (
+            research_mode != "academic"
+            and candidate_role not in _DISCOVERY_CORE_ROLES
+            and analysis_archetype != "landscape"
+        ):
             filtered_out.append(
                 {
                     "name": name,
@@ -620,6 +683,14 @@ async def discovery_node(state: AgentState) -> AgentState:
     analysis_intent = _state_or_intake_string(state, "analysis_intent")
     self_product = _state_or_intake_string(state, "self_product")
     analysis_archetype = _state_analysis_archetype(state)
+    research_mode = infer_research_mode(
+        user_query=user_query if isinstance(user_query, str) else None,
+        domain_context=_state_or_intake_string(state, "domain_hint"),
+        analysis_intent=analysis_intent,
+        user_role=_state_or_intake_string(state, "user_role"),
+        analysis_archetype=analysis_archetype,
+        explicit_mode=_state_or_intake_string(state, "research_mode"),
+    )
     target_category = _state_or_intake_string(state, "target_category")
     category_aliases = _state_or_intake_string_list(state, "category_aliases")
     excluded_categories = _state_or_intake_string_list(state, "excluded_categories")
@@ -746,10 +817,12 @@ async def discovery_node(state: AgentState) -> AgentState:
             market_segments=market_segments,
             scope_policy=scope_policy,
             response_language=response_language,
+            research_mode=research_mode,
         )
         fallback_prompt = build_discovery_extract_fallback_user_prompt(
             domain_context=domain_context,
             user_query=user_query,
+            research_mode=research_mode,
         )
         try:
             harness_result = await complete_structured(
@@ -781,6 +854,7 @@ async def discovery_node(state: AgentState) -> AgentState:
                     excluded_categories=excluded_categories,
                     market_segments=market_segments,
                     scope_policy=scope_policy,
+                    research_mode=research_mode,
                 )
             elif harness_result.llm_response.error is not None:
                 extract_error = harness_result.llm_response.error[:300]
@@ -797,6 +871,25 @@ async def discovery_node(state: AgentState) -> AgentState:
                     error_type=type(exc).__name__,
                     snippet_count=snippet_count,
                 )
+
+    academic_research_objects = [
+        str(item.get("name"))
+        for item in relevance
+        if isinstance(item, dict) and isinstance(item.get("name"), str) and item.get("name")
+    ]
+    if research_mode in {"academic", "technical", "general"} and all_snippets and not discovered:
+        # Keep one executable scope target. Academic paper/method/dataset rows
+        # and technical/general entities remain evidence metadata, but must not
+        # fan out into one researcher subgraph per extracted row. This also
+        # prevents a strict entity classifier from turning a valid search into
+        # an empty, degraded run.
+        discovered = [
+            _research_scope_target(
+                domain_context=domain_context,
+                user_query=user_query,
+                research_mode=research_mode,
+            )
+        ]
 
     with bind_step(step_id):
         if snippet_count > 0 and not discovered:
@@ -836,6 +929,8 @@ async def discovery_node(state: AgentState) -> AgentState:
             step_record.payload = {
                 **(step_record.payload or {}),
                 "discovered_competitors": discovered,
+                "research_mode": research_mode,
+                "academic_research_objects": academic_research_objects,
                 "discovered_competitor_sources": {
                     str(item["name"]): {
                         "official_url": item.get("official_url"),
@@ -885,6 +980,27 @@ async def discovery_node(state: AgentState) -> AgentState:
         if isinstance(item, dict)
         and isinstance(item.get("name"), str)
     }
+    if research_mode in {"academic", "technical", "general"} and discovered:
+        scope_target = discovered[0]
+        discovered_competitor_sources = {
+            scope_target: {
+                "official_url": None,
+                "source_domain": None,
+                "candidate_role": "trend_reference",
+                "relevance_reason": (
+                    "Single academic scope target; extracted papers and methods remain evidence objects."
+                    if research_mode == "academic"
+                    else "Single research scope target; extracted entities remain evidence objects."
+                ),
+                "segment": f"{research_mode}_research",
+                "introduction": (
+                    "Aggregated literature scope for paper, method, dataset, and benchmark evidence."
+                    if research_mode == "academic"
+                    else "Aggregated search scope for topic evidence and implementation details."
+                ),
+                "vendor": None,
+            }
+        }
     plan = coerce_plan_tree(state.get("plan_tree"))
     if discovered and plan is not None:
         intake_draft = state.get("intake_draft")
@@ -905,6 +1021,8 @@ async def discovery_node(state: AgentState) -> AgentState:
             max_competitors=tier_profile.max_competitors,
             max_dimensions=tier_profile.max_dimensions,
             landscape_core_deepdive_n=tier_profile.landscape_core_deepdive_n,
+            research_mode=_state_or_intake_string(state, "research_mode"),
+            response_language=_state_or_intake_string(state, "response_language"),
         )
         reconciled_plan_tree = reconciled.model_dump()
         async with session_factory() as session:

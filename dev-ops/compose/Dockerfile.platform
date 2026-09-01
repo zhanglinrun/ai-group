@@ -11,9 +11,14 @@ RUN mvn -s /workspace/dev-ops/compose/maven-settings.xml -pl "${MODULE}" -am cle
 ARG ARTIFACT
 RUN set -eux; jar_path="$(find "/workspace/${MODULE}/target" -maxdepth 1 -type f -name "${ARTIFACT}-*.jar" ! -name '*.original' | head -n 1)"; test -n "$jar_path"; cp "$jar_path" /tmp/app.jar
 
+FROM apache/skywalking-java-agent:9.3.0-java21 AS skywalking-agent
+
 FROM public.ecr.aws/docker/library/eclipse-temurin:21-jre
 WORKDIR /app
 COPY --from=build /tmp/app.jar /app/app.jar
+# Agent is present but inert unless SKYWALKING_OPTS is set at runtime.
+COPY --from=skywalking-agent /skywalking/agent /skywalking/agent
 ENV JAVA_OPTS="-XX:MaxRAMPercentage=75 -Djava.security.egd=file:/dev/./urandom"
+ENV SKYWALKING_OPTS=""
 EXPOSE 8080
-ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar /app/app.jar"]
+ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS $SKYWALKING_OPTS -jar /app/app.jar"]

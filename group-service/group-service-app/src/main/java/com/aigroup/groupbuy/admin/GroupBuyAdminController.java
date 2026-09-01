@@ -12,6 +12,8 @@ import com.aigroup.groupbuy.infrastructure.dao.po.GroupBuyActivity;
 import com.aigroup.groupbuy.infrastructure.dao.po.GroupBuyDiscount;
 import com.aigroup.groupbuy.infrastructure.dao.po.SCSkuActivity;
 import com.aigroup.groupbuy.infrastructure.dao.po.Sku;
+import com.aigroup.groupbuy.infrastructure.cache.MarketConfigLocalCache;
+import com.aigroup.groupbuy.infrastructure.adapter.repository.ActivityRepository;
 import com.aigroup.groupbuy.api.response.Response;
 import com.aigroup.groupbuy.infrastructure.redis.IRedisService;
 import com.aigroup.groupbuy.types.enums.ResponseCode;
@@ -39,7 +41,7 @@ import java.util.Map;
  * 拼团运营端接口：活动/折扣/商品的查看与调整。
  *
  * <p>鉴权：仅接受经网关转发（X-Gateway-Request + X-Internal-Token）且 JWT role 为 ADMIN 的请求。
- * 角色以 {@link RequestUserContext} 为准，不信请求头 {@code X-Role}。活动/折扣在 Redis 有读缓存，更新后同步逐出。</p>
+ * 角色以 {@link RequestUserContext} 为准，不信请求头 {@code X-Role}。活动、折扣和商品在 Redis 有读缓存，更新后同步逐出。</p>
  */
 @Slf4j
 @RestController
@@ -62,6 +64,8 @@ public class GroupBuyAdminController {
     private ISCSkuActivityDao scSkuActivityDao;
     @Resource
     private IRedisService redisService;
+    @Resource
+    private MarketConfigLocalCache marketConfigLocalCache;
     @Resource
     private Map<String, IDiscountCalculateService> discountCalculateServiceMap;
 
@@ -219,13 +223,15 @@ public class GroupBuyAdminController {
                 groupBuyDiscountDao.updateGroupBuyDiscountExpr(discountUpdate);
             }
 
+            String updatedGoodsId = null;
             String goodsName = stringValue(body.get("goodsName"));
             BigDecimal originalPrice = decimalValue(body.get("originalPrice"));
             if (StringUtils.isNotBlank(goodsName) || originalPrice != null) {
                 SCSkuActivity mapping = findMapping(activityId);
                 if (mapping != null) {
+                    updatedGoodsId = mapping.getGoodsId();
                     skuDao.updateSkuGoods(Sku.builder()
-                            .goodsId(mapping.getGoodsId())
+                            .goodsId(updatedGoodsId)
                             .goodsName(goodsName)
                             .originalPrice(originalPrice)
                             .build());
@@ -235,6 +241,15 @@ public class GroupBuyAdminController {
             // 读路径带 Redis 缓存，更新后必须逐出，否则前台仍读旧价
             redisService.remove(GroupBuyActivity.cacheRedisKey(activityId));
             redisService.remove(GroupBuyDiscount.cacheRedisKey(activity.getDiscountId()));
+            if (updatedGoodsId != null) {
+                redisService.remove(Sku.cacheRedisKey(updatedGoodsId));
+            }
+            marketConfigLocalCache.invalidate(GroupBuyActivity.cacheRedisKey(activityId));
+            marketConfigLocalCache.invalidate(GroupBuyDiscount.cacheRedisKey(activity.getDiscountId()));
+            marketConfigLocalCache.invalidate(ActivityRepository.activityDiscountCacheKey(activityId));
+            if (updatedGoodsId != null) {
+                marketConfigLocalCache.invalidate(Sku.cacheRedisKey(updatedGoodsId));
+            }
 
             log.info("admin updated group-buy activity {} body={}", activityId, body.keySet());
             return Response.<Boolean>builder()

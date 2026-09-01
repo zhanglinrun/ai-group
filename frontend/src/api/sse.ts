@@ -561,9 +561,6 @@ function createRunEventsChannel(runId: string): SharedRunEventsChannel {
       options.onFollowUpReceived?.(payload);
     });
   });
-  eventSource.addEventListener("curator.finish", () => {
-    void queryClient.invalidateQueries({ queryKey: ["skill-candidates"] });
-  });
   eventSource.addEventListener("run.finish", (event: MessageEvent<string>) => {
     invalidateRunDetail();
     invalidateRunMetrics();

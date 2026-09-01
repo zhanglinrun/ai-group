@@ -121,7 +121,7 @@ services:
       - ../nacos:/nacos-config:ro
     depends_on:
       nacos: {condition: service_healthy}
-    command: ["sh", "-c", "apk add --no-cache curl >/dev/null && sh /nacos-config/provision.sh"]
+    command: ["sh", "-c", "apk add --no-cache curl >/dev/null && tr -d '\\r' < /nacos-config/provision.sh > /tmp/provision.sh && sh /tmp/provision.sh"]
     restart: "no"
 
   agent-postgres:
@@ -189,6 +189,8 @@ services:
       GATEWAY_ROUTE_AGENT_FALLBACK_URI: ${AGENT_SERVICE_URL:-http://agent-service:8090}
       SENTINEL_ENABLED: "true"
       SPRING_CONFIG_IMPORT: optional:nacos:ai-group-identity.yml?group=AI_GROUP,optional:nacos:gateway-routes.yml?group=AI_GROUP
+      # Opt-in APM: set via --env-file ../observability/skywalking-agents.env
+      SKYWALKING_OPTS: ${SKYWALKING_OPTS_GATEWAY:-}
     ports:
       - "${GATEWAY_PUBLISH_PORT:-8080}:8080"
     depends_on:
@@ -211,6 +213,7 @@ services:
       MYSQL_USER: root
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-xiongdoctor_dev}
       AUTH_OUTBOX_LOCAL_SCHEDULER_ENABLED: ${AUTH_OUTBOX_LOCAL_SCHEDULER_ENABLED:-false}
+      SKYWALKING_OPTS: ${SKYWALKING_OPTS_AUTH:-}
     expose: ["8081", "9996"]
     depends_on:
       mysql: {condition: service_healthy}
@@ -234,6 +237,7 @@ services:
       MYSQL_PORT: 3306
       MYSQL_USER: root
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-xiongdoctor_dev}
+      SKYWALKING_OPTS: ${SKYWALKING_OPTS_MEMBER:-}
     expose: ["8082", "9997"]
     depends_on:
       mysql: {condition: service_healthy}
@@ -263,6 +267,7 @@ services:
       LOGSTASH_HOST: ${LOGSTASH_HOST:-}
       # With XXL-JOB enabled, notify_task is driven by groupBuyNotifyJob — not @Scheduled.
       GROUP_OUTBOX_LOCAL_SCHEDULER_ENABLED: ${GROUP_OUTBOX_LOCAL_SCHEDULER_ENABLED:-false}
+      SKYWALKING_OPTS: ${SKYWALKING_OPTS_GROUP:-}
     ports:
       - "${GROUP_METRICS_PUBLISH_PORT:-8091}:8091"
     expose: ["8091", "9999"]
@@ -301,6 +306,7 @@ services:
       ALIPAY_NOTIFY_URL: ${ALIPAY_NOTIFY_URL:-http://localhost:8080/api/pay/alipay/notify}
       ALIPAY_RETURN_URL: ${ALIPAY_RETURN_URL:-http://localhost:5173/pricing?tab=orders&paymentReturn=1}
       AI_GROUP_PAY_SANDBOX_AMOUNT: ${AI_GROUP_PAY_SANDBOX_AMOUNT:-0}
+      SKYWALKING_OPTS: ${SKYWALKING_OPTS_PAY:-}
     expose: ["8070", "9998"]
     depends_on:
       mysql: {condition: service_healthy}
@@ -330,6 +336,14 @@ services:
       # standard OpenAI-compatible .env file.
       OPENAI_DEFAULT_MODEL: ${OPENAI_DEFAULT_MODEL:-${AGENT_GROUP_LLM_CHAT_MODEL:-gpt-4o-mini}}
       OPENAI_MODEL_BALANCED: ${OPENAI_MODEL_BALANCED:-${AGENT_GROUP_LLM_CHAT_MODEL:-gpt-4o-mini}}
+      LANGSMITH_TRACING_ENABLED: ${LANGSMITH_TRACING_ENABLED:-false}
+      LANGSMITH_API_KEY: ${LANGSMITH_API_KEY:-}
+      LANGSMITH_ENDPOINT: ${LANGSMITH_ENDPOINT:-https://api.smith.langchain.com}
+      LANGSMITH_PROJECT: ${LANGSMITH_PROJECT:-ai-group-agent}
+      LANGSMITH_SAMPLE_RATE: ${LANGSMITH_SAMPLE_RATE:-0.1}
+      LANGSMITH_EVALUATION_ENABLED: ${LANGSMITH_EVALUATION_ENABLED:-false}
+      LANGSMITH_DATASET_NAME: ${LANGSMITH_DATASET_NAME:-ai-group-deep-research}
+      LANGSMITH_JUDGE_MODEL: ${LANGSMITH_JUDGE_MODEL:-}
       BILLING_INPUT_MICRO_POINTS_PER_TOKEN: ${BILLING_INPUT_MICRO_POINTS_PER_TOKEN:-5}
       BILLING_OUTPUT_MICRO_POINTS_PER_TOKEN: ${BILLING_OUTPUT_MICRO_POINTS_PER_TOKEN:-30}
       BILLING_DEFAULT_RESERVATION_MICRO_POINTS: ${BILLING_DEFAULT_RESERVATION_MICRO_POINTS:-500000}
@@ -340,7 +354,7 @@ services:
       SERPER_API_KEY: ${SERPER_API_KEY:-}
       BOCHA_API_KEY: ${BOCHA_API_KEY:-}
       BOCHA_BASE_URL: ${BOCHA_BASE_URL:-https://api.bochaai.com/v1}
-      INTERNAL_TOKEN: ${AI_GROUP_INTERNAL_TOKEN:-change-me-internal}
+      INTERNAL_TOKEN: ${AI_GROUP_INTERNAL_TOKEN:-change-me-internal-token-32bytes-ok}
       IDENTITY_SIGNING_SECRET: ${AI_GROUP_IDENTITY_SIGNING_SECRET:-change-me-signing-secret-32bytes-ok}
       NACOS_DISCOVERY_ENABLED: "true"
       NACOS_SERVER_ADDR: nacos:8848
@@ -348,6 +362,11 @@ services:
       ALLOW_ANONYMOUS_DEV: "false"
       MEMBER_SERVICE_URL: http://member-service:8082
       CORS_ALLOW_ORIGINS: http://localhost:5173,http://localhost
+    # Local-only diagnostic/evaluation access. Browser traffic still uses the
+    # authenticated Gateway route; this port is protected by the Agent's
+    # internal token and identity JWT checks.
+    ports:
+      - "${AGENT_PUBLISH_PORT:-8090}:8090"
     expose: ["8090"]
     depends_on:
       agent-postgres: {condition: service_healthy}

@@ -8,6 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from agents.nodes.planner import (
     _assert_research_competitor_subset,
     _cap_plan_tasks_for_profile,
+    _guard_plan_rationale,
+    _guard_plan_tasks_for_research_mode,
     _research_competitors_from_tasks,
 )
 from agents.state import AgentState, spread_without_accumulators
@@ -332,6 +334,12 @@ async def replanner_node(state: AgentState) -> AgentState:
             max_competitors=max_competitors_remaining,
             max_dimensions=tier_profile.max_dimensions,
         )
+        capped_pending = _guard_plan_tasks_for_research_mode(
+            capped_pending,
+            research_mode=draft.research_mode,
+            response_language=draft.response_language,
+            max_dimensions=tier_profile.max_dimensions,
+        )
         capped_pending = _sanitize_revised_pending_tasks(
             capped_pending,
             discovered_competitors=discovered_competitors,
@@ -362,11 +370,20 @@ async def replanner_node(state: AgentState) -> AgentState:
                 continue
             seen_signatures.add(signature)
             merged_tasks.append(task)
+        merged_tasks = _guard_plan_tasks_for_research_mode(
+            merged_tasks,
+            research_mode=draft.research_mode,
+            response_language=draft.response_language,
+            max_dimensions=tier_profile.max_dimensions,
+        )
         if merged_tasks and merged_tasks != list(plan.tasks):
             revised_plan = plan.model_copy(
                 update={
                     "tasks": merged_tasks,
-                    "rationale": reasoning_summary or plan.rationale,
+                    "rationale": _guard_plan_rationale(
+                        reasoning_summary or plan.rationale,
+                        research_mode=draft.research_mode,
+                    ),
                     "version": plan.version + 1,
                 }
             )

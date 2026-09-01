@@ -9,7 +9,6 @@ from functools import lru_cache
 import re
 from typing import Any, Literal, TypedDict
 from urllib.parse import urlsplit
-import yaml
 
 from langgraph.graph import END, StateGraph
 
@@ -37,7 +36,7 @@ from service.llm import (
 )
 from service.llm.harness import complete_structured
 from service.llm.response import LLMResponse
-from service.skill_store import get_skill_store
+from service.policies import SourceRoutingPolicy, source_routing_policies
 from utils.logger import bind_step, get_logger
 
 COMPRESS_AFTER_TURNS = 4
@@ -48,10 +47,8 @@ OBSERVATIONS_FULL_RETAIN = 2
 TOOL_ERROR_PREVIEW_LIMIT = 200
 RERANK_DOCUMENT_BATCH_SIZE = 50
 RERANK_DOCUMENT_CHAR_LIMIT = 512
-# load_skill / read_skill_file are intentionally NOT researcher actions: in the
-# ReAct loop they produced zero evidence (snippet_count=0) yet burned a turn per
-# competitor on generic guidance. source_routing and qa_rule skills are still
-# applied — read directly from the skill store by code, not via this tool.
+# Source-routing and QA policies are versioned source code applied
+# deterministically by the researcher and QA stages.
 TOOL_ACTIONS = {
     "search_web",
     "fetch_url",
@@ -76,14 +73,13 @@ ACTION_TO_CHANNEL = {
 log = get_logger("agents.researcher_subgraph")
 
 # Fields that are safe to expose in tool.start/finish event payloads.
-# WHY: keep the live feed informative (query/url/skill_id) without leaking
+# WHY: keep the live feed informative (query/url) without leaking
 # bulk content (raw HTML, full search results, transient sanitizer state).
 _SAFE_TOOL_ARG_KEYS = (
     "query",
     "query_variants",
     "url",
     "max_results",
-    "skill_id",
     "path",
     "dimension",
     "response_language",
@@ -99,18 +95,14 @@ _DEFAULT_SOURCE_ROUTING_ORDER: tuple[str, ...] = (
     "article",
     "public_review",
 )
-_YAML_BLOCK_PATTERN = re.compile(r"```yaml\s*(.*?)```", flags=re.IGNORECASE | re.DOTALL)
 _MAX_SOURCE_FIRST_ATTEMPTS_PER_DIMENSION = 2
 _MAX_EXTRACT_ONLY_ATTEMPTS_PER_DIMENSION = 1
 _QUALITY_MIN_EVIDENCE_COUNT_PER_DIMENSION = 1
 _QUALITY_MIN_PREFERRED_SOURCE_HITS = 1
-
-
-@dataclass(frozen=True)
-class _SourceRoutingRule:
-    source_type: str
-    priority_delta: int
-    dimension_keywords: tuple[str, ...]
+_ACADEMIC_QUERY_FORBIDDEN_TERMS: tuple[str, ...] = (
+    "pricing", "price", "vendor", "competitor", "market", "reviews", "user feedback",
+    "定价", "价格", "厂商", "竞品", "市场", "用户反馈", "口碑",
+)
 
 
 def _safe_tool_args_summary(args: dict[str, object]) -> dict[str, Any]:
@@ -191,6 +183,7 @@ class ResearcherSubState(TypedDict, total=False):
     scope_policy: str | None
     market_scope: str | None
     response_language: str | None
+    research_mode: str | None
     reference_urls: list[str]
     discovered_urls: list[str]
     resolved_official_urls: list[str]
@@ -201,6 +194,8 @@ class ResearcherSubState(TypedDict, total=False):
     coverage_matrix: dict[str, dict[str, object]]
     rerank_reflected_dimensions: list[FocusDimension]
     search_attempts_per_dim: int
+    search_provider_degraded: bool
+    search_provider_degraded_reason: str | None
 
 
 def _state_search_max_results(state: ResearcherSubState) -> int:
@@ -329,83 +324,6 @@ def _merge_discovered_urls(existing: list[str], new_urls: list[str]) -> list[str
     return merged
 
 
-def _extract_source_routing_payload(markdown: str) -> dict[str, object] | None:
-    match = _YAML_BLOCK_PATTERN.search(markdown)
-    if match is None:
-        return None
-    try:
-        loaded = yaml.safe_load(match.group(1))
-    except yaml.YAMLError:
-        return None
-    if isinstance(loaded, dict):
-        return loaded
-    return None
-
-
-def _normalize_dimension_keywords(value: object) -> tuple[str, ...]:
-    if isinstance(value, str):
-        value = [value]
-    if not isinstance(value, list):
-        return ()
-    ordered: list[str] = []
-    seen: set[str] = set()
-    for item in value:
-        if not isinstance(item, str):
-            continue
-        lowered = item.strip().casefold()
-        if not lowered or lowered in seen:
-            continue
-        seen.add(lowered)
-        ordered.append(lowered)
-    return tuple(ordered)
-
-
-def _load_source_routing_rules() -> list[_SourceRoutingRule]:
-    store = get_skill_store()
-    rules: list[_SourceRoutingRule] = []
-    for skill_name in store.list_by_applies_to("source_routing"):
-        parsed = store.load(skill_name)
-        if parsed is None:
-            continue
-        payload = _extract_source_routing_payload(parsed.content)
-        if payload is None:
-            continue
-        source_type_raw = payload.get("source_type")
-        if not isinstance(source_type_raw, str) or not source_type_raw.strip():
-            continue
-        try:
-            source_type = validate_source_type(source_type_raw.strip())
-        except ValueError:
-            continue
-        priority_delta_raw = payload.get("priority_delta", 0)
-        priority_delta: int
-        if isinstance(priority_delta_raw, int):
-            priority_delta = priority_delta_raw
-        elif isinstance(priority_delta_raw, float):
-            priority_delta = int(priority_delta_raw)
-        elif (
-            isinstance(priority_delta_raw, str)
-            and priority_delta_raw.strip()
-            and priority_delta_raw.strip().lstrip("-").isdigit()
-        ):
-            priority_delta = int(priority_delta_raw.strip())
-        else:
-            continue
-        dimension_keywords = _normalize_dimension_keywords(
-            payload.get("dimension_keywords", payload.get("dimension_contains"))
-        )
-        if not dimension_keywords:
-            dimension_keywords = _normalize_dimension_keywords(list(parsed.metadata.tags))
-        rules.append(
-            _SourceRoutingRule(
-                source_type=source_type,
-                priority_delta=priority_delta,
-                dimension_keywords=dimension_keywords,
-            )
-        )
-    return rules
-
-
 def _default_source_order_for_dimension(dimension: str | None) -> tuple[str, ...]:
     if not isinstance(dimension, str):
         return _DEFAULT_SOURCE_ROUTING_ORDER
@@ -431,7 +349,7 @@ def _is_feedback_dimension(dimension: str | None) -> bool:
     return any(keyword in lowered for keyword in _FEEDBACK_DIMENSION_KEYWORDS)
 
 
-def _rule_matches_dimension(*, rule: _SourceRoutingRule, dimension: str | None) -> bool:
+def _rule_matches_dimension(*, rule: SourceRoutingPolicy, dimension: str | None) -> bool:
     if not rule.dimension_keywords:
         return True
     if not isinstance(dimension, str):
@@ -447,7 +365,7 @@ def _source_type_priority_table_for_dimension(dimension: str | None) -> dict[str
         source_type: (total - index) * 10
         for index, source_type in enumerate(ordered_defaults)
     }
-    for rule in _load_source_routing_rules():
+    for rule in source_routing_policies():
         if not _rule_matches_dimension(rule=rule, dimension=dimension):
             continue
         priorities[rule.source_type] = priorities.get(rule.source_type, 0) + (rule.priority_delta * 10)
@@ -830,9 +748,11 @@ def _fallback_action(state: ResearcherSubState) -> tuple[str, dict[str, object]]
     if search_attempt_count < _state_search_attempts_per_dim(state):
         search_max_results = _state_search_max_results(state)
         query_prefix = f"{domain_hint} " if domain_hint else ""
-        base_query = f"{query_prefix}{state['competitor_id']} {dimension} {state['research_topic']}"
+        research_mode = str(state.get("research_mode") or "").lower()
+        academic_suffix = " papers literature study methods datasets benchmarks" if research_mode == "academic" else ""
+        base_query = f"{query_prefix}{state['competitor_id']} {dimension} {state['research_topic']}{academic_suffix}"
         query = base_query
-        if _is_official_priority_dimension(dimension):
+        if research_mode != "academic" and _is_official_priority_dimension(dimension):
             primary_host = _primary_official_host(state)
             if primary_host is not None:
                 query = f"site:{primary_host} {state['competitor_id']} {dimension}"
@@ -925,6 +845,21 @@ def _fallback_query_variants(
     market_scope_raw = state.get("market_scope")
     market_scope = market_scope_raw.strip() if isinstance(market_scope_raw, str) else ""
     primary_host = _primary_official_host(state)
+    research_mode = str(state.get("research_mode") or "").lower()
+    if research_mode == "academic":
+        academic_terms = {
+            "methods": "methods algorithms models",
+            "datasets": "datasets corpus data",
+            "benchmarks": "benchmarks evaluation experimental results",
+            "experimental_results": "experiments results accuracy comparison",
+            "limitations": "limitations challenges future work",
+        }.get(dimension, "papers literature research")
+        candidates = [
+            primary_query,
+            base_query,
+            f"{competitor} {academic_terms} paper",
+        ]
+        return list(dict.fromkeys(item.strip() for item in candidates if item.strip()))[:3]
     candidates = [primary_query, base_query]
     feedback_query: str | None = None
     if _is_feedback_dimension(dimension):
@@ -1346,7 +1281,7 @@ async def _rerank_evidence_drafts(
         dropped_count=dropped_count,
         kept_count=len(reranked),
         drop_threshold=settings.RERANK_DROP_THRESHOLD,
-        source_routing_rules=len(_load_source_routing_rules()),
+        source_routing_rules=len(source_routing_policies()),
     )
     return reranked
 
@@ -1437,6 +1372,16 @@ def _build_rerank_query(state: ResearcherSubState) -> str:
 async def llm_decide(state: ResearcherSubState) -> ResearcherSubState:
     step_id = _state_step_id(state)
     max_turns = int(state.get("max_turns", MAX_REACT_TURNS))
+    if state.get("search_provider_degraded") is True:
+        reason = state.get("search_provider_degraded_reason")
+        return {
+            **state,
+            "pending_action_args": {
+                "summary": "search provider degraded; finalize with collected evidence",
+                "reason": reason if isinstance(reason, str) else None,
+            },
+            "next_action": "finalize",
+        }
     if int(state.get("turn_count", 0)) >= max_turns:
         return {
             **state,
@@ -1490,6 +1435,11 @@ async def llm_decide(state: ResearcherSubState) -> ResearcherSubState:
         turn_count=int(state.get("turn_count", 0)),
         max_turns=max_turns,
         observation_briefs=observation_briefs,
+        research_mode=(
+            state.get("research_mode")
+            if isinstance(state.get("research_mode"), str)
+            else None
+        ),
         compressed_summary=compressed_summary,
         domain_hint=domain_hint,
         target_category=state.get("target_category"),
@@ -1801,6 +1751,23 @@ async def tool_exec(state: ResearcherSubState) -> ResearcherSubState:
         # cross-language alias misses without a dedicated alias pipeline).
         query_raw = action_args.get("query")
         dimension_for_variants = action_args.get("dimension")
+        if str(state.get("research_mode") or "").lower() == "academic":
+            query_text = query_raw.strip() if isinstance(query_raw, str) else ""
+            if any(term in query_text.casefold() for term in _ACADEMIC_QUERY_FORBIDDEN_TERMS):
+                query_text = ""
+            if not query_text:
+                query_text = " ".join(
+                    part
+                    for part in (
+                        state.get("domain_hint"),
+                        state.get("competitor_id"),
+                        dimension_for_variants if isinstance(dimension_for_variants, str) else None,
+                        state.get("research_topic"),
+                    )
+                    if isinstance(part, str) and part.strip()
+                )
+            action_args["query"] = f"{query_text} papers literature methods datasets benchmarks".strip()
+            query_raw = action_args["query"]
         if (
             not action_args.get("query_variants")
             and isinstance(query_raw, str)
@@ -1874,6 +1841,23 @@ async def tool_exec(state: ResearcherSubState) -> ResearcherSubState:
             "args": action_args,
             "error": str(exc),
         }
+    provider_degraded = False
+    provider_degraded_reason: str | None = None
+    if tool_exc is not None:
+        error_text = str(tool_exc).lower()
+        provider_degraded = any(
+            marker in error_text
+            for marker in (
+                "ratelimited",
+                "rate limited",
+                "usage limit exceeded",
+                "quota exhausted",
+                "quota exceeded",
+                "cooldown_active",
+            )
+        )
+        if provider_degraded:
+            provider_degraded_reason = str(tool_exc)[:500]
     latency_ms = int((time.monotonic() - tool_started_at) * 1000)
     log_fields = _tool_observation_log_fields(observation_row=observation_row, exc=tool_exc)
     result_diagnostics = _tool_result_diagnostics(observation_row)
@@ -2024,6 +2008,18 @@ async def tool_exec(state: ResearcherSubState) -> ResearcherSubState:
         "queried_dimensions": queried_dimensions,
         "messages": messages,
         "pending_action_args": {},
+        "search_provider_degraded": bool(
+            state.get("search_provider_degraded") is True or provider_degraded
+        ),
+        "search_provider_degraded_reason": (
+            provider_degraded_reason
+            if provider_degraded_reason is not None
+            else (
+                state.get("search_provider_degraded_reason")
+                if isinstance(state.get("search_provider_degraded_reason"), str)
+                else None
+            )
+        ),
     }
 
 

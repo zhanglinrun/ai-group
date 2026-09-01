@@ -12,7 +12,6 @@ UILocale = Literal["zh-CN", "en-US"]
 ReportLanguage = Literal["zh", "en"]
 CountryCode = Literal["china", "global", "unknown"]
 
-DEFAULT_UI_LOCALE: UILocale = "zh-CN"
 DEFAULT_REPORT_LANGUAGE: ReportLanguage = "zh"
 SUPPORTED_REPORT_LANGUAGES: frozenset[str] = frozenset({"zh", "en"})
 
@@ -247,16 +246,6 @@ def _language_from_span(span: dict[str, object] | None) -> str | None:
     return None
 
 
-def should_translate_evidence(*, report_language: str | None, source_language: str | None) -> bool:
-    if not isinstance(source_language, str) or not source_language.strip():
-        return False
-    normalized_source = source_language.strip().casefold()
-    normalized_report = normalize_report_language(report_language)
-    if normalized_report is None:
-        return False
-    return normalized_source != normalized_report
-
-
 def source_locale(
     *,
     source_url: str | None,
@@ -268,7 +257,16 @@ def source_locale(
     span_language = _language_from_span(span)
     if span_language is not None:
         language = span_language
-        language_signal = "span.language"
+        language_signal = next(
+            (
+                f"span.{key}"
+                for key in ("source_language", "detected_language", "response_language")
+                if isinstance(span, dict)
+                and isinstance(span.get(key), str)
+                and span[key].strip()
+            ),
+            "span.language",
+        )
     else:
         language = detect_source_language(sanitized_text)
         language_signal = "sanitized_text"

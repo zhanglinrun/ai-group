@@ -24,7 +24,7 @@ from models.run import Run
 from models.step import Step
 from schemas.contracts import normalize_dimension_or_none, validate_dimension, validate_source_type
 from schemas.ids import make_id
-from schemas.intake import category_aliases_for_target, text_mentions_any_term
+from schemas.intake import category_aliases_for_target, infer_research_mode, text_mentions_any_term
 from schemas.supervisor import ConductResearch, FocusDimension
 from service.collector.errors import ChannelError
 from service.collector.source_resolver import SourceResolutionResult, resolve_official_sources
@@ -176,6 +176,7 @@ def _classify_category_relevance(
     excluded_categories: list[str],
     market_segments: list[str],
     scope_policy: str | None,
+    research_mode: str | None = None,
     admission_status: str | None,
 ) -> tuple[str, str]:
     if target_category is None:
@@ -328,6 +329,7 @@ def _build_initial_substate(
     excluded_categories: list[str],
     market_segments: list[str],
     scope_policy: str | None,
+    research_mode: str | None = None,
 ) -> ResearcherSubState:
     # Reserve search_attempts_per_dim searches + 1 fetch per dimension, with the
     # tier's react_turns as the floor, so every dimension can search to budget.
@@ -367,6 +369,7 @@ def _build_initial_substate(
         "scope_policy": scope_policy,
         "market_scope": market_scope,
         "response_language": response_language,
+        "research_mode": research_mode,
         "reference_urls": reference_urls,
         "discovered_urls": [],
         "resolved_official_urls": resolved_official_urls,
@@ -1325,6 +1328,14 @@ async def researcher_node(state: AgentState) -> AgentState:
         _state_or_intake_string(state, "analysis_archetype", intake_draft=intake_draft)
         or "comparison"
     )
+    research_mode = infer_research_mode(
+        user_query=_state_or_intake_string(state, "user_query", intake_draft=intake_draft),
+        domain_context=domain_hint,
+        analysis_intent=_state_or_intake_string(state, "analysis_intent", intake_draft=intake_draft),
+        user_role=_state_or_intake_string(state, "user_role", intake_draft=intake_draft),
+        analysis_archetype=analysis_archetype,
+        explicit_mode=_state_or_intake_string(state, "research_mode", intake_draft=intake_draft),
+    )
     category_gate_enabled = analysis_archetype == "landscape" or scope_policy == "broad_market"
     effective_target_category = target_category if category_gate_enabled else None
     effective_category_aliases = category_aliases if category_gate_enabled else []
@@ -1337,10 +1348,17 @@ async def researcher_node(state: AgentState) -> AgentState:
         competitor_id=request.competitor_id,
         reference_urls=reference_urls,
     )
-    official_url_candidates = await _discover_official_url_candidates(
-        competitor_id=request.competitor_id,
-        market_scope=market_scope,
-        response_language=response_language,
+    # Academic scopes have no vendor-owned homepage. Avoid the two extra
+    # "official site" searches that previously added latency and commercial
+    # noise; DOI/arXiv/publisher URLs still flow through reference_urls.
+    official_url_candidates = (
+        []
+        if research_mode == "academic"
+        else await _discover_official_url_candidates(
+            competitor_id=request.competitor_id,
+            market_scope=market_scope,
+            response_language=response_language,
+        )
     )
     source_candidate_urls = _merge_candidate_urls([*source_candidate_urls, *official_url_candidates])
     try:
@@ -1405,6 +1423,7 @@ async def researcher_node(state: AgentState) -> AgentState:
         excluded_categories=effective_excluded_categories,
         market_segments=effective_market_segments,
         scope_policy=scope_policy,
+        research_mode=research_mode,
     )
     # Each ReAct turn costs ~2 super-steps (llm_decide + tool_exec); give the
     # subgraph headroom above max_turns so it self-finalizes on turn budget

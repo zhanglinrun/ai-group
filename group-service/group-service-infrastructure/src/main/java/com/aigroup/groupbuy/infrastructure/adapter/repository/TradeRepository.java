@@ -15,6 +15,7 @@ import com.aigroup.groupbuy.infrastructure.dao.po.GroupBuyActivity;
 import com.aigroup.groupbuy.infrastructure.dao.po.GroupBuyOrder;
 import com.aigroup.groupbuy.infrastructure.dao.po.GroupBuyOrderList;
 import com.aigroup.groupbuy.infrastructure.dao.po.NotifyTask;
+import com.aigroup.groupbuy.infrastructure.cache.MarketConfigLocalCache;
 import com.aigroup.groupbuy.infrastructure.dcc.DCCService;
 import com.aigroup.groupbuy.infrastructure.redis.IRedisService;
 import com.aigroup.groupbuy.types.common.Constants;
@@ -54,6 +55,8 @@ public class TradeRepository implements ITradeRepository {
     private INotifyTaskDao notifyTaskDao;
     @Resource
     private DCCService dccService;
+    @Resource
+    private MarketConfigLocalCache marketConfigLocalCache;
 
     @Value("${ai-group.kafka.topics.team-success:group.team_success}")
     private String topic_team_success;
@@ -200,7 +203,15 @@ public class TradeRepository implements ITradeRepository {
 
     @Override
     public GroupBuyActivityEntity queryGroupBuyActivityEntityByActivityId(Long activityId) {
-        GroupBuyActivity groupBuyActivity = groupBuyActivityDao.queryGroupBuyActivityByActivityId(activityId);
+        // 锁单规则也需要活动配置。该配置已由试算链读过一次，直接复用相同
+        // Redis 键，避免每笔锁单再做一次 MySQL 查询；运营更新会同步逐出。
+        GroupBuyActivity groupBuyActivity = dccService.isCacheOpenSwitch()
+                ? marketConfigLocalCache.getOrLoad(GroupBuyActivity.cacheRedisKey(activityId),
+                () -> loadGroupBuyActivity(activityId))
+                : groupBuyActivityDao.queryGroupBuyActivityByActivityId(activityId);
+        if (groupBuyActivity == null) {
+            return null;
+        }
         return GroupBuyActivityEntity.builder()
                 .activityId(groupBuyActivity.getActivityId())
                 .activityName(groupBuyActivity.getActivityName())
@@ -215,6 +226,18 @@ public class TradeRepository implements ITradeRepository {
                 .tagId(groupBuyActivity.getTagId())
                 .tagScope(groupBuyActivity.getTagScope())
                 .build();
+    }
+
+    private GroupBuyActivity loadGroupBuyActivity(Long activityId) {
+        GroupBuyActivity cached = redisService.getValue(GroupBuyActivity.cacheRedisKey(activityId));
+        if (cached != null) {
+            return cached;
+        }
+        GroupBuyActivity loaded = groupBuyActivityDao.queryGroupBuyActivityByActivityId(activityId);
+        if (loaded != null) {
+            redisService.setValue(GroupBuyActivity.cacheRedisKey(activityId), loaded);
+        }
+        return loaded;
     }
 
     @Override

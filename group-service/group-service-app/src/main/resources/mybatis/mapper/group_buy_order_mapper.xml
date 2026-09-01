@@ -23,6 +23,12 @@
         <result column="update_time" property="updateTime"/>
     </resultMap>
 
+    <resultMap id="teamStatisticMap" type="com.aigroup.groupbuy.infrastructure.dao.po.GroupBuyTeamStatistic">
+        <result column="all_team_count" property="allTeamCount"/>
+        <result column="all_team_complete_count" property="allTeamCompleteCount"/>
+        <result column="all_team_user_count" property="allTeamUserCount"/>
+    </resultMap>
+
     <insert id="insert" parameterType="com.aigroup.groupbuy.infrastructure.dao.po.GroupBuyOrder">
         insert into group_buy_order(
         team_id, activity_id, source, channel, original_price,
@@ -118,28 +124,12 @@
         </foreach>
     </select>
 
-    <select id="queryAllTeamCount" parameterType="java.util.Set" resultType="java.lang.Integer">
-        select count(id) from group_buy_order
-        where team_id in
-        <foreach item="teamId" collection="teamIds" open="(" separator="," close=")">
-            #{teamId}
-        </foreach>
-    </select>
-
-    <select id="queryAllTeamCompleteCount" parameterType="java.util.Set" resultType="java.lang.Integer">
-        select count(id) from group_buy_order
-        where status = 1 and team_id in
-        <foreach item="teamId" collection="teamIds" open="(" separator="," close=")">
-            #{teamId}
-        </foreach>
-    </select>
-
-    <select id="queryAllUserCount" parameterType="java.util.Set" resultType="java.lang.Integer">
-        select sum(lock_count) from group_buy_order
-        where team_id in
-        <foreach item="teamId" collection="teamIds" open="(" separator="," close=")">
-            #{teamId}
-        </foreach>
+    <select id="queryTeamStatisticByActivityId" parameterType="java.lang.Long" resultMap="teamStatisticMap">
+        select count(*) as all_team_count,
+               coalesce(sum(case when status = 1 then 1 else 0 end), 0) as all_team_complete_count,
+               coalesce(sum(lock_count), 0) as all_team_user_count
+        from group_buy_order
+        where activity_id = #{activityId}
     </select>
 
     <update id="unpaid2Refund" parameterType="com.aigroup.groupbuy.infrastructure.dao.po.GroupBuyOrder">

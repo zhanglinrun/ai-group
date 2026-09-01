@@ -10,7 +10,11 @@ Get-ChildItem -LiteralPath $root -Recurse -Directory -Force -ErrorAction Silentl
 # directory name. Keep the list explicit so .git metadata and source folders
 # cannot be touched by the cleanup command.
 $explicitPaths = @(
+    (Join-Path $root 'agent-service/artifacts'),
+    (Join-Path $root 'agent-service/data'),
+    (Join-Path $root 'agent-service/demo_fixtures/generated'),
     (Join-Path $root 'agent-service/test.db'),
+    (Join-Path $root 'dev-ops/jmeter/reports'),
     (Join-Path $root 'group-service/.idea'),
     (Join-Path $root 'group-service/.codegraph'),
     (Join-Path $root 'pay-service/.codegraph'),

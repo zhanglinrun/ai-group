@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from agents.nodes.intake import (
     _apply_patch,
+    _apply_research_context_defaults,
     _ambiguous_term_clarify,
     _merge_reply_into_draft,
     _clarify_target_satisfied,
@@ -21,6 +22,45 @@ def test_intake_prompt_uses_cross_domain_examples() -> None:
     assert "AI 编程工具" in INTAKE_SYSTEM_PROMPT
     assert "供应链 ERP 调研" in INTAKE_SYSTEM_PROMPT
     assert "CRM 续费风险" in INTAKE_SYSTEM_PROMPT
+
+
+def test_academic_research_query_gets_non_commercial_defaults() -> None:
+    query = "查找自动调制识别与大模型结合的相关论文和发展进程"
+
+    draft = _apply_research_context_defaults(RunIntakeDraft(user_query=query))
+
+    assert draft.user_role == "researcher"
+    assert draft.analysis_intent == query
+    assert draft.competitors_discovery_mode is True
+    assert draft.analysis_archetype == "landscape"
+    assert draft.is_complete is True
+
+
+def test_fallback_role_question_includes_academic_and_engineering_uses() -> None:
+    clarify = _fallback_clarify(RunIntakeDraft(user_query="帮我深度调研这个方向"))
+
+    assert clarify.question == "这次调研主要服务于哪类任务？"
+    assert clarify.suggested_options is not None
+    assert clarify.suggested_options[:2] == [
+        "Researcher / 学术研究与论文综述",
+        "Engineer / 工程研发与技术路线",
+    ]
+
+
+def test_merge_academic_role_option_uses_researcher_enum() -> None:
+    draft = RunIntakeDraft(user_query="调研一个新方向")
+    clarify = IntakeClarifyRequest(
+        question="这次调研主要服务于哪类任务？",
+        field_targets=["user_role"],
+    )
+
+    next_draft = _merge_reply_into_draft(
+        draft,
+        clarify,
+        IntakeUserReply(selected_options=["Researcher / 学术研究与论文综述"]),
+    )
+
+    assert next_draft.user_role == "researcher"
 
 
 def test_intake_prompt_removes_specific_ai_coding_title_templates() -> None:

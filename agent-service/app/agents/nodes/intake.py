@@ -41,7 +41,9 @@ from utils.logger import bind_step, get_logger
 
 log = get_logger("agents.intake")
 
-_USER_ROLES: frozenset[str] = frozenset({"pm", "founder", "sales", "investor"})
+_USER_ROLES: frozenset[str] = frozenset(
+    {"researcher", "engineer", "pm", "founder", "sales", "investor"}
+)
 
 # Keyword-based normalization tables for the wait node's deterministic merge.
 # Why: user-facing chips show bilingual labels (e.g. "PM / 产品经理"), and the
@@ -49,10 +51,53 @@ _USER_ROLES: frozenset[str] = frozenset({"pm", "founder", "sales", "investor"})
 # of these back to internal enum values so user_role / discovery_mode reliably
 # land in `intake_draft` without depending on the next LLM turn's parsing.
 _ROLE_KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    (
+        "researcher",
+        (
+            "researcher",
+            "academic research",
+            "学术研究",
+            "研究者",
+            "科研人员",
+            "研究生",
+            "硕士论文",
+            "博士论文",
+            "学位论文",
+            "期刊论文",
+            "会议论文",
+            "论文综述",
+            "文献综述",
+        ),
+    ),
+    (
+        "engineer",
+        ("engineer", "engineering", "工程研发", "研发工程师", "技术研发", "工程师"),
+    ),
     ("pm", ("pm", "product manager", "产品经理", "产品负责人")),
     ("founder", ("founder", "co-founder", "创始人", "创业者", "ceo")),
     ("sales", ("sales", "销售", "bd", "客户成功")),
     ("investor", ("investor", "vc", "投资人", "投资经理", "分析师")),
+)
+_ACADEMIC_RESEARCH_MARKERS: tuple[str, ...] = (
+    "论文",
+    "文献",
+    "学术",
+    "综述",
+    "研究进展",
+    "研究现状",
+    "研究脉络",
+    "科研",
+    "期刊论文",
+    "会议论文",
+    "学位论文",
+    "开题",
+    "毕业设计",
+    "arxiv",
+    "literature review",
+    "systematic review",
+    "paper survey",
+    "research paper",
+    "state of the art",
 )
 _DISCOVERY_ON_KEYWORDS: tuple[str, ...] = (
     "auto-discover",
@@ -115,6 +160,54 @@ def _ensure_response_language(draft: RunIntakeDraft, user_query: str) -> RunInta
     if draft.response_language in {"zh", "en"}:
         return draft
     return draft.model_copy(update={"response_language": detect_language(user_query)})
+
+
+def _apply_research_context_defaults(draft: RunIntakeDraft) -> RunIntakeDraft:
+    """Deterministically classify explicit academic-literature requests.
+
+    This keeps paper surveys out of the commercial-role fallback even when the
+    intake LLM is unavailable or returns malformed structured output.
+    """
+    query = draft.user_query.strip()
+    lowered = query.casefold()
+    if not query or not any(marker.casefold() in lowered for marker in _ACADEMIC_RESEARCH_MARKERS):
+        return draft
+
+    base = draft.model_dump(exclude={"is_complete"})
+    if base.get("user_role") is None:
+        base["user_role"] = "researcher"
+    if not normalize_optional_text(base.get("analysis_intent")):
+        base["analysis_intent"] = query
+    if not base.get("competitors_explicit") and not base.get("competitors_discovery_mode"):
+        base["competitors_discovery_mode"] = True
+    base["analysis_archetype"] = "landscape"
+    return RunIntakeDraft.model_validate(base)
+
+
+def _enforce_required_progression(
+    previous: RunIntakeDraft,
+    candidate: RunIntakeDraft,
+) -> RunIntakeDraft:
+    """Keep LLM extraction from skipping the active required intake question."""
+    updates: dict[str, object] = {}
+    if previous.user_role is None and candidate.user_role is None:
+        updates.update(
+            {
+                "analysis_intent": None,
+                "competitors_explicit": [],
+                "competitors_discovery_mode": False,
+            }
+        )
+    elif previous.user_role is not None and not normalize_optional_text(previous.analysis_intent):
+        updates.update(
+            {
+                "competitors_explicit": [],
+                "competitors_discovery_mode": False,
+            }
+        )
+    if not updates:
+        return candidate
+    return candidate.model_copy(update=updates)
 
 
 def _match_keyword(text: str, table: tuple[tuple[str, tuple[str, ...]], ...]) -> str | None:
@@ -462,13 +555,15 @@ def _fallback_clarify(draft: RunIntakeDraft) -> IntakeClarifyRequest:
     """
     if draft.user_role is None:
         return IntakeClarifyRequest(
-            question="请问您在工作中更接近以下哪个角色？",
+            question="这次调研主要服务于哪类任务？",
             field_targets=["user_role"],
             suggested_options=[
-                "PM / 产品经理",
-                "Founder / 创业者",
-                "Sales / 销售",
-                "Investor / 投资人",
+                "Researcher / 学术研究与论文综述",
+                "Engineer / 工程研发与技术路线",
+                "PM / 产品与竞品决策",
+                "Founder / 赛道与创业判断",
+                "Sales / 销售与商务对标",
+                "Investor / 投资与行业研判",
             ],
         )
     if not (draft.analysis_intent and draft.analysis_intent.strip()):
@@ -640,7 +735,9 @@ async def intake_generate_node(state: AgentState) -> AgentState:
     session_factory = _resolve_session_factory(state)
     run_id = state.get("run_id") or make_id("run_")
     user_query = state.get("user_query") or ""
-    draft = _ensure_response_language(coerce_intake_draft_or_default(state), user_query)
+    draft = _apply_research_context_defaults(
+        _ensure_response_language(coerce_intake_draft_or_default(state), user_query)
+    )
     history = coerce_intake_history(state)
     turn = len(history) + 1
     draft_dump = draft.model_dump(exclude={"is_complete"})
@@ -676,6 +773,27 @@ async def intake_generate_node(state: AgentState) -> AgentState:
         action_raw = parsed_turn.action
         patch = parsed_turn.draft_patch
         next_draft = _apply_patch(draft, patch)
+        next_draft = _enforce_required_progression(draft, next_draft)
+        if history:
+            previous_targets = set(history[-1].clarify.field_targets)
+            if "user_role" in previous_targets and "analysis_intent" not in previous_targets:
+                next_draft = next_draft.model_copy(
+                    update={
+                        "analysis_intent": None,
+                        "competitors_explicit": [],
+                        "competitors_discovery_mode": False,
+                    }
+                )
+            elif "analysis_intent" in previous_targets and not (
+                "competitors_explicit" in previous_targets
+                or "competitors_discovery_mode" in previous_targets
+            ):
+                next_draft = next_draft.model_copy(
+                    update={
+                        "competitors_explicit": [],
+                        "competitors_discovery_mode": False,
+                    }
+                )
         parsed_clarify = (
             parsed_turn.clarify_request.to_request() if parsed_turn.clarify_request else None
         )
@@ -700,6 +818,20 @@ async def intake_generate_node(state: AgentState) -> AgentState:
             )
             parsed_clarify = None
 
+    # Required fields are collected in a stable order. A model may otherwise
+    # jump straight to domain or competitor questions, leaving the report
+    # framing ambiguous. Academic requests were classified above, so this guard
+    # only affects genuinely unresolved requests.
+    required_fields_missing = (
+        next_draft.user_role is None
+        or not (next_draft.analysis_intent and next_draft.analysis_intent.strip())
+        or not next_draft.competitors_explicit
+        and next_draft.competitors_discovery_mode is not True
+    )
+    if required_fields_missing:
+        action_raw = "ask"
+        parsed_clarify = _fallback_clarify(next_draft)
+
     # When the merged draft is already complete, redundant required re-asks and
     # repeated optional re-asks are noise. Drop them so intake can hand off to
     # planning instead of trapping the user in clarification loops.
@@ -711,6 +843,15 @@ async def intake_generate_node(state: AgentState) -> AgentState:
         drop_reason: str | None = None
         if not unsatisfied_targets:
             drop_reason = "targets_already_satisfied"
+        elif next_draft.user_role == "researcher" and set(parsed_clarify.field_targets) & {
+            "self_product",
+            "market_scope",
+        }:
+            drop_reason = "commercial_optional_not_relevant_to_academic_research"
+        elif next_draft.user_role != "researcher" and set(parsed_clarify.field_targets).issubset(
+            _OPTIONAL_CLARIFY_TARGETS
+        ):
+            drop_reason = "commercial_optional_not_required_after_complete"
         elif _should_drop_optional_clarify(parsed_clarify, history):
             drop_reason = "optional_repeat_or_limit"
 

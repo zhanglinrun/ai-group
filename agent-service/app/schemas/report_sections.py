@@ -14,6 +14,7 @@ from typing import Literal
 
 SectionKind = Literal["top_level", "deterministic", "narrative"]
 ReportArchetype = Literal["comparison", "landscape", "mixed"]
+ResearchMode = Literal["academic", "technical", "commercial", "general"]
 
 # Coverage statuses that count as real, citable evidence for a (competitor, dimension).
 SUBSTANTIVE_STATUSES: frozenset[str] = frozenset({"complete", "partial"})
@@ -95,9 +96,146 @@ class SectionSpec:
 _ALL_ARCHETYPES: frozenset[str] = frozenset({"comparison", "landscape", "mixed"})
 _COMPARISON_AND_MIXED: frozenset[str] = frozenset({"comparison", "mixed"})
 _LANDSCAPE_AND_MIXED: frozenset[str] = frozenset({"landscape", "mixed"})
+_MODE_ONLY: frozenset[str] = frozenset()
 
 
 _SECTION_SPECS: tuple[SectionSpec, ...] = (
+    SectionSpec(
+        section_id="problem",
+        kind="narrative",
+        required_for=_MODE_ONLY,
+        requires=_requires_always,
+        title_zh="问题定义与研究范围",
+        title_en="Problem Definition and Scope",
+    ),
+    SectionSpec(
+        section_id="methods",
+        kind="narrative",
+        required_for=_MODE_ONLY,
+        requires=_requires_always,
+        title_zh="方法与技术路线",
+        title_en="Methods and Technical Approaches",
+    ),
+    SectionSpec(
+        section_id="datasets",
+        kind="narrative",
+        required_for=_MODE_ONLY,
+        requires=_requires_always,
+        title_zh="数据集",
+        title_en="Datasets",
+    ),
+    SectionSpec(
+        section_id="benchmarks",
+        kind="narrative",
+        required_for=_MODE_ONLY,
+        requires=_requires_always,
+        title_zh="评测基准",
+        title_en="Benchmarks",
+    ),
+    SectionSpec(
+        section_id="experimental_results",
+        kind="narrative",
+        required_for=_MODE_ONLY,
+        requires=_requires_always,
+        title_zh="实验结果",
+        title_en="Experimental Results",
+    ),
+    SectionSpec(
+        section_id="research_gaps",
+        kind="narrative",
+        required_for=_MODE_ONLY,
+        requires=_requires_always,
+        title_zh="研究空白与未来方向",
+        title_en="Research Gaps and Future Directions",
+    ),
+    SectionSpec(
+        section_id="architecture",
+        kind="narrative",
+        required_for=_MODE_ONLY,
+        requires=_requires_always,
+        title_zh="系统架构",
+        title_en="System Architecture",
+    ),
+    SectionSpec(
+        section_id="implementation",
+        kind="narrative",
+        required_for=_MODE_ONLY,
+        requires=_requires_always,
+        title_zh="工程实现",
+        title_en="Implementation",
+    ),
+    SectionSpec(
+        section_id="open_source_projects",
+        kind="narrative",
+        required_for=_MODE_ONLY,
+        requires=_requires_always,
+        title_zh="开源项目与可用性",
+        title_en="Open Source Projects and Usability",
+    ),
+    SectionSpec(
+        section_id="performance",
+        kind="narrative",
+        required_for=_MODE_ONLY,
+        requires=_requires_always,
+        title_zh="性能与评测",
+        title_en="Performance and Evaluation",
+    ),
+    SectionSpec(
+        section_id="engineering_constraints",
+        kind="narrative",
+        required_for=_MODE_ONLY,
+        requires=_requires_always,
+        title_zh="工程约束",
+        title_en="Engineering Constraints",
+    ),
+    SectionSpec(
+        section_id="overview",
+        kind="narrative",
+        required_for=_MODE_ONLY,
+        requires=_requires_always,
+        title_zh="主题概览",
+        title_en="Overview",
+    ),
+    SectionSpec(
+        section_id="key_concepts",
+        kind="narrative",
+        required_for=_MODE_ONLY,
+        requires=_requires_always,
+        title_zh="核心概念",
+        title_en="Key Concepts",
+    ),
+    SectionSpec(
+        section_id="current_state",
+        kind="narrative",
+        required_for=_MODE_ONLY,
+        requires=_requires_always,
+        title_zh="现状与进展",
+        title_en="Current State and Progress",
+    ),
+    SectionSpec(
+        section_id="evidence_analysis",
+        kind="narrative",
+        required_for=_MODE_ONLY,
+        requires=_requires_always,
+        title_zh="证据分析",
+        title_en="Evidence Analysis",
+    ),
+    SectionSpec(
+        section_id="trends",
+        kind="narrative",
+        required_for=_MODE_ONLY,
+        requires=_requires_always,
+        title_zh="趋势与展望",
+        title_en="Trends and Outlook",
+    ),
+    SectionSpec(
+        section_id="limitations",
+        kind="narrative",
+        required_for=_MODE_ONLY,
+        requires=_requires_always,
+        title_zh="局限性",
+        title_en="Limitations",
+    ),
     SectionSpec(
         section_id="executive_summary",
         kind="top_level",
@@ -264,6 +402,38 @@ _DEFAULT_OUTLINES: dict[str, tuple[str, ...]] = {
     ),
 }
 
+_RESEARCH_MODE_OUTLINES: dict[str, tuple[str, ...]] = {
+    "academic": (
+        "problem",
+        "methods",
+        "datasets",
+        "benchmarks",
+        "experimental_results",
+        "research_gaps",
+        "limitations",
+        "methodology_limits",
+    ),
+    "technical": (
+        "problem",
+        "architecture",
+        "implementation",
+        "open_source_projects",
+        "performance",
+        "engineering_constraints",
+        "limitations",
+        "methodology_limits",
+    ),
+    "general": (
+        "overview",
+        "key_concepts",
+        "current_state",
+        "evidence_analysis",
+        "trends",
+        "limitations",
+        "methodology_limits",
+    ),
+}
+
 
 def get_section_spec(section_id: str) -> SectionSpec | None:
     return SECTION_REGISTRY.get(section_id)
@@ -275,6 +445,10 @@ def is_known_section(section_id: str) -> bool:
 
 def default_outline_for_archetype(archetype: str) -> tuple[str, ...]:
     return _DEFAULT_OUTLINES.get(archetype, _DEFAULT_OUTLINES["comparison"])
+
+
+def outline_for_research_mode(research_mode: str | None) -> tuple[str, ...] | None:
+    return _RESEARCH_MODE_OUTLINES.get(str(research_mode or "").lower())
 
 
 def required_sections_for_archetype(archetype: str) -> tuple[str, ...]:
