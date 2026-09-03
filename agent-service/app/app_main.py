@@ -9,7 +9,7 @@ from typing import Any
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from sqlalchemy import select, update
+from sqlalchemy import or_, select, update
 
 from agents.graph import compile_graph
 from core.config import settings
@@ -48,7 +48,15 @@ async def _sweep_orphan_running_runs() -> list[str]:
     cutoff = datetime.now(timezone.utc) - timedelta(seconds=grace_seconds)
     async with session_factory() as session:
         result = await session.execute(
-            select(Run.run_id).where(Run.status == "running", Run.started_at < cutoff)
+            select(Run.run_id).where(
+                Run.status == "running",
+                Run.started_at < cutoff,
+                or_(
+                    Run.execution_owner_token.is_(None),
+                    Run.execution_lease_until.is_(None),
+                    Run.execution_lease_until < datetime.now(timezone.utc),
+                ),
+            )
         )
         orphan_ids = [row[0] for row in result.all()]
         if not orphan_ids:
@@ -60,6 +68,8 @@ async def _sweep_orphan_running_runs() -> list[str]:
                 status="failed",
                 finished_at=datetime.now(timezone.utc),
                 status_reason=ORPHAN_RESTART_REASON,
+                execution_owner_token=None,
+                execution_lease_until=None,
             )
         )
         await session.commit()

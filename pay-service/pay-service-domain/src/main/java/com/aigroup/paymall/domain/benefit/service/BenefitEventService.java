@@ -78,6 +78,10 @@ public class BenefitEventService implements IBenefitEventService {
         }
         int count = 0;
         for (BenefitEventEntity entity : pending) {
+            if (!benefitEventRepository.claimForPublish(entity.getEventId())
+                    && entity.getPublishStatus() != null) {
+                continue;
+            }
             if (tryPublish(entity)) {
                 count++;
             }
@@ -124,7 +128,8 @@ public class BenefitEventService implements IBenefitEventService {
     private void publishCommittedEvent(String orderId, String eventType) {
         try {
             BenefitEventEntity latest = benefitEventRepository.findByOrderIdAndEventType(orderId, eventType);
-            if (latest == null) {
+            if (latest == null || (!benefitEventRepository.claimForPublish(latest.getEventId())
+                    && latest.getPublishStatus() != null)) {
                 return;
             }
             tryPublish(latest);
@@ -178,10 +183,16 @@ public class BenefitEventService implements IBenefitEventService {
         if (OutboxEventType.GROUP_BUY_COMPLETED.equals(eventType) && hasUnpublishedRevoke(entity)) {
             log.info("defer completed outbox event until revoke tombstone is published orderId={} eventId={}",
                     entity.getOrderId(), entity.getEventId());
+            benefitEventRepository.markPublishFailed(entity.getEventId());
             return false;
         }
-        benefitEventPort.publishTradeCompleted(toTradeCompletedEvent(entity));
-        benefitEventRepository.markPublished(entity.getEventId());
+        try {
+            benefitEventPort.publishTradeCompleted(toTradeCompletedEvent(entity));
+            benefitEventRepository.markPublished(entity.getEventId());
+        } catch (RuntimeException ex) {
+            benefitEventRepository.markPublishFailed(entity.getEventId());
+            throw ex;
+        }
         log.info("published outbox event orderId={} eventId={} eventType={}",
                 entity.getOrderId(), entity.getEventId(), entity.getEventType());
         return true;

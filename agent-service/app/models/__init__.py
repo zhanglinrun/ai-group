@@ -6,6 +6,7 @@ from models.conclusion import ConclusionEvidenceLink, ConclusionRecord
 from models.evidence import EvidenceRecord
 from models.knowledge import RunKnowledgeRecord
 from models.llm_call import LLMCall
+from models.llm_billing_attempt import LLMBillingAttempt
 from models.report import Report
 from models.run import Run
 from models.run_create_request import RunCreateRequestRecord
@@ -21,6 +22,7 @@ __all__ = [
     "EvidenceRecord",
     "RunKnowledgeRecord",
     "LLMCall",
+    "LLMBillingAttempt",
     "Report",
     "Run",
     "RunCreateRequestRecord",

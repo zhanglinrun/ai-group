@@ -45,6 +45,9 @@ public interface ITradeRepository {
 
     List<NotifyTaskEntity> queryUnExecutedNotifyTaskList();
 
+    /** Atomically claims a pending notification task for one worker. */
+    boolean claimNotifyTask(NotifyTaskEntity notifyTaskEntity);
+
     int updateNotifyTaskStatusSuccess(NotifyTaskEntity notifyTaskEntity);
 
     int updateNotifyTaskStatusError(NotifyTaskEntity notifyTaskEntity);

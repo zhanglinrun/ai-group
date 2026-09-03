@@ -61,6 +61,7 @@ Java 包名 `com.aigroup.paymall`、库名 `s_pay_mall_ddd_market` 是历史保�
 - `docs/dev-ops/mysql/sql/V3_benefit_event.sql`
 - `docs/dev-ops/mysql/sql/V5_transactional_outbox.sql`
 - `docs/dev-ops/mysql/sql/V6_pay_order_idempotency.sql`
+- `docs/dev-ops/mysql/sql/V8_benefit_event_publish_claim.sql`
 
 一键启动脚本会幂等执行这些迁移。`V5` 里给历史直购补过的 `ORDER_PAY_SUCCESS` 行已不再被消费（该 topic 已删除）；当前只认 `GROUP_BUY_COMPLETED` / `GROUP_BUY_REVOKED`。等待成团的拼团 `PAY_SUCCESS` 不会被提前发额度。
 

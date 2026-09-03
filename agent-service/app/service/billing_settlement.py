@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Sequence
+from datetime import datetime, timezone
 
 from sqlalchemy import select
 
 from core.config import settings
 from db.engine import get_session_factory
 from models.llm_call import LLMCall
+from models.llm_billing_attempt import LLMBillingAttempt
 from models.run import Run
 from models.step import Step
 from service.billing import (
@@ -24,10 +26,104 @@ log = get_logger("service.billing_settlement")
 
 TERMINAL_RUN_STATUSES: tuple[str, ...] = ("completed", "degraded", "failed", "cancelled")
 UNSETTLED_BILLING_STATUSES: tuple[str, ...] = ("RESERVED", "PENDING_RECONCILIATION")
+OPEN_ATTEMPT_STATUSES: tuple[str, ...] = (
+    "RESERVED",
+    "CONFIRMING",
+    "RELEASING",
+    "PENDING_RECONCILIATION",
+)
 
 
 def is_unsettled_billing(billing_status: str | None) -> bool:
     return billing_status in UNSETTLED_BILLING_STATUSES
+
+
+async def reconcile_llm_billing_attempts(*, run_id: str, limit: int = 100) -> int:
+    """Retry durable per-call Member settlements and return unresolved count.
+
+    Confirm/release are idempotent at Member, so retrying after a network
+    timeout is safe.  A reservation with no known usage is deliberately kept
+    pending rather than released: the provider may already have consumed it.
+    """
+    session_factory = get_session_factory()
+    async with session_factory() as session:
+        raw_attempts = (
+            await session.execute(
+                select(LLMBillingAttempt)
+                .where(
+                    LLMBillingAttempt.run_id == run_id,
+                    LLMBillingAttempt.status.in_(OPEN_ATTEMPT_STATUSES),
+                )
+                .order_by(LLMBillingAttempt.created_at.asc())
+                .limit(max(1, int(limit)))
+            )
+            ).scalars().all()
+
+        # Some lightweight unit-test sessions return a generic row collection
+        # for every SELECT.  Ignore rows that are not billing-attempt records;
+        # a real SQLAlchemy session always returns LLMBillingAttempt instances.
+        attempts = [
+            item for item in raw_attempts
+            if hasattr(item, "actual_micro_points") and hasattr(item, "reservation_id")
+        ]
+    unresolved = 0
+    for attempt in attempts:
+        actual = attempt.actual_micro_points
+        if actual is None:
+            unresolved += 1
+            await _mark_attempt_pending(
+                attempt.attempt_id,
+                "provider usage is unknown; manual/provider reconciliation required",
+            )
+            continue
+
+        user_id = int(attempt.owner_user_id or 0)
+        reservation = Reservation(
+            reservation_id=attempt.reservation_id,
+            amount_micro_points=int(attempt.estimated_micro_points or 0),
+            request_id=attempt.request_id,
+            user_id=user_id,
+        )
+        try:
+            if int(actual) <= 0:
+                await quota_client.release(reservation, trace_id=run_id)
+                await _mark_attempt_final(attempt.attempt_id, "RELEASED", int(actual))
+            else:
+                await quota_client.confirm(
+                    reservation,
+                    actual_micro_points=min(int(actual), reservation.amount_micro_points),
+                    trace_id=run_id,
+                )
+                await _mark_attempt_final(attempt.attempt_id, "CONFIRMED", int(actual))
+        except Exception as exc:
+            unresolved += 1
+            await _mark_attempt_pending(attempt.attempt_id, str(exc))
+    return unresolved
+
+
+async def _mark_attempt_pending(attempt_id: str, error: str) -> None:
+    session_factory = get_session_factory()
+    async with session_factory() as session:
+        attempt = await session.get(LLMBillingAttempt, attempt_id)
+        if attempt is None:
+            return
+        attempt.status = "PENDING_RECONCILIATION"
+        attempt.last_error = error[:2000]
+        attempt.retry_count = int(attempt.retry_count or 0) + 1
+        await session.commit()
+
+
+async def _mark_attempt_final(attempt_id: str, status: str, actual: int) -> None:
+    session_factory = get_session_factory()
+    async with session_factory() as session:
+        attempt = await session.get(LLMBillingAttempt, attempt_id)
+        if attempt is None:
+            return
+        attempt.status = status
+        attempt.actual_micro_points = max(0, int(actual))
+        attempt.last_error = None
+        attempt.settled_at = datetime.now(timezone.utc)
+        await session.commit()
 
 
 async def settle_run_billing(*, run_id: str, terminal_status: str) -> str | None:
@@ -37,6 +133,7 @@ async def settle_run_billing(*, run_id: str, terminal_status: str) -> str | None
     consumed_micro_points and marks SETTLED, or PENDING_RECONCILIATION when
     provider usage is missing.
     """
+    unresolved_attempts = await reconcile_llm_billing_attempts(run_id=run_id)
     session_factory = get_session_factory()
     async with session_factory() as session:
         run = await session.get(Run, run_id)
@@ -84,10 +181,17 @@ async def settle_run_billing(*, run_id: str, terminal_status: str) -> str | None
             )
             return run.billing_status
         if not slices:
-            # Pay-as-you-go: each LLM call already settled itself.
+            # Pay-as-you-go: each LLM call settles itself.  If an Agent process
+            # died between the provider response and Member confirm/release,
+            # the durable attempt sweep above keeps the Run pending instead of
+            # falsely marking it as settled.
             run.consumed_micro_points = actual
-            run.billing_status = "SETTLED"
-            run.billing_error = None
+            if unresolved_attempts:
+                run.billing_status = "PENDING_RECONCILIATION"
+                run.billing_error = f"{unresolved_attempts} LLM billing attempt(s) pending reconciliation"
+            else:
+                run.billing_status = "SETTLED"
+                run.billing_error = None
             await session.commit()
             return run.billing_status
         try:

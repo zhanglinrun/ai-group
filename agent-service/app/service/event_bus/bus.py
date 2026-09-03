@@ -43,6 +43,7 @@ class RunEventType(StrEnum):
 
 
 class RunEvent(BaseModel):
+    event_id: int | None = None
     run_id: str
     event_type: RunEventType
     step_id: str | None = None
@@ -82,10 +83,7 @@ class EventBus:
             return
         self._stop_event.clear()
         try:
-            conn = await AsyncConnection.connect(self._dsn, autocommit=True)
-            await conn.execute(
-                sql.SQL("LISTEN {}").format(sql.Identifier(self._channel))
-            )
+            conn = await self._connect_listener()
         except psycopg.Error as exc:
             raise RuntimeError(f"event bus startup failed: {exc}") from exc
         self._listener_conn = conn
@@ -133,6 +131,78 @@ class EventBus:
         except psycopg.Error as exc:
             raise RuntimeError(f"event bus publish failed: {exc}") from exc
 
+    async def publish_durable(self, event: RunEvent) -> None:
+        """Persist an event and notify listeners in one database transaction."""
+        payload_json = json.dumps(event.payload, ensure_ascii=False)
+        try:
+            async with await AsyncConnection.connect(self._dsn) as conn:
+                async with conn.transaction():
+                    cursor = await conn.execute(
+                        """
+                        INSERT INTO run_events(run_id, event_type, step_id, payload, emitted_at)
+                        VALUES (%s, %s, %s, %s::jsonb, %s)
+                        RETURNING id
+                        """,
+                        (
+                            event.run_id,
+                            event.event_type.value,
+                            event.step_id,
+                            payload_json,
+                            event.emitted_at,
+                        ),
+                    )
+                    if hasattr(cursor, "fetchone"):
+                        row = await cursor.fetchone()
+                        if row:
+                            event.event_id = int(row[0])
+                    await conn.execute(
+                        "SELECT pg_notify(%s, %s)",
+                        (self._channel, json.dumps(event.model_dump(mode="json"), ensure_ascii=False)),
+                    )
+        except psycopg.Error as exc:
+            # Keep live progress available during a rolling migration. Once the
+            # table exists, failures are still surfaced in logs and the caller
+            # can rely on the normal NOTIFY path.
+            log.warning("event_bus.durable_publish_failed", error=str(exc)[:500])
+            await self.publish(event)
+
+    async def load_since(self, run_id: str, after_event_id: int | None, limit: int = 512) -> list[RunEvent]:
+        """Load missed events for SSE Last-Event-ID replay."""
+        try:
+            async with await AsyncConnection.connect(self._dsn, autocommit=True) as conn:
+                cursor = await conn.execute(
+                    """
+                    SELECT id, run_id, event_type, step_id, payload, emitted_at
+                    FROM run_events
+                    WHERE run_id = %s AND id > %s
+                    ORDER BY id ASC
+                    LIMIT %s
+                    """,
+                    (run_id, int(after_event_id or 0), max(1, int(limit))),
+                )
+                rows = await cursor.fetchall()
+            events: list[RunEvent] = []
+            for event_id, row_run_id, event_type, step_id, payload, emitted_at in rows:
+                events.append(
+                    RunEvent(
+                        event_id=int(event_id),
+                        run_id=str(row_run_id),
+                        event_type=RunEventType(str(event_type)),
+                        step_id=step_id,
+                        payload=payload if isinstance(payload, dict) else json.loads(payload),
+                        emitted_at=str(emitted_at),
+                    )
+                )
+            return events
+        except (psycopg.Error, ValueError, TypeError, json.JSONDecodeError) as exc:
+            log.info("event_bus.replay_unavailable", run_id=run_id, error=str(exc)[:500])
+            return []
+
+    async def _connect_listener(self) -> AsyncConnection[tuple[object, ...]]:
+        conn = await AsyncConnection.connect(self._dsn, autocommit=True)
+        await conn.execute(sql.SQL("LISTEN {}").format(sql.Identifier(self._channel)))
+        return conn
+
     @asynccontextmanager
     async def subscribe(self, run_id: str) -> AsyncIterator[asyncio.Queue[RunEvent]]:
         queue: asyncio.Queue[RunEvent] = asyncio.Queue(maxsize=self._max_queue_size)
@@ -149,26 +219,37 @@ class EventBus:
                         self._subscribers.pop(run_id, None)
 
     async def _listen_loop(self) -> None:
-        conn = self._listener_conn
-        if conn is None:
-            return
+        backoff_seconds = 0.5
         try:
             while not self._stop_event.is_set():
+                conn = self._listener_conn
+                if conn is None:
+                    try:
+                        conn = await self._connect_listener()
+                        self._listener_conn = conn
+                    except psycopg.Error as exc:
+                        log.info("event_bus.listener.reconnect_failed", error=str(exc)[:500])
+                        await asyncio.sleep(backoff_seconds)
+                        backoff_seconds = min(10.0, backoff_seconds * 2)
+                        continue
                 try:
                     async for notify in conn.notifies(timeout=1.0, stop_after=1):
                         event = self._parse_notify_payload(notify.payload)
                         if event is None:
                             continue
                         await self._fan_out(event)
+                    backoff_seconds = 0.5
                 except psycopg.Error as exc:
                     if self._stop_event.is_set():
                         return
-                    log.info(
-                        "event_bus.listener.error",
-                        channel=self._channel,
-                        error=str(exc)[:500],
-                    )
-                    return
+                    log.info("event_bus.listener.error", channel=self._channel, error=str(exc)[:500])
+                    self._listener_conn = None
+                    try:
+                        await conn.close()
+                    except psycopg.Error:
+                        pass
+                    await asyncio.sleep(backoff_seconds)
+                    backoff_seconds = min(10.0, backoff_seconds * 2)
         except asyncio.CancelledError:
             return
 
@@ -229,7 +310,7 @@ async def emit_run_event(
     if event_bus is None:
         return
     try:
-        await event_bus.publish(
+        await event_bus.publish_durable(
             RunEvent(
                 run_id=run_id,
                 event_type=event_type,

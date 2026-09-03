@@ -33,7 +33,7 @@ public class NotifyTask {
     private String notifyUrl;
     /** 回调次数 */
     private Integer notifyCount;
-    /** 回调状态【0初始、1完成、2重试、3失败】 */
+    /** 回调状态【0初始、1完成、2重试、3失败、4处理中】 */
     private Integer notifyStatus;
     /** 参数对象 */
     private String parameterJson;

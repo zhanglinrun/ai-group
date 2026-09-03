@@ -175,6 +175,8 @@ Group / Pay 采用 api、domain、infrastructure、trigger、app 分层，用聚
 
 Run / Event 持久化，SSE 支持断线后按事件游标回放；LangGraph Checkpoint 落 Postgres，避免把运行状态绑死在浏览器长连接上。
 
+Run 通过 `execution_owner_token + execution_lease_until` 做数据库 CAS 租约；重复 resume 只允许一个 worker 执行，租约过期后才可接管，终态写回会校验 token。
+
 ### 6. 冒烟、压测与观测
 
 - Gateway 黑盒冒烟：本地 `eval/http-smoke.ps1`（工作区脚本，不进业务镜像）

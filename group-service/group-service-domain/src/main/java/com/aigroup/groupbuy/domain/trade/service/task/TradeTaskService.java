@@ -51,8 +51,21 @@ public class TradeTaskService implements ITradeTaskService {
     private Map<String, Integer> execNotifyJob(List<NotifyTaskEntity> notifyTaskEntityList) throws Exception {
         int successCount = 0, errorCount = 0, retryCount = 0;
         for (NotifyTaskEntity notifyTask : notifyTaskEntityList) {
-            // 回调处理 success 成功，error 失败
-            String response = port.groupBuyNotify(notifyTask);
+            if (!repository.claimNotifyTask(notifyTask)) {
+                continue;
+            }
+
+            // 异常也必须退回可重试状态，否则任务会永久卡在 PROCESSING(4)。
+            String response;
+            try {
+                response = port.groupBuyNotify(notifyTask);
+            } catch (Exception ex) {
+                log.warn("拼团通知发送异常，转重试 uuid:{}", notifyTask.getUuid(), ex);
+                if (repository.updateNotifyTaskStatusRetry(notifyTask) == 1) {
+                    retryCount += 1;
+                }
+                continue;
+            }
 
             // 更新状态判断&变更数据库表回调任务状态
             if (NotifyTaskHTTPEnumVO.SUCCESS.getCode().equals(response)) {
@@ -61,7 +74,7 @@ public class TradeTaskService implements ITradeTaskService {
                     successCount += 1;
                 }
             } else if (NotifyTaskHTTPEnumVO.ERROR.getCode().equals(response)) {
-                if (notifyTask.getNotifyCount() > 4) {
+                if ((notifyTask.getNotifyCount() == null ? 0 : notifyTask.getNotifyCount()) >= 4) {
                     int updateCount = repository.updateNotifyTaskStatusError(notifyTask);
                     if (1 == updateCount) {
                         errorCount += 1;

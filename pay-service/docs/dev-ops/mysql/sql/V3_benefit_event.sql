@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS `benefit_event` (
     `order_id` varchar(32) NOT NULL COMMENT '订单ID',
     `product_code` varchar(64) NOT NULL COMMENT 'SKU编码',
     `event_published` tinyint(1) NOT NULL DEFAULT '0' COMMENT 'MQ是否已发布',
+    `publish_status` varchar(16) NOT NULL DEFAULT 'PENDING' COMMENT 'outbox publisher claim state',
     `base_quota` bigint NOT NULL DEFAULT '0' COMMENT '下单时基础额度快照（整额度点）',
     `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
@@ -48,6 +49,7 @@ CREATE TABLE IF NOT EXISTS `benefit_event` (
     UNIQUE KEY `uk_order_event_type` (`order_id`, `event_type`),
     KEY `idx_event_published` (`event_type`, `event_published`),
     KEY `idx_outbox_publish_scan` (`event_published`, `id`)
+    ,KEY `idx_publish_status_scan` (`event_published`, `publish_status`, `id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='支付交易本地消息表（履约/权益 outbox）';
 
 SET @benefit_base_col_exists = (

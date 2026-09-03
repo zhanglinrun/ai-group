@@ -17,7 +17,7 @@ from fastapi import APIRouter, Depends, Header, Query, Request
 from fastapi.responses import StreamingResponse
 from langgraph.types import Command
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import case, delete, func, select
+from sqlalchemy import case, delete, func, select, update
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -59,6 +59,7 @@ from service.billing_settlement import (
     settle_if_needed_for_delete,
     settle_run_billing,
 )
+from service.run_lease import claim_run_execution, release_run_execution, renew_run_execution
 from security.identity import get_identity, require_identity
 from service.knowledge import load_knowledge_for_run
 from service.locale import resolve_report_language
@@ -115,6 +116,7 @@ async def _run_graph_with_progress_heartbeat(
     graph: Any,
     config: dict[str, object],
     graph_input: object,
+    execution_token: str | None = None,
 ) -> Any:
     """Emit structlog heartbeats while a long graph.ainvoke is in flight."""
     started_at = datetime.now(timezone.utc)
@@ -141,6 +143,25 @@ async def _run_graph_with_progress_heartbeat(
                     ),
                     checkpoint_next=checkpoint_next,
                 )
+                if execution_token:
+                    try:
+                        renewed = await renew_run_execution(
+                            run_id=run_id,
+                            owner_token=execution_token,
+                        )
+                        if not renewed:
+                            log.warning(
+                                "run.lease.renew_rejected",
+                                run_id=run_id,
+                                phase=phase,
+                            )
+                    except Exception as exc:  # lease renewal must not mask graph errors
+                        log.warning(
+                            "run.lease.renew_failed",
+                            run_id=run_id,
+                            phase=phase,
+                            error=format_exception_for_log(exc),
+                        )
 
     heartbeat_task = asyncio.create_task(_heartbeat_loop(), name=f"run_progress_{run_id}")
     trace_metadata: dict[str, object] = {"run_id": run_id, "phase": phase}
@@ -786,9 +807,10 @@ class WatchlistDigestItemResponse(BaseModel):
     recent_changes: list[CompetitorDiffItemResponse]
 
 
-def _to_sse_chunk(*, event: str, data: dict[str, object]) -> str:
+def _to_sse_chunk(*, event: str, data: dict[str, object], event_id: int | None = None) -> str:
     serialized = json.dumps(data, ensure_ascii=False)
-    return f"event: {event}\ndata: {serialized}\n\n"
+    id_line = f"id: {event_id}\n" if event_id is not None else ""
+    return f"{id_line}event: {event}\ndata: {serialized}\n\n"
 
 
 def _event_bus_from_request(request: Request) -> EventBus | None:
@@ -865,7 +887,9 @@ def _apply_graph_terminal_run_fields(run: Run, graph_state: object) -> str:
     return status
 
 
-async def _mark_run_paused_for_quota(*, run_id: str, log_event: str) -> None:
+async def _mark_run_paused_for_quota(
+    *, run_id: str, log_event: str, execution_token: str | None = None
+) -> None:
     """Stop the graph without failing it so the user can recharge and resume."""
     log.info(log_event, error_type="QuotaExhaustedError", status="paused")
     session_factory = get_session_factory()
@@ -873,11 +897,16 @@ async def _mark_run_paused_for_quota(*, run_id: str, log_event: str) -> None:
         run = await session.get(Run, run_id)
         if run is None:
             return
+        if execution_token and run.execution_owner_token != execution_token:
+            log.info("run.lease.pause_rejected", run_id=run_id)
+            return
         if run.status in {"completed", "degraded", "failed", "cancelled"}:
             return
         run.status = "paused"
         run.status_reason = QUOTA_PAUSED_REASON
         run.finished_at = None
+        run.execution_owner_token = None
+        run.execution_lease_until = None
         await session.commit()
     await emit_run_event(
         run_id=run_id,
@@ -892,11 +921,22 @@ async def _mark_run_paused_for_quota(*, run_id: str, log_event: str) -> None:
     )
 
 
-async def _handle_graph_failure(*, run_id: str, exc: BaseException, log_event: str) -> None:
+async def _handle_graph_failure(
+    *, run_id: str, exc: BaseException, log_event: str, execution_token: str | None = None
+) -> None:
     if isinstance(exc, QuotaExhaustedError):
-        await _mark_run_paused_for_quota(run_id=run_id, log_event=log_event)
+        await _mark_run_paused_for_quota(
+            run_id=run_id,
+            log_event=log_event,
+            execution_token=execution_token,
+        )
         return
-    await _mark_run_failed_and_emit(run_id=run_id, exc=exc, log_event=log_event)
+    await _mark_run_failed_and_emit(
+        run_id=run_id,
+        exc=exc,
+        log_event=log_event,
+        execution_token=execution_token,
+    )
 
 
 async def _mark_run_failed_and_emit(
@@ -904,6 +944,7 @@ async def _mark_run_failed_and_emit(
     run_id: str,
     exc: BaseException,
     log_event: str,
+    execution_token: str | None = None,
 ) -> None:
     """Background-task boundary cleanup: persist run.status=failed + emit RUN_FINISH.
 
@@ -920,9 +961,14 @@ async def _mark_run_failed_and_emit(
     async with session_factory() as session:
         run = await session.get(Run, run_id)
         if run is not None:
+            if execution_token and run.execution_owner_token != execution_token:
+                log.info("run.lease.failure_rejected", run_id=run_id)
+                return
             run.status = "failed"
             run.status_reason = status_reason
             run.finished_at = datetime.now(timezone.utc)
+            run.execution_owner_token = None
+            run.execution_lease_until = None
             await session.commit()
     await settle_run_billing(run_id=run_id, terminal_status="failed")
     await emit_run_event(
@@ -945,7 +991,9 @@ _RUN_TASK_NAME_PREFIXES: tuple[str, ...] = (
 )
 
 
-async def _handle_graph_cancelled(*, run_id: str, log_event: str) -> None:
+async def _handle_graph_cancelled(
+    *, run_id: str, log_event: str, execution_token: str | None = None
+) -> None:
     """Reconcile the Run row when a graph task receives CancelledError.
 
     Two ways this fires:
@@ -961,15 +1009,23 @@ async def _handle_graph_cancelled(*, run_id: str, log_event: str) -> None:
         run = await session.get(Run, run_id)
         if run is None:
             return
+        if execution_token and run.execution_owner_token != execution_token:
+            log.info(log_event, status=run.status, branch="lease_lost")
+            return
         if run.status != "running":
             with bind_run(run_id):
                 log.info(log_event, status=run.status, branch="already_terminal")
             if run.status not in {"paused"}:
+                run.execution_owner_token = None
+                run.execution_lease_until = None
+                await session.commit()
                 await settle_run_billing(run_id=run_id, terminal_status=str(run.status))
             return
         run.status = "failed"
         run.status_reason = UNEXPECTED_CANCEL_REASON
         run.finished_at = datetime.now(timezone.utc)
+        run.execution_owner_token = None
+        run.execution_lease_until = None
         await session.commit()
     await settle_run_billing(run_id=run_id, terminal_status="failed")
     with bind_run(run_id):
@@ -1099,10 +1155,26 @@ async def _run_event_stream(
     run_id: str,
     keepalive_seconds: float = 15.0,
     max_events: int | None = None,
+    last_event_id: int | None = None,
 ) -> AsyncIterator[str]:
     yield "retry: 15000\n\n"
     emitted_count = 0
     async with event_bus.subscribe(run_id) as queue:
+        # Subscribe before replay so an event published between the replay
+        # query and subscription is still queued.  De-duplicate by durable id.
+        replayed = await event_bus.load_since(run_id, last_event_id)
+        seen_ids: set[int] = set()
+        for event in replayed:
+            if event.event_id is not None:
+                seen_ids.add(event.event_id)
+            yield _to_sse_chunk(
+                event=event.event_type.value,
+                data=event.model_dump(mode="json"),
+                event_id=event.event_id,
+            )
+            emitted_count += 1
+            if max_events is not None and emitted_count >= max_events:
+                return
         while True:
             try:
                 event = await asyncio.wait_for(queue.get(), timeout=keepalive_seconds)
@@ -1111,9 +1183,14 @@ async def _run_event_stream(
                 continue
             except asyncio.CancelledError:
                 return
+            if event.event_id is not None and event.event_id in seen_ids:
+                continue
+            if event.event_id is not None:
+                seen_ids.add(event.event_id)
             yield _to_sse_chunk(
                 event=event.event_type.value,
                 data=event.model_dump(mode="json"),
+                event_id=event.event_id,
             )
             emitted_count += 1
             if max_events is not None and emitted_count >= max_events:
@@ -1618,6 +1695,10 @@ async def _execute_run_graph(
     """
     session_factory = get_session_factory()
     config = {"configurable": {"thread_id": run_id}, "recursion_limit": recursion_limit}
+    execution_token = uuid4().hex
+    if not await claim_run_execution(run_id=run_id, owner_token=execution_token):
+        log.info("api.run.execute.skip", reason="execution_lease_not_acquired")
+        return
     with bind_run(run_id):
         try:
             graph_state = await _run_graph_with_progress_heartbeat(
@@ -1626,17 +1707,23 @@ async def _execute_run_graph(
                 graph=graph,
                 config=config,
                 graph_input=graph_input,
+                execution_token=execution_token,
             )
         except asyncio.CancelledError:
             await _handle_graph_cancelled(
-                run_id=run_id, log_event="api.run.execute.cancelled"
+                run_id=run_id,
+                log_event="api.run.execute.cancelled",
+                execution_token=execution_token,
             )
             raise
         except Exception as exc:
             # Background-task outer boundary: persist failed + RUN_FINISH; do not re-raise
             # or asyncio emits unstructured "Task exception was never retrieved" noise.
             await _handle_graph_failure(
-                run_id=run_id, exc=exc, log_event="api.run.execute.failed"
+                run_id=run_id,
+                exc=exc,
+                log_event="api.run.execute.failed",
+                execution_token=execution_token,
             )
             return
 
@@ -1644,8 +1731,13 @@ async def _execute_run_graph(
             run = await session.get(Run, run_id)
             if run is None:
                 raise RuntimeError(f"run_id={run_id} should exist after creation")
+            if run.execution_owner_token != execution_token:
+                log.warning("api.run.execute.skip", reason="execution_lease_lost")
+                return
             final_status = _apply_graph_terminal_run_fields(run, graph_state)
             status_reason = run.status_reason
+            run.execution_owner_token = None
+            run.execution_lease_until = None
             await session.commit()
         await settle_run_billing(run_id=run_id, terminal_status=final_status)
         await emit_run_event(
@@ -1972,7 +2064,8 @@ async def _persist_intake_draft_to_run(
     *,
     run_id: str,
     state_values: dict[str, object],
-) -> None:
+    execution_token: str | None = None,
+) -> bool:
     """Snapshot the latest intake_draft from graph state into the Run row.
 
     Allows GET /api/runs/{id} to render the current intake state without
@@ -1985,9 +2078,12 @@ async def _persist_intake_draft_to_run(
     async with session_factory() as session:
         run = await session.get(Run, run_id)
         if run is None:
-            return
+            return False
+        if execution_token and run.execution_owner_token != execution_token:
+            return False
         run.intake_draft = draft.model_dump(exclude={"is_complete"})
         await session.commit()
+    return True
 
 
 async def _start_intake_graph_in_background(
@@ -2002,6 +2098,10 @@ async def _start_intake_graph_in_background(
     """Start intake graph from scratch in background for async create contract."""
     session_factory = get_session_factory()
     config = {"configurable": {"thread_id": run_id}, "recursion_limit": recursion_limit}
+    execution_token = uuid4().hex
+    if not await claim_run_execution(run_id=run_id, owner_token=execution_token):
+        log.info("api.run.intake.create.skip", reason="execution_lease_not_acquired")
+        return
     with bind_run(run_id):
         try:
             await _run_graph_with_progress_heartbeat(
@@ -2010,12 +2110,14 @@ async def _start_intake_graph_in_background(
                 graph=graph,
                 config=config,
                 graph_input=initial_state,
+                execution_token=execution_token,
             )
             snapshot = await graph.aget_state(config)
         except asyncio.CancelledError:
             await _handle_graph_cancelled(
                 run_id=run_id,
                 log_event="api.run.intake.create.cancelled",
+                execution_token=execution_token,
             )
             raise
         except Exception as exc:
@@ -2031,11 +2133,18 @@ async def _start_intake_graph_in_background(
                 run_id=run_id,
                 exc=exc,
                 log_event="api.run.intake.create.background.failed",
+                execution_token=execution_token,
             )
             return
 
         state_values = snapshot.values if isinstance(snapshot.values, dict) else {}
-        await _persist_intake_draft_to_run(run_id=run_id, state_values=state_values)
+        if not await _persist_intake_draft_to_run(
+            run_id=run_id,
+            state_values=state_values,
+            execution_token=execution_token,
+        ):
+            log.warning("api.run.intake.create.skip", reason="execution_lease_lost")
+            return
 
         async with session_factory() as session:
             record = await session.get(RunCreateRequestRecord, idempotency_key)
@@ -2043,6 +2152,7 @@ async def _start_intake_graph_in_background(
                 record.status = "paused" if snapshot.next else "completed"
                 await session.commit()
         if snapshot.next != ():
+            await release_run_execution(run_id=run_id, owner_token=execution_token)
             next_node = snapshot.next[0] if snapshot.next else None
             log.info(
                 "api.run.intake.create.paused",
@@ -2059,8 +2169,13 @@ async def _start_intake_graph_in_background(
         async with session_factory() as session:
             run = await session.get(Run, run_id)
             if run is not None:
+                if run.execution_owner_token != execution_token:
+                    log.warning("api.run.intake.create.skip", reason="execution_lease_lost")
+                    return
                 run_status = _apply_graph_terminal_run_fields(run, state_values)
                 status_reason = run.status_reason
+                run.execution_owner_token = None
+                run.execution_lease_until = None
                 await session.commit()
             else:
                 run_status = "completed"
@@ -2091,6 +2206,10 @@ async def _resume_plan_graph_in_background(
     """
     session_factory = get_session_factory()
     config = {"configurable": {"thread_id": run_id}, "recursion_limit": recursion_limit}
+    execution_token = uuid4().hex
+    if not await claim_run_execution(run_id=run_id, owner_token=execution_token):
+        log.info("api.run.plan.resume.skip", reason="execution_lease_not_acquired")
+        return
     with bind_run(run_id):
         try:
             graph_state = await _run_graph_with_progress_heartbeat(
@@ -2099,15 +2218,21 @@ async def _resume_plan_graph_in_background(
                 graph=graph,
                 config=config,
                 graph_input=Command(resume=resume_payload),
+                execution_token=execution_token,
             )
         except asyncio.CancelledError:
             await _handle_graph_cancelled(
-                run_id=run_id, log_event="api.run.plan.resume.cancelled"
+                run_id=run_id,
+                log_event="api.run.plan.resume.cancelled",
+                execution_token=execution_token,
             )
             raise
         except Exception as exc:
             await _handle_graph_failure(
-                run_id=run_id, exc=exc, log_event="api.run.plan.resume.failed"
+                run_id=run_id,
+                exc=exc,
+                log_event="api.run.plan.resume.failed",
+                execution_token=execution_token,
             )
             return
 
@@ -2115,8 +2240,13 @@ async def _resume_plan_graph_in_background(
             run = await session.get(Run, run_id)
             if run is None:
                 raise RuntimeError(f"run_id={run_id} should exist after plan confirm")
+            if run.execution_owner_token != execution_token:
+                log.warning("api.run.plan.resume.skip", reason="execution_lease_lost")
+                return
             final_status = _apply_graph_terminal_run_fields(run, graph_state)
             status_reason = run.status_reason
+            run.execution_owner_token = None
+            run.execution_lease_until = None
             await session.commit()
         await settle_run_billing(run_id=run_id, terminal_status=final_status)
         await emit_run_event(
@@ -2148,6 +2278,10 @@ async def _resume_intake_graph_in_background(
     """
     session_factory = get_session_factory()
     config = {"configurable": {"thread_id": run_id}, "recursion_limit": recursion_limit}
+    execution_token = uuid4().hex
+    if not await claim_run_execution(run_id=run_id, owner_token=execution_token):
+        log.info("api.run.intake.resume.skip", reason="execution_lease_not_acquired")
+        return
     with bind_run(run_id):
         try:
             await _run_graph_with_progress_heartbeat(
@@ -2156,23 +2290,36 @@ async def _resume_intake_graph_in_background(
                 graph=graph,
                 config=config,
                 graph_input=Command(resume=resume_payload),
+                execution_token=execution_token,
             )
             snapshot = await graph.aget_state(config)
         except asyncio.CancelledError:
             await _handle_graph_cancelled(
-                run_id=run_id, log_event="api.run.intake.resume.cancelled"
+                run_id=run_id,
+                log_event="api.run.intake.resume.cancelled",
+                execution_token=execution_token,
             )
             raise
         except Exception as exc:
             await _handle_graph_failure(
-                run_id=run_id, exc=exc, log_event="api.run.intake.resume.failed"
+                run_id=run_id,
+                exc=exc,
+                log_event="api.run.intake.resume.failed",
+                execution_token=execution_token,
             )
             return
 
         state_values = snapshot.values if isinstance(snapshot.values, dict) else {}
-        await _persist_intake_draft_to_run(run_id=run_id, state_values=state_values)
+        if not await _persist_intake_draft_to_run(
+            run_id=run_id,
+            state_values=state_values,
+            execution_token=execution_token,
+        ):
+            log.warning("api.run.intake.resume.skip", reason="execution_lease_lost")
+            return
 
         if snapshot.next != ():
+            await release_run_execution(run_id=run_id, owner_token=execution_token)
             log.info(
                 "api.run.intake.resume.paused",
                 next_node=snapshot.next[0] if snapshot.next else None,
@@ -2183,8 +2330,13 @@ async def _resume_intake_graph_in_background(
             run = await session.get(Run, run_id)
             if run is None:
                 raise RuntimeError(f"run_id={run_id} should exist after resume")
+            if run.execution_owner_token != execution_token:
+                log.warning("api.run.intake.resume.skip", reason="execution_lease_lost")
+                return
             final_status = _apply_graph_terminal_run_fields(run, state_values)
             status_reason = run.status_reason
+            run.execution_owner_token = None
+            run.execution_lease_until = None
             await session.commit()
         await emit_run_event(
             run_id=run_id,
@@ -2887,8 +3039,20 @@ async def resume_run(run_id: str, request: Request) -> RunCreateResponse:
                     message="Background task registry is not initialized.",
                 )
             async with session_factory() as session:
-                run = await session.get(Run, run_id)
-                if run is None or run.status != resume_from_status:
+                transition = await session.execute(
+                    update(Run)
+                    .where(Run.run_id == run_id, Run.status == resume_from_status)
+                    .values(
+                        status="running",
+                        status_reason=None,
+                        finished_at=None,
+                        execution_owner_token=None,
+                        execution_lease_until=None,
+                    )
+                    .execution_options(synchronize_session=False)
+                )
+                if int(transition.rowcount or 0) != 1:
+                    await session.rollback()
                     raise APIException(
                         status_code=409,
                         error_code="RUN_NOT_RESUMABLE",
@@ -2896,9 +3060,6 @@ async def resume_run(run_id: str, request: Request) -> RunCreateResponse:
                             f"run_id={run_id} is no longer {resume_from_status}"
                         ),
                     )
-                run.status = "running"
-                run.status_reason = None
-                run.finished_at = None
                 await session.commit()
             task = asyncio.create_task(
                 _execute_run_graph(
@@ -2919,6 +3080,13 @@ async def resume_run(run_id: str, request: Request) -> RunCreateResponse:
             )
 
         config = _graph_invoke_config(run_id=run_id, report_depth=report_depth)
+        execution_token = uuid4().hex
+        if not await claim_run_execution(run_id=run_id, owner_token=execution_token):
+            raise APIException(
+                status_code=409,
+                error_code="RUN_EXECUTION_IN_PROGRESS",
+                message=f"run_id={run_id} is already being executed by another worker",
+            )
         resume_trace_metadata = trace_metadata_from_state(
             {
                 "run_id": run_id,
@@ -2928,17 +3096,21 @@ async def resume_run(run_id: str, request: Request) -> RunCreateResponse:
                 "source": _trace_source(request),
             }
         )
-        with langsmith_tracing_context():
-            graph_state = await traceable_graph_call(
-                graph=graph,
-                graph_input=None,
-                config=config,
-                metadata=resume_trace_metadata,
-                langsmith_extra={
-                    "metadata": {**resume_trace_metadata, "phase": "resume"},
-                    "tags": ["ai-group", "agent", "langgraph", "resume"],
-                },
-            )
+        try:
+            with langsmith_tracing_context():
+                graph_state = await traceable_graph_call(
+                    graph=graph,
+                    graph_input=None,
+                    config=config,
+                    metadata=resume_trace_metadata,
+                    langsmith_extra={
+                        "metadata": {**resume_trace_metadata, "phase": "resume"},
+                        "tags": ["ai-group", "agent", "langgraph", "resume"],
+                    },
+                )
+        except BaseException:
+            await release_run_execution(run_id=run_id, owner_token=execution_token)
+            raise
 
         async with session_factory() as session:
             run = await session.get(Run, run_id)
@@ -2948,8 +3120,16 @@ async def resume_run(run_id: str, request: Request) -> RunCreateResponse:
                     error_code="RUN_NOT_FOUND",
                     message=f"run_id={run_id} should exist before resume update",
                 )
+            if run.execution_owner_token != execution_token:
+                raise APIException(
+                    status_code=409,
+                    error_code="RUN_EXECUTION_LEASE_LOST",
+                    message=f"run_id={run_id} execution lease was lost before finalization",
+                )
             final_status = _apply_graph_terminal_run_fields(run, graph_state)
             status_reason = run.status_reason
+            run.execution_owner_token = None
+            run.execution_lease_until = None
             await session.commit()
         await emit_run_event(
             run_id=run_id,
@@ -2989,6 +3169,7 @@ async def reset_run(run_id: str, payload: RunResetRequest, request: Request) -> 
                     message=f"run_id={run_id} status={run.status} cannot reset",
                 )
             report_depth = _resolve_run_report_depth(run)
+            reset_from_status = run.status
 
         graph = getattr(request.app.state, "compiled_graph", None)
         if graph is None:
@@ -3009,6 +3190,25 @@ async def reset_run(run_id: str, payload: RunResetRequest, request: Request) -> 
         await _cleanup_trace_for_reset(run_id=run_id, reset_to=payload.reset_to)
 
         async with session_factory() as session:
+            transition = await session.execute(
+                update(Run)
+                .where(Run.run_id == run_id, Run.status == reset_from_status)
+                .values(
+                    status="running",
+                    finished_at=None,
+                    execution_owner_token=None,
+                    execution_lease_until=None,
+                )
+                .execution_options(synchronize_session=False)
+            )
+            if int(transition.rowcount or 0) != 1:
+                await session.rollback()
+                raise APIException(
+                    status_code=409,
+                    error_code="RUN_RESET_IN_PROGRESS",
+                    message=f"run_id={run_id} changed state before reset could start",
+                )
+            await session.commit()
             run = await session.get(Run, run_id)
             if run is None:
                 raise APIException(
@@ -3016,12 +3216,21 @@ async def reset_run(run_id: str, payload: RunResetRequest, request: Request) -> 
                     error_code="RUN_NOT_FOUND",
                     message=f"run_id={run_id} should exist before reset replay",
                 )
-            run.status = "running"
-            run.finished_at = None
-            await session.commit()
+
+        execution_token = uuid4().hex
+        if not await claim_run_execution(run_id=run_id, owner_token=execution_token):
+            raise APIException(
+                status_code=409,
+                error_code="RUN_EXECUTION_IN_PROGRESS",
+                message=f"run_id={run_id} is already being executed by another worker",
+            )
 
         reset_values = _build_reset_state_values(reset_to=payload.reset_to)
-        await graph.aupdate_state(config, reset_values, as_node="supervisor")
+        try:
+            await graph.aupdate_state(config, reset_values, as_node="supervisor")
+        except BaseException:
+            await release_run_execution(run_id=run_id, owner_token=execution_token)
+            raise
         reset_trace_metadata = trace_metadata_from_state(
             {
                 "run_id": run_id,
@@ -3031,17 +3240,21 @@ async def reset_run(run_id: str, payload: RunResetRequest, request: Request) -> 
                 "source": _trace_source(request),
             }
         )
-        with langsmith_tracing_context():
-            graph_state = await traceable_graph_call(
-                graph=graph,
-                graph_input=None,
-                config=config,
-                metadata=reset_trace_metadata,
-                langsmith_extra={
-                    "metadata": {**reset_trace_metadata, "phase": "reset"},
-                    "tags": ["ai-group", "agent", "langgraph", "reset"],
-                },
-            )
+        try:
+            with langsmith_tracing_context():
+                graph_state = await traceable_graph_call(
+                    graph=graph,
+                    graph_input=None,
+                    config=config,
+                    metadata=reset_trace_metadata,
+                    langsmith_extra={
+                        "metadata": {**reset_trace_metadata, "phase": "reset"},
+                        "tags": ["ai-group", "agent", "langgraph", "reset"],
+                    },
+                )
+        except BaseException:
+            await release_run_execution(run_id=run_id, owner_token=execution_token)
+            raise
 
         async with session_factory() as session:
             run = await session.get(Run, run_id)
@@ -3051,8 +3264,16 @@ async def reset_run(run_id: str, payload: RunResetRequest, request: Request) -> 
                     error_code="RUN_NOT_FOUND",
                     message=f"run_id={run_id} should exist before reset status update",
                 )
+            if run.execution_owner_token != execution_token:
+                raise APIException(
+                    status_code=409,
+                    error_code="RUN_EXECUTION_LEASE_LOST",
+                    message=f"run_id={run_id} execution lease was lost before finalization",
+                )
             run.status = _coerce_run_status(graph_state)
             run.finished_at = datetime.now(timezone.utc)
+            run.execution_owner_token = None
+            run.execution_lease_until = None
             await session.commit()
 
         await emit_run_event(
@@ -3079,8 +3300,14 @@ async def stream_run_events(run_id: str, request: Request) -> StreamingResponse:
             message="Run event stream is not initialized.",
         )
 
+    raw_last_event_id = request.headers.get("Last-Event-ID")
+    try:
+        last_event_id = int(raw_last_event_id) if raw_last_event_id else None
+    except ValueError:
+        last_event_id = None
+
     return StreamingResponse(
-        _run_event_stream(event_bus=event_bus, run_id=run_id),
+        _run_event_stream(event_bus=event_bus, run_id=run_id, last_event_id=last_event_id),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
     )
@@ -3330,6 +3557,8 @@ async def patch_run(
             run.status = "cancelled"
             run.status_reason = clip_reason(cancel_reason or DEFAULT_CANCELLED_REASON)
             run.finished_at = datetime.now(timezone.utc)
+            run.execution_owner_token = None
+            run.execution_lease_until = None
             should_cancel_tasks = True
         await session.commit()
         await session.refresh(run)

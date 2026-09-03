@@ -20,6 +20,7 @@ public class BenefitEventEntity {
     private String orderId;
     private String productCode;
     private Boolean eventPublished;
+    private String publishStatus;
     /** 下单时基础额度快照（整额度点） */
     private Long baseQuota;
     private Date createTime;

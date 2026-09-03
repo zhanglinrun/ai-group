@@ -132,6 +132,9 @@ class Settings(BaseSettings):
     LANGSMITH_DATASET_NAME: str = "ai-group-deep-research"
     LANGSMITH_JUDGE_MODEL: str | None = None
     ORPHAN_RUN_SWEEP_GRACE_SECONDS: int = 300
+    # Database fencing lease used to ensure only one Agent instance executes a
+    # Run checkpoint at a time.  The graph heartbeat renews it while running.
+    RUN_EXECUTION_LEASE_SECONDS: int = 600
     COLLECTOR_PER_HOST_QPS: int = 2
     COLLECTOR_USER_AGENT: str = (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -325,6 +328,8 @@ class Settings(BaseSettings):
             raise ValueError("LLM_CHARS_PER_TOKEN must be positive.")
         if self.ORPHAN_RUN_SWEEP_GRACE_SECONDS < 0:
             raise ValueError("ORPHAN_RUN_SWEEP_GRACE_SECONDS cannot be negative.")
+        if self.RUN_EXECUTION_LEASE_SECONDS < 60:
+            raise ValueError("RUN_EXECUTION_LEASE_SECONDS must be at least 60 seconds.")
         if self.BILLING_SETTLEMENT_INTERVAL_SECONDS < 1:
             raise ValueError("BILLING_SETTLEMENT_INTERVAL_SECONDS must be at least 1.")
         if self.BILLING_SETTLEMENT_BATCH_LIMIT < 1:

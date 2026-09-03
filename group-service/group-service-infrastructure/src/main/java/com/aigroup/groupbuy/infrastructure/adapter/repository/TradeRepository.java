@@ -404,6 +404,16 @@ public class TradeRepository implements ITradeRepository {
     }
 
     @Override
+    public boolean claimNotifyTask(NotifyTaskEntity notifyTaskEntity) {
+        if (notifyTaskEntity == null) return false;
+        NotifyTask notifyTask = NotifyTask.builder()
+                .teamId(notifyTaskEntity.getTeamId())
+                .uuid(notifyTaskEntity.getUuid())
+                .build();
+        return notifyTaskDao.claim(notifyTask) == 1;
+    }
+
+    @Override
     public int updateNotifyTaskStatusSuccess(NotifyTaskEntity notifyTaskEntity) {
         NotifyTask notifyTask = NotifyTask.builder()
                 .teamId(notifyTaskEntity.getTeamId())
@@ -437,30 +447,35 @@ public class TradeRepository implements ITradeRepository {
      */
     @Override
     public boolean occupyTeamStock(String teamStockKey, String recoveryTeamStockKey, Integer target, Integer validTime) {
-        // 失败恢复量
+        // 无锁化（乐观锁）方案：先通过 Redis INCR 原子生成一个近似唯一的占位序号，
+        // 再与目标量和失败恢复量比较。这里的 SET NX 只是极端情况下的兜底校验，
+        // 不把所有请求串行化，也不再使用 Lua 将多个步骤强行揉在一起。
         Long recoveryCount = redisService.getAtomicLong(recoveryTeamStockKey);
-        recoveryCount = null == recoveryCount ? 0 : recoveryCount;
+        recoveryCount = null == recoveryCount ? 0L : recoveryCount;
 
-        // 1. incr 得到值，与总量和恢复量做对比。恢复量为系统失败时候记录的量。
-        // 2. 从有组队量开始，相当于已经有了一个占用量，所以要 +1
+        long targetCount = target == null ? 0L : target;
         long occupy = redisService.incr(teamStockKey) + 1;
-
-        if (occupy > target + recoveryCount) {
-            // 超出库存限制时，需要将已经增加的库存减回去，避免库存泄漏
-            redisService.decr(teamStockKey);
+        if (occupy >= targetCount + recoveryCount) {
+            // 对齐参考实现：超过可用边界后把计数收敛到 target，后续请求仍由
+            // MySQL lock_count CAS 做最终正确性校验。
+            redisService.setAtomicLong(teamStockKey, targetCount);
+            log.info("组队库存占用失败 teamStockKey:{} occupy:{} target:{} recovery:{}",
+                    teamStockKey, occupy, targetCount, recoveryCount);
             return false;
         }
 
-        // 1. 给每个产生的值加锁为兜底设计，虽然incr操作是原子的，基本不会产生一样的值。但在实际生产中，遇到过集群的运维配置问题，以及业务运营配置数据问题，导致incr得到的值相同。
-        // 2. validTime + 60分钟，是一个延后时间的设计，让数据保留时间稍微长一些，便于排查问题。
+        // INCR 本身是原子的，SET NX 只作为 Redis 集群异常或重复序号时的兜底。
+        // 参考实现约定按分钟保留：validTime + 60 分钟，便于排查问题。
         String lockKey = teamStockKey + Constants.UNDERLINE + occupy;
-        Boolean lock = redisService.setNx(lockKey, validTime + 60, TimeUnit.MINUTES);
-
-        if (!lock) {
+        Boolean lock = redisService.setNx(
+                lockKey,
+                (validTime == null ? 0L : validTime.longValue()) + 60L,
+                TimeUnit.MINUTES);
+        if (!Boolean.TRUE.equals(lock)) {
             log.info("组队库存加锁失败 {}", lockKey);
+            return false;
         }
-
-        return lock;
+        return true;
     }
 
     @Override
@@ -482,7 +497,7 @@ public class TradeRepository implements ITradeRepository {
         String lockKey = "refund_lock_" + orderId;
 
         // 尝试获取分布式锁，防止重复操作 30天过期
-        Boolean lockAcquired = redisService.setNx(lockKey, 30 * 24 * 60 * 60 * 1000L, TimeUnit.MINUTES);
+        Boolean lockAcquired = redisService.setNx(lockKey, 30L, TimeUnit.DAYS);
 
         if (!lockAcquired) {
             log.warn("订单 {} 恢复库存操作已在进行中，跳过重复操作", orderId);

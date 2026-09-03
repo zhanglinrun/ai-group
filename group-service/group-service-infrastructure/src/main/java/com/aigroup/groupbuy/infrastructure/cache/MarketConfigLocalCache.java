@@ -4,6 +4,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.function.Supplier;
 
 /**
@@ -16,6 +18,7 @@ import java.util.function.Supplier;
 public class MarketConfigLocalCache {
 
     private final ConcurrentHashMap<String, Entry> entries = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, CompletableFuture<Object>> inFlight = new ConcurrentHashMap<>();
     private final long ttlNanos;
 
     public MarketConfigLocalCache(
@@ -34,13 +37,40 @@ public class MarketConfigLocalCache {
             return (T) cached.value();
         }
 
-        T loaded = loader.get();
-        if (loaded != null) {
-            entries.put(key, new Entry(loaded, now + ttlNanos));
-        } else {
-            entries.remove(key);
+        CompletableFuture<Object> created = new CompletableFuture<>();
+        CompletableFuture<Object> future = inFlight.putIfAbsent(key, created);
+        if (future == null) {
+            future = created;
+            try {
+                T loaded = loader.get();
+                if (loaded != null) {
+                    // Start TTL after the slow loader completes, not before it.
+                    entries.put(key, new Entry(loaded, System.nanoTime() + ttlNanos));
+                } else {
+                    entries.remove(key);
+                }
+                created.complete(loaded);
+            } catch (Throwable ex) {
+                created.completeExceptionally(ex);
+            } finally {
+                inFlight.remove(key, created);
+            }
         }
-        return loaded;
+        try {
+            return (T) future.get();
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Interrupted while loading market configuration", ex);
+        } catch (ExecutionException ex) {
+            Throwable cause = ex.getCause();
+            if (cause instanceof RuntimeException runtime) {
+                throw runtime;
+            }
+            if (cause instanceof Error error) {
+                throw error;
+            }
+            throw new IllegalStateException("Failed to load market configuration", cause);
+        }
     }
 
     public void invalidate(String key) {

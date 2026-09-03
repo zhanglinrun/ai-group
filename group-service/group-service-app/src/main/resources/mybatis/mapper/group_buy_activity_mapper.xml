@@ -24,17 +24,6 @@
         select * from group_buy_activity
     </select>
 
-    <select id="queryValidGroupBuyActivity" parameterType="com.aigroup.groupbuy.infrastructure.dao.po.GroupBuyActivity"
-            resultMap="dataMap">
-        select
-        activity_id, activity_name, discount_id, group_type, take_limit_count,
-        target, valid_time, status, start_time, end_time, tag_id, tag_scope
-        from group_buy_activity
-        where source = #{source} and channel = #{channel}
-        order by id desc
-        limit 1
-    </select>
-
     <select id="queryValidGroupBuyActivityId" parameterType="java.lang.Long" resultMap="dataMap">
         select
         activity_id, activity_name, discount_id, group_type, take_limit_count,

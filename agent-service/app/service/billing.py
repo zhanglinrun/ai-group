@@ -144,6 +144,10 @@ class QuotaExhaustedError(Exception):
     """Raised when Member has no remaining quota for the next model call."""
 
 
+class BillingUnavailableError(QuotaExhaustedError):
+    """Raised when quota authorization cannot be made safely."""
+
+
 MEMBER_SUCCESS_CODE = 200
 MEMBER_QUOTA_INSUFFICIENT_CODE = 621
 

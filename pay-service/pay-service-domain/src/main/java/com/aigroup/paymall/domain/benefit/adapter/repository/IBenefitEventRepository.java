@@ -13,6 +13,10 @@ public interface IBenefitEventRepository {
 
     void markPublished(String eventId);
 
+    boolean claimForPublish(String eventId);
+
+    void markPublishFailed(String eventId);
+
     List<BenefitEventEntity> queryPendingGrants(String eventType, Date since, Long lastId, int pageSize);
 
     List<BenefitEventEntity> queryUnpublished(int limit);

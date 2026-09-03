@@ -16,6 +16,10 @@ public interface IBenefitEventDao {
 
     void markPublished(@Param("eventId") String eventId);
 
+    int claimForPublish(@Param("eventId") String eventId);
+
+    void markPublishFailed(@Param("eventId") String eventId);
+
     List<BenefitEvent> queryPendingGrants(@Param("eventType") String eventType,
                                           @Param("since") Date since,
                                           @Param("lastId") Long lastId,

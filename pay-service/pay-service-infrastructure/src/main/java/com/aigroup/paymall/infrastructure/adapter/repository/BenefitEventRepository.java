@@ -42,6 +42,16 @@ public class BenefitEventRepository implements IBenefitEventRepository {
     }
 
     @Override
+    public boolean claimForPublish(String eventId) {
+        return benefitEventDao.claimForPublish(eventId) == 1;
+    }
+
+    @Override
+    public void markPublishFailed(String eventId) {
+        benefitEventDao.markPublishFailed(eventId);
+    }
+
+    @Override
     public List<BenefitEventEntity> queryPendingGrants(String eventType, Date since, Long lastId, int pageSize) {
         return benefitEventDao.queryPendingGrants(eventType, since, lastId, pageSize).stream()
                 .map(this::toEntity)
@@ -67,6 +77,7 @@ public class BenefitEventRepository implements IBenefitEventRepository {
                 .orderId(row.getOrderId())
                 .productCode(row.getProductCode())
                 .eventPublished(row.getEventPublished())
+                .publishStatus(row.getPublishStatus())
                 .baseQuota(row.getBaseQuota())
                 .createTime(row.getCreateTime())
                 .updateTime(row.getUpdateTime())

@@ -83,3 +83,16 @@ class Run(Base):
     # User-facing terminal explanation (degraded / failed / cancelled). Nullable
     # for in-flight runs and rows created before this column existed.
     status_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # A database-backed fencing token for graph execution.  Every background
+    # worker must claim this lease before invoking LangGraph; stale workers may
+    # no longer write terminal state after another instance takes over.
+    execution_owner_token: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        index=True,
+    )
+    execution_lease_until: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        index=True,
+    )
