@@ -71,9 +71,8 @@ class Run(Base):
     reserved_micro_points: Mapped[int] = mapped_column(nullable=False, default=0)
     consumed_micro_points: Mapped[int] = mapped_column(nullable=False, default=0)
     # reservation_id / reserved_micro_points / billing_reservations are leftover
-    # fields from older settlement rows. New runs charge each LLM call in
-    # billing_meter and leave these empty; settle_run_billing only snapshots
-    # consumed_micro_points.
+    # fields from older freeze/confirm rows. New runs gate on available balance
+    # then debit actual tokens in billing_meter and leave these empty.
     billing_reservations: Mapped[list[dict[str, object]] | None] = mapped_column(
         JSONB(none_as_null=True),
         nullable=True,

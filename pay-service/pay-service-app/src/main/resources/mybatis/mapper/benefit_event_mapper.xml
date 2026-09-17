@@ -39,7 +39,7 @@
         set publish_status = 'PROCESSING', update_time = now()
         where event_id = #{eventId} and event_published = 0
           and (publish_status in ('PENDING', 'RETRY')
-               or (publish_status = 'PROCESSING' and update_time < date_sub(now(), interval 5 minute)))
+               or (publish_status = 'PROCESSING' and update_time &lt; date_sub(now(), interval 5 minute)))
     </update>
 
     <update id="markPublishFailed">
@@ -54,7 +54,7 @@
         where event_type = #{eventType}
           and event_published = 0
           and (publish_status in ('PENDING', 'RETRY')
-               or (publish_status = 'PROCESSING' and update_time < date_sub(now(), interval 5 minute)))
+               or (publish_status = 'PROCESSING' and update_time &lt; date_sub(now(), interval 5 minute)))
         <if test="since != null">
             and create_time &gt;= #{since}
         </if>
@@ -70,7 +70,7 @@
         from benefit_event
         where event_published = 0
           and (publish_status in ('PENDING', 'RETRY')
-               or (publish_status = 'PROCESSING' and update_time < date_sub(now(), interval 5 minute)))
+               or (publish_status = 'PROCESSING' and update_time &lt; date_sub(now(), interval 5 minute)))
         order by case when event_type = 'GROUP_BUY_REVOKED' then 0 else 1 end, id asc
         limit #{limit}
     </select>

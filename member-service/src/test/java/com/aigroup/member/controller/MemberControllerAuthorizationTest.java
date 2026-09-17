@@ -69,4 +69,38 @@ class MemberControllerAuthorizationTest {
 
         verify(memberService).freeze(eq(3003L), eq(50L), eq(50L), eq("llm"), isNull(), eq("legacy"), isNull());
     }
+
+    @Test
+    void createDebitRejectsUserIdMismatchWhenJwtIsBound() {
+        MemberService memberService = mock(MemberService.class);
+        MemberController controller = new MemberController(memberService);
+        RequestUserContext.bind(1001L, "alice", "USER");
+
+        assertThrows(BusinessException.class, () -> controller.createDebit(Map.of(
+                "userId", 2002L,
+                "amount", 100L,
+                "requestId", "agent:run:call:1"
+        )));
+        verifyNoInteractions(memberService);
+    }
+
+    @Test
+    void createDebitAllowsMatchingJwtSubject() {
+        MemberService memberService = mock(MemberService.class);
+        when(memberService.debit(eq(1001L), eq(100L), eq("llm"), eq("agent:run:call:1"),
+                eq("agent-service"), eq("run_1"))).thenReturn(Map.of("debitId", "d1"));
+        MemberController controller = new MemberController(memberService);
+        RequestUserContext.bind(1001L, "alice", "USER");
+
+        controller.createDebit(Map.of(
+                "userId", 1001L,
+                "amount", 100L,
+                "requestId", "agent:run:call:1",
+                "ownerService", "agent-service",
+                "traceId", "run_1"
+        ));
+
+        verify(memberService).debit(eq(1001L), eq(100L), eq("llm"), eq("agent:run:call:1"),
+                eq("agent-service"), eq("run_1"));
+    }
 }

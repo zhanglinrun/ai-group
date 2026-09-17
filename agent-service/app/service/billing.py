@@ -22,6 +22,14 @@ class Reservation:
 
 
 @dataclass(frozen=True, slots=True)
+class Debit:
+    debit_id: str
+    amount_micro_points: int
+    request_id: str
+    user_id: int
+
+
+@dataclass(frozen=True, slots=True)
 class FreezeSlice:
     freeze_id: str
     request_id: str
@@ -33,6 +41,10 @@ class FreezeSlice:
             "request_id": self.request_id,
             "amount": self.amount_micro_points,
         }
+
+
+def usage_tokens_known(prompt_tokens: int | None, completion_tokens: int | None) -> bool:
+    return prompt_tokens is not None and completion_tokens is not None
 
 
 def charge_micro_points(prompt_tokens: int | None, completion_tokens: int | None) -> int:
@@ -249,6 +261,41 @@ class MemberQuotaClient:
         if raw is None:
             return None
         return max(0, int(raw))
+
+    async def debit(
+        self,
+        *,
+        user_id: int,
+        amount_micro_points: int,
+        run_id: str,
+        request_id: str,
+        trace_id: str,
+    ) -> Debit:
+        if user_id == 0 or not settings.INTERNAL_TOKEN:
+            return Debit(request_id, amount_micro_points, request_id, user_id)
+        payload = {
+            "userId": user_id,
+            "amount": amount_micro_points,
+            "abilityCode": "llm",
+            "requestId": request_id,
+            "traceId": trace_id,
+            "ownerService": "agent-service",
+        }
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            response = await client.post(
+                f"{self._base_url()}/internal/member/quota/debits",
+                json=payload,
+                headers=self._headers(),
+            )
+            response.raise_for_status()
+            body = response.json()
+        if not isinstance(body, dict):
+            raise RuntimeError(f"member debit failed: {body}")
+        data = _member_data(body, context="member debit failed")
+        debit_id = str(data.get("debitId") or data.get("debit_id") or "")
+        if not debit_id:
+            raise RuntimeError(f"member debit failed: {body}")
+        return Debit(debit_id, int(data.get("amount") or amount_micro_points), request_id, user_id)
 
     async def confirm(self, reservation: Reservation, *, actual_micro_points: int, trace_id: str) -> None:
         if reservation.user_id == 0 or not settings.INTERNAL_TOKEN:

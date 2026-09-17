@@ -29,6 +29,13 @@ while [ "$i" -lt 60 ]; do
   sleep 2
 done
 
+# Nacos 2.4 does not create the default admin until this API runs.
+# Java clients still POST /auth/login with nacos/nacos even when NACOS_AUTH_ENABLE=false.
+init_body="$(curl -sS -X POST "${NACOS_ADDR}/nacos/v1/auth/users/admin" \
+  --data-urlencode "username=nacos" \
+  --data-urlencode "password=nacos" || true)"
+echo "nacos admin init: ${init_body}"
+
 identity_tmp="$(mktemp)"
 sed -e "s|\${AI_GROUP_INTERNAL_TOKEN:change-me-internal-token-32bytes-ok}|${TOKEN}|g" \
     -e "s|\${AI_GROUP_IDENTITY_SIGNING_SECRET:change-me-signing-secret-32bytes-ok}|${SECRET}|g" \
@@ -39,5 +46,6 @@ publish "gateway-routes.yml" "yaml" "${CONFIG_DIR}/gateway-routes.yml"
 publish "gateway-sentinel-flow.json" "json" "${CONFIG_DIR}/gateway-sentinel-flow.json"
 publish "gateway-sentinel-degrade.json" "json" "${CONFIG_DIR}/gateway-sentinel-degrade.json"
 publish "pay-sentinel-feign.json" "json" "${CONFIG_DIR}/pay-sentinel-feign.json"
+publish "pay-sentinel-feign-flow.json" "json" "${CONFIG_DIR}/pay-sentinel-feign-flow.json"
 rm -f "${identity_tmp}"
 echo "nacos provision complete"

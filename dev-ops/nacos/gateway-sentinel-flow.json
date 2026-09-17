@@ -14,5 +14,45 @@
     "count": 2000,
     "intervalSec": 1,
     "controlBehavior": 0
+  },
+  {
+    "resource": "auth",
+    "resourceMode": 0,
+    "grade": 1,
+    "count": 80,
+    "intervalSec": 1,
+    "controlBehavior": 0
+  },
+  {
+    "resource": "member",
+    "resourceMode": 0,
+    "grade": 1,
+    "count": 80,
+    "intervalSec": 1,
+    "controlBehavior": 0
+  },
+  {
+    "resource": "group",
+    "resourceMode": 0,
+    "grade": 1,
+    "count": 80,
+    "intervalSec": 1,
+    "controlBehavior": 0
+  },
+  {
+    "resource": "pay",
+    "resourceMode": 0,
+    "grade": 1,
+    "count": 40,
+    "intervalSec": 1,
+    "controlBehavior": 0
+  },
+  {
+    "resource": "pay-v1",
+    "resourceMode": 0,
+    "grade": 1,
+    "count": 20,
+    "intervalSec": 1,
+    "controlBehavior": 0
   }
 ]

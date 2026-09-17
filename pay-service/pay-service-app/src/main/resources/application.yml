@@ -29,6 +29,13 @@ spring:
             groupId: AI_GROUP
             data-type: json
             rule-type: degrade
+        feign-flow:
+          nacos:
+            server-addr: ${NACOS_HOST:127.0.0.1}:${NACOS_PORT:8848}
+            dataId: pay-sentinel-feign-flow.json
+            groupId: AI_GROUP
+            data-type: json
+            rule-type: flow
     openfeign:
       client:
         config:
@@ -55,7 +62,10 @@ spring:
 
 feign:
   sentinel:
-    enabled: ${SENTINEL_ENABLED:false}
+    # Keep SCA's METHOD:http://host/path wrapper off. Pay uses
+    # SentinelStableNameCapability (serviceId#method) so local url= overrides
+    # do not silently miss Nacos rules.
+    enabled: false
 
 ai-group:
   identity:

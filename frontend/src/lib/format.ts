@@ -1,5 +1,13 @@
 import type { RunStatus } from "@/api/types";
 
+export function formatCredits(microPoints: number | undefined): string {
+  const credits = (microPoints ?? 0) / 1_000_000;
+  return `${credits.toLocaleString("zh-CN", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 6,
+  })} 积分`;
+}
+
 export function formatDateTime(value: string | null): string {
   if (!value) {
     return "-";

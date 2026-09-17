@@ -1,8 +1,13 @@
 [
-  {"resource": "agent-json", "grade": 1, "count": 0.5, "timeWindow": 10, "minRequestAmount": 10, "statIntervalMs": 10000},
-  {"resource": "auth", "grade": 1, "count": 0.5, "timeWindow": 10, "minRequestAmount": 10, "statIntervalMs": 10000},
-  {"resource": "member", "grade": 1, "count": 0.5, "timeWindow": 10, "minRequestAmount": 10, "statIntervalMs": 10000},
-  {"resource": "pay", "grade": 1, "count": 0.5, "timeWindow": 10, "minRequestAmount": 10, "statIntervalMs": 10000},
-  {"resource": "pay-v1", "grade": 1, "count": 0.5, "timeWindow": 10, "minRequestAmount": 10, "statIntervalMs": 10000},
-  {"resource": "group", "grade": 1, "count": 0.5, "timeWindow": 10, "minRequestAmount": 10, "statIntervalMs": 10000}
+  {"resource": "agent-json", "grade": 1, "count": 0.3, "timeWindow": 10, "minRequestAmount": 10, "statIntervalMs": 10000},
+  {"resource": "auth", "grade": 1, "count": 0.3, "timeWindow": 10, "minRequestAmount": 10, "statIntervalMs": 10000},
+  {"resource": "member", "grade": 1, "count": 0.3, "timeWindow": 10, "minRequestAmount": 10, "statIntervalMs": 10000},
+  {"resource": "pay", "grade": 1, "count": 0.3, "timeWindow": 10, "minRequestAmount": 10, "statIntervalMs": 10000},
+  {"resource": "pay-v1", "grade": 1, "count": 0.3, "timeWindow": 10, "minRequestAmount": 10, "statIntervalMs": 10000},
+  {"resource": "group", "grade": 1, "count": 0.3, "timeWindow": 10, "minRequestAmount": 10, "statIntervalMs": 10000},
+  {"resource": "auth", "grade": 0, "count": 1000, "timeWindow": 10, "minRequestAmount": 10, "slowRatioThreshold": 0.5, "statIntervalMs": 10000},
+  {"resource": "member", "grade": 0, "count": 1000, "timeWindow": 10, "minRequestAmount": 10, "slowRatioThreshold": 0.5, "statIntervalMs": 10000},
+  {"resource": "pay", "grade": 0, "count": 1000, "timeWindow": 10, "minRequestAmount": 10, "slowRatioThreshold": 0.5, "statIntervalMs": 10000},
+  {"resource": "pay-v1", "grade": 0, "count": 1000, "timeWindow": 10, "minRequestAmount": 10, "slowRatioThreshold": 0.5, "statIntervalMs": 10000},
+  {"resource": "group", "grade": 0, "count": 1000, "timeWindow": 10, "minRequestAmount": 10, "slowRatioThreshold": 0.5, "statIntervalMs": 10000}
 ]

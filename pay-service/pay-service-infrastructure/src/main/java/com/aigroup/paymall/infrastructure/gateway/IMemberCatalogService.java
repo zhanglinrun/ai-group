@@ -13,6 +13,6 @@ import org.springframework.web.bind.annotation.PathVariable;
 @FeignClient(name = "member-service", url = "${app.config.member-service.api-url:}")
 public interface IMemberCatalogService {
 
-    @GetMapping("internal/skus/by-goods/{goodsId}")
+    @GetMapping("/internal/skus/by-goods/{goodsId}")
     MemberResult<MemberSkuDTO> queryEnabledSkuByGoodsId(@PathVariable("goodsId") String goodsId);
 }

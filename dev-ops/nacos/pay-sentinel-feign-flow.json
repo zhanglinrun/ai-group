@@ -1,0 +1,7 @@
+[
+  {"resource": "group-service#lockMarketPayOrder", "grade": 1, "count": 30},
+  {"resource": "group-service#queryMarketPayOrder", "grade": 1, "count": 40},
+  {"resource": "group-service#settlementMarketPayOrder", "grade": 1, "count": 50},
+  {"resource": "group-service#refundMarketPayOrder", "grade": 1, "count": 20},
+  {"resource": "member-service#queryEnabledSkuByGoodsId", "grade": 1, "count": 80}
+]

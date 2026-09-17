@@ -9,7 +9,7 @@ Agent 按模型返回的输入/输出 Token 逐个结算，不按 1K Token 向�
 当前费率为输入每百万 Token 5 积分、输出每百万 Token 30 积分。内部按微积分计算，
 因此实际扣费公式为：`扣费微积分 = 输入 Token × 5 + 输出 Token × 30`。
 
-Member 侧 `1 积分 = 1,000,000 微积分`。每次打模型前按预估用量向 Member 预扣这一次，调用结束后按真实 Token 确认，失败则退回。额度不够时 Run 进入 `paused`，充值后 `POST /api/runs/{id}/resume` 从 LangGraph checkpoint 继续。终态只快照已扣用量。缺 usage 或 Member 暂时不可达时挂 `PENDING_RECONCILIATION`，由 `app/service/billing_settlement.py` 进程内扫描重试。`ALLOW_ANONYMOUS_DEV` 默认关闭，只在隔离单测里打开。
+Member 侧 `1 积分 = 1,000,000 微积分`。每次打模型前检查可用余额（不冻结），调用结束后按真实 Token 向 Member `debit`。额度不够时 Run 进入 `paused`，充值后 `POST /api/runs/{id}/resume` 从 LangGraph checkpoint 继续。终态只快照已扣用量。缺 usage 不以 0 退回；Member 暂时不可达时挂 `PENDING_RECONCILIATION`，由 `app/service/billing_settlement.py` 进程内扫描按同一 `requestId` 重试。`ALLOW_ANONYMOUS_DEV` 默认关闭，只在隔离单测里打开。
 
 ## 代码边界
 

@@ -63,6 +63,24 @@ public class MemberController {
                 userId, amount, minAmount, abilityCode, requestId, ownerService, traceId));
     }
 
+    @PostMapping("/internal/member/quota/debits")
+    public Result<Map<String, Object>> createDebit(@RequestBody Map<String, Object> body) {
+        Long userId = requiredLong(body, "userId");
+        Long identityUserId = RequestUserContext.getUserId();
+        if (identityUserId != null && !identityUserId.equals(userId)) {
+            throw new com.aigroup.common.exception.BusinessException("userId does not match identity");
+        }
+        long amount = requiredLong(body, "amount");
+        String abilityCode = String.valueOf(body.getOrDefault("abilityCode", "llm"));
+        String ownerService = String.valueOf(body.getOrDefault("ownerService", "legacy"));
+        Object requestIdObj = body.get("requestId");
+        String requestId = requestIdObj != null ? requestIdObj.toString() : null;
+        Object traceIdObj = body.get("traceId");
+        String traceId = traceIdObj != null ? traceIdObj.toString() : null;
+        return Result.success(memberService.debit(
+                userId, amount, abilityCode, requestId, ownerService, traceId));
+    }
+
     @PostMapping("/internal/member/quota/reservations/{reservationId}/confirm")
     public Result<QuotaFreezeStatusVO> confirmReservation(@PathVariable String reservationId,
                                                             @RequestBody(required = false) Map<String, Object> body) {

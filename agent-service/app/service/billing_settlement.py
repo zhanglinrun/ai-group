@@ -27,10 +27,15 @@ log = get_logger("service.billing_settlement")
 TERMINAL_RUN_STATUSES: tuple[str, ...] = ("completed", "degraded", "failed", "cancelled")
 UNSETTLED_BILLING_STATUSES: tuple[str, ...] = ("RESERVED", "PENDING_RECONCILIATION")
 OPEN_ATTEMPT_STATUSES: tuple[str, ...] = (
+    "OPEN",
+    "DEBITING",
     "RESERVED",
     "CONFIRMING",
     "RELEASING",
     "PENDING_RECONCILIATION",
+)
+LEGACY_FREEZE_ATTEMPT_STATUSES: frozenset[str] = frozenset(
+    {"RESERVED", "CONFIRMING", "RELEASING"}
 )
 
 
@@ -38,12 +43,19 @@ def is_unsettled_billing(billing_status: str | None) -> bool:
     return billing_status in UNSETTLED_BILLING_STATUSES
 
 
+def _is_legacy_freeze_attempt(attempt: object) -> bool:
+    status = str(getattr(attempt, "status", "") or "")
+    if status in LEGACY_FREEZE_ATTEMPT_STATUSES:
+        return True
+    reservation_id = str(getattr(attempt, "reservation_id", "") or "")
+    return status == "PENDING_RECONCILIATION" and bool(reservation_id)
+
+
 async def reconcile_llm_billing_attempts(*, run_id: str, limit: int = 100) -> int:
     """Retry durable per-call Member settlements and return unresolved count.
 
-    Confirm/release are idempotent at Member, so retrying after a network
-    timeout is safe.  A reservation with no known usage is deliberately kept
-    pending rather than released: the provider may already have consumed it.
+    Debit/confirm/release are idempotent at Member. Unknown provider usage is
+    kept pending rather than settled as zero.
     """
     session_factory = get_session_factory()
     async with session_factory() as session:
@@ -78,23 +90,40 @@ async def reconcile_llm_billing_attempts(*, run_id: str, limit: int = 100) -> in
             continue
 
         user_id = int(attempt.owner_user_id or 0)
-        reservation = Reservation(
-            reservation_id=attempt.reservation_id,
-            amount_micro_points=int(attempt.estimated_micro_points or 0),
-            request_id=attempt.request_id,
-            user_id=user_id,
-        )
         try:
-            if int(actual) <= 0:
-                await quota_client.release(reservation, trace_id=run_id)
-                await _mark_attempt_final(attempt.attempt_id, "RELEASED", int(actual))
+            if _is_legacy_freeze_attempt(attempt):
+                reservation = Reservation(
+                    reservation_id=str(attempt.reservation_id),
+                    amount_micro_points=int(attempt.estimated_micro_points or 0),
+                    request_id=attempt.request_id,
+                    user_id=user_id,
+                )
+                if int(actual) <= 0:
+                    await quota_client.release(reservation, trace_id=run_id)
+                    await _mark_attempt_final(attempt.attempt_id, "RELEASED", int(actual))
+                else:
+                    await quota_client.confirm(
+                        reservation,
+                        actual_micro_points=min(int(actual), reservation.amount_micro_points),
+                        trace_id=run_id,
+                    )
+                    await _mark_attempt_final(attempt.attempt_id, "CONFIRMED", int(actual))
+            elif int(actual) <= 0:
+                await _mark_attempt_final(attempt.attempt_id, "SKIPPED", int(actual))
             else:
-                await quota_client.confirm(
-                    reservation,
-                    actual_micro_points=min(int(actual), reservation.amount_micro_points),
+                debit = await quota_client.debit(
+                    user_id=user_id,
+                    amount_micro_points=int(actual),
+                    run_id=run_id,
+                    request_id=attempt.request_id,
                     trace_id=run_id,
                 )
-                await _mark_attempt_final(attempt.attempt_id, "CONFIRMED", int(actual))
+                await _mark_attempt_final(
+                    attempt.attempt_id,
+                    "DEBITED",
+                    int(actual),
+                    reservation_id=debit.debit_id,
+                )
         except Exception as exc:
             unresolved += 1
             await _mark_attempt_pending(attempt.attempt_id, str(exc))
@@ -113,7 +142,12 @@ async def _mark_attempt_pending(attempt_id: str, error: str) -> None:
         await session.commit()
 
 
-async def _mark_attempt_final(attempt_id: str, status: str, actual: int) -> None:
+async def _mark_attempt_final(
+    attempt_id: str,
+    status: str,
+    actual: int,
+    reservation_id: str | None = None,
+) -> None:
     session_factory = get_session_factory()
     async with session_factory() as session:
         attempt = await session.get(LLMBillingAttempt, attempt_id)
@@ -121,6 +155,8 @@ async def _mark_attempt_final(attempt_id: str, status: str, actual: int) -> None
             return
         attempt.status = status
         attempt.actual_micro_points = max(0, int(actual))
+        if reservation_id:
+            attempt.reservation_id = reservation_id
         attempt.last_error = None
         attempt.settled_at = datetime.now(timezone.utc)
         await session.commit()
@@ -129,9 +165,9 @@ async def _mark_attempt_final(attempt_id: str, status: str, actual: int) -> None
 async def settle_run_billing(*, run_id: str, terminal_status: str) -> str | None:
     """Snapshot token usage after a run reaches a terminal status.
 
-    Pay-as-you-go calls already confirmed themselves. This pass only records
+    Pay-as-you-go calls already debited themselves. This pass only records
     consumed_micro_points and marks SETTLED, or PENDING_RECONCILIATION when
-    provider usage is missing.
+    provider usage is missing or a debit is still open.
     """
     unresolved_attempts = await reconcile_llm_billing_attempts(run_id=run_id)
     session_factory = get_session_factory()

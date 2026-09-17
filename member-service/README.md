@@ -1,6 +1,6 @@
 # `member-service`（额度账户服务）
 
-这是 `ai-group` 里管理「免费额度 + 付费额度」的钱包服务。用户注册后获得每月免费额度，购买额度包并在直购支付成功或拼团成团后获得付费额度。Agent 每次打模型时预扣这一次的预估用量，调用结束后按真实 Token `confirm` / `release`。额度不够时任务暂停，充值后从当前进度继续。
+这是 `ai-group` 里管理「免费额度 + 付费额度」的钱包服务。用户注册后获得每月免费额度，购买额度包并在直购支付成功或拼团成团后获得付费额度。Agent 每次打模型前检查可用余额，调用结束后按真实 Token `debit`。额度不够时任务暂停，充值后从当前进度继续。
 
 它默认运行在端口 `18082`，数据存储在 `member_db`（额度库，工程库名历史保留），持久层使用 `MyBatis-Plus`。
 
@@ -14,15 +14,14 @@
 
 关键点是**按订单 + 事件类型幂等**：同一笔订单的权益消息即使重复投递，也只会真正发放一次，靠 `benefit_grant_event` 的幂等键去重。额度已经发放后的撤销不会自动扣回，以免用户已消费后出现负账；系统记录 `REJECTED_GRANTED`，交由运营审核处理。
 
-### 2. 对话配额（两阶段扣减）
+### 2. 对话配额（调用后扣减）
 
-Agent 消耗配额用「预授权 + 确认」两阶段，**当前是每次真实 LLM 一笔预扣**：
+Agent 消耗配额以 **调用后原子扣减（debit）** 为主，旧的 freeze/confirm/release 仍保留给历史冻结对账：
 
-- **预扣（freeze）**：每次打模型前按这次预估用量预扣，`requestId=agent:{run_id}:call:{uuid}`。
-- **确认（confirm）**：这次调用按真实 Token usage 扣减并释放未使用余量。缺 usage 不估算，Agent 把 Run 标成 `PENDING_RECONCILIATION`，由进程内结算扫描重试。
-- **释放（release）**：预留后未发起供应商调用，或供应商拒绝且没有 usage/输出证据时，释放整笔预扣。普通旧调用的僵尸预扣由 member 定时任务兜底；`ownerService=agent-service` 的预扣由 Agent `service/billing_settlement.py` 的进程内扫描收敛，member 只告警，绝不按超时自动释放，避免供应商已经消耗后被误判成免费调用。
-
- `freeze` 的 `requestId` 是幂等键。同一用户用相同 `requestId` 重试时，请求额度上界、最小额度、能力编码和结算所有者必须完全一致；member 会保存服务端 SHA-256 指纹并拒绝参数漂移。结算所有者只接受 `legacy` 与 `agent-service`，避免未知调用方制造无法自动释放的冻结。`confirm` 与 `release` 都返回冻结的真实终态以及原始请求参数，因此调用方能识别 `CONFIRMED` / `RELEASED` 冲突、核验找回的冻结，并处理网络响应不确定。
+- **门禁**：每次打模型前读取可用额度；低于本次估算则拒绝，Run 暂停，充值后从检查点续跑。估算只用于门禁，不作为扣费上限。
+- **扣减（debit）**：供应商返回真实 Token usage 后，按 `requestId=agent:{run_id}:call:{uuid}` 幂等扣减。同一 `requestId` 重试必须指纹一致，否则拒绝。
+- **缺 usage**：不以估算扣费，也不按 0 自动退回；Attempt 挂 `PENDING_RECONCILIATION`，由 Agent 进程内扫描重试。
+- **未发起调用**：不打 debit。历史 freeze 行仍由 `ExpiredFreezeReleaseJob` / Agent 扫描收敛。
 
 客户端断开会阻止后续步骤，但已在途或已完成的供应商调用仍会按可得 usage 结算，并不承诺“断开即免费”。账户分为**免费额度**（每月重置为 5 credits）和**付费额度**（购买额度包获得、不按月清零），内部统一使用 `1 credit = 1,000,000 microcredits` 计量，变动记录在 `quota_ledger`。Agent 当前按每百万 Token 输入 5 积分、输出 30 积分计费，仍按实际 Token 逐个结算，不按 1K Token 向上取整。
 
@@ -42,7 +41,8 @@ Agent 消耗配额用「预授权 + 确认」两阶段，**当前是每次真实
 
 | 接口 | 作用 |
 | --- | --- |
-| `POST /internal/member/quota/reservations` | 预扣配额（Agent 合同） |
+| `POST /internal/member/quota/debits` | 按真实 Token 原子扣减（Agent 热路径） |
+| `POST /internal/member/quota/reservations` | 预扣配额（历史冻结对账） |
 | `POST /internal/member/quota/reservations/{reservationId}/confirm` | 确认扣减 |
 | `POST /internal/member/quota/reservations/{reservationId}/release` | 释放冻结 |
 | `GET /internal/member/quota/reservations/{reservationId}` | 按预留 ID 查询真实终态 |
@@ -76,8 +76,11 @@ Agent 消耗配额用「预授权 + 确认」两阶段，**当前是每次真实
 | --- | --- |
 | `ProductSku`（额度包） | 套餐价格、基础额度和拼团商品/活动映射 |
 | `QuotaAccount`（额度账户） | 免费额度、付费额度、冻结额度和最近免费发放月份 |
-| `QuotaFreeze`（配额冻结） | 每笔预扣的冻结记录及其状态 |
+| `QuotaFreeze`（配额冻结） | 历史预扣冻结记录及其状态 |
+| `QuotaDebit`（配额扣减） | 每次按真实 Token 的幂等扣费 |
 | `QuotaLedger`（配额流水） | 配额变动的流水账 |
+
+已有 `member_db` 不会自动重跑 `schema.sql`，需要补执行其中的 `quota_debit` 建表语句。
 | `BenefitGrantEvent`（权益发放事件） | 按订单幂等的权益发放记录 |
 
 ---
@@ -114,5 +117,5 @@ cd member-service && mvn spring-boot:run
 ## 提醒
 
 - 权益发放和配额确认都要保持幂等，重复消息不能重复发、重复扣。
-- 两阶段扣减的 `confirm` / `release` 必须成对兜底。普通冻结由 `ExpiredFreezeReleaseJob` 清理；`agent-service` 托管冻结必须由 Agent 进程内结算扫描收敛，不能改回 member 超时自动释放。
+- 热路径 `debit` 必须按 `requestId` 幂等。历史冻结的 `confirm` / `release` 仍须成对兜底：普通冻结由 `ExpiredFreezeReleaseJob` 清理；`agent-service` 托管冻结必须由 Agent 进程内结算扫描收敛，不能改回 member 超时自动释放。
 - `/internal/**` 接口只走内部令牌，不要暴露给外部直连。

@@ -4,7 +4,7 @@
 
 ai-group 是一套全栈微服务平台：用户通过拼团购买积分，再用积分驱动 AI 深度调研 Agent。Java 侧负责身份、高并发拼团、现金支付与积分账本；Python 侧负责 LangGraph 研究编排、证据链、报告产出与 Token 计费。浏览器只访问 Gateway，不直接暴露 Agent。前端产品品牌仍是熊博士，工程与文档一律称 ai-group。
 
-平台提供拼团活动配置、库存抢占、成团结算、支付宝沙箱支付、Member 两阶段额度（冻结/确认/释放）、Agent Run/SSE 事件与 LLM Token 精确结算等能力，适合作为「交易一致性 + Agent 编排」一体化工程实践。
+平台提供拼团活动配置、库存抢占、成团结算、支付宝沙箱支付、Member 积分账本（debit 热路径 + 历史冻结对账）、Agent Run/SSE 事件与 LLM Token 精确结算等能力，适合作为「交易一致性 + Agent 编排」一体化工程实践。
 
 ## 系统架构
 
@@ -22,7 +22,7 @@ ai-group 是一套全栈微服务平台：用户通过拼团购买积分，再�
 - **身份与入口（Auth / Gateway）**：登录会话、路由鉴权、Agent `/api/runs/**` 直转
 - **拼团域（Group）**：活动配置、规则试算、库存抢占、成团结算、退款与通知任务
 - **支付域（Pay）**：现金订单、支付宝沙箱回调、退款与 Outbox 事件
-- **积分域（Member）**：积分账户唯一权威；冻结 / 确认 / 释放幂等账本
+- **积分域（Member）**：积分账户唯一权威；debit 热路径 + 冻结对账幂等账本
 - **研究域（Agent）**：LangGraph 编排、证据与报告、LLM Provider 路由、Token 计费
 
 ### 请求链路
@@ -92,8 +92,8 @@ ai-group/
 
 ### 3. Member 积分账本
 
-- **两阶段额度**：每次模型调用预扣，打完按实际 Token 确认并释放余量；不够则暂停，充值后续跑
-- **幂等结算**：`requestId` / 冻结号关联，流水只追加不更新
+- **调用后扣费**：每次模型调用前检查可用余额，打完按实际 Token 原子扣减；不够则暂停，充值后续跑
+- **幂等结算**：`requestId` 关联 debit，流水只追加不更新
 - **微单位计价**：金额、Token 费用与积分使用整数微单位，避免浮点误差
 
 ### 4. AI 深度调研 Agent
@@ -101,7 +101,7 @@ ai-group/
 - **LangGraph 编排**：规划 / 研究 / 写作 / QA 等节点与 checkpoint
 - **多 Provider 路由**：OpenAI 兼容接口，支持 doubao / openai / qwen 等配置
 - **证据与报告**：检索、证据链与结构化产出；SSE 推送运行进度
-- **Token 计费**：按模型返回的输入 / 输出 Token 精确结算，不按 1K 向上取整
+- **Token 计费**：调用前余额门禁，调用后按模型返回的输入 / 输出 Token 精确结算，不按 1K 向上取整
 
 ### 5. 身份与页面聚合
 
@@ -123,7 +123,7 @@ ai-group/
 - **消息队列**：Kafka（Outbox 投递；手动 ack + DefaultErrorHandler 有限重试，耗尽进 `{topic}.DLT`；各业务服务有 DLT 回放，失败打 `kafka.dlt.exhausted` 后 ack，不再投 `*.DLT.DLT`）
 - **任务调度**：XXL-JOB 3.4.2（Admin + auth/pay/group/member 执行器；本地 Compose 已内置）
 - **服务发现 / 配置**：Nacos Discovery + 薄 Nacos Config（身份令牌、JWT 密钥、Gateway 路由）。身份密钥变更后请重启 Gateway（SCA 2025 WebFlux 不保证热刷新）
-- **限流熔断**：Gateway / Pay Feign 使用 Sentinel（规则以 Nacos 为准，代码内有保守默认）；拼团按用户限流仍在 Group Redis
+- **限流熔断**：Gateway Sentinel 对 Agent JSON 和 Java 路由做 QPS，并对 Java 路由做错误率/慢调用熔断（SSE 只宽松流控、不熔断）；Pay Feign 用 service#method 稳定资源名做 QPS + 熔断，不绑死 host。拼团按用户限流仍在 Group Redis
 - **构建**：Maven
 
 ### Python Agent
@@ -169,7 +169,7 @@ Group / Pay 采用 api、domain、infrastructure、trigger、app 分层，用聚
 
 ### 4. 积分驱动的 Agent 计费闭环
 
-每次模型调用预扣（`requestId=agent:{run_id}:call:{uuid}`）→ 按真实 Token confirm 并释放差额。额度不够时 Run 暂停，充值后从 Checkpoint 继续。额度权威在 Member，Agent 只消费额度契约。
+每次模型调用前检查可用余额，调用后按真实 Token 原子扣减（`requestId=agent:{run_id}:call:{uuid}`）。额度不够时 Run 暂停，充值后从 Checkpoint 继续。usage 缺失不按 0 退回，进入对账重试。额度权威在 Member，Agent 只消费额度契约。
 
 ### 5. 可恢复的 Agent 运行面
 
@@ -290,12 +290,12 @@ npm run dev
 
 ### Gateway / Auth
 
-- **gateway-service**：统一入口、鉴权、HS256 内部 JWT 签发；`/api/runs/**` 等到 Agent（JSON 45s / SSE 30 分钟）；JSON 走网关 Sentinel 限流+熔断，SSE 不熔断；拼团按用户限流仍在 Group Redis
+- **gateway-service**：统一入口、鉴权、HS256 内部 JWT 签发；`/api/runs/**` 等到 Agent（JSON 45s / SSE 30 分钟）；Agent JSON 和 Java 路由走网关 Sentinel QPS，Java 路由另有错误率/慢调用熔断，SSE 不熔断；拼团按用户限流仍在 Group Redis
 - **auth-service**：账号体系与 Sa-Token 会话
 
 ### Member
 
-积分账户唯一权威。对外提供冻结 / 确认 / 释放接口，流水只追加；Agent 计费以此为结算终点。
+积分账户唯一权威。对外提供 debit 以及历史冻结 / 确认 / 释放接口，流水只追加；Agent 计费以此为结算终点。
 
 ### Group / Pay（DDD）
 
@@ -340,7 +340,7 @@ npm run dev
 - 轮换并妥善保管 `AI_GROUP_INTERNAL_TOKEN`、`AI_GROUP_IDENTITY_SIGNING_SECRET` 与 LLM / 支付密钥
 - 身份三层：Sa-Token 浏览器会话（可撤销）/ Gateway HS256 内部 JWT（约 60s，不是登录态）/ `X-Internal-Token` 服务凭证
 - 已知边界：内部 JWT 不存 nonce 黑名单；密钥为对称共享；回调/Job 没有用户 JWT，只认内部令牌 + 订单里的 userId
-- 拼团按用户限流在 Group Redis；网关 Sentinel 做路由级保护（Agent JSON 限流+熔断，SSE 不熔断，Java 路由熔断）。改身份密钥后请重启 Gateway（不承诺 WebFlux 热刷新）
+- 拼团按用户限流在 Group Redis；网关 Sentinel 做路由级 QPS（含 group/pay），Java 路由另有错误率/慢调用熔断，Agent JSON 只做 QPS+错误率（45s 长请求不加慢调用），SSE 不熔断。改身份密钥后请重启 Gateway（不承诺 WebFlux 热刷新）
 - 观测与压测都不是启动依赖；生产按容量单独部署 ELK / Prometheus / Grafana / SkyWalking，压测只在预发或隔离环境跑
 - Group / Pay 的 Java 包名和库名有历史保留（`com.aigroup.paymall`、`group_buy_market`、`s_pay_mall_ddd_market`），运行时服务名以本文模块结构为准
 - JVM 按机器规格设置堆与 GC（例如 G1）

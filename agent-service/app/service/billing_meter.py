@@ -1,4 +1,4 @@
-"""Per-call Member hold: authorize one LLM round-trip, then confirm actual tokens."""
+"""Authorize one LLM round-trip with a balance gate, then debit actual tokens."""
 
 from __future__ import annotations
 
@@ -14,7 +14,6 @@ from models.run import Run
 from service.billing import (
     BillingUnavailableError,
     QuotaExhaustedError,
-    Reservation,
     charge_micro_points,
     quota_client,
 )
@@ -23,6 +22,11 @@ from utils.logger import get_logger
 log = get_logger("service.billing_meter")
 
 _MIN_CALL_HOLD_MICRO_POINTS = 1
+STATUS_OPEN = "OPEN"
+STATUS_DEBITING = "DEBITING"
+STATUS_DEBITED = "DEBITED"
+STATUS_SKIPPED = "SKIPPED"
+STATUS_PENDING = "PENDING_RECONCILIATION"
 
 
 def current_run_id() -> str | None:
@@ -40,9 +44,10 @@ class LLMCallHold:
     metered: bool
     run_id: str | None
     estimated_micro_points: int
-    reservation: Reservation | None
+    request_id: str | None
     owner_user_id: int
     attempt_id: str | None = None
+    reservation: object | None = None
 
 
 def estimate_call_hold_micro_points(
@@ -50,8 +55,8 @@ def estimate_call_hold_micro_points(
     prompt_tokens: int,
     output_tokens: int,
 ) -> int:
-    # Cap the pre-call authorization so one oversized prompt cannot occupy an
-    # unbounded slice of the user's wallet for a single provider round-trip.
+    # Cap the pre-call gate so one oversized prompt cannot block a truncated call.
+    # Actual settlement uses provider usage, not this cap.
     capped_prompt = min(max(0, prompt_tokens), 24_000)
     capped_output = min(max(0, output_tokens), 8_192)
     return max(_MIN_CALL_HOLD_MICRO_POINTS, charge_micro_points(capped_prompt, capped_output))
@@ -62,16 +67,18 @@ def _unmetered_hold(*, run_id: str | None, estimated: int, owner_user_id: int = 
         metered=False,
         run_id=run_id,
         estimated_micro_points=estimated,
-        reservation=None,
+        request_id=None,
         owner_user_id=owner_user_id,
         attempt_id=None,
+        reservation=None,
     )
 
 
-async def _persist_reserved_attempt(
+async def _persist_open_attempt(
     *,
     run_id: str,
-    reservation: Reservation,
+    request_id: str,
+    owner_user_id: int,
     estimated_micro_points: int,
 ) -> str:
     attempt_id = uuid4().hex
@@ -81,11 +88,11 @@ async def _persist_reserved_attempt(
             LLMBillingAttempt(
                 attempt_id=attempt_id,
                 run_id=run_id,
-                reservation_id=reservation.reservation_id,
-                request_id=reservation.request_id,
-                owner_user_id=reservation.user_id,
+                reservation_id=None,
+                request_id=request_id,
+                owner_user_id=owner_user_id,
                 estimated_micro_points=estimated_micro_points,
-                status="RESERVED",
+                status=STATUS_OPEN,
             )
         )
         await session.commit()
@@ -97,6 +104,7 @@ async def _update_attempt(
     attempt_id: str,
     status: str,
     actual_micro_points: int | None = None,
+    reservation_id: str | None = None,
     error: str | None = None,
     increment_retry: bool = False,
 ) -> None:
@@ -108,10 +116,12 @@ async def _update_attempt(
         attempt.status = status
         if actual_micro_points is not None:
             attempt.actual_micro_points = max(0, int(actual_micro_points))
+        if reservation_id:
+            attempt.reservation_id = reservation_id
         attempt.last_error = error[:2000] if error else None
         if increment_retry:
             attempt.retry_count = int(attempt.retry_count or 0) + 1
-        if status in {"CONFIRMED", "RELEASED"}:
+        if status in {STATUS_DEBITED, STATUS_SKIPPED}:
             attempt.settled_at = datetime.now(timezone.utc)
         await session.commit()
 
@@ -135,11 +145,9 @@ async def _load_run_owner(run_id: str) -> int | None:
 
 
 async def acquire_llm_call_hold(*, estimated_micro_points: int) -> LLMCallHold:
-    """Authorize one model call against Member, or raise QuotaExhaustedError.
+    """Gate one model call against Member available quota, or raise QuotaExhaustedError.
 
-    Member has no one-shot debit API, so this hold lasts only for the current
-    provider round-trip. Anonymous / local-dev runs (user 0 or no internal
-    token) skip Member and still proceed.
+    Anonymous / local-dev runs (user 0 or no internal token) skip Member.
     """
     run_id = current_run_id()
     estimated = max(_MIN_CALL_HOLD_MICRO_POINTS, int(estimated_micro_points))
@@ -153,46 +161,44 @@ async def acquire_llm_call_hold(*, estimated_micro_points: int) -> LLMCallHold:
         return _unmetered_hold(run_id=run_id, estimated=estimated, owner_user_id=owner_user_id)
 
     try:
-        reservation = await quota_client.reserve(
-            user_id=owner_user_id,
-            amount_micro_points=estimated,
-            run_id=run_id,
-            trace_id=run_id,
-            request_id=f"agent:{run_id}:call:{uuid4().hex}",
-        )
+        available = await quota_client.available_micro_points(user_id=owner_user_id)
     except QuotaExhaustedError:
+        raise
+    except Exception as exc:
+        log.warning("billing.meter.available_lookup_failed", run_id=run_id, error=str(exc))
+        raise BillingUnavailableError("Member quota authorization is unavailable") from exc
+    if available is None:
+        raise BillingUnavailableError("Member quota authorization is unavailable")
+    if available < estimated:
         log.info(
             "billing.meter.quota_exhausted",
             run_id=run_id,
             estimated_micro_points=estimated,
+            available_micro_points=available,
             owner_user_id=owner_user_id,
         )
-        raise
-    except Exception as exc:
-        log.warning("billing.meter.acquire_failed", run_id=run_id, error=str(exc))
-        raise BillingUnavailableError("Member quota authorization is unavailable") from exc
+        raise QuotaExhaustedError("积分不足")
 
+    request_id = f"agent:{run_id}:call:{uuid4().hex}"
     try:
-        attempt_id = await _persist_reserved_attempt(
+        attempt_id = await _persist_open_attempt(
             run_id=run_id,
-            reservation=reservation,
+            request_id=request_id,
+            owner_user_id=owner_user_id,
             estimated_micro_points=estimated,
         )
     except Exception as exc:
-        log.error("billing.meter.persist_reservation_failed", run_id=run_id, error=str(exc))
-        try:
-            await quota_client.release(reservation, trace_id=run_id)
-        except Exception as release_exc:
-            log.error("billing.meter.release_after_persist_failure_failed", run_id=run_id, error=str(release_exc))
-        raise BillingUnavailableError("Billing reservation could not be persisted") from exc
+        log.error("billing.meter.persist_attempt_failed", run_id=run_id, error=str(exc))
+        raise BillingUnavailableError("Billing attempt could not be persisted") from exc
 
     return LLMCallHold(
         metered=True,
         run_id=run_id,
-        estimated_micro_points=reservation.amount_micro_points,
-        reservation=reservation,
+        estimated_micro_points=estimated,
+        request_id=request_id,
         owner_user_id=owner_user_id,
         attempt_id=attempt_id,
+        reservation=None,
     )
 
 
@@ -215,59 +221,82 @@ async def _add_consumed_micro_points(*, run_id: str, actual_micro_points: int) -
         log.warning("billing.meter.consumed_update_failed", run_id=run_id, error=str(exc))
 
 
-async def settle_llm_call_hold(hold: LLMCallHold, *, actual_micro_points: int) -> None:
-    actual = max(0, int(actual_micro_points))
-    reservation = hold.reservation
+async def settle_llm_call_hold(
+    hold: LLMCallHold,
+    *,
+    actual_micro_points: int | None = None,
+    usage_known: bool = True,
+    provider_called: bool = True,
+) -> None:
+    """Settle one call. Missing usage is never treated as a free call."""
+    if not provider_called:
+        if hold.attempt_id:
+            await _update_attempt(attempt_id=hold.attempt_id, status=STATUS_SKIPPED, actual_micro_points=0)
+        return
+    if not usage_known:
+        if hold.attempt_id:
+            await _update_attempt(
+                attempt_id=hold.attempt_id,
+                status=STATUS_PENDING,
+                error="provider usage is unknown; manual/provider reconciliation required",
+            )
+        return
+
+    actual = max(0, int(actual_micro_points or 0))
     if hold.run_id:
         await _add_consumed_micro_points(run_id=hold.run_id, actual_micro_points=actual)
-    if not hold.metered or reservation is None:
+    if not hold.metered or not hold.request_id:
+        if hold.attempt_id:
+            await _update_attempt(
+                attempt_id=hold.attempt_id,
+                status=STATUS_SKIPPED if actual <= 0 else STATUS_DEBITED,
+                actual_micro_points=actual,
+            )
+        return
+    if actual <= 0:
+        if hold.attempt_id:
+            await _update_attempt(attempt_id=hold.attempt_id, status=STATUS_SKIPPED, actual_micro_points=0)
         return
     try:
         if hold.attempt_id:
             await _update_attempt(
                 attempt_id=hold.attempt_id,
-                status="RELEASING" if actual <= 0 else "CONFIRMING",
+                status=STATUS_DEBITING,
                 actual_micro_points=actual,
             )
-        if actual <= 0:
-            await quota_client.release(reservation, trace_id=hold.run_id or reservation.request_id)
-            if hold.attempt_id:
-                await _update_attempt(attempt_id=hold.attempt_id, status="RELEASED", actual_micro_points=0)
-            return
-        confirm_amount = min(actual, max(0, reservation.amount_micro_points))
-        if confirm_amount < actual:
-            log.warning(
-                "billing.meter.confirm_clipped",
-                run_id=hold.run_id,
-                actual_micro_points=actual,
-                confirm_micro_points=confirm_amount,
-            )
-        await quota_client.confirm(
-            reservation,
-            actual_micro_points=confirm_amount,
-            trace_id=hold.run_id or reservation.request_id,
+        debit = await quota_client.debit(
+            user_id=hold.owner_user_id,
+            amount_micro_points=actual,
+            run_id=hold.run_id or hold.request_id,
+            request_id=hold.request_id,
+            trace_id=hold.run_id or hold.request_id,
         )
         if hold.attempt_id:
             await _update_attempt(
                 attempt_id=hold.attempt_id,
-                status="CONFIRMED",
-                actual_micro_points=confirm_amount,
+                status=STATUS_DEBITED,
+                actual_micro_points=actual,
+                reservation_id=debit.debit_id,
             )
     except Exception as exc:
         log.warning(
             "billing.meter.settle_failed",
             run_id=hold.run_id,
-            freeze_id=reservation.reservation_id,
+            request_id=hold.request_id,
             error=str(exc),
         )
         if hold.attempt_id:
             try:
                 await _update_attempt(
                     attempt_id=hold.attempt_id,
-                    status="PENDING_RECONCILIATION",
+                    status=STATUS_PENDING,
                     actual_micro_points=actual,
                     error=str(exc),
                     increment_retry=True,
                 )
             except Exception as persist_exc:
-                log.error("billing.meter.persist_settlement_failure_failed", run_id=hold.run_id, error=str(persist_exc))
+                log.error(
+                    "billing.meter.persist_settlement_failure_failed",
+                    run_id=hold.run_id,
+                    error=str(persist_exc),
+                )

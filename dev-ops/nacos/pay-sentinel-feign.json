@@ -1,7 +1,12 @@
 [
-  {"resource": "GET:http://member-service/internal/skus/by-goods/{goodsId}", "grade": 1, "count": 0.5, "timeWindow": 10, "minRequestAmount": 5, "statIntervalMs": 10000},
-  {"resource": "POST:http://group-service/api/v1/gbm/trade/lock_market_pay_order", "grade": 1, "count": 0.5, "timeWindow": 10, "minRequestAmount": 5, "statIntervalMs": 10000},
-  {"resource": "POST:http://group-service/api/v1/gbm/trade/query_market_pay_order", "grade": 1, "count": 0.5, "timeWindow": 10, "minRequestAmount": 5, "statIntervalMs": 10000},
-  {"resource": "POST:http://group-service/api/v1/gbm/trade/settlement_market_pay_order", "grade": 1, "count": 0.5, "timeWindow": 10, "minRequestAmount": 5, "statIntervalMs": 10000},
-  {"resource": "POST:http://group-service/api/v1/gbm/trade/refund_market_pay_order", "grade": 1, "count": 0.5, "timeWindow": 10, "minRequestAmount": 5, "statIntervalMs": 10000}
+  {"resource": "group-service#lockMarketPayOrder", "grade": 1, "count": 0.3, "timeWindow": 10, "minRequestAmount": 5, "statIntervalMs": 10000},
+  {"resource": "group-service#queryMarketPayOrder", "grade": 1, "count": 0.3, "timeWindow": 10, "minRequestAmount": 5, "statIntervalMs": 10000},
+  {"resource": "group-service#settlementMarketPayOrder", "grade": 1, "count": 0.3, "timeWindow": 10, "minRequestAmount": 5, "statIntervalMs": 10000},
+  {"resource": "group-service#refundMarketPayOrder", "grade": 1, "count": 0.3, "timeWindow": 10, "minRequestAmount": 5, "statIntervalMs": 10000},
+  {"resource": "member-service#queryEnabledSkuByGoodsId", "grade": 1, "count": 0.3, "timeWindow": 10, "minRequestAmount": 5, "statIntervalMs": 10000},
+  {"resource": "group-service#lockMarketPayOrder", "grade": 0, "count": 800, "timeWindow": 10, "minRequestAmount": 5, "slowRatioThreshold": 0.5, "statIntervalMs": 10000},
+  {"resource": "group-service#queryMarketPayOrder", "grade": 0, "count": 800, "timeWindow": 10, "minRequestAmount": 5, "slowRatioThreshold": 0.5, "statIntervalMs": 10000},
+  {"resource": "group-service#settlementMarketPayOrder", "grade": 0, "count": 800, "timeWindow": 10, "minRequestAmount": 5, "slowRatioThreshold": 0.5, "statIntervalMs": 10000},
+  {"resource": "group-service#refundMarketPayOrder", "grade": 0, "count": 800, "timeWindow": 10, "minRequestAmount": 5, "slowRatioThreshold": 0.5, "statIntervalMs": 10000},
+  {"resource": "member-service#queryEnabledSkuByGoodsId", "grade": 0, "count": 800, "timeWindow": 10, "minRequestAmount": 5, "slowRatioThreshold": 0.5, "statIntervalMs": 10000}
 ]

@@ -7,6 +7,7 @@ import com.aigroup.member.entity.QuotaLedger;
 import com.aigroup.member.mapper.BenefitGrantEventMapper;
 import com.aigroup.member.mapper.ProductSkuMapper;
 import com.aigroup.member.mapper.QuotaAccountMapper;
+import com.aigroup.member.mapper.QuotaDebitMapper;
 import com.aigroup.member.mapper.QuotaFreezeMapper;
 import com.aigroup.member.mapper.QuotaLedgerMapper;
 import com.aigroup.member.vo.QuotaFreezeStatusVO;
@@ -43,6 +44,8 @@ class MemberServiceImplQuotaSettlementTest {
     private ProductSkuMapper productSkuMapper;
     @Mock
     private QuotaAccountMapper quotaAccountMapper;
+    @Mock
+    private QuotaDebitMapper quotaDebitMapper;
     @Mock
     private QuotaFreezeMapper quotaFreezeMapper;
     @Mock

@@ -31,7 +31,7 @@
         select activity_id, team_id, notify_category, notify_type, notify_mq, notify_url, notify_count, notify_status, parameter_json, uuid, update_time
         from notify_task
         where notify_status in (0, 2)
-           or (notify_status = 4 and update_time < date_sub(now(), interval 5 minute))
+           or (notify_status = 4 and update_time &lt; date_sub(now(), interval 5 minute))
         limit 50
     </select>
 
@@ -40,7 +40,7 @@
         set notify_status = 4, notify_count = notify_count + 1, update_time = now()
         where team_id = #{teamId} and uuid = #{uuid}
           and (notify_status in (0, 2)
-               or (notify_status = 4 and update_time < date_sub(now(), interval 5 minute)))
+               or (notify_status = 4 and update_time &lt; date_sub(now(), interval 5 minute)))
     </update>
 
     <update id="updateNotifyTaskStatusSuccess" parameterType="com.aigroup.groupbuy.infrastructure.dao.po.NotifyTask">

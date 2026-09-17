@@ -2,7 +2,7 @@
 
 该工程负责额度商品下单、支付宝支付、拼团结算、退款，以及支付结果到付费额度发放之间的可靠事件交付。
 
-Java 包名 `com.aigroup.paymall`、库名 `s_pay_mall_ddd_market` 是历史保留，运行时服务名是 `pay-service`。内部同步调用走 OpenFeign + Nacos。
+Java 包名 `com.aigroup.paymall`、库名 `s_pay_mall_ddd_market` 是历史保留，运行时服务名是 `pay-service`。内部同步调用走 OpenFeign + Nacos。Pay 调 Group/Member 的 Sentinel 资源名是 `service#method`（例如 `group-service#lockMarketPayOrder`），不使用 SCA 默认的 `METHOD:http://host/path`，避免 local `url=` 直连后规则失效。Feign 同时有 QPS 与错误率/慢调用熔断。
 
 ## 模块
 

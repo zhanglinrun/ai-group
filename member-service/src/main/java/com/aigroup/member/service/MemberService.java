@@ -31,6 +31,10 @@ public interface MemberService {
     Map<String, Object> freeze(Long userId, long requestedAmount, long minAmount,
                                String abilityCode, String requestId, String ownerService, String traceId);
 
+    /** Idempotent one-shot consume after known Token usage. */
+    Map<String, Object> debit(Long userId, long amount, String abilityCode, String requestId,
+                              String ownerService, String traceId);
+
     void confirm(String freezeId, long actualAmount);
 
     void confirm(String freezeId);

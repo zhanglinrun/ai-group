@@ -8,6 +8,7 @@ from service.billing import (
     freeze_slices_from_mapping,
     reservation_amount_for_tier,
     resolve_reservation_amount,
+    usage_tokens_known,
     _member_data,
 )
 from security.identity import IdentityContext, bind_internal_jwt
@@ -22,6 +23,8 @@ def test_charge_uses_exact_input_and_output_token_rates() -> None:
 def test_missing_usage_is_not_charged() -> None:
     assert charge_micro_points(None, None) == 0
     assert charge_micro_points(0, 0) == 0
+    assert usage_tokens_known(None, None) is False
+    assert usage_tokens_known(0, 0) is True
 
 
 def test_reservation_amount_follows_report_depth() -> None:

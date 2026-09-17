@@ -12,7 +12,7 @@ import structlog
 from langchain_core.runnables import RunnableConfig, RunnableLambda
 
 from core.config import settings
-from service.billing import charge_micro_points
+from service.billing import charge_micro_points, usage_tokens_known
 from service.billing_meter import (
     acquire_llm_call_hold,
     estimate_call_hold_micro_points,
@@ -424,12 +424,29 @@ class LLMClient:
             ).ainvoke(payload)
             return response
         finally:
-            actual = (
-                charge_micro_points(response.prompt_tokens, response.completion_tokens)
-                if response is not None
-                else 0
-            )
-            await settle_llm_call_hold(hold, actual_micro_points=actual)
+            if response is None:
+                await settle_llm_call_hold(
+                    hold,
+                    actual_micro_points=None,
+                    usage_known=False,
+                    provider_called=False,
+                )
+            elif not usage_tokens_known(response.prompt_tokens, response.completion_tokens):
+                await settle_llm_call_hold(
+                    hold,
+                    actual_micro_points=None,
+                    usage_known=False,
+                    provider_called=True,
+                )
+            else:
+                await settle_llm_call_hold(
+                    hold,
+                    actual_micro_points=charge_micro_points(
+                        response.prompt_tokens, response.completion_tokens
+                    ),
+                    usage_known=True,
+                    provider_called=True,
+                )
 
     async def _complete_json_body(
         self,

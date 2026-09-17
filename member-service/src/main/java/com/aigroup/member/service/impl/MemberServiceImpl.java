@@ -7,11 +7,13 @@ import com.aigroup.member.dto.TradeCompletedEvent;
 import com.aigroup.member.entity.BenefitGrantEvent;
 import com.aigroup.member.entity.ProductSku;
 import com.aigroup.member.entity.QuotaAccount;
+import com.aigroup.member.entity.QuotaDebit;
 import com.aigroup.member.entity.QuotaFreeze;
 import com.aigroup.member.entity.QuotaLedger;
 import com.aigroup.member.mapper.BenefitGrantEventMapper;
 import com.aigroup.member.mapper.ProductSkuMapper;
 import com.aigroup.member.mapper.QuotaAccountMapper;
+import com.aigroup.member.mapper.QuotaDebitMapper;
 import com.aigroup.member.mapper.QuotaFreezeMapper;
 import com.aigroup.member.mapper.QuotaLedgerMapper;
 import com.aigroup.member.service.MemberService;
@@ -55,6 +57,8 @@ public class MemberServiceImpl implements MemberService {
     private static final String LEDGER_FREEZE = "FREEZE";
     private static final String LEDGER_CONFIRM = "CONFIRM";
     private static final String LEDGER_RELEASE = "RELEASE";
+    private static final String LEDGER_DEBIT = "DEBIT";
+    private static final String DEBIT_STATUS_DEBITED = "DEBITED";
     private static final String LEDGER_GRANT = "GRANT";
     private static final String LEDGER_REVOKE = "REVOKE";
     private static final String LEDGER_MONTHLY_GRANT = "MONTHLY_GRANT";
@@ -66,6 +70,7 @@ public class MemberServiceImpl implements MemberService {
     private final ProductSkuMapper productSkuMapper;
     private final QuotaAccountMapper quotaAccountMapper;
     private final QuotaFreezeMapper quotaFreezeMapper;
+    private final QuotaDebitMapper quotaDebitMapper;
     private final BenefitGrantEventMapper benefitGrantEventMapper;
     private final QuotaLedgerMapper quotaLedgerMapper;
     private final PlatformTransactionManager transactionManager;
@@ -219,6 +224,73 @@ public class MemberServiceImpl implements MemberService {
         appendLedger(userId, LEDGER_FREEZE, amount, freeze.getFreezeId(), freeze.getAbilityCode(),
                 freeze.getTraceId(), "额度已冻结");
         return freezeResult(freeze);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public Map<String, Object> debit(Long userId, long amount, String abilityCode, String requestId,
+                                     String ownerService, String traceId) {
+        if (userId == null) {
+            throw new BusinessException(ErrorCodeEnum.PARAM_ERROR, "userId is required");
+        }
+        if (amount <= 0) {
+            throw new BusinessException(ErrorCodeEnum.PARAM_ERROR, "amount must be > 0");
+        }
+        if (!StringUtils.hasText(requestId)) {
+            throw new BusinessException(ErrorCodeEnum.PARAM_ERROR, "requestId is required");
+        }
+        String normalizedAbilityCode = normalizeAbilityCode(abilityCode);
+        String normalizedOwnerService = normalizeOwnerService(ownerService);
+        String normalizedTraceId = normalizeTraceId(traceId);
+        requireManagedCorrelation(normalizedOwnerService, requestId, normalizedTraceId);
+        String requestFingerprint = debitRequestFingerprint(
+                userId, amount, normalizedAbilityCode, normalizedOwnerService);
+
+        QuotaAccount locked = quotaAccountMapper.selectForUpdateByUserId(userId);
+        if (locked == null) {
+            throw new BusinessException(ErrorCodeEnum.QUOTA_ACCOUNT_NOT_FOUND);
+        }
+        QuotaDebit existing = quotaDebitMapper.selectForUpdateByUserIdAndRequestId(userId, requestId);
+        if (existing != null) {
+            return reuseDebit(existing, amount, normalizedAbilityCode, normalizedOwnerService,
+                    normalizedTraceId, requestFingerprint);
+        }
+
+        long pendingFree = quotaFreezeMapper.sumPendingFreeAmount(userId);
+        long pendingPaid = quotaFreezeMapper.sumPendingPaidAmount(userId);
+        long freeAvailable = Math.max(0L, subtractExact(locked.getFreeQuotaBalance(), pendingFree));
+        long paidAvailable = Math.max(0L, subtractExact(locked.getPaidQuotaBalance(), pendingPaid));
+        long available = addExact(freeAvailable, paidAvailable);
+        if (available < amount) {
+            throw new BusinessException(ErrorCodeEnum.QUOTA_INSUFFICIENT);
+        }
+        long freeAmount = Math.min(freeAvailable, amount);
+        long paidAmount = amount - freeAmount;
+        locked.setFreeQuotaBalance(subtractExact(locked.getFreeQuotaBalance(), freeAmount));
+        locked.setPaidQuotaBalance(subtractExact(locked.getPaidQuotaBalance(), paidAmount));
+        locked.setUpdateTime(LocalDateTime.now());
+        quotaAccountMapper.updateById(locked);
+
+        LocalDateTime now = LocalDateTime.now();
+        QuotaDebit debit = new QuotaDebit();
+        debit.setDebitId(UUID.randomUUID().toString().replace("-", ""));
+        debit.setUserId(userId);
+        debit.setAmount(amount);
+        debit.setFreeAmount(freeAmount);
+        debit.setPaidAmount(paidAmount);
+        debit.setRequestedAmount(amount);
+        debit.setAbilityCode(normalizedAbilityCode);
+        debit.setStatus(DEBIT_STATUS_DEBITED);
+        debit.setRequestId(requestId);
+        debit.setTraceId(normalizedTraceId);
+        debit.setRequestFingerprint(requestFingerprint);
+        debit.setOwnerService(normalizedOwnerService);
+        debit.setCreatedAt(now);
+        debit.setUpdatedAt(now);
+        quotaDebitMapper.insert(debit);
+        appendLedger(userId, LEDGER_DEBIT, -amount, debit.getDebitId(), debit.getAbilityCode(),
+                debit.getTraceId(), "按 Token 用量扣减");
+        return debitResult(debit);
     }
 
     @Override
@@ -561,6 +633,50 @@ public class MemberServiceImpl implements MemberService {
         return Map.of("freezeId", freeze.getFreezeId(), "amount", freeze.getAmount());
     }
 
+    private Map<String, Object> debitResult(QuotaDebit debit) {
+        return Map.of(
+                "debitId", debit.getDebitId(),
+                "amount", debit.getAmount(),
+                "requestedAmount", debit.getRequestedAmount(),
+                "status", debit.getStatus(),
+                "requestId", debit.getRequestId());
+    }
+
+    private Map<String, Object> reuseDebit(QuotaDebit debit,
+                                           long amount,
+                                           String abilityCode,
+                                           String ownerService,
+                                           String traceId,
+                                           String requestFingerprint) {
+        if (!matchesDebitRequest(debit, amount, abilityCode, ownerService, traceId, requestFingerprint)) {
+            throw new BusinessException(ErrorCodeEnum.PARAM_ERROR,
+                    "requestId was already used by a different quota debit payload");
+        }
+        if (!DEBIT_STATUS_DEBITED.equals(debit.getStatus())) {
+            throw new BusinessException("requestId was already used by an unfinished quota debit");
+        }
+        return debitResult(debit);
+    }
+
+    private boolean matchesDebitRequest(QuotaDebit debit,
+                                        long amount,
+                                        String abilityCode,
+                                        String ownerService,
+                                        String traceId,
+                                        String requestFingerprint) {
+        if (debit == null) {
+            return false;
+        }
+        if (StringUtils.hasText(debit.getRequestFingerprint())) {
+            return Objects.equals(debit.getRequestFingerprint(), requestFingerprint)
+                    && Objects.equals(debit.getTraceId(), traceId);
+        }
+        return Objects.equals(debit.getRequestedAmount(), amount)
+                && Objects.equals(normalizeAbilityCode(debit.getAbilityCode()), abilityCode)
+                && Objects.equals(normalizeOwnerService(debit.getOwnerService()), ownerService)
+                && Objects.equals(debit.getTraceId(), traceId);
+    }
+
     private Map<String, Object> reusePendingFreeze(QuotaFreeze freeze,
                                                    long requestedAmount,
                                                    long minAmount,
@@ -674,8 +790,18 @@ public class MemberServiceImpl implements MemberService {
                                             long minAmount,
                                             String abilityCode,
                                             String ownerService) {
-        String canonical = userId + "\n" + requestedAmount + "\n" + minAmount
-                + "\n" + abilityCode + "\n" + ownerService;
+        return sha256Fingerprint(userId + "\n" + requestedAmount + "\n" + minAmount
+                + "\n" + abilityCode + "\n" + ownerService);
+    }
+
+    private String debitRequestFingerprint(Long userId,
+                                           long amount,
+                                           String abilityCode,
+                                           String ownerService) {
+        return sha256Fingerprint(userId + "\n" + amount + "\n" + abilityCode + "\n" + ownerService);
+    }
+
+    private String sha256Fingerprint(String canonical) {
         try {
             return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
                     .digest(canonical.getBytes(StandardCharsets.UTF_8)));

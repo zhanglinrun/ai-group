@@ -339,7 +339,7 @@ export function LiveRunPage(): JSX.Element {
         </div>
         <p className="mt-2 text-xs text-foreground-subtle">
           按实际 Token 精确结算：输入每百万 Token {formatCreditsPerMillionTokens(runDetail.data.billing_input_micro_points_per_token ?? 5)} 积分，
-          输出每百万 Token {formatCreditsPerMillionTokens(runDetail.data.billing_output_micro_points_per_token ?? 30)} 积分；不按 1K Token 向上取整，额度不够时任务会暂停，充值后可从当前进度继续。
+          输出每百万 Token {formatCreditsPerMillionTokens(runDetail.data.billing_output_micro_points_per_token ?? 30)} 积分；调用前检查余额，调用后按真实 Token 扣费，不按 1K Token 向上取整，额度不够时任务会暂停，充值后可从当前进度继续。
         </p>
         </>
       ) : null}
@@ -849,7 +849,11 @@ function formatIdleDuration(idleMs: number): string {
 }
 
 function formatMicroPoints(value: number | undefined): string {
-  return `${((value ?? 0) / 1_000_000).toFixed(2)} 积分`;
+  const credits = (value ?? 0) / 1_000_000;
+  return `${credits.toLocaleString("zh-CN", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 6,
+  })} 积分`;
 }
 
 function formatTokenCount(value: number): string {

@@ -17,7 +17,7 @@ class LLMBillingAttempt(Base):
     run_id: Mapped[str] = mapped_column(
         String(64), ForeignKey("runs.run_id", ondelete="CASCADE"), nullable=False, index=True
     )
-    reservation_id: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
+    reservation_id: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True, index=True)
     request_id: Mapped[str] = mapped_column(String(128), nullable=False, unique=True, index=True)
     owner_user_id: Mapped[int] = mapped_column(nullable=False, default=0, index=True)
     estimated_micro_points: Mapped[int] = mapped_column(BigInteger, nullable=False)
