@@ -12,6 +12,8 @@
 
 默认 `docker-compose.full.yml` 优先保证秋招演示可以稳定启动，包含 MySQL、Redis、Kafka、Nacos、Postgres、Java 服务、Agent 和前端；观测组件在 `observability/docker-compose.observability.yml` 中**按需单独启动**，避免把 Elasticsearch / SkyWalking 等高内存组件强制带入每次开发启动。
 
+XXL-JOB Admin 的宿主机端口默认仅绑定 `127.0.0.1:18081`（full/dev Compose），容器间仍走 `xxl-job-admin:8080`。初始化账号为示例密码，首次启动后应修改；不要直接将 Admin 端口发布到公网。
+
 ```powershell
 # 业务栈
 cd dev-ops/compose && docker compose -f docker-compose.full.yml up -d

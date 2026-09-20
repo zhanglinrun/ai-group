@@ -38,6 +38,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -887,19 +888,44 @@ public class MemberServiceImpl implements MemberService {
 
     @Override
     public String benefitGrantStatusForOrder(String orderId) {
+        return (String) benefitGrantDetailsForOrder(orderId).get("status");
+    }
+
+    @Override
+    public Map<String, Object> benefitGrantDetailsForOrder(String orderId) {
         List<BenefitGrantEvent> events = benefitGrantEventMapper.selectList(
                 new LambdaQueryWrapper<BenefitGrantEvent>()
                         .eq(BenefitGrantEvent::getOrderId, orderId));
         if (events == null || events.isEmpty()) {
-            return "PENDING";
+            return Map.of("status", "PENDING");
         }
         boolean revoked = events.stream().anyMatch(event ->
                 "REVOKED".equals(event.getStatus()) || "SKIPPED_REVOKED".equals(event.getStatus()));
         if (revoked) {
-            return "REVOKED";
+            return Map.of("status", "REVOKED");
         }
         boolean granted = events.stream().anyMatch(event ->
                 "GRANTED".equals(event.getStatus()) || "REJECTED_GRANTED".equals(event.getStatus()));
-        return granted ? "GRANTED" : "PENDING";
+        if (!granted) {
+            return Map.of("status", "PENDING");
+        }
+
+        Map<String, Object> details = new HashMap<>();
+        details.put("status", "GRANTED");
+        if (events.stream().anyMatch(event -> "REJECTED_GRANTED".equals(event.getStatus())
+                && CommonConstant.EVENT_GROUP_BUY_REVOKED.equals(event.getEventType()))) {
+            details.put("manualReview", true);
+        }
+        events.stream().filter(event -> "GRANTED".equals(event.getStatus())
+                        && CommonConstant.EVENT_GROUP_BUY_COMPLETED.equals(event.getEventType())
+                        && event.getUserId() != null
+                        && StringUtils.hasText(event.getProductCode())
+                        && event.getGrantedQuota() != null && event.getGrantedQuota() > 0)
+                .findFirst().ifPresent(event -> {
+                    details.put("userId", event.getUserId().toString());
+                    details.put("productCode", event.getProductCode());
+                    details.put("grantedQuotaMicro", event.getGrantedQuota().toString());
+                });
+        return Map.copyOf(details);
     }
 }

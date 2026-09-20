@@ -43,9 +43,7 @@ public interface IOrderDao {
 
     boolean changeOrderClose(String orderId);
 
-    void changeOrderMarketSettlement(@Param("outTradeNoList") List<String> outTradeNoList);
-
-    List<String> queryMarketSettledOrderIds(@Param("outTradeNoList") List<String> outTradeNoList);
+    int changeOrderMarketSettlement(PayOrder order);
 
     PayOrder queryOrderByOrderId(String orderId);
 

@@ -38,13 +38,8 @@ public class RefundSuccessTopicListener {
             groupId = "group-service-dlt",
             containerFactory = "dltKafkaListenerContainerFactory")
     public void consumeDlt(String message, Acknowledgment ack) {
-        try {
-            listener(message);
-            ack.acknowledge();
-        } catch (Exception e) {
-            log.error("kafka.dlt.exhausted topic=group.team_refund.DLT payload={}", message, e);
-            ack.acknowledge();
-        }
+        listener(message);
+        ack.acknowledge();
     }
 
     public void listener(String message) {

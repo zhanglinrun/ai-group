@@ -14,7 +14,6 @@ $explicitPaths = @(
     (Join-Path $root 'agent-service/data'),
     (Join-Path $root 'agent-service/demo_fixtures/generated'),
     (Join-Path $root 'agent-service/test.db'),
-    (Join-Path $root 'dev-ops/jmeter/reports'),
     (Join-Path $root 'group-service/.idea'),
     (Join-Path $root 'group-service/.codegraph'),
     (Join-Path $root 'pay-service/.codegraph'),

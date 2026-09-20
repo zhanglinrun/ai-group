@@ -14,6 +14,9 @@ import com.aigroup.member.mapper.QuotaDebitMapper;
 import com.aigroup.member.mapper.QuotaFreezeMapper;
 import com.aigroup.member.mapper.QuotaLedgerMapper;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
@@ -26,6 +29,7 @@ import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.Map;
 import java.util.List;
+import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -33,6 +37,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -199,21 +204,174 @@ class MemberServiceImplBenefitTest {
     }
 
     @Test
+    void revokeAfterGrantWithSufficientAggregateBalanceStillNeedsManualReview() {
+        QuotaAccount account = account(5_000_000L, 100_000_000L, 0L);
+        when(quotaAccountMapper.selectForUpdateByUserId(1001L)).thenReturn(account);
+        when(benefitGrantEventMapper.selectOne(any())).thenReturn(null, null, null, grantedEvent());
+
+        memberService.handleBenefitEvent(completedEvent(500L));
+        memberService.handleBenefitEvent(revokedEvent());
+
+        assertEquals(600_000_000L, account.getPaidQuotaBalance());
+        verify(quotaAccountMapper, times(2)).selectForUpdateByUserId(1001L);
+        verify(quotaAccountMapper).updateById(account);
+        verify(quotaFreezeMapper, never()).sumPendingPaidAmount(anyLong());
+        ArgumentCaptor<QuotaLedger> ledgers = ArgumentCaptor.forClass(QuotaLedger.class);
+        verify(quotaLedgerMapper, times(2)).insert(ledgers.capture());
+        assertEquals(List.of("GRANT", "REVOKE"), ledgers.getAllValues().stream().map(QuotaLedger::getType).toList());
+        assertEquals(List.of(500_000_000L, 0L),
+                ledgers.getAllValues().stream().map(QuotaLedger::getAmount).toList());
+        ArgumentCaptor<BenefitGrantEvent> records = ArgumentCaptor.forClass(BenefitGrantEvent.class);
+        verify(benefitGrantEventMapper, times(2)).insert(records.capture());
+        assertEquals(List.of("GRANTED", "REJECTED_GRANTED"),
+                records.getAllValues().stream().map(BenefitGrantEvent::getStatus).toList());
+        when(benefitGrantEventMapper.selectList(any())).thenReturn(records.getAllValues());
+        assertEquals(Map.of("status", "GRANTED", "manualReview", true,
+                "userId", "1001", "productCode", "QUOTA_500", "grantedQuotaMicro", "500000000"),
+                memberService.benefitGrantDetailsForOrder("order-1"));
+    }
+
+    @Test
+    void duplicateRevokeAfterGrantRecordsManualReviewOnlyOnce() {
+        QuotaAccount account = account(5_000_000L, 600_000_000L, 0L);
+        BenefitGrantEvent rejected = new BenefitGrantEvent();
+        rejected.setStatus("REJECTED_GRANTED");
+        when(quotaAccountMapper.selectForUpdateByUserId(1001L)).thenReturn(account);
+        when(benefitGrantEventMapper.selectOne(any())).thenReturn(null, grantedEvent(), rejected);
+
+        memberService.handleBenefitEvent(revokedEvent());
+        memberService.handleBenefitEvent(revokedEvent());
+
+        assertEquals(600_000_000L, account.getPaidQuotaBalance());
+        verify(quotaAccountMapper, times(2)).selectForUpdateByUserId(1001L);
+        verify(quotaAccountMapper, never()).updateById(any(QuotaAccount.class));
+        verify(benefitGrantEventMapper).insert(any(BenefitGrantEvent.class));
+        verify(quotaLedgerMapper).insert(any(QuotaLedger.class));
+        verify(quotaFreezeMapper, never()).sumPendingPaidAmount(anyLong());
+    }
+
+    @Test
+    void revokeBeforeGrantLeavesTombstoneAndSkipsLaterCompletion() {
+        QuotaAccount account = account(5_000_000L, 10_000_000L, 0L);
+        BenefitGrantEvent tombstone = new BenefitGrantEvent();
+        tombstone.setStatus("REVOKED");
+        when(quotaAccountMapper.selectForUpdateByUserId(1001L)).thenReturn(account);
+        when(benefitGrantEventMapper.selectOne(any())).thenReturn(null, null, null, tombstone);
+
+        memberService.handleBenefitEvent(revokedEvent());
+        memberService.handleBenefitEvent(completedEvent(500L));
+
+        assertEquals(10_000_000L, account.getPaidQuotaBalance());
+        verify(quotaAccountMapper, never()).updateById(any(QuotaAccount.class));
+        verify(quotaFreezeMapper, never()).sumPendingPaidAmount(anyLong());
+        ArgumentCaptor<BenefitGrantEvent> records = ArgumentCaptor.forClass(BenefitGrantEvent.class);
+        verify(benefitGrantEventMapper, times(2)).insert(records.capture());
+        assertEquals(List.of("REVOKED", "SKIPPED_REVOKED"),
+                records.getAllValues().stream().map(BenefitGrantEvent::getStatus).toList());
+        ArgumentCaptor<QuotaLedger> ledgers = ArgumentCaptor.forClass(QuotaLedger.class);
+        verify(quotaLedgerMapper, times(2)).insert(ledgers.capture());
+        assertEquals(List.of(0L, 0L), ledgers.getAllValues().stream().map(QuotaLedger::getAmount).toList());
+    }
+
+    @Test
     void automaticRevokeAfterGrantDoesNotRemoveConsumedPaidQuota() {
-        BenefitGrantEvent granted = new BenefitGrantEvent();
-        granted.setStatus("GRANTED");
+        QuotaAccount account = account(5_000_000L, 1_000_000L, 0L);
+        when(quotaAccountMapper.selectForUpdateByUserId(1001L)).thenReturn(account);
+        when(benefitGrantEventMapper.selectOne(any())).thenReturn(null, grantedEvent());
+
+        memberService.handleBenefitEvent(revokedEvent());
+
+        assertEquals(1_000_000L, account.getPaidQuotaBalance());
+        verify(quotaAccountMapper, never()).updateById(any(QuotaAccount.class));
+        ArgumentCaptor<BenefitGrantEvent> record = ArgumentCaptor.forClass(BenefitGrantEvent.class);
+        verify(benefitGrantEventMapper).insert(record.capture());
+        assertEquals("REJECTED_GRANTED", record.getValue().getStatus());
+        ArgumentCaptor<QuotaLedger> ledger = ArgumentCaptor.forClass(QuotaLedger.class);
+        verify(quotaLedgerMapper).insert(ledger.capture());
+        assertEquals("REVOKE", ledger.getValue().getType());
+        assertEquals(0L, ledger.getValue().getAmount());
+    }
+
+    @Test
+    void automaticRevokeDoesNotConsumePendingPaidReservations() {
+        QuotaAccount account = account(5_000_000L, 600_000_000L, 150_000_000L);
+        when(quotaAccountMapper.selectForUpdateByUserId(1001L)).thenReturn(account);
+        when(benefitGrantEventMapper.selectOne(any())).thenReturn(null, grantedEvent());
+
+        memberService.handleBenefitEvent(revokedEvent());
+
+        assertEquals(600_000_000L, account.getPaidQuotaBalance());
+        verify(quotaAccountMapper, never()).updateById(any(QuotaAccount.class));
+        verify(quotaFreezeMapper, never()).sumPendingPaidAmount(anyLong());
+        ArgumentCaptor<BenefitGrantEvent> record = ArgumentCaptor.forClass(BenefitGrantEvent.class);
+        verify(benefitGrantEventMapper).insert(record.capture());
+        assertEquals("REJECTED_GRANTED", record.getValue().getStatus());
+        ArgumentCaptor<QuotaLedger> ledger = ArgumentCaptor.forClass(QuotaLedger.class);
+        verify(quotaLedgerMapper).insert(ledger.capture());
+        assertEquals(0L, ledger.getValue().getAmount());
+    }
+
+    @Test
+    void laterGrantCannotProveEarlierOrderIsUnspent() {
+        QuotaAccount account = account(0L, 0L, 0L);
+        when(quotaAccountMapper.selectForUpdateByUserId(1001L)).thenReturn(account);
+        when(benefitGrantEventMapper.selectOne(any())).thenReturn(
+                null, null, null, null, null, grantedEvent());
+
+        memberService.handleBenefitEvent(completedEvent(500L));
+        memberService.debit(1001L, 500_000_000L, "llm", "spent-order-a", "legacy", null);
+        TradeCompletedEvent laterOrder = completedEvent(500L);
+        laterOrder.setOrderId("order-2");
+        memberService.handleBenefitEvent(laterOrder);
+        memberService.handleBenefitEvent(revokedEvent());
+
+        assertEquals(500_000_000L, account.getPaidQuotaBalance());
+        verify(quotaAccountMapper, times(3)).updateById(account);
+        verify(quotaFreezeMapper).sumPendingPaidAmount(1001L);
+        ArgumentCaptor<BenefitGrantEvent> records = ArgumentCaptor.forClass(BenefitGrantEvent.class);
+        verify(benefitGrantEventMapper, times(3)).insert(records.capture());
+        assertEquals(List.of("GRANTED", "GRANTED", "REJECTED_GRANTED"),
+                records.getAllValues().stream().map(BenefitGrantEvent::getStatus).toList());
+        ArgumentCaptor<QuotaLedger> ledgers = ArgumentCaptor.forClass(QuotaLedger.class);
+        verify(quotaLedgerMapper, times(4)).insert(ledgers.capture());
+        assertEquals(List.of("GRANT", "DEBIT", "GRANT", "REVOKE"),
+                ledgers.getAllValues().stream().map(QuotaLedger::getType).toList());
+        assertEquals(List.of(500_000_000L, -500_000_000L, 500_000_000L, 0L),
+                ledgers.getAllValues().stream().map(QuotaLedger::getAmount).toList());
+        assertEquals(account.getPaidQuotaBalance(),
+                ledgers.getAllValues().stream().mapToLong(QuotaLedger::getAmount).sum());
+    }
+
+    @ParameterizedTest
+    @MethodSource("invalidGrants")
+    void mismatchedOrMalformedGrantRequiresManualReview(Long userId, String productCode, Long amount) {
+        BenefitGrantEvent granted = grantedEvent();
+        granted.setUserId(userId);
+        granted.setProductCode(productCode);
+        granted.setGrantedQuota(amount);
         when(quotaAccountMapper.selectForUpdateByUserId(1001L))
-                .thenReturn(account(5_000_000L, 1_000_000L, 0L));
+                .thenReturn(account(5_000_000L, 600_000_000L, 0L));
         when(benefitGrantEventMapper.selectOne(any())).thenReturn(null, granted);
-        TradeCompletedEvent event = completedEvent(500L);
-        event.setEventType(CommonConstant.EVENT_GROUP_BUY_REVOKED);
 
-        memberService.handleBenefitEvent(event);
+        memberService.handleBenefitEvent(revokedEvent());
 
-        verify(quotaAccountMapper).selectForUpdateByUserId(1001L);
-        ArgumentCaptor<BenefitGrantEvent> captor = ArgumentCaptor.forClass(BenefitGrantEvent.class);
-        verify(benefitGrantEventMapper).insert(captor.capture());
-        assertEquals("REJECTED_GRANTED", captor.getValue().getStatus());
+        verify(quotaFreezeMapper, never()).sumPendingPaidAmount(anyLong());
+        verify(quotaAccountMapper, never()).updateById(any(QuotaAccount.class));
+        ArgumentCaptor<BenefitGrantEvent> record = ArgumentCaptor.forClass(BenefitGrantEvent.class);
+        verify(benefitGrantEventMapper).insert(record.capture());
+        assertEquals("REJECTED_GRANTED", record.getValue().getStatus());
+        ArgumentCaptor<QuotaLedger> ledger = ArgumentCaptor.forClass(QuotaLedger.class);
+        verify(quotaLedgerMapper).insert(ledger.capture());
+        assertEquals(0L, ledger.getValue().getAmount());
+    }
+
+    private static Stream<Arguments> invalidGrants() {
+        return Stream.of(
+                Arguments.of(2002L, "QUOTA_500", 500_000_000L),
+                Arguments.of(1001L, "OTHER", 500_000_000L),
+                Arguments.of(1001L, "QUOTA_500", (Long) null),
+                Arguments.of(1001L, "QUOTA_500", 0L),
+                Arguments.of(1001L, "QUOTA_500", -1L));
     }
 
     @Test
@@ -267,6 +425,74 @@ class MemberServiceImplBenefitTest {
     }
 
     @Test
+    void benefitGrantDetailsReturnsOnlyActualCompletedGrantProvenance() {
+        BenefitGrantEvent granted = grantedEvent();
+        granted.setIdempotencyKey("private-event-key");
+        granted.setOrderId("order-1");
+        when(benefitGrantEventMapper.selectList(any())).thenReturn(List.of(granted));
+
+        assertEquals(Map.of("status", "GRANTED", "userId", "1001",
+                "productCode", "QUOTA_500", "grantedQuotaMicro", "500000000"),
+                memberService.benefitGrantDetailsForOrder("order-1"));
+        verify(benefitGrantEventMapper).selectList(any());
+    }
+
+    @Test
+    void benefitGrantDetailsDoesNotInventGrantForRevokedOrPendingOrders() {
+        BenefitGrantEvent revoked = new BenefitGrantEvent();
+        revoked.setStatus("REVOKED");
+        BenefitGrantEvent skipped = new BenefitGrantEvent();
+        skipped.setStatus("SKIPPED_REVOKED");
+        when(benefitGrantEventMapper.selectList(any())).thenReturn(
+                List.of(grantedEvent(), revoked), List.of(skipped), List.of());
+
+        assertEquals(Map.of("status", "REVOKED"), memberService.benefitGrantDetailsForOrder("revoked"));
+        assertEquals(Map.of("status", "REVOKED"), memberService.benefitGrantDetailsForOrder("skipped"));
+        assertEquals(Map.of("status", "PENDING"), memberService.benefitGrantDetailsForOrder("pending"));
+    }
+
+    @Test
+    void benefitGrantDetailsFlagsRejectedRevocationWithoutClaimingItWasRevoked() {
+        BenefitGrantEvent rejected = new BenefitGrantEvent();
+        rejected.setStatus("REJECTED_GRANTED");
+        rejected.setEventType(CommonConstant.EVENT_GROUP_BUY_REVOKED);
+        rejected.setUserId(2002L);
+        rejected.setProductCode("OTHER");
+        when(benefitGrantEventMapper.selectList(any())).thenReturn(
+                List.of(rejected, grantedEvent()), List.of(rejected));
+
+        assertEquals(Map.of("status", "GRANTED", "manualReview", true,
+                "userId", "1001", "productCode", "QUOTA_500",
+                "grantedQuotaMicro", "500000000"),
+                memberService.benefitGrantDetailsForOrder("conflict"));
+        assertEquals(Map.of("status", "GRANTED", "manualReview", true),
+                memberService.benefitGrantDetailsForOrder("rejected-only"));
+    }
+
+    @Test
+    void benefitGrantDetailsNeverUsesNonCompletionOrIncompleteRowsAsProof() {
+        BenefitGrantEvent wrongType = grantedEvent();
+        wrongType.setEventType(CommonConstant.EVENT_GROUP_BUY_REVOKED);
+        BenefitGrantEvent incomplete = grantedEvent();
+        incomplete.setGrantedQuota(null);
+        when(benefitGrantEventMapper.selectList(any())).thenReturn(
+                List.of(wrongType), List.of(incomplete));
+
+        assertEquals(Map.of("status", "GRANTED"), memberService.benefitGrantDetailsForOrder("wrong-type"));
+        assertEquals(Map.of("status", "GRANTED"), memberService.benefitGrantDetailsForOrder("incomplete"));
+    }
+
+    private BenefitGrantEvent grantedEvent() {
+        BenefitGrantEvent granted = new BenefitGrantEvent();
+        granted.setStatus("GRANTED");
+        granted.setEventType(CommonConstant.EVENT_GROUP_BUY_COMPLETED);
+        granted.setUserId(1001L);
+        granted.setProductCode("QUOTA_500");
+        granted.setGrantedQuota(500L * MemberServiceImpl.MICRO_PER_CREDIT);
+        return granted;
+    }
+
+    @Test
     void ledgerQueryIsLimitedToTheAuthenticatedUser() {
         QuotaLedger row = new QuotaLedger();
         row.setType("CONFIRM");
@@ -315,6 +541,12 @@ class MemberServiceImplBenefitTest {
         event.setOrderId("order-1");
         event.setProductCode("QUOTA_500");
         event.setBaseQuota(base);
+        return event;
+    }
+
+    private TradeCompletedEvent revokedEvent() {
+        TradeCompletedEvent event = completedEvent(500L);
+        event.setEventType(CommonConstant.EVENT_GROUP_BUY_REVOKED);
         return event;
     }
 }

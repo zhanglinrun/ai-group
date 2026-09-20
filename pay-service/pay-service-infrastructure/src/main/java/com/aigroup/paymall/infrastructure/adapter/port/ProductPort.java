@@ -1,21 +1,25 @@
 package com.aigroup.paymall.infrastructure.adapter.port;
 
 import com.aigroup.paymall.domain.order.adapter.port.IProductPort;
+import com.aigroup.paymall.domain.order.adapter.repository.IOrderRepository;
 import com.aigroup.paymall.domain.order.adapter.port.MarketSettlementResult;
 import com.aigroup.paymall.domain.order.model.entity.MarketPayDiscountEntity;
 import com.aigroup.paymall.domain.order.model.entity.ProductEntity;
+import com.aigroup.paymall.domain.order.model.entity.OrderEntity;
 import com.aigroup.paymall.infrastructure.gateway.IGroupBuyMarketService;
 import com.aigroup.paymall.infrastructure.gateway.ProductRPC;
 import com.aigroup.paymall.infrastructure.gateway.dto.*;
 import com.aigroup.paymall.infrastructure.gateway.response.Response;
 import com.aigroup.paymall.types.common.JsonUtils;
 import com.aigroup.paymall.types.exception.AppException;
+import com.aigroup.paymall.domain.order.model.valobj.MarketTypeVO;
 import com.alibaba.csp.sentinel.slots.block.BlockException;
 import feign.FeignException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+import jakarta.annotation.Resource;
 import java.util.Date;
 import java.io.IOException;
 
@@ -35,6 +39,8 @@ public class ProductPort implements IProductPort {
     private final ProductRPC productRPC;
 
     private final IGroupBuyMarketService groupBuyMarketService;
+    @Resource
+    private IOrderRepository orderRepository;
 
     public ProductPort(ProductRPC productRPC, IGroupBuyMarketService groupBuyMarketService) {
         this.productRPC = productRPC;
@@ -153,7 +159,7 @@ public class ProductPort implements IProductPort {
                                                          LockMarketPayOrderResponseDTO response) {
         if (response == null || !Integer.valueOf(0).equals(response.getTradeOrderStatus())
                 || response.getOriginalPrice() == null || response.getDeductionPrice() == null
-                || response.getPayPrice() == null) {
+                || response.getPayPrice() == null || response.getTeamId() == null || response.getTeamId().isBlank()) {
             log.error("营销锁单结果不可用于预支付 userId:{} orderId:{} response:{}",
                     userId, orderId, JsonUtils.toJson(response));
             return null;
@@ -162,6 +168,9 @@ public class ProductPort implements IProductPort {
                 .originalPrice(response.getOriginalPrice())
                 .deductionPrice(response.getDeductionPrice())
                 .payPrice(response.getPayPrice())
+                .source(source)
+                .teamId(response.getTeamId())
+                .channel(chanel)
                 .build();
     }
 
@@ -179,9 +188,17 @@ public class ProductPort implements IProductPort {
 
     @Override
     public MarketSettlementResult settlementMarketPayOrder(String userId, String orderId, Date orderTime) {
+        OrderEntity lockedOrder;
+        try {
+            lockedOrder = lockedGroupOrder(userId, orderId);
+        } catch (RuntimeException e) {
+            log.warn("settlement lock identity unavailable orderId:{}", orderId, e);
+            return MarketSettlementResult.RETRYABLE_FAILURE;
+        }
+        if (lockedOrder == null) return MarketSettlementResult.RETRYABLE_FAILURE;
         SettlementMarketPayOrderRequestDTO requestDTO = new SettlementMarketPayOrderRequestDTO();
-        requestDTO.setSource(source);
-        requestDTO.setChannel(chanel);
+        requestDTO.setSource(lockedOrder.getGroupSource());
+        requestDTO.setChannel(lockedOrder.getGroupChannel());
         requestDTO.setUserId(userId);
         requestDTO.setOutTradeNo(orderId);
         requestDTO.setOutTradeTime(orderTime);
@@ -208,9 +225,17 @@ public class ProductPort implements IProductPort {
 
     @Override
     public boolean refundMarketPayOrder(String userId, String orderId) {
+        OrderEntity lockedOrder;
+        try {
+            lockedOrder = lockedGroupOrder(userId, orderId);
+        } catch (RuntimeException e) {
+            log.warn("refund lock identity unavailable orderId:{}", orderId, e);
+            return false;
+        }
+        if (lockedOrder == null) return false;
         RefundMarketPayOrderRequestDTO requestDTO = new RefundMarketPayOrderRequestDTO();
-        requestDTO.setSource(source);
-        requestDTO.setChannel(chanel);
+        requestDTO.setSource(lockedOrder.getGroupSource());
+        requestDTO.setChannel(lockedOrder.getGroupChannel());
         requestDTO.setUserId(userId);
         requestDTO.setOutTradeNo(orderId);
 
@@ -229,6 +254,19 @@ public class ProductPort implements IProductPort {
             log.error("营销退单失败{}", userId, e);
             return false;
         }
+    }
+
+    private OrderEntity lockedGroupOrder(String userId, String orderId) {
+        if (userId == null || userId.isBlank() || orderId == null || orderId.isBlank()) return null;
+        OrderEntity order = orderRepository.queryOrderByOrderId(orderId);
+        if (order == null || !userId.equals(order.getUserId())
+                || !MarketTypeVO.GROUP_BUY_MARKET.getCode().equals(order.getMarketType())
+                || order.getGroupSource() == null || order.getGroupSource().isBlank()
+                || order.getGroupChannel() == null || order.getGroupChannel().isBlank()) {
+            log.warn("group lock identity missing or mismatched userId:{} orderId:{}", userId, orderId);
+            return null;
+        }
+        return order;
     }
 
     private static boolean isSentinelBlock(Throwable error) {

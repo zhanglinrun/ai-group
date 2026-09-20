@@ -45,5 +45,7 @@ public class TeamRefundSuccessRequestDTO {
      * 外部交易单号
      */
     private String outTradeNo;
+    private String source;
+    private String channel;
 
 }

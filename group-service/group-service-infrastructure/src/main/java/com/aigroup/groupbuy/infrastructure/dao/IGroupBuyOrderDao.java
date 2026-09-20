@@ -18,7 +18,7 @@ public interface IGroupBuyOrderDao {
 
     void insert(GroupBuyOrder groupBuyOrder);
 
-    int updateAddLockCount(String teamId);
+    int updateAddLockCount(@Param("teamId") String teamId, @Param("activityId") Long activityId);
 
     int updateSubtractionLockCount(String teamId);
 

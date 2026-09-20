@@ -81,7 +81,7 @@ ai-group/
 
 - **活动配置**：拼团活动、营销折扣、库存与限购
 - **规则试算**：活动有效性、人群与优惠策略组合过滤
-- **Redis 占库存 + MySQL `lock_count` CAS**：开团不走 Redis。加入先 `INCR+1` 对照活动 target 和 recovery，再 `SET NX` 兜底；同一请求里同步写 `lock_count` 和明细。落库失败或未成团退款给 recovery +1。权威闸门仍是 MySQL CAS，打满返回 `E0005`
+- **Redis Lua 预过滤 + MySQL 人数权威**：开团不走 Redis；加入时由 Lua 原子比较并递增计数，拒绝不覆盖并发计数。MySQL 按团队、活动、进行中、未过期且未满做条件更新，与成员明细同事务提交；业务唯一键兜底重复请求。Redis 预占后进程崩溃仍可能暂时损失可用席位，恢复窗口尚未验证。
 - **成团结算与退款**：本地消息表 + MQ / 定时任务保证最终一致性
 
 ### 2. 现金支付与权益发放
@@ -120,7 +120,7 @@ ai-group/
 - **数据库**：MySQL 8.0+
 - **内部调用**：OpenFeign + Nacos 发现（空 url）；Gateway 直转 Agent（lb://，无实例时 Docker DNS 回退）
 - **缓存 / 锁**：Redis（会话、拼团占库存 / recovery、拼团侧固定窗口限流、短缓存）
-- **消息队列**：Kafka（Outbox 投递；手动 ack + DefaultErrorHandler 有限重试，耗尽进 `{topic}.DLT`；各业务服务有 DLT 回放，失败打 `kafka.dlt.exhausted` 后 ack，不再投 `*.DLT.DLT`）
+- **消息队列**：Kafka Outbox 发布确认；普通主题有限重试后经 broker 确认投递到 `{topic}.DLT`，DLT 业务成功才 ack，再次失败停止消费者供人工排查和重启，不循环投递 `*.DLT.DLT`。历史默认 `-dlt` 主题需单独核查，不能视为自动恢复。
 - **任务调度**：XXL-JOB 3.4.2（Admin + auth/pay/group/member 执行器；本地 Compose 已内置）
 - **服务发现 / 配置**：Nacos Discovery + 薄 Nacos Config（身份令牌、JWT 密钥、Gateway 路由）。身份密钥变更后请重启 Gateway（SCA 2025 WebFlux 不保证热刷新）
 - **限流熔断**：Gateway Sentinel 对 Agent JSON 和 Java 路由做 QPS，并对 Java 路由做错误率/慢调用熔断（SSE 只宽松流控、不熔断）；Pay Feign 用 service#method 稳定资源名做 QPS + 熔断，不绑死 host。拼团按用户限流仍在 Group Redis

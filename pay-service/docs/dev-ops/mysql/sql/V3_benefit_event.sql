@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS `benefit_event` (
     `event_id` varchar(64) NOT NULL COMMENT '事件ID',
     `event_type` varchar(64) NOT NULL COMMENT '事件类型',
     `user_id` bigint NOT NULL COMMENT '用户ID',
-    `order_id` varchar(32) NOT NULL COMMENT '订单ID',
+    `order_id` varchar(64) NOT NULL COMMENT '订单ID',
     `product_code` varchar(64) NOT NULL COMMENT 'SKU编码',
     `event_published` tinyint(1) NOT NULL DEFAULT '0' COMMENT 'MQ是否已发布',
     `publish_status` varchar(16) NOT NULL DEFAULT 'PENDING' COMMENT 'outbox publisher claim state',

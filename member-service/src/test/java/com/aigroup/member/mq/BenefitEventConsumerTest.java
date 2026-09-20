@@ -54,15 +54,14 @@ class BenefitEventConsumerTest {
     }
 
     @Test
-    void dltExhaustedStillAcknowledges() {
+    void dltFailurePropagatesWithoutAcknowledgment() {
         MemberService memberService = mock(MemberService.class);
         doThrow(new IllegalStateException("db unavailable"))
                 .when(memberService).handleBenefitEvent(any(TradeCompletedEvent.class));
         Acknowledgment ack = mock(Acknowledgment.class);
         BenefitEventConsumer consumer = new BenefitEventConsumer(memberService, new ObjectMapper());
 
-        consumer.consumeTradeCompletedDlt(PAYLOAD, ack);
-
-        verify(ack).acknowledge();
+        assertThrows(IllegalStateException.class, () -> consumer.consumeTradeCompletedDlt(PAYLOAD, ack));
+        verify(ack, never()).acknowledge();
     }
 }

@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.aigroup.paymall.infrastructure.dao.IBenefitReconciliationDao">
+    <insert id="insertIfAbsent">
+        insert ignore into benefit_reconciliation(event_id, outcome, next_check_at)
+        values(#{eventId}, 'READY', now())
+    </insert>
+
+    <update id="claim">
+        update benefit_reconciliation
+        set outcome = 'PROCESSING', claim_token = #{token}, check_count = check_count + 1,
+            lease_until = date_add(now(), interval 5 minute), update_time = now()
+        where event_id = #{eventId} and next_check_at &lt;= now()
+          and (outcome in ('READY', 'PENDING', 'REPLAYED', 'UNAVAILABLE')
+               or (outcome = 'PROCESSING' and lease_until &lt; now()))
+    </update>
+
+    <select id="findByEventId" resultType="com.aigroup.paymall.infrastructure.dao.po.BenefitReconciliation">
+        select event_id as eventId, outcome, replay_attempts as replayAttempts
+        from benefit_reconciliation where event_id = #{eventId}
+    </select>
+
+    <update id="recordReplayIntent">
+        update benefit_reconciliation
+        set replay_attempts = replay_attempts + 1, detail = 'REPLAY_INTENT', update_time = now()
+        where event_id = #{eventId} and outcome = 'PROCESSING' and claim_token = #{token}
+          and lease_until &gt; now() and replay_attempts &lt; #{maxAttempts}
+    </update>
+
+    <update id="finish">
+        update benefit_reconciliation
+        set outcome = #{outcome}, order_status = #{orderStatus,jdbcType=VARCHAR},
+            member_status = #{memberStatus,jdbcType=VARCHAR}, detail = #{detail},
+            next_check_at = case when #{delayMinutes,jdbcType=INTEGER} is null then null
+                else date_add(now(), interval #{delayMinutes,jdbcType=INTEGER} minute) end, claim_token = null,
+            lease_until = null, update_time = now()
+        where event_id = #{eventId} and outcome = 'PROCESSING' and claim_token = #{token}
+    </update>
+</mapper>

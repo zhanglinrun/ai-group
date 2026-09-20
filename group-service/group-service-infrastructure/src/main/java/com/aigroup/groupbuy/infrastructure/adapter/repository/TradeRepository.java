@@ -143,7 +143,7 @@ public class TradeRepository implements ITradeRepository {
             groupBuyOrderDao.insert(groupBuyOrder);
         } else {
             // 更新记录 - 如果更新记录不等于1，则表示拼团已满，抛出异常
-            int updateAddTargetCount = groupBuyOrderDao.updateAddLockCount(teamId);
+            int updateAddTargetCount = groupBuyOrderDao.updateAddLockCount(teamId, payActivityEntity.getActivityId());
             if (1 != updateAddTargetCount) {
                 throw new AppException(ResponseCode.E0005);
             }
@@ -290,6 +290,8 @@ public class TradeRepository implements ITradeRepository {
         // 1. 更新拼团订单明细状态
         GroupBuyOrderList groupBuyOrderListReq = new GroupBuyOrderList();
         groupBuyOrderListReq.setUserId(userEntity.getUserId());
+        groupBuyOrderListReq.setSource(tradePaySuccessEntity.getSource());
+        groupBuyOrderListReq.setChannel(tradePaySuccessEntity.getChannel());
         groupBuyOrderListReq.setOutTradeNo(tradePaySuccessEntity.getOutTradeNo());
         groupBuyOrderListReq.setOutTradeTime(tradePaySuccessEntity.getOutTradeTime());
 
@@ -298,7 +300,7 @@ public class TradeRepository implements ITradeRepository {
             // 幂等：重复/重投的成团结算回调会发现本成员明细已是 COMPLETE(status=1)，
             // 按"已结算"直接返回，不再重复累加 complete_count、不再抛 UPDATE_ZERO
             // （否则监听器 ack 失败→MQ 无限重投、pay 侧订单永久卡在 PAY_SUCCESS）。
-            GroupBuyOrderList existingOrderList = groupBuyOrderListDao.queryGroupBuyOrderRecordByOutTradeNo(groupBuyOrderListReq);
+            GroupBuyOrderList existingOrderList = groupBuyOrderListDao.queryGroupBuyOrderRecordByBusinessKey(groupBuyOrderListReq);
             if (null != existingOrderList
                     && TradeOrderStatusEnumVO.COMPLETE.getCode().equals(existingOrderList.getStatus())) {
                 log.info("settlement idempotent, member order already completed. teamId:{} userId:{} outTradeNo:{}",
@@ -334,8 +336,8 @@ public class TradeRepository implements ITradeRepository {
                 throw new AppException(ResponseCode.UPDATE_ZERO);
             }
 
-            // 查询拼团交易完成外部单号列表
-            List<String> outTradeNoList = groupBuyOrderListDao.queryGroupBuyCompleteOrderOutTradeNoListByTeamId(groupBuyTeamEntity.getTeamId());
+            // The external ID alone is not unique across source/channel in Group.
+            List<GroupBuyOrderList> members = groupBuyOrderListDao.queryCompletedMembersByTeamId(groupBuyTeamEntity.getTeamId());
 
             // 拼团完成写入回调任务记录
             NotifyTask notifyTask = new NotifyTask();
@@ -349,7 +351,7 @@ public class TradeRepository implements ITradeRepository {
             notifyTask.setNotifyStatus(0);
             notifyTask.setUuid(groupBuyTeamEntity.getTeamId() + Constants.UNDERLINE + TaskNotifyCategoryEnumVO.TRADE_SETTLEMENT.getCode() + Constants.UNDERLINE + tradePaySuccessEntity.getOutTradeNo());
 
-            notifyTask.setParameterJson(settlementNotifyJson(groupBuyTeamEntity.getTeamId(), outTradeNoList));
+            notifyTask.setParameterJson(settlementNotifyJson(groupBuyTeamEntity.getTeamId(), groupBuyTeamEntity.getActivityId(), members));
 
             notifyTaskDao.insert(notifyTask);
 
@@ -367,10 +369,13 @@ public class TradeRepository implements ITradeRepository {
         return null;
     }
 
-    private String settlementNotifyJson(String teamId, List<String> outTradeNoList) {
+    private String settlementNotifyJson(String teamId, Long activityId, List<GroupBuyOrderList> members) {
         Map<String, Object> payload = new HashMap<>();
         payload.put("teamId", teamId);
-        payload.put("outTradeNoList", outTradeNoList);
+        payload.put("activityId", activityId);
+        payload.put("members", members.stream().map(member -> Map.of(
+                "userId", member.getUserId(), "source", member.getSource(),
+                "channel", member.getChannel(), "outTradeNo", member.getOutTradeNo())).toList());
         return JsonUtils.toJson(payload);
     }
 
@@ -440,42 +445,34 @@ public class TradeRepository implements ITradeRepository {
         return notifyTaskDao.updateNotifyTaskStatusRetry(notifyTask);
     }
 
-    /**
-     * 占用库存
-     * <p>
-     * 关于 Redis 独占锁和无锁化设计；<a href="https://bugstack.cn/md/road-map/redis.html">Redis 缓存、加锁(独占/分段)、发布/订阅，常用特性的使用和高级编码操作</a>
-     */
+    private static final String RECOVERY_KEY_SUFFIX = "_recovery";
+    private static final String INCREMENT_RECOVERY_STOCK = "local value = redis.call('INCR', KEYS[1]) "
+            + "local ttl = math.max(tonumber(ARGV[1]), redis.call('TTL', KEYS[2])) "
+            + "if redis.call('TTL', KEYS[1]) < ttl then redis.call('EXPIRE', KEYS[1], ttl) end "
+            + "return value";
+
+    private static final String OCCUPY_TEAM_STOCK = "local count = tonumber(redis.call('GET', KEYS[1]) or '0') "
+            + "local recovery = tonumber(redis.call('GET', KEYS[2]) or '0') "
+            + "if count + 1 >= tonumber(ARGV[1]) + recovery then return 0 end "
+            + "redis.call('INCR', KEYS[1]) "
+            + "if redis.call('TTL', KEYS[1]) < 0 then redis.call('EXPIRE', KEYS[1], tonumber(ARGV[2])) end "
+            + "return 1";
+
     @Override
     public boolean occupyTeamStock(String teamStockKey, String recoveryTeamStockKey, Integer target, Integer validTime) {
-        // 无锁化（乐观锁）方案：先通过 Redis INCR 原子生成一个近似唯一的占位序号，
-        // 再与目标量和失败恢复量比较。这里的 SET NX 只是极端情况下的兜底校验，
-        // 不把所有请求串行化，也不再使用 Lua 将多个步骤强行揉在一起。
-        Long recoveryCount = redisService.getAtomicLong(recoveryTeamStockKey);
-        recoveryCount = null == recoveryCount ? 0L : recoveryCount;
+        if (target == null || target <= 1) return false;
+        long ttlSeconds = (Math.max(0L, validTime == null ? 0L : validTime.longValue()) + 60L) * 60L;
+        // The creator occupies the first seat. A rejected request must not advance or reset the counter.
+        return Long.valueOf(1L).equals(redisService.evalLong(OCCUPY_TEAM_STOCK,
+                List.of(teamStockKey, recoveryTeamStockKey), List.of(target.toString(), Long.toString(ttlSeconds))));
+    }
 
-        long targetCount = target == null ? 0L : target;
-        long occupy = redisService.incr(teamStockKey) + 1;
-        if (occupy >= targetCount + recoveryCount) {
-            // 对齐参考实现：超过可用边界后把计数收敛到 target，后续请求仍由
-            // MySQL lock_count CAS 做最终正确性校验。
-            redisService.setAtomicLong(teamStockKey, targetCount);
-            log.info("组队库存占用失败 teamStockKey:{} occupy:{} target:{} recovery:{}",
-                    teamStockKey, occupy, targetCount, recoveryCount);
-            return false;
+    private static List<String> recoveryKeys(String recoveryTeamStockKey) {
+        if (!recoveryTeamStockKey.endsWith(RECOVERY_KEY_SUFFIX)) {
+            throw new IllegalArgumentException("invalid team recovery key");
         }
-
-        // INCR 本身是原子的，SET NX 只作为 Redis 集群异常或重复序号时的兜底。
-        // 参考实现约定按分钟保留：validTime + 60 分钟，便于排查问题。
-        String lockKey = teamStockKey + Constants.UNDERLINE + occupy;
-        Boolean lock = redisService.setNx(
-                lockKey,
-                (validTime == null ? 0L : validTime.longValue()) + 60L,
-                TimeUnit.MINUTES);
-        if (!Boolean.TRUE.equals(lock)) {
-            log.info("组队库存加锁失败 {}", lockKey);
-            return false;
-        }
-        return true;
+        return List.of(recoveryTeamStockKey,
+                recoveryTeamStockKey.substring(0, recoveryTeamStockKey.length() - RECOVERY_KEY_SUFFIX.length()));
     }
 
     @Override
@@ -483,7 +480,9 @@ public class TradeRepository implements ITradeRepository {
         // 首次组队拼团，是没有 teamId 的，所以不需要这个做处理。
         if (StringUtils.isBlank(recoveryTeamStockKey)) return;
 
-        redisService.incr(recoveryTeamStockKey);
+        long ttlSeconds = (Math.max(0L, validTime == null ? 0L : validTime.longValue()) + 60L) * 60L;
+        redisService.evalLong(INCREMENT_RECOVERY_STOCK, recoveryKeys(recoveryTeamStockKey),
+                List.of(Long.toString(ttlSeconds)));
     }
 
     @Override
@@ -506,7 +505,8 @@ public class TradeRepository implements ITradeRepository {
 
         try {
             // 在锁保护下执行库存恢复操作
-            redisService.incr(recoveryTeamStockKey);
+            redisService.evalLong(INCREMENT_RECOVERY_STOCK, recoveryKeys(recoveryTeamStockKey),
+                    List.of(Long.toString(TimeUnit.DAYS.toSeconds(30))));
             log.info("订单 {} 恢复库存成功，恢复库存key: {}", orderId, recoveryTeamStockKey);
         } catch (Exception e) {
             log.error("订单 {} 恢复库存失败，恢复库存key: {}", orderId, recoveryTeamStockKey, e);
@@ -527,6 +527,9 @@ public class TradeRepository implements ITradeRepository {
         // 保留userId，企业中往往会根据 userId 作为分库分表路由键，如果将来做分库分表也可以方便处理
         groupBuyOrderListReq.setUserId(tradeRefundOrderEntity.getUserId());
         groupBuyOrderListReq.setOrderId(tradeRefundOrderEntity.getOrderId());
+        groupBuyOrderListReq.setSource(tradeRefundOrderEntity.getSource());
+        groupBuyOrderListReq.setChannel(tradeRefundOrderEntity.getChannel());
+        groupBuyOrderListReq.setOutTradeNo(tradeRefundOrderEntity.getOutTradeNo());
 
         int updateUnpaid2RefundCount = groupBuyOrderListDao.unpaid2Refund(groupBuyOrderListReq);
         if (1 != updateUnpaid2RefundCount) {
@@ -586,6 +589,9 @@ public class TradeRepository implements ITradeRepository {
         // 保留userId，企业中往往会根据 userId 作为分库分表路由键，如果将来做分库分表也可以方便处理
         groupBuyOrderListReq.setUserId(tradeRefundOrderEntity.getUserId());
         groupBuyOrderListReq.setOrderId(tradeRefundOrderEntity.getOrderId());
+        groupBuyOrderListReq.setSource(tradeRefundOrderEntity.getSource());
+        groupBuyOrderListReq.setChannel(tradeRefundOrderEntity.getChannel());
+        groupBuyOrderListReq.setOutTradeNo(tradeRefundOrderEntity.getOutTradeNo());
 
         int updatePaid2RefundCount = groupBuyOrderListDao.paid2Refund(groupBuyOrderListReq);
         if (1 != updatePaid2RefundCount) {
@@ -621,6 +627,8 @@ public class TradeRepository implements ITradeRepository {
             put("teamId", tradeRefundOrderEntity.getTeamId());
             put("orderId", tradeRefundOrderEntity.getOrderId());
             put("outTradeNo", tradeRefundOrderEntity.getOutTradeNo());
+            put("source", tradeRefundOrderEntity.getSource());
+            put("channel", tradeRefundOrderEntity.getChannel());
             put("activityId", tradeRefundOrderEntity.getActivityId());
         }}));
 
@@ -646,6 +654,9 @@ public class TradeRepository implements ITradeRepository {
         // 保留userId，企业中往往会根据 userId 作为分库分表路由键，如果将来做分库分表也可以方便处理
         groupBuyOrderListReq.setUserId(tradeRefundOrderEntity.getUserId());
         groupBuyOrderListReq.setOrderId(tradeRefundOrderEntity.getOrderId());
+        groupBuyOrderListReq.setSource(tradeRefundOrderEntity.getSource());
+        groupBuyOrderListReq.setChannel(tradeRefundOrderEntity.getChannel());
+        groupBuyOrderListReq.setOutTradeNo(tradeRefundOrderEntity.getOutTradeNo());
 
         int updatePaid2RefundCount = groupBuyOrderListDao.paidTeam2Refund(groupBuyOrderListReq);
         if (1 != updatePaid2RefundCount) {
@@ -696,6 +707,8 @@ public class TradeRepository implements ITradeRepository {
             put("teamId", tradeRefundOrderEntity.getTeamId());
             put("orderId", tradeRefundOrderEntity.getOrderId());
             put("outTradeNo", tradeRefundOrderEntity.getOutTradeNo());
+            put("source", tradeRefundOrderEntity.getSource());
+            put("channel", tradeRefundOrderEntity.getChannel());
             put("activityId", tradeRefundOrderEntity.getActivityId());
         }}));
 

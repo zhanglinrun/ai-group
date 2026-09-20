@@ -49,7 +49,7 @@ public class OrderServiceIdempotencyTest {
         orderService = new OrderService(repository, port);
         ReflectionTestUtils.setField(orderService, "alipayEnabled", false);
         when(port.queryProductByProductId("P100")).thenReturn(quotaProduct());
-        when(repository.markGroupLocked(anyString(), anyString(), any(), any(), any())).thenReturn(true);
+        when(repository.markGroupLocked(anyString(), anyString(), any(), any(), any(), any(), any(), any())).thenReturn(true);
         when(repository.markProviderStarted(anyString(), anyString())).thenReturn(true);
         when(repository.completeOrderPrepay(any(PayOrderEntity.class), anyString())).thenReturn(true);
     }
@@ -68,7 +68,8 @@ public class OrderServiceIdempotencyTest {
         verify(port).lockMarketPayOrder("u1", "team-1", 1000L, "P100", inserted.getOrderId(),
                 new BigDecimal("12.00"));
         verify(repository).markGroupLocked(eq(inserted.getOrderId()), eq(inserted.getCreateOwnerToken()),
-                eq(1), eq(new BigDecimal("2.00")), eq(new BigDecimal("10.00")));
+                eq(1), eq(new BigDecimal("2.00")), eq(new BigDecimal("10.00")),
+                eq("team-1"), eq("s01"), eq("c01"));
         verify(repository).markProviderStarted(inserted.getOrderId(), inserted.getCreateOwnerToken());
         verify(repository).completeOrderPrepay(any(PayOrderEntity.class), eq(inserted.getCreateOwnerToken()));
         Assert.assertEquals(inserted.getOrderId(), result.getOrderId());
@@ -131,13 +132,16 @@ public class OrderServiceIdempotencyTest {
         when(repository.claimOrderCreation(anyString(), anyString())).thenReturn(true);
         when(port.lockMarketPayOrder(any(), any(), any(), any(), any(), any())).thenReturn(groupDiscount());
         AtomicBoolean firstMark = new AtomicBoolean(true);
-        when(repository.markGroupLocked(anyString(), anyString(), any(), any(), any())).thenAnswer(invocation -> {
+        when(repository.markGroupLocked(anyString(), anyString(), any(), any(), any(), any(), any(), any())).thenAnswer(invocation -> {
             if (firstMark.getAndSet(false)) {
                 OrderEntity persisted = inserted.get();
                 persisted.setCreateStage(OrderCreateStage.GROUP_LOCKED);
                 persisted.setMarketType(MarketTypeVO.GROUP_BUY_MARKET.getCode());
                 persisted.setMarketDeductionAmount(new BigDecimal("2.00"));
                 persisted.setPayAmount(new BigDecimal("10.00"));
+                persisted.setGroupTeamId("team-1");
+                persisted.setGroupSource("s01");
+                persisted.setGroupChannel("c01");
                 throw new IllegalStateException("database acknowledgement lost");
             }
             return true;
@@ -312,6 +316,7 @@ public class OrderServiceIdempotencyTest {
                 .originalPrice(new BigDecimal("12.00"))
                 .deductionPrice(new BigDecimal("2.00"))
                 .payPrice(new BigDecimal("10.00"))
+                .teamId("team-1").source("s01").channel("c01")
                 .build();
     }
 }

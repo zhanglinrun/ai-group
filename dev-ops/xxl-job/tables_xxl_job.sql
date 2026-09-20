@@ -146,18 +146,18 @@ CREATE TABLE `xxl_job_user`
 
 ## —————————————————————— for default data ——————————————————
 
-INSERT INTO xxl_job_group(id, pp_name, 	itle, ddress_type, ddress_list, update_time)
+INSERT INTO xxl_job_group(id, app_name, title, address_type, address_list, update_time)
 VALUES
   (1, 'pay', 'Pay 执行器', 0, NULL, now()),
   (2, 'group', 'Group 执行器', 0, NULL, now()),
   (3, 'member', 'Member 执行器', 0, NULL, now()),
   (4, 'auth', 'Auth 执行器', 0, NULL, now());
 
-INSERT INTO xxl_job_info(id, job_group, job_desc, dd_time, update_time, uthor, larm_email,
+INSERT INTO xxl_job_info(id, job_group, job_desc, add_time, update_time, author, alarm_email,
                            schedule_type, schedule_conf, misfire_strategy, executor_route_strategy,
                            executor_handler, executor_param, executor_block_strategy, executor_timeout,
                            executor_fail_retry_count, glue_type, glue_source, glue_remark, glue_updatetime,
-                           child_jobid, 	rigger_status, 	rigger_last_time, 	rigger_next_time)
+                           child_jobid, trigger_status, trigger_last_time, trigger_next_time)
 VALUES
   (1, 1, 'Pay Outbox 投递', now(), now(), 'xiongdoctor', '', 'CRON', '0/1 * * * * ?',
    'DO_NOTHING', 'FIRST', 'outboxEventPublishJob', '', 'SERIAL_EXECUTION', 0, 0, 'BEAN', '', 'GLUE代码初始化',
@@ -188,11 +188,16 @@ VALUES
    now(), '', 1, 0, 0),
   (10, 4, 'Auth Outbox 投递', now(), now(), 'xiongdoctor', '', 'CRON', '0/1 * * * * ?',
    'DO_NOTHING', 'FIRST', 'authOutboxPublishJob', '', 'SERIAL_EXECUTION', 0, 0, 'BEAN', '', 'GLUE代码初始化',
+   now(), '', 1, 0, 0),
+  (11, 3, 'Member 每日额度对账', now(), now(), 'xiongdoctor', '', 'CRON', '0 30 2 * * ?',
+   'DO_NOTHING', 'FIRST', 'quotaReconciliationJob', '', 'SERIAL_EXECUTION', 0, 0, 'BEAN', '', 'GLUE代码初始化',
+   now(), '', 1, 0, 0),
+  (12, 1, 'Pay 权益消费结果对账', now(), now(), 'xiongdoctor', '', 'CRON', '0 0/1 * * * ?',
+   'DO_NOTHING', 'FIRST', 'benefitReconciliationJob', '', 'SERIAL_EXECUTION', 0, 0, 'BEAN', '', 'GLUE代码初始化',
    now(), '', 1, 0, 0);
 
 -- admin / 123456 (SHA256)
-INSERT INTO xxl_job_user(id, username, password, 
-ole, permission)
+INSERT INTO xxl_job_user(id, username, password, role, permission)
 VALUES (1, 'admin', '8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92', 1, NULL);
 
 INSERT INTO xxl_job_lock (lock_name)

@@ -34,17 +34,22 @@ services:
       - ../mysql/init/00-databases.sql:/docker-entrypoint-initdb.d/00-databases.sql:ro
       - ../../auth-service/src/main/resources/schema.sql:/docker-entrypoint-initdb.d/10-auth.sql:ro
       - ../../member-service/src/main/resources/schema.sql:/docker-entrypoint-initdb.d/11-member.sql:ro
+      - ../../member-service/src/main/resources/migrations/V1__quota_reconciliation_mismatch.sql:/docker-entrypoint-initdb.d/12-member-recon.sql:ro
       - ../../group-service/docs/dev-ops/mysql/sql/2-29-group_buy_market.sql:/docker-entrypoint-initdb.d/20-group.sql:ro
       - ../../group-service/docs/dev-ops/mysql/sql/3-01-per-sku-groupbuy-migrate.sql:/docker-entrypoint-initdb.d/21-group-sku.sql:ro
       - ../../group-service/docs/dev-ops/mysql/sql/3-02-groupbuy-tier-migrate.sql:/docker-entrypoint-initdb.d/22-group-tier.sql:ro
       - ../../group-service/docs/dev-ops/mysql/sql/3-03-groupbuy-tier-settlement-migrate.sql:/docker-entrypoint-initdb.d/23-group-settlement.sql:ro
       - ../../group-service/docs/dev-ops/mysql/sql/3-04-identifier-width-migrate.sql:/docker-entrypoint-initdb.d/24-group-identifiers.sql:ro
+      - ../../group-service/docs/dev-ops/mysql/sql/3-05-notify-task-payload.sql:/docker-entrypoint-initdb.d/25-group-notify-payload.sql:ro
       - ../../pay-service/docs/dev-ops/mysql/sql/pay-service.sql:/docker-entrypoint-initdb.d/30-pay.sql:ro
       - ../../pay-service/docs/dev-ops/mysql/sql/V3_benefit_event.sql:/docker-entrypoint-initdb.d/31-pay-benefit.sql:ro
       - ../../pay-service/docs/dev-ops/mysql/sql/V4_settlement_notified.sql:/docker-entrypoint-initdb.d/32-pay-settlement.sql:ro
       - ../../pay-service/docs/dev-ops/mysql/sql/V5_transactional_outbox.sql:/docker-entrypoint-initdb.d/33-pay-outbox.sql:ro
       - ../../pay-service/docs/dev-ops/mysql/sql/V6_pay_order_idempotency.sql:/docker-entrypoint-initdb.d/34-pay-idempotency.sql:ro
       - ../../pay-service/docs/dev-ops/mysql/sql/V7-order-identifier-width.sql:/docker-entrypoint-initdb.d/35-pay-identifiers.sql:ro
+      - ../../pay-service/docs/dev-ops/mysql/sql/V8_benefit_event_publish_claim.sql:/docker-entrypoint-initdb.d/36-pay-publish-claim.sql:ro
+      - ../../pay-service/docs/dev-ops/mysql/sql/V9_benefit_reconciliation.sql:/docker-entrypoint-initdb.d/37-pay-benefit-recon.sql:ro
+      - ../../pay-service/docs/dev-ops/mysql/sql/V10_group_order_identity.sql:/docker-entrypoint-initdb.d/38-pay-group-identity.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "mysql -h localhost -uroot -p$${MYSQL_ROOT_PASSWORD} -e 'SELECT 1' >/dev/null 2>&1"]
       interval: 5s
@@ -170,7 +175,7 @@ services:
         --spring.datasource.password=${XXL_JOB_MYSQL_PASSWORD:-xxl_job_dev}
         --xxl.job.accessToken=${XXL_JOB_ACCESS_TOKEN:-default_token}
     ports:
-      - "${XXL_JOB_ADMIN_PUBLISH_PORT:-18081}:8080"
+      - "127.0.0.1:${XXL_JOB_ADMIN_PUBLISH_PORT:-18081}:8080"
     volumes:
       - xxl_job_admin_logs:/data/applogs
     depends_on:

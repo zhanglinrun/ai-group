@@ -41,11 +41,12 @@
         )
     </insert>
 
-    <update id="updateAddLockCount" parameterType="java.lang.String">
+    <update id="updateAddLockCount">
         <![CDATA[
             update group_buy_order
             set lock_count = lock_count + 1, update_time= now()
             where team_id = #{teamId}
+              and activity_id = #{activityId}
               and lock_count < target_count
               and status = 0
               and valid_end_time > now()

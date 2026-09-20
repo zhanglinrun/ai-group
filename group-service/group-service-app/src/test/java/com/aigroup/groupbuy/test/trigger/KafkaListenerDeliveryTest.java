@@ -58,15 +58,19 @@ public class KafkaListenerDeliveryTest {
     }
 
     @Test
-    public void dltExhaustedStillAcknowledges() throws Exception {
+    public void dltFailurePropagatesWithoutAcknowledgment() throws Exception {
         ITradeRefundOrderService service = mock(ITradeRefundOrderService.class);
         doThrow(new IllegalStateException("db unavailable")).when(service).restoreTeamLockStock(any());
         Acknowledgment ack = mock(Acknowledgment.class);
         RefundSuccessTopicListener listener = listener(service);
 
-        listener.consumeDlt(REFUND, ack);
-
-        verify(ack).acknowledge();
+        try {
+            listener.consumeDlt(REFUND, ack);
+            Assert.fail("DLT failure must stop the container");
+        } catch (RuntimeException expected) {
+            Assert.assertNotNull(expected.getCause());
+        }
+        verify(ack, never()).acknowledge();
     }
 
     private RefundSuccessTopicListener listener(ITradeRefundOrderService service) {

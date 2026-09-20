@@ -5,6 +5,7 @@ import com.aigroup.groupbuy.domain.trade.model.entity.GroupBuyTeamEntity;
 import com.aigroup.groupbuy.domain.trade.model.entity.MarketPayOrderEntity;
 import com.aigroup.groupbuy.domain.trade.model.entity.TradeSettlementRuleCommandEntity;
 import com.aigroup.groupbuy.domain.trade.model.entity.TradeSettlementRuleFilterBackEntity;
+import com.aigroup.groupbuy.domain.trade.model.valobj.TradeOrderStatusEnumVO;
 import com.aigroup.groupbuy.domain.trade.service.settlement.factory.TradeSettlementRuleFilterFactory;
 import com.aigroup.groupbuy.types.enums.GroupBuyOrderEnumVO;
 import com.aigroup.groupbuy.types.enums.ResponseCode;
@@ -37,11 +38,12 @@ public class SettableRuleFilter implements ILogicHandler<TradeSettlementRuleComm
         // 查询拼团队伍
         GroupBuyTeamEntity groupBuyTeamEntity = repository.queryGroupBuyTeamByTeamId(marketPayOrderEntity.getTeamId());
 
-        // B2: reject settlement early when the team already reached a terminal state
-        // (COMPLETE/FAIL/COMPLETE_FAIL). Without this check the pay-success callback of a
-        // failed team would enter the settlement transaction and roll back with the
-        // unrecognizable UPDATE_ZERO, leaving the paid order stuck forever.
-        if (!GroupBuyOrderEnumVO.PROGRESS.equals(groupBuyTeamEntity.getStatus())) {
+        // A settled member can replay even after a formed team has partially refunded.
+        boolean completedReplay = TradeOrderStatusEnumVO.COMPLETE.equals(marketPayOrderEntity.getTradeOrderStatusEnumVO())
+                && (GroupBuyOrderEnumVO.PROGRESS.equals(groupBuyTeamEntity.getStatus())
+                || GroupBuyOrderEnumVO.COMPLETE.equals(groupBuyTeamEntity.getStatus())
+                || GroupBuyOrderEnumVO.COMPLETE_FAIL.equals(groupBuyTeamEntity.getStatus()));
+        if (!GroupBuyOrderEnumVO.PROGRESS.equals(groupBuyTeamEntity.getStatus()) && !completedReplay) {
             log.error("settlement rejected, team is finalized. teamId:{} status:{} userId:{} outTradeNo:{}",
                     groupBuyTeamEntity.getTeamId(), groupBuyTeamEntity.getStatus(), requestParameter.getUserId(), requestParameter.getOutTradeNo());
             throw new AppException(ResponseCode.E0107);
@@ -50,8 +52,8 @@ public class SettableRuleFilter implements ILogicHandler<TradeSettlementRuleComm
         // 获取外部交易时间，用于校验支付是否发生在拼团有效期内
         Date outTradeTime = requestParameter.getOutTradeTime();
 
-        // 交易时间不得晚于或等于拼团截止时间
-        if (!outTradeTime.before(groupBuyTeamEntity.getValidEndTime())) {
+        // New settlements must occur before the team deadline; verified replays are exempt.
+        if (!completedReplay && !outTradeTime.before(groupBuyTeamEntity.getValidEndTime())) {
             log.error("order trade time outside group valid window");
             throw new AppException(ResponseCode.E0106);
         }

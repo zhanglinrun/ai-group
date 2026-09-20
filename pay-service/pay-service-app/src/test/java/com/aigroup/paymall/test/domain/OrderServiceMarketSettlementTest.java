@@ -7,6 +7,7 @@ import com.aigroup.paymall.domain.order.service.OrderService;
 import org.junit.Before;
 import org.junit.Test;
 import org.springframework.test.util.ReflectionTestUtils;
+import com.aigroup.paymall.domain.order.model.entity.TeamSettlementMember;
 
 import java.util.Arrays;
 import java.util.Collections;
@@ -44,12 +45,13 @@ public class OrderServiceMarketSettlementTest {
 
     @Test
     public void changeOrderMarketSettlement_grantsBenefitOnlyForSettledOrders() {
-        List<String> callbackList = Arrays.asList("order-paid", "order-unpaid");
-        // repository reports only the genuinely settled (now MARKET) order
-        when(repository.changeOrderMarketSettlement(callbackList))
+        List<TeamSettlementMember> callbackList = Arrays.asList(
+                new TeamSettlementMember("u1", "s01", "c01", "order-paid"),
+                new TeamSettlementMember("u2", "s01", "c01", "order-unpaid"));
+        when(repository.changeOrderMarketSettlement("team-1", 123L, callbackList))
                 .thenReturn(Collections.singletonList("order-paid"));
 
-        orderService.changeOrderMarketSettlement(callbackList);
+        orderService.changeOrderMarketSettlement("team-1", 123L, callbackList);
 
         // fulfillment + benefit outbox rows are created for the settled order only
         verify(benefitEventService).enqueueCompletedOrderEvents(Collections.singletonList("order-paid"));
@@ -57,11 +59,12 @@ public class OrderServiceMarketSettlementTest {
 
     @Test
     public void changeOrderMarketSettlement_noSettledOrders_grantsNothing() {
-        List<String> callbackList = Collections.singletonList("order-unpaid");
-        when(repository.changeOrderMarketSettlement(callbackList))
+        List<TeamSettlementMember> callbackList = Collections.singletonList(
+                new TeamSettlementMember("u1", "s01", "c01", "order-unpaid"));
+        when(repository.changeOrderMarketSettlement("team-1", 123L, callbackList))
                 .thenReturn(Collections.emptyList());
 
-        orderService.changeOrderMarketSettlement(callbackList);
+        orderService.changeOrderMarketSettlement("team-1", 123L, callbackList);
 
         // nothing settled -> no outbox event at all (no fulfillment/free quota for unpaid orders)
         verify(benefitEventService, never()).enqueueCompletedOrderEvents(anyList());

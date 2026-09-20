@@ -1,0 +1,13 @@
+# Use only with -p ai-group-bench; verify ownership before reusing its test volumes.
+networks:
+  default:
+    name: ai-group-bench_default
+
+services:
+  group-service:
+    environment:
+      # The local MySQL 8.4 container uses caching_sha2_password without TLS.
+      SPRING_DATASOURCE_URL: "jdbc:mysql://mysql:3306/group_buy_market?useUnicode=true&characterEncoding=utf8&autoReconnect=true&zeroDateTimeBehavior=convertToNull&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true"
+  pay-service:
+    environment:
+      ALIPAY_ENABLED: "false"

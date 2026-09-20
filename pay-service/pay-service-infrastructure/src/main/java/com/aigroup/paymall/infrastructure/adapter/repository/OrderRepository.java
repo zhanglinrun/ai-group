@@ -4,12 +4,14 @@ import com.aigroup.paymall.domain.order.adapter.repository.IOrderRepository;
 import com.aigroup.paymall.domain.order.model.aggregate.CreateOrderAggregate;
 import com.aigroup.paymall.domain.order.model.entity.OrderEntity;
 import com.aigroup.paymall.domain.order.model.entity.PayOrderEntity;
+import com.aigroup.paymall.domain.order.model.entity.TeamSettlementMember;
 import com.aigroup.paymall.domain.order.model.entity.ProductEntity;
 import com.aigroup.paymall.domain.order.model.valobj.MarketTypeVO;
 import com.aigroup.paymall.domain.order.model.valobj.OrderCreateStage;
 import com.aigroup.paymall.domain.order.model.valobj.OrderStatusVO;
 import com.aigroup.paymall.infrastructure.dao.IOrderDao;
 import com.aigroup.paymall.infrastructure.dao.po.PayOrder;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Repository;
 
@@ -18,8 +20,10 @@ import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Repository
 public class OrderRepository implements IOrderRepository {
 
@@ -51,6 +55,8 @@ public class OrderRepository implements IOrderRepository {
         order.setMarketType(orderEntity.getMarketType());
         order.setGroupActivityId(orderEntity.getGroupActivityId());
         order.setGroupTeamId(orderEntity.getGroupTeamId());
+        order.setGroupSource(orderEntity.getGroupSource());
+        order.setGroupChannel(orderEntity.getGroupChannel());
 
         try {
             orderDao.insert(order);
@@ -82,13 +88,17 @@ public class OrderRepository implements IOrderRepository {
 
     @Override
     public boolean markGroupLocked(String orderId, String ownerToken, Integer marketType,
-                                   BigDecimal marketDeductionAmount, BigDecimal payAmount) {
+                                   BigDecimal marketDeductionAmount, BigDecimal payAmount,
+                                   String groupTeamId, String groupSource, String groupChannel) {
         PayOrder payOrder = PayOrder.builder()
                 .orderId(orderId)
                 .createOwnerToken(ownerToken)
                 .marketType(marketType)
                 .marketDeductionAmount(marketDeductionAmount)
                 .payAmount(payAmount)
+                .groupTeamId(groupTeamId)
+                .groupSource(groupSource)
+                .groupChannel(groupChannel)
                 .build();
         return orderDao.markGroupLocked(payOrder) == 1;
     }
@@ -198,19 +208,46 @@ public class OrderRepository implements IOrderRepository {
     }
 
     @Override
-    public List<String> changeOrderMarketSettlement(List<String> outTradeNoList) {
-        if (null == outTradeNoList || outTradeNoList.isEmpty()) {
-            return new ArrayList<>();
+    public List<String> changeOrderMarketSettlement(String teamId, Long activityId, List<TeamSettlementMember> members) {
+        if (teamId == null || teamId.isBlank() || activityId == null || activityId <= 0
+                || members == null || members.isEmpty()) {
+            throw new IllegalArgumentException("formed team identity is required");
         }
-
-        // 只把 PAY_SUCCESS 迁移为 MARKET；回查真正迁移成功(现为 MARKET)的订单。
-        // 未支付(PAY_WAIT)/已关闭(CLOSE)订单不在其中，避免给未支付订单写权益 outbox。
-        orderDao.changeOrderMarketSettlement(outTradeNoList);
-        List<String> settledOrderIds = orderDao.queryMarketSettledOrderIds(outTradeNoList);
-        if (null == settledOrderIds || settledOrderIds.isEmpty()) {
-            return new ArrayList<>();
+        List<String> settledOrderIds = new ArrayList<>();
+        for (TeamSettlementMember member : members) {
+            if (member == null || member.userId() == null || member.userId().isBlank()
+                    || member.source() == null || member.source().isBlank()
+                    || member.channel() == null || member.channel().isBlank()
+                    || member.outTradeNo() == null || member.outTradeNo().isBlank()) {
+                throw new IllegalArgumentException("formed team member identity is required");
+            }
+            PayOrder order = PayOrder.builder().orderId(member.outTradeNo()).userId(member.userId())
+                    .groupTeamId(teamId).groupActivityId(activityId)
+                    .groupSource(member.source()).groupChannel(member.channel()).build();
+            if (orderDao.changeOrderMarketSettlement(order) == 1) {
+                settledOrderIds.add(member.outTradeNo());
+                continue;
+            }
+            PayOrder existing = orderDao.queryOrderByOrderId(member.outTradeNo());
+            if (existing == null) {
+                log.info("skip formed team member without local Pay order orderId:{}", member.outTradeNo());
+                continue;
+            }
+            if (!Objects.equals(existing.getUserId(), member.userId())
+                    || !Objects.equals(existing.getGroupTeamId(), teamId)
+                    || !Objects.equals(existing.getGroupActivityId(), activityId)
+                    || !Objects.equals(existing.getGroupSource(), member.source())
+                    || !Objects.equals(existing.getGroupChannel(), member.channel())
+                    || !Objects.equals(existing.getMarketType(), MarketTypeVO.GROUP_BUY_MARKET.getCode())) {
+                throw new IllegalStateException("formed team notification ownership mismatch: " + member.outTradeNo());
+            }
+            if (!OrderStatusVO.MARKET.getCode().equals(existing.getStatus())
+                    && !OrderStatusVO.WAIT_REFUND.getCode().equals(existing.getStatus())
+                    && !(OrderStatusVO.CLOSE.getCode().equals(existing.getStatus())
+                    && existing.getPayTime() != null)) {
+                throw new IllegalStateException("formed team notification order not settled: " + member.outTradeNo());
+            }
         }
-
         return settledOrderIds;
     }
 
@@ -235,6 +272,8 @@ public class OrderRepository implements IOrderRepository {
                 .updateTime(payOrder.getUpdateTime())
                 .marketType(payOrder.getMarketType())
                 .groupActivityId(payOrder.getGroupActivityId())
+                .groupSource(payOrder.getGroupSource())
+                .groupChannel(payOrder.getGroupChannel())
                 .groupTeamId(payOrder.getGroupTeamId())
                 .marketDeductionAmount(payOrder.getMarketDeductionAmount())
                 .payAmount(payOrder.getPayAmount())
@@ -291,6 +330,8 @@ public class OrderRepository implements IOrderRepository {
                 .updateTime(payOrder.getUpdateTime())
                 .marketType(payOrder.getMarketType())
                 .groupActivityId(payOrder.getGroupActivityId())
+                .groupSource(payOrder.getGroupSource())
+                .groupChannel(payOrder.getGroupChannel())
                 .groupTeamId(payOrder.getGroupTeamId())
                 .marketDeductionAmount(payOrder.getMarketDeductionAmount())
                 .payAmount(payOrder.getPayAmount())
@@ -330,6 +371,8 @@ public class OrderRepository implements IOrderRepository {
                 .marketType(payOrder.getMarketType())
                 .groupActivityId(payOrder.getGroupActivityId())
                 .groupTeamId(payOrder.getGroupTeamId())
+                .groupSource(payOrder.getGroupSource())
+                .groupChannel(payOrder.getGroupChannel())
                 .marketDeductionAmount(payOrder.getMarketDeductionAmount())
                 .payAmount(payOrder.getPayAmount())
                 .build();

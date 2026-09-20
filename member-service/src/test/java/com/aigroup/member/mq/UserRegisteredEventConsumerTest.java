@@ -51,14 +51,13 @@ class UserRegisteredEventConsumerTest {
     }
 
     @Test
-    void dltExhaustedStillAcknowledges() {
+    void dltFailurePropagatesWithoutAcknowledgment() {
         MemberService memberService = mock(MemberService.class);
         doThrow(new IllegalStateException("db unavailable")).when(memberService).initFree(1001L);
         Acknowledgment ack = mock(Acknowledgment.class);
         UserRegisteredEventConsumer consumer = new UserRegisteredEventConsumer(memberService, new ObjectMapper());
 
-        consumer.consumeUserRegisteredDlt(PAYLOAD, ack);
-
-        verify(ack).acknowledge();
+        assertThrows(IllegalStateException.class, () -> consumer.consumeUserRegisteredDlt(PAYLOAD, ack));
+        verify(ack, never()).acknowledge();
     }
 }

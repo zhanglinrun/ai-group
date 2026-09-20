@@ -75,4 +75,18 @@
         limit #{limit}
     </select>
 
+    <select id="queryDuePublishedGrants" resultMap="dataMap">
+        select e.id, e.event_id, e.event_type, e.user_id, e.order_id, e.product_code,
+               e.event_published, e.publish_status, e.base_quota, e.create_time, e.update_time
+        from benefit_event e
+        left join benefit_reconciliation r on r.event_id = e.event_id
+        where e.event_type = 'GROUP_BUY_COMPLETED' and e.event_published = 1
+          and e.publish_status = 'SENT' and e.update_time &lt;= #{cutoff}
+          and (r.event_id is null or (r.next_check_at &lt;= now() and
+               (r.outcome in ('READY', 'PENDING', 'REPLAYED', 'UNAVAILABLE')
+                or (r.outcome = 'PROCESSING' and r.lease_until &lt; now()))))
+        order by coalesce(r.next_check_at, e.update_time), e.id asc
+        limit #{limit}
+    </select>
+
 </mapper>

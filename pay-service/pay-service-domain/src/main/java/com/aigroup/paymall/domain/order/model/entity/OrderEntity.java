@@ -43,6 +43,8 @@ public class OrderEntity {
     // 下单时固化的拼团活动与队伍，直购均为空
     private Long groupActivityId;
     private String groupTeamId;
+    private String groupSource;
+    private String groupChannel;
     // 营销金额；优惠金额
     private BigDecimal marketDeductionAmount;
     // 支付金额

@@ -27,6 +27,8 @@ CREATE TABLE IF NOT EXISTS `pay_order` (
   `market_type` tinyint(1) DEFAULT NULL COMMENT '营销类型',
   `group_activity_id` bigint DEFAULT NULL COMMENT '拼团活动ID快照',
   `group_team_id` varchar(64) DEFAULT NULL COMMENT '拼团队伍ID快照',
+  `group_source` varchar(8) DEFAULT NULL COMMENT '拼团锁单 source 快照',
+  `group_channel` varchar(8) DEFAULT NULL COMMENT '拼团锁单 channel 快照',
   `market_deduction_amount` decimal(8,2) DEFAULT NULL COMMENT '营销优惠金额',
   `pay_amount` decimal(8,2) NOT NULL COMMENT '支付金额',
   `settlement_notified` tinyint(1) NOT NULL DEFAULT 0 COMMENT '拼团结算通知状态',

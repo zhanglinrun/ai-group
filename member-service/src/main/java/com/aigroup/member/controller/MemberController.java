@@ -120,8 +120,8 @@ public class MemberController {
     }
 
     @GetMapping("/internal/benefits/orders/{orderId}/status")
-    public Result<Map<String, String>> benefitStatus(@PathVariable String orderId) {
-        return Result.success(Map.of("status", memberService.benefitGrantStatusForOrder(orderId)));
+    public Result<Map<String, Object>> benefitStatus(@PathVariable String orderId) {
+        return Result.success(memberService.benefitGrantDetailsForOrder(orderId));
     }
 
     private Long requiredLong(Map<String, Object> body, String key) {

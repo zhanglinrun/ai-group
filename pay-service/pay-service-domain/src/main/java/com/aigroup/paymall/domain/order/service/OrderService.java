@@ -8,6 +8,7 @@ import com.aigroup.paymall.domain.order.model.aggregate.CreateOrderAggregate;
 import com.aigroup.paymall.domain.order.model.entity.MarketPayDiscountEntity;
 import com.aigroup.paymall.domain.order.model.entity.OrderEntity;
 import com.aigroup.paymall.domain.order.model.entity.PayOrderEntity;
+import com.aigroup.paymall.domain.order.model.entity.TeamSettlementMember;
 import com.aigroup.paymall.domain.order.model.valobj.MarketTypeVO;
 import com.aigroup.paymall.domain.order.model.valobj.OrderStatusVO;
 import com.aigroup.paymall.types.common.JsonUtils;
@@ -35,6 +36,7 @@ import java.util.Date;
 import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Objects;
 
 @Slf4j
 @Service
@@ -375,11 +377,9 @@ public class OrderService extends AbstractOrderService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void changeOrderMarketSettlement(List<String> outTradeNoList) {
-        // 只对真正从 PAY_SUCCESS 迁移为 MARKET 的订单发放权益；
-        // 未支付/已关闭订单即使出现在回调列表里也不发额度。
-        List<String> settledOrderIds = repository.changeOrderMarketSettlement(outTradeNoList);
-        if (null != settledOrderIds && !settledOrderIds.isEmpty()) {
+    public void changeOrderMarketSettlement(String teamId, Long activityId, List<TeamSettlementMember> members) {
+        List<String> settledOrderIds = repository.changeOrderMarketSettlement(teamId, activityId, members);
+        if (settledOrderIds != null && !settledOrderIds.isEmpty()) {
             // MARKET is the formed-group terminal. Only the benefit outbox row
             // is written here; Kafka goes out afterCommit. DEAL_DONE is reserved
             // for direct purchase.
@@ -428,6 +428,27 @@ public class OrderService extends AbstractOrderService {
     }
 
     @Override
+    public boolean refundTeamPayOrder(String userId, String teamId, Long activityId,
+                                      String source, String channel, String orderId) throws AlipayApiException {
+        if (blank(userId) || blank(teamId) || activityId == null || activityId <= 0
+                || blank(source) || blank(channel) || blank(orderId)) return false;
+        OrderEntity order = repository.queryOrderByUserIdAndOrderId(userId, orderId);
+        if (order == null || !MarketTypeVO.GROUP_BUY_MARKET.getCode().equals(order.getMarketType())
+                || !Objects.equals(teamId, order.getGroupTeamId())
+                || !Objects.equals(activityId, order.getGroupActivityId())
+                || !Objects.equals(source, order.getGroupSource())
+                || !Objects.equals(channel, order.getGroupChannel())) {
+            log.warn("team refund ownership mismatch userId:{} orderId:{} teamId:{}", userId, orderId, teamId);
+            return false;
+        }
+        return refundPayOrder(userId, orderId);
+    }
+
+    private boolean blank(String value) {
+        return value == null || value.isBlank();
+    }
+
+    @Override
     public boolean refundPayOrder(String userId, String orderId) throws AlipayApiException {
         // 1. query and validate the order
         OrderEntity orderEntity = repository.queryOrderByUserIdAndOrderId(userId, orderId);
@@ -436,13 +457,16 @@ public class OrderService extends AbstractOrderService {
             return false;
         }
 
-        // idempotency guard: CLOSE means already refunded/closed - report success so a
-        // redelivered team_refund message is acked instead of dead-lettered (C3/C5)
-        if (OrderStatusVO.CLOSE.getCode().equals(orderEntity.getOrderStatusVO().getCode())) {
+        if (!MarketTypeVO.GROUP_BUY_MARKET.getCode().equals(orderEntity.getMarketType())) return false;
+        OrderStatusVO refundStatus = orderEntity.getOrderStatusVO();
+        if (refundStatus == null) return false;
+        // Duplicate callbacks for an already closed group order are idempotent.
+        if (refundStatus == OrderStatusVO.CLOSE) {
             log.info("refund pay order skipped, already closed userId:{} orderId:{}", userId, orderId);
             return true;
         }
-
+        if (refundStatus != OrderStatusVO.WAIT_REFUND && refundStatus != OrderStatusVO.PAY_SUCCESS
+                && refundStatus != OrderStatusVO.MARKET) return false;
         AlipayTradeRefundRequest request = new AlipayTradeRefundRequest();
         AlipayTradeRefundModel refundModel = new AlipayTradeRefundModel();
         refundModel.setOutTradeNo(orderEntity.getOrderId());
@@ -462,7 +486,9 @@ public class OrderService extends AbstractOrderService {
         // 原子更新本地订单状态并写入权益撤销 outbox；提交后线程池抢发，Job 只补偿。
         // local DB updates (order close + revoke outbox row) commit atomically
         transactionTemplate.executeWithoutResult(status -> {
-            repository.refundOrder(userId, orderId);
+            if (!repository.refundOrder(userId, orderId)) {
+                throw new IllegalStateException("refunded order could not be closed orderId:" + orderId);
+            }
             benefitEventService.enqueueRevokedBenefitEvents(Collections.singletonList(orderId));
         });
 

@@ -23,6 +23,8 @@
         <result column="market_type" property="marketType"/>
         <result column="group_activity_id" property="groupActivityId"/>
         <result column="group_team_id" property="groupTeamId"/>
+        <result column="group_source" property="groupSource"/>
+        <result column="group_channel" property="groupChannel"/>
         <result column="market_deduction_amount" property="marketDeductionAmount"/>
         <result column="pay_amount" property="payAmount"/>
         <result column="settlement_notified" property="settlementNotified"/>
@@ -35,19 +37,19 @@
         client_request_id, request_fingerprint, create_stage, create_owner_token, create_lease_until,
         user_id, product_id, product_code, product_name,
         base_quota_snapshot, order_id, order_time, total_amount, status, market_type,
-        group_activity_id, group_team_id, market_deduction_amount, pay_amount, create_time, update_time)
+        group_activity_id, group_team_id, group_source, group_channel, market_deduction_amount, pay_amount, create_time, update_time)
         values(
         #{clientRequestId}, #{requestFingerprint}, #{createStage}, #{createOwnerToken}, date_add(now(), interval 60 second),
         #{userId}, #{productId}, #{productCode}, #{productName},
         #{baseQuotaSnapshot}, #{orderId}, #{orderTime}, #{totalAmount}, #{status}, #{marketType},
-        #{groupActivityId}, #{groupTeamId}, #{marketDeductionAmount}, #{payAmount}, now(), now())
+        #{groupActivityId}, #{groupTeamId}, #{groupSource}, #{groupChannel}, #{marketDeductionAmount}, #{payAmount}, now(), now())
     </insert>
 
     <select id="queryOrderByClientRequestId" resultMap="dataMap">
         select id, client_request_id, request_fingerprint, create_stage, create_owner_token, create_lease_until,
                user_id, product_id, product_code, product_name,
                base_quota_snapshot, order_id, order_time, total_amount, status, pay_url, pay_time, market_type,
-               group_activity_id, group_team_id, market_deduction_amount, pay_amount
+               group_activity_id, group_team_id, group_source, group_channel, market_deduction_amount, pay_amount
         from pay_order
         where user_id = #{userId} and client_request_id = #{clientRequestId}
         limit 1
@@ -72,7 +74,8 @@
 
     <update id="markGroupLocked" parameterType="com.aigroup.paymall.infrastructure.dao.po.PayOrder">
         update pay_order
-        set create_stage = 'GROUP_LOCKED', market_type = #{marketType},
+        set create_stage = 'GROUP_LOCKED', market_type = #{marketType}, group_team_id = #{groupTeamId},
+            group_source = #{groupSource}, group_channel = #{groupChannel},
             market_deduction_amount = #{marketDeductionAmount}, pay_amount = #{payAmount},
             create_lease_until = date_add(now(), interval 60 second), update_time = now()
         where order_id = #{orderId} and status = 'CREATE'
@@ -164,31 +167,20 @@
         LIMIT 20
     </select>
 
-    <!-- MARKET settlement can only transit from PAY_SUCCESS: duplicated/out-of-order callbacks will not settle twice or revert CLOSE/WAIT_REFUND/DEAL_DONE -->
-    <update id="changeOrderMarketSettlement" parameterType="java.util.List">
+    <!-- Each CAS identifies the exact locked member; affected-row count drives the benefit outbox. -->
+    <update id="changeOrderMarketSettlement" parameterType="com.aigroup.paymall.infrastructure.dao.po.PayOrder">
         update pay_order set status = 'MARKET', update_time = now()
-        where order_id in
-        <foreach item="orderId" collection="outTradeNoList" open="(" separator="," close=")">
-            #{orderId}
-        </foreach>
-        and status = 'PAY_SUCCESS'
+        where order_id = #{orderId} and user_id = #{userId}
+          and group_team_id = #{groupTeamId} and group_activity_id = #{groupActivityId}
+          and group_source = #{groupSource} and group_channel = #{groupChannel}
+          and market_type = 1 and status = 'PAY_SUCCESS'
     </update>
-
-    <!-- 回查成团回调中真正结算成功(现为 MARKET)的订单：未支付(PAY_WAIT)/已关闭(CLOSE)订单不会命中，
-         调用方据此只对已结算订单写权益 outbox，杜绝"未支付也发额度" -->
-    <select id="queryMarketSettledOrderIds" resultType="java.lang.String">
-        select order_id from pay_order
-        where status = 'MARKET' and order_id in
-        <foreach item="orderId" collection="outTradeNoList" open="(" separator="," close=")">
-            #{orderId}
-        </foreach>
-    </select>
 
     <select id="queryOrderByOrderId" parameterType="java.lang.String" resultMap="dataMap">
         select id, client_request_id, request_fingerprint, create_stage, create_owner_token, create_lease_until,
                user_id, product_id, product_code, product_name, base_quota_snapshot, order_id, order_time,
                total_amount, status, pay_url, pay_time, market_type, group_activity_id, group_team_id,
-               market_deduction_amount, pay_amount, settlement_notified, create_time, update_time
+               group_source, group_channel, market_deduction_amount, pay_amount, settlement_notified, create_time, update_time
         from pay_order
         where order_id = #{orderId}
     </select>
@@ -203,7 +195,7 @@
         select id, client_request_id, request_fingerprint, create_stage, create_owner_token, create_lease_until,
                user_id, product_id, product_code, product_name, base_quota_snapshot, order_id, order_time,
                total_amount, status, pay_url, pay_time, market_type, group_activity_id, group_team_id,
-               market_deduction_amount, pay_amount, settlement_notified, create_time, update_time
+               group_source, group_channel, market_deduction_amount, pay_amount, settlement_notified, create_time, update_time
         from pay_order
         where user_id = #{userId}
         <if test="lastId != null">
@@ -217,7 +209,7 @@
         select id, client_request_id, request_fingerprint, create_stage, create_owner_token, create_lease_until,
                user_id, product_id, product_code, product_name, base_quota_snapshot, order_id, order_time,
                total_amount, status, pay_url, pay_time, market_type, group_activity_id, group_team_id,
-               market_deduction_amount, pay_amount, settlement_notified, create_time, update_time
+               group_source, group_channel, market_deduction_amount, pay_amount, settlement_notified, create_time, update_time
         from pay_order
         where user_id = #{userId} and order_id = #{orderId}
     </select>
@@ -226,7 +218,9 @@
     <update id="refundOrder">
         update pay_order
         set status = 'CLOSE', update_time = now()
-        where user_id = #{userId} and order_id = #{orderId} and status != 'CLOSE'
+        where user_id = #{userId} and order_id = #{orderId}
+          and (status in ('CREATE', 'PAY_WAIT')
+               or (market_type = 1 and status in ('PAY_SUCCESS', 'MARKET', 'WAIT_REFUND')))
     </update>
 
     <!-- WAIT_REFUND only applies to paid/settled/done orders; CLOSE and duplicated WAIT_REFUND are rejected -->

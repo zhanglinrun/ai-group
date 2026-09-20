@@ -36,26 +36,34 @@ public class RefundSuccessTopicListener {
             groupId = "pay-service-dlt",
             containerFactory = "dltKafkaListenerContainerFactory")
     public void consumeDlt(String message, Acknowledgment ack) {
-        try {
-            listener(message);
-            ack.acknowledge();
-        } catch (Exception e) {
-            log.error("kafka.dlt.exhausted topic=group.team_refund.DLT payload={}", message, e);
-            ack.acknowledge();
-        }
+        listener(message);
+        ack.acknowledge();
     }
 
     public void listener(String message) {
         try {
             log.info("team refund callback, start refund {}", message);
             TeamRefundSuccessRequestDTO requestDTO = JsonUtils.parseObject(message, TeamRefundSuccessRequestDTO.class);
+            if (requestDTO == null || requestDTO.getType() == null) {
+                throw new IllegalArgumentException("team refund type is required");
+            }
             String type = requestDTO.getType();
             if ("paid_unformed".equals(type) || "paid_formed".equals(type)) {
-                boolean success = orderService.refundPayOrder(requestDTO.getUserId(), requestDTO.getOutTradeNo());
+                if (blank(requestDTO.getUserId()) || blank(requestDTO.getTeamId())
+                        || requestDTO.getActivityId() == null || requestDTO.getActivityId() <= 0
+                        || blank(requestDTO.getSource()) || blank(requestDTO.getChannel())
+                        || blank(requestDTO.getOutTradeNo())) {
+                    throw new IllegalArgumentException("team refund ownership is required");
+                }
+                boolean success = orderService.refundTeamPayOrder(requestDTO.getUserId(), requestDTO.getTeamId(),
+                        requestDTO.getActivityId(), requestDTO.getSource(), requestDTO.getChannel(),
+                        requestDTO.getOutTradeNo());
                 if (!success) {
                     throw new AppException(ResponseCode.UN_ERROR.getCode(),
-                            "refund pay order failed userId:" + requestDTO.getUserId() + " outTradeNo:" + requestDTO.getOutTradeNo());
+                            "team refund rejected userId:" + requestDTO.getUserId() + " outTradeNo:" + requestDTO.getOutTradeNo());
                 }
+            } else if (!"unpaid_unlock".equals(type)) {
+                throw new IllegalArgumentException("unknown team refund type: " + type);
             }
         } catch (AlipayApiException ex) {
             throw new RuntimeException(ex);
@@ -65,4 +73,7 @@ public class RefundSuccessTopicListener {
         }
     }
 
+    private boolean blank(String value) {
+        return value == null || value.isBlank();
+    }
 }

@@ -32,13 +32,8 @@ public class UserRegisteredEventConsumer {
             groupId = "member-service-dlt",
             containerFactory = "dltKafkaListenerContainerFactory")
     public void consumeUserRegisteredDlt(String message, Acknowledgment ack) {
-        try {
-            onUserRegistered(message);
-            ack.acknowledge();
-        } catch (Exception e) {
-            log.error("kafka.dlt.exhausted topic=auth.user_registered.DLT payload={}", message, e);
-            ack.acknowledge();
-        }
+        onUserRegistered(message);
+        ack.acknowledge();
     }
 
     public void onUserRegistered(String message) {

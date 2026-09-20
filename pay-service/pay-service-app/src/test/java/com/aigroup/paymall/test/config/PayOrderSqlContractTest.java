@@ -24,6 +24,23 @@ public class PayOrderSqlContractTest {
         assertTrue(mapper.contains("create_stage = 'MANUAL_REVIEW'"));
         assertTrue(mapper.contains("and id &lt; #{lastId}"));
         assertTrue(mapper.contains("order by id desc"));
+
+    }
+    @Test
+    public void teamSettlementUsesEntireStoredLockIdentityAndAffectedRows() throws IOException {
+        String mapper = normalized(new String(new ClassPathResource(
+                "mybatis/mapper/pay_order_mapper.xml").getInputStream().readAllBytes(), StandardCharsets.UTF_8));
+        String update = mapper.substring(mapper.indexOf("<update id=\"changeOrderMarketSettlement\""));
+        update = update.substring(0, update.indexOf("</update>"));
+        for (String predicate : new String[]{"order_id = #{orderId}", "user_id = #{userId}",
+                "group_team_id = #{groupTeamId}", "group_activity_id = #{groupActivityId}",
+                "group_source = #{groupSource}", "group_channel = #{groupChannel}",
+                "market_type = 1", "status = 'PAY_SUCCESS'"}) {
+            assertTrue(predicate, update.contains(predicate));
+        }
+        assertTrue(!mapper.contains("queryMarketSettledOrderIds"));
+        assertTrue(mapper.contains("group_team_id = #{groupTeamId}"));
+        assertTrue(mapper.contains("group_source = #{groupSource}, group_channel = #{groupChannel}"));
     }
 
     @Test

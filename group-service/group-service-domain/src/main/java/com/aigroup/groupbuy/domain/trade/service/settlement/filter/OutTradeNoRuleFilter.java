@@ -30,7 +30,8 @@ public class OutTradeNoRuleFilter implements ILogicHandler<TradeSettlementRuleCo
         log.info("结算规则过滤-外部单号校验{} outTradeNo:{}", requestParameter.getUserId(), requestParameter.getOutTradeNo());
 
         // 查询拼团信息
-        MarketPayOrderEntity marketPayOrderEntity = repository.queryMarketPayOrderEntityByOutTradeNo(requestParameter.getUserId(), requestParameter.getOutTradeNo());
+        MarketPayOrderEntity marketPayOrderEntity = repository.queryMarketPayOrderEntityByBusinessKey(
+                requestParameter.getUserId(), requestParameter.getSource(), requestParameter.getChannel(), requestParameter.getOutTradeNo());
 
         if (null == marketPayOrderEntity || TradeOrderStatusEnumVO.CLOSE.equals(marketPayOrderEntity.getTradeOrderStatusEnumVO())) {
             log.error("不存在的外部交易单号或用户已退单，不需要做支付订单结算:{} outTradeNo:{}", requestParameter.getUserId(), requestParameter.getOutTradeNo());

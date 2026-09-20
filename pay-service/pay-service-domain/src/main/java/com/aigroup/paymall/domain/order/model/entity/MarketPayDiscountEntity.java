@@ -23,5 +23,8 @@ public class MarketPayDiscountEntity {
     private BigDecimal deductionPrice;
     /** 支付金额 */
     private BigDecimal payPrice;
+    private String teamId;
+    private String source;
+    private String channel;
 
 }

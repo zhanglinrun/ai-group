@@ -3,6 +3,7 @@ package com.aigroup.paymall.domain.order.adapter.repository;
 import com.aigroup.paymall.domain.order.model.aggregate.CreateOrderAggregate;
 import com.aigroup.paymall.domain.order.model.entity.OrderEntity;
 import com.aigroup.paymall.domain.order.model.entity.PayOrderEntity;
+import com.aigroup.paymall.domain.order.model.entity.TeamSettlementMember;
 
 import java.util.Date;
 import java.util.List;
@@ -22,7 +23,8 @@ public interface IOrderRepository {
     void releaseOrderCreationClaim(String orderId, String ownerToken);
 
     boolean markGroupLocked(String orderId, String ownerToken, Integer marketType,
-                            BigDecimal marketDeductionAmount, BigDecimal payAmount);
+                            BigDecimal marketDeductionAmount, BigDecimal payAmount,
+                            String groupTeamId, String groupSource, String groupChannel);
 
     boolean markProviderStarted(String orderId, String ownerToken);
 
@@ -50,13 +52,8 @@ public interface IOrderRepository {
 
     boolean changeOrderClose(String orderId);
 
-    /**
-     * 将 Kafka 成团回调中实际处于 PAY_SUCCESS 的订单迁移为 MARKET（拼团终态）。
-     * 调用方只对返回的订单号写入权益 outbox，不再发履约消息、也不再改成 DEAL_DONE。
-     *
-     * @return 真正结算成功（现为 MARKET）的订单号；未支付/已关闭订单不在其中，调用方据此发放权益
-     */
-    List<String> changeOrderMarketSettlement(List<String> outTradeNoList);
+    /** Return only IDs whose stored lock identity transitioned PAY_SUCCESS -> MARKET. */
+    List<String> changeOrderMarketSettlement(String teamId, Long activityId, List<TeamSettlementMember> members);
 
     OrderEntity queryOrderByOrderId(String orderId);
 

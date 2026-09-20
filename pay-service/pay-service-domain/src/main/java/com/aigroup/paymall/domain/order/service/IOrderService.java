@@ -3,6 +3,7 @@ package com.aigroup.paymall.domain.order.service;
 import com.aigroup.paymall.domain.order.model.entity.OrderEntity;
 import com.aigroup.paymall.domain.order.model.entity.PayOrderEntity;
 import com.aigroup.paymall.domain.order.model.entity.ShopCartEntity;
+import com.aigroup.paymall.domain.order.model.entity.TeamSettlementMember;
 import com.alipay.api.AlipayApiException;
 
 import java.util.Date;
@@ -47,7 +48,7 @@ public interface IOrderService {
      */
     int compensateWaitRefund();
 
-    void changeOrderMarketSettlement(List<String> outTradeNoList);
+    void changeOrderMarketSettlement(String teamId, Long activityId, List<TeamSettlementMember> members);
 
     List<OrderEntity> queryUserOrderList(String userId, Long lastId, Integer pageSize);
 
@@ -60,5 +61,7 @@ public interface IOrderService {
      * 接收拼团退单消息
      */
     boolean refundPayOrder(String userId, String orderId) throws AlipayApiException;
+    boolean refundTeamPayOrder(String userId, String teamId, Long activityId,
+                               String source, String channel, String orderId) throws AlipayApiException;
 
 }

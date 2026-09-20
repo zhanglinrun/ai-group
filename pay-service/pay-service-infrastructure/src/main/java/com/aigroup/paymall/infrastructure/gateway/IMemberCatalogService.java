@@ -1,5 +1,6 @@
 package com.aigroup.paymall.infrastructure.gateway;
 
+import com.aigroup.paymall.infrastructure.gateway.dto.MemberBenefitStatusDTO;
 import com.aigroup.paymall.infrastructure.gateway.dto.MemberSkuDTO;
 import com.aigroup.paymall.infrastructure.gateway.response.MemberResult;
 import org.springframework.cloud.openfeign.FeignClient;
@@ -15,4 +16,7 @@ public interface IMemberCatalogService {
 
     @GetMapping("/internal/skus/by-goods/{goodsId}")
     MemberResult<MemberSkuDTO> queryEnabledSkuByGoodsId(@PathVariable("goodsId") String goodsId);
+
+    @GetMapping("/internal/benefits/orders/{orderId}/status")
+    MemberResult<MemberBenefitStatusDTO> queryBenefitOrderStatus(@PathVariable("orderId") String orderId);
 }

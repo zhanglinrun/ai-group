@@ -9,85 +9,48 @@ import org.junit.Test;
 import org.springframework.kafka.support.Acknowledgment;
 import org.springframework.test.util.ReflectionTestUtils;
 
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 public class RefundListenerDeliveryTest {
-
+    private static final String PAID = "{\"type\":\"paid_formed\",\"userId\":\"u1\",\"teamId\":\"t1\",\"activityId\":101,\"source\":\"s01\",\"channel\":\"c01\",\"outTradeNo\":\"order-1\"}";
     private RefundSuccessTopicListener listener;
-    private IOrderService orderService;
+    private IOrderService service;
 
     @Before
     public void setUp() {
-        orderService = mock(IOrderService.class);
+        service = mock(IOrderService.class);
         listener = new RefundSuccessTopicListener();
-        ReflectionTestUtils.setField(listener, "orderService", orderService);
+        ReflectionTestUtils.setField(listener, "orderService", service);
     }
 
     @Test
-    public void listenerPropagatesRefundFailure() throws Exception {
-        when(orderService.refundPayOrder("u1", "order-001")).thenReturn(false);
-
-        try {
-            listener.listener("{\"type\":\"paid_unformed\",\"userId\":\"u1\",\"outTradeNo\":\"order-001\"}");
-            Assert.fail("expected AppException on refund business failure");
-        } catch (AppException expected) {
-            // Kafka DefaultErrorHandler / DLT owns the retry.
-        }
-        verify(orderService).refundPayOrder("u1", "order-001");
-    }
-
-    @Test
-    public void listenerCompletesRefund() throws Exception {
-        when(orderService.refundPayOrder("u1", "order-002")).thenReturn(true);
+    public void validRefundAndReplayAreAcknowledged() throws Exception {
+        when(service.refundTeamPayOrder("u1", "t1", 101L, "s01", "c01", "order-1")).thenReturn(true);
         Acknowledgment ack = mock(Acknowledgment.class);
-
-        listener.consume("{\"type\":\"paid_formed\",\"userId\":\"u1\",\"outTradeNo\":\"order-002\"}", ack);
-
-        verify(orderService).refundPayOrder("u1", "order-002");
-        verify(ack).acknowledge();
+        listener.consume(PAID, ack);
+        listener.consumeDlt(PAID, ack);
+        verify(service, times(2)).refundTeamPayOrder("u1", "t1", 101L, "s01", "c01", "order-1");
+        verify(ack, times(2)).acknowledge();
     }
 
     @Test
-    public void consumeDoesNotAcknowledgeWhenRefundFails() throws Exception {
-        when(orderService.refundPayOrder("u1", "order-001")).thenReturn(false);
+    public void failedRefundIsNotAcknowledged() throws Exception {
         Acknowledgment ack = mock(Acknowledgment.class);
-
-        try {
-            listener.consume("{\"type\":\"paid_unformed\",\"userId\":\"u1\",\"outTradeNo\":\"order-001\"}", ack);
-            Assert.fail("expected AppException on refund business failure");
-        } catch (AppException expected) {
-            verify(ack, never()).acknowledge();
-        }
+        Assert.assertThrows(AppException.class, () -> listener.consume(PAID, ack));
+        Assert.assertThrows(AppException.class, () -> listener.consumeDlt(PAID, ack));
+        verify(ack, never()).acknowledge();
     }
 
     @Test
-    public void dltReplaysRefundAndAcknowledges() throws Exception {
-        when(orderService.refundPayOrder("u1", "order-002")).thenReturn(true);
-        Acknowledgment ack = mock(Acknowledgment.class);
-
-        listener.consumeDlt("{\"type\":\"paid_formed\",\"userId\":\"u1\",\"outTradeNo\":\"order-002\"}", ack);
-
-        verify(orderService).refundPayOrder("u1", "order-002");
-        verify(ack).acknowledge();
+    public void legacyPaidMessageCannotCallOldUnscopedRefund() throws Exception {
+        Assert.assertThrows(IllegalArgumentException.class, () -> listener.listener(
+                "{\"type\":\"paid_unformed\",\"userId\":\"u1\",\"outTradeNo\":\"order-1\"}"));
+        verify(service, never()).refundPayOrder(anyString(), anyString());
     }
 
     @Test
-    public void dltExhaustedStillAcknowledges() throws Exception {
-        when(orderService.refundPayOrder("u1", "order-001")).thenReturn(false);
-        Acknowledgment ack = mock(Acknowledgment.class);
-
-        listener.consumeDlt("{\"type\":\"paid_unformed\",\"userId\":\"u1\",\"outTradeNo\":\"order-001\"}", ack);
-
-        verify(ack).acknowledge();
-    }
-
-    @Test
-    public void listenerIgnoresUnpaidUnlock() throws Exception {
-        listener.listener("{\"type\":\"unpaid_unlock\",\"userId\":\"u1\",\"outTradeNo\":\"order-003\"}");
-        verifyNoInteractions(orderService);
+    public void unpaidUnlockIsNotAChargeback() {
+        listener.listener("{\"type\":\"unpaid_unlock\"}");
+        verifyNoInteractions(service);
     }
 }

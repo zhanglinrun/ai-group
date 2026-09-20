@@ -140,7 +140,7 @@ CREATE TABLE IF NOT EXISTS `notify_task` (
   `notify_url` varchar(128) DEFAULT NULL COMMENT '回调接口',
   `notify_count` int NOT NULL COMMENT '回调次数',
   `notify_status` tinyint(1) NOT NULL COMMENT '回调状态',
-  `parameter_json` varchar(256) NOT NULL COMMENT '参数对象',
+  `parameter_json` mediumtext NOT NULL COMMENT '参数对象',
   `uuid` varchar(128) NOT NULL COMMENT '唯一标识',
   `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',

@@ -1,6 +1,9 @@
 package com.aigroup.messaging;
 
 import org.apache.kafka.clients.admin.NewTopic;
+import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.clients.consumer.Consumer;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -13,20 +16,20 @@ import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
 import org.springframework.kafka.config.TopicBuilder;
 import org.springframework.kafka.core.ConsumerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.kafka.listener.CommonContainerStoppingErrorHandler;
 import org.springframework.kafka.listener.ContainerProperties;
 import org.springframework.kafka.listener.DeadLetterPublishingRecoverer;
 import org.springframework.kafka.listener.DefaultErrorHandler;
+import org.springframework.kafka.listener.MessageListenerContainer;
 import org.springframework.util.backoff.FixedBackOff;
+
+import java.util.List;
 
 @Configuration
 class KafkaPublisherConfiguration {
 
     private static final Logger log = LoggerFactory.getLogger(KafkaPublisherConfiguration.class);
 
-    static final String TOPIC_TEAM_SUCCESS = "group.team_success";
-    static final String TOPIC_TEAM_REFUND = "group.team_refund";
-    static final String TOPIC_MEMBER_BENEFIT = "member.benefit.completed";
-    static final String TOPIC_USER_REGISTERED = "auth.user_registered";
 
     @Bean
     @ConditionalOnMissingBean
@@ -43,27 +46,36 @@ class KafkaPublisherConfiguration {
     @Bean
     @Primary
     DefaultErrorHandler kafkaDefaultErrorHandler(KafkaTemplate<String, String> kafkaTemplate) {
-        DeadLetterPublishingRecoverer recoverer = new DeadLetterPublishingRecoverer(kafkaTemplate);
+        DeadLetterPublishingRecoverer recoverer = new DeadLetterPublishingRecoverer(kafkaTemplate,
+                (record, exception) -> new TopicPartition(record.topic() + ".DLT", -1));
+        recoverer.setFailIfSendResultIsError(true);
         return new DefaultErrorHandler(recoverer, new FixedBackOff(1000L, 3L));
     }
 
-    /**
-     * DLT containers must not republish to {@code *.DLT.DLT}. Failures are logged
-     * as {@code kafka.dlt.exhausted} and the record is considered recovered.
-     */
+    /** DLT failures stop the container, leaving the record for operator intervention. */
     @Bean
-    DefaultErrorHandler dltListenerErrorHandler() {
-        return new DefaultErrorHandler((record, exception) ->
-                log.error("kafka.dlt.exhausted topic={} partition={} offset={} key={}",
-                        record.topic(), record.partition(), record.offset(), record.key(), exception),
-                new FixedBackOff(0L, 0L));
+    CommonContainerStoppingErrorHandler dltListenerErrorHandler() {
+        return new CommonContainerStoppingErrorHandler() {
+            @Override
+            public void handleRemaining(Exception exception, List<ConsumerRecord<?, ?>> records,
+                    Consumer<?, ?> consumer, MessageListenerContainer container) {
+                if (!records.isEmpty()) {
+                    ConsumerRecord<?, ?> record = records.get(0);
+                    log.error("kafka.dlt.stopped topic={} partition={} offset={} key={}",
+                            record.topic(), record.partition(), record.offset(), record.key(), exception);
+                } else {
+                    log.error("kafka.dlt.stopped container={}", container.getListenerId(), exception);
+                }
+                super.handleRemaining(exception, records, consumer, container);
+            }
+        };
     }
 
     @Bean
     @SuppressWarnings({"rawtypes", "unchecked"})
     ConcurrentKafkaListenerContainerFactory<String, String> dltKafkaListenerContainerFactory(
             ConsumerFactory consumerFactory,
-            @Qualifier("dltListenerErrorHandler") DefaultErrorHandler dltListenerErrorHandler) {
+            @Qualifier("dltListenerErrorHandler") CommonContainerStoppingErrorHandler dltListenerErrorHandler) {
         ConcurrentKafkaListenerContainerFactory<String, String> factory =
                 new ConcurrentKafkaListenerContainerFactory<>();
         factory.setConsumerFactory(consumerFactory);
@@ -73,43 +85,43 @@ class KafkaPublisherConfiguration {
     }
 
     @Bean
-    NewTopic topicTeamSuccess() {
-        return topic(TOPIC_TEAM_SUCCESS);
+    NewTopic topicTeamSuccess(@Value("${ai-group.kafka.topics.team-success:group.team_success}") String name) {
+        return topic(name);
     }
 
     @Bean
-    NewTopic topicTeamSuccessDlt() {
-        return topic(TOPIC_TEAM_SUCCESS + ".DLT");
+    NewTopic topicTeamSuccessDlt(@Value("${ai-group.kafka.topics.team-success:group.team_success}") String name) {
+        return topic(name + ".DLT");
     }
 
     @Bean
-    NewTopic topicTeamRefund() {
-        return topic(TOPIC_TEAM_REFUND);
+    NewTopic topicTeamRefund(@Value("${ai-group.kafka.topics.team-refund:group.team_refund}") String name) {
+        return topic(name);
     }
 
     @Bean
-    NewTopic topicTeamRefundDlt() {
-        return topic(TOPIC_TEAM_REFUND + ".DLT");
+    NewTopic topicTeamRefundDlt(@Value("${ai-group.kafka.topics.team-refund:group.team_refund}") String name) {
+        return topic(name + ".DLT");
     }
 
     @Bean
-    NewTopic topicMemberBenefit() {
-        return topic(TOPIC_MEMBER_BENEFIT);
+    NewTopic topicMemberBenefit(@Value("${ai-group.kafka.topics.member-benefit:member.benefit.completed}") String name) {
+        return topic(name);
     }
 
     @Bean
-    NewTopic topicMemberBenefitDlt() {
-        return topic(TOPIC_MEMBER_BENEFIT + ".DLT");
+    NewTopic topicMemberBenefitDlt(@Value("${ai-group.kafka.topics.member-benefit:member.benefit.completed}") String name) {
+        return topic(name + ".DLT");
     }
 
     @Bean
-    NewTopic topicUserRegistered() {
-        return topic(TOPIC_USER_REGISTERED);
+    NewTopic topicUserRegistered(@Value("${ai-group.kafka.topics.user-registered:auth.user_registered}") String name) {
+        return topic(name);
     }
 
     @Bean
-    NewTopic topicUserRegisteredDlt() {
-        return topic(TOPIC_USER_REGISTERED + ".DLT");
+    NewTopic topicUserRegisteredDlt(@Value("${ai-group.kafka.topics.user-registered:auth.user_registered}") String name) {
+        return topic(name + ".DLT");
     }
 
     private static NewTopic topic(String name) {

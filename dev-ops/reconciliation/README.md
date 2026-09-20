@@ -1,0 +1,19 @@
+# Bench cross-schema reconciliation audit
+
+Run from the repository root with Python 3.10+, PowerShell 7 and Docker available:
+
+```powershell
+.\dev-ops\reconciliation\run-audit.ps1 -WindowHours 24 -Limit 100
+# Or: python .\dev-ops\reconciliation\audit.py --window-hours 24 --limit 100
+python -m unittest discover -s .\dev-ops\reconciliation -p 'test_*.py' -v
+```
+
+The runner inspects `ai-group-bench-mysql-1` first and requires the running container to carry Compose labels `com.docker.compose.project=ai-group-bench` and `com.docker.compose.service=mysql`. It reads the container's `MYSQL_ROOT_PASSWORD` inside `docker exec`; credentials are not printed or copied to the host process. The bench's `group_buy_market`, `s_pay_mall_ddd_market`, and `member_db` schemas share **one MySQL instance** in this Compose setup. This snapshot does **not** imply a production cross-database transaction: production databases may be physically separate and require independent observations.
+
+The SQL uses `REPEATABLE READ` with `START TRANSACTION WITH CONSISTENT SNAPSHOT, READ ONLY`, one MySQL connection, and `JSON_OBJECT` evidence. `NOW(6)` in the MySQL session anchors a strict 10-minute age cutoff; by default only rows updated within the last 24 hours and before that cutoff are candidates. The lookback is configurable from 1 to 168 hours. Group and detail updates, and SENT event/member record creation where applicable, must also be older than the cutoff. Session/database time zones must agree for the `DATETIME` columns (bench Compose sets `TZ=Asia/Shanghai`). A Pay order aged beyond the window or recently updated is intentionally not audited by that run.
+
+Anomalies are `FORMED_GROUP_PAY_STUCK`, `LEGACY_GROUP_IDENTITY_MISSING`, `ELIGIBLE_PAY_MISSING_COMPLETED_OUTBOX`, `SENT_COMPLETED_WITHOUT_MEMBER_RECORD`, `REFUNDED_PAY_WITH_ACTIVE_MEMBER_GRANT`, and `PAY_BENEFIT_RECONCILIATION_MANUAL`. The formed-group checks require market type 1, a settled (`status=1`) Group detail joined by Pay order ID, user ID, team ID and activity ID, and a formed Group team (`status=1` or `3`). The stuck/outbox/member checks exclude revoke outbox or Member revoke records. The identity check flags an aged matching order with NULL Pay `group_source` or `group_channel` and includes both Pay snapshots and Group detail values for manual review. Multiple matching details are reported as ambiguous (`matchingDetails > 1`, detail source/channel hidden); they are not evidence for an automatic backfill. This check may overlap `FORMED_GROUP_PAY_STUCK` and never uses current config. Direct orders without Group detail are excluded. The refund check requires a group Pay order with a Member grant or rejected revocation still indicating a grant; `REVOKED` and `SKIPPED_REVOKED` tombstones suppress it. `MANUAL` reconciliation is reported regardless of revocation, since it explicitly requests review; if its event is missing, `orderId` is null and `eventId` identifies the orphan.
+
+Each run writes `dev-ops/reconciliation/reports/<UTC-run-id>/audit.json` (ignored by Git), with window/cutoff, server UUID, capped anomaly rows, count by name, and pass/fail status. The default cap is 100, configurable 1 to 500; SQL fetches one extra row to mark `truncated`, so the report is **not** an all-time count. Exit is nonzero for anomalies, truncation, malformed response, bad Compose label, or query failure. A failed query creates a report containing an error but no partial evidence. Reports include order/user IDs and should be treated as local sensitive data. The audit makes no monetary or quota changes and does not send load.
+
+Offline `unittest` covers parsing, status classification, SQL scope/limits, label rejection, and query failure. It does not simulate concurrent services or prove production consistency; a live read-only bench run validates SQL against installed migrations, and schema changes should be checked there before relying on a clean report.

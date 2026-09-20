@@ -194,10 +194,17 @@ public abstract class AbstractOrderService implements IOrderService {
             if (MarketTypeVO.NO_MARKET.getCode().equals(order.getMarketType())) {
                 return null;
             }
+            if (order.getGroupTeamId() == null || order.getGroupTeamId().isBlank()
+                    || order.getGroupActivityId() == null || order.getGroupActivityId() <= 0
+                    || order.getGroupSource() == null || order.getGroupSource().isBlank()
+                    || order.getGroupChannel() == null || order.getGroupChannel().isBlank()) {
+                throw creationReview(order.getOrderId(), order.getCreateStage(), null);
+            }
             return MarketPayDiscountEntity.builder()
                     .originalPrice(order.getTotalAmount())
                     .deductionPrice(order.getMarketDeductionAmount())
                     .payPrice(order.getPayAmount())
+                    .teamId(order.getGroupTeamId()).source(order.getGroupSource()).channel(order.getGroupChannel())
                     .build();
         }
         if (!OrderCreateStage.LOCAL_CREATED.equals(order.getCreateStage())) {
@@ -212,12 +219,18 @@ public abstract class AbstractOrderService implements IOrderService {
                 throw new AppException(ResponseCode.UN_ERROR.getCode(),
                         "group buy lock market pay order failed, orderId:" + order.getOrderId());
             }
+            if (discount.getTeamId() == null || discount.getTeamId().isBlank()
+                    || discount.getSource() == null || discount.getSource().isBlank()
+                    || discount.getChannel() == null || discount.getChannel().isBlank()) {
+                throw new IllegalStateException("group lock source/channel is missing");
+            }
         }
 
         BigDecimal deduction = discount == null ? BigDecimal.ZERO : discount.getDeductionPrice();
         BigDecimal payAmount = discount == null ? order.getTotalAmount() : discount.getPayPrice();
         if (!repository.markGroupLocked(order.getOrderId(), ownerToken, cart.getMarketTypeVO().getCode(),
-                deduction, payAmount)) {
+                deduction, payAmount, discount == null ? null : discount.getTeamId(),
+                discount == null ? null : discount.getSource(), discount == null ? null : discount.getChannel())) {
             throw new AppException(ResponseCode.ORDER_CREATION_IN_PROGRESS.getCode(),
                     "order creation lease was lost after group lock, orderId:" + order.getOrderId());
         }
@@ -225,6 +238,9 @@ public abstract class AbstractOrderService implements IOrderService {
         order.setMarketType(cart.getMarketTypeVO().getCode());
         order.setMarketDeductionAmount(deduction);
         order.setPayAmount(payAmount);
+        order.setGroupSource(discount == null ? null : discount.getSource());
+        order.setGroupTeamId(discount == null ? null : discount.getTeamId());
+        order.setGroupChannel(discount == null ? null : discount.getChannel());
         return discount;
     }
 

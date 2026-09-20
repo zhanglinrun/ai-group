@@ -30,13 +30,8 @@ public class BenefitEventConsumer {
             groupId = "member-service-dlt",
             containerFactory = "dltKafkaListenerContainerFactory")
     public void consumeTradeCompletedDlt(String payload, Acknowledgment ack) {
-        try {
-            onTradeCompleted(payload);
-            ack.acknowledge();
-        } catch (Exception e) {
-            log.error("kafka.dlt.exhausted topic=member.benefit.completed.DLT payload={}", payload, e);
-            ack.acknowledge();
-        }
+        onTradeCompleted(payload);
+        ack.acknowledge();
     }
 
     public void onTradeCompleted(String payload) {

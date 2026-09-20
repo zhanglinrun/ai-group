@@ -75,4 +75,7 @@ public interface MemberService {
      * Benefit grant status for an order: PENDING, GRANTED, REVOKED.
      */
     String benefitGrantStatusForOrder(String orderId);
+
+    /** Internal order status with grant provenance when a completion was actually granted. */
+    Map<String, Object> benefitGrantDetailsForOrder(String orderId);
 }

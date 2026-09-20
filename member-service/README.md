@@ -10,9 +10,9 @@
 
 ### 1. 额度包权益
 
-用户直购支付成功或拼团成团后，支付/结算侧会发送带订单快照的权益消息。member 只信任消息里的 `productCode` 和 `baseQuota`，将额度统一换算成 microcredits 后计入付费余额，避免套餐后来改价或改额度影响历史订单。订单展示状态：`REVOKED`/`SKIPPED_REVOKED` → `REVOKED`；`GRANTED` 或额度已发后的 `REJECTED_GRANTED` → `GRANTED`。
+用户直购支付成功或拼团成团后，支付/结算侧会发送带订单快照的权益消息。member 只信任消息里的 `productCode` 和 `baseQuota`，将额度统一换算成 microcredits 后计入付费余额，避免套餐后来改价或改额度影响历史订单。订单展示状态：发放前撤销为 `REVOKED`；额度已发放后的撤销仍为 `GRANTED`，并标记 `manualReview`。
 
-关键点是**按订单 + 事件类型幂等**：同一笔订单的权益消息即使重复投递，也只会真正发放一次，靠 `benefit_grant_event` 的幂等键去重。额度已经发放后的撤销不会自动扣回，以免用户已消费后出现负账；系统记录 `REJECTED_GRANTED`，交由运营审核处理。
+关键点是**按订单 + 事件类型幂等**：同一笔订单的权益消息即使重复投递，也只会真正发放一次，靠 `benefit_grant_event` 的幂等键去重。撤销先于发放时写入 tombstone，后到的发放不再入账。额度已发放时，撤销只记录 `REJECTED_GRANTED` 和零额 `REVOKE` 审计流水，留待人工处理，不自动改动付费余额。总付费余额即使足够覆盖原发放额度，也可能来自之后的其他订单，不能证明该订单额度尚未消费；缺少按发放逐笔归属的消费记录时无法安全自动扣回。这里只处理额度权益，不会自动退款。
 
 ### 2. 对话配额（调用后扣减）
 
@@ -56,10 +56,17 @@ Agent 消耗配额以 **调用后原子扣减（debit）** 为主，旧的 freez
 
 ---
 
-## 两个定时任务
+## 定时任务
 
-- `MonthlyQuotaGrantJob`（月度免费额度发放）：每月将账户免费额度重置为 5 credits，付费额度保持不变。
- - `ExpiredFreezeReleaseJob`（过期冻结释放）：释放无持久化结算所有者的旧式僵尸冻结；对 `agent-service` 托管冻结只记录告警，等待 Agent 的启动扫描和定时重试收敛。
+- `MonthlyQuotaGrantJob`（月度免费额度发放）：每月将账户免费额度重置为 5 credits，付费额度保持不变；流水只记免费余额的差额。
+- `ExpiredFreezeReleaseJob`（过期冻结释放）：释放无持久化结算所有者的旧式僵尸冻结；对 `agent-service` 托管冻结只记录告警，等待 Agent 的启动扫描和定时重试收敛。
+- `QuotaReconciliationJob`（只读额度对账）：XXL-JOB `member` 执行器的 `quotaReconciliationJob` 每日 02:30 执行，阻塞策略 `SERIAL_EXECUTION`。默认每页 200 户，可用 `AI_GROUP_MEMBER_RECONCILIATION_PAGE_SIZE` 配置（1..500）；完成日志记录扫描户数和两类不一致数，至多打印 5 条样本。失败会抛出异常供 XXL-JOB 告警，已写入的异常记录可安全重跑。
+
+对账按 `user_id` 游标分页，以启动时最大 `user_id` 为上界；每页用一条一致性读取 SQL 比较 `free_quota_balance + paid_quota_balance` 与 `GRANT/DEBIT/CONFIRM/MONTHLY_GRANT/ADMIN_ADJUST` 流水之和、`frozen_balance` 与 `PENDING` 冻结金额之和。`FREEZE` 只是预留，`RELEASE`/`REVOKE` 不产生经济差额。每页独立快照，跨页并非全库同一时点；运行中开户或变更可能造成暂时遗漏或告警，建议低峰期执行并复查。不会修改账户、冻结或流水。
+
+异常证据保存在 `quota_reconciliation_mismatch`，主键 `(check_date, user_id, check_type)`，类型 `LEDGER_BALANCE` / `PENDING_FREEZE`，含快照金额、来源金额及首次/最近发现时间；当日重跑更新同一条异常记录，不新增重复行。记录代表当日曾发现异常，健康重跑不会自动清除旧记录，需结合 `last_seen_at` 和后续运行结果人工复核。日期以 member JVM 本地时区为准，无自动清理历史记录。
+
+新 MySQL volume 通过 Compose 初始化 `schema.sql` 和幂等建表迁移；已有 volume 不会重放 init SQL，启用任务前要对 `member_db` 执行 `src/main/resources/migrations/V1__quota_reconciliation_mismatch.sql`。全新 XXL-JOB 卷随种子 SQL 注册每日任务；已有 XXL 卷需执行 `dev-ops/xxl-job/migrations/2026-09-20-quota-reconciliation.sql`，该脚本按执行器名称查找并可重复执行。无运行时自动迁移。
 
 ---
 
@@ -79,9 +86,10 @@ Agent 消耗配额以 **调用后原子扣减（debit）** 为主，旧的 freez
 | `QuotaFreeze`（配额冻结） | 历史预扣冻结记录及其状态 |
 | `QuotaDebit`（配额扣减） | 每次按真实 Token 的幂等扣费 |
 | `QuotaLedger`（配额流水） | 配额变动的流水账 |
-
-已有 `member_db` 不会自动重跑 `schema.sql`，需要补执行其中的 `quota_debit` 建表语句。
 | `BenefitGrantEvent`（权益发放事件） | 按订单幂等的权益发放记录 |
+| `quota_reconciliation_mismatch`（对账证据） | 按日期/用户/类型保留发现的不一致 |
+
+已有 `member_db` 不会自动重跑 `schema.sql`，历史环境若缺 `quota_debit` 也需补执行建表语句。
 
 ---
 
@@ -110,7 +118,7 @@ cd member-service && mvn spring-boot:run
 - `MemberController`（用户端 + 内部接口）、`MemberAdminController`（运营端接口）。
 - `MemberServiceImpl`（额度服务实现）：权益发放、额度预留与结算的主逻辑。
 - `BenefitEventConsumer`（权益事件消费者）：监听 `member.benefit.completed`。
-- `MonthlyQuotaGrantJob` / `ExpiredFreezeReleaseJob`：两个定时任务。
+- `MonthlyQuotaGrantJob` / `ExpiredFreezeReleaseJob` / `QuotaReconciliationJob`：三个定时任务。
 
 ---
 

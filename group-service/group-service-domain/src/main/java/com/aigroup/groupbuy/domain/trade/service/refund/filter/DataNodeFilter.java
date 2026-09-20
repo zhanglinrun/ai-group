@@ -33,7 +33,9 @@ public class DataNodeFilter implements ILogicHandler<TradeRefundCommandEntity, T
         log.info("逆向流程-退单操作，数据加载节点 userId:{} outTradeNo:{}", tradeRefundCommandEntity.getUserId(), tradeRefundCommandEntity.getOutTradeNo());
 
         // 1. 查询外部交易单，组队id、orderId、拼团状态
-        MarketPayOrderEntity marketPayOrderEntity = repository.queryMarketPayOrderEntityByOutTradeNo(tradeRefundCommandEntity.getUserId(), tradeRefundCommandEntity.getOutTradeNo());
+        MarketPayOrderEntity marketPayOrderEntity = repository.queryMarketPayOrderEntityByBusinessKey(
+                tradeRefundCommandEntity.getUserId(), tradeRefundCommandEntity.getSource(),
+                tradeRefundCommandEntity.getChannel(), tradeRefundCommandEntity.getOutTradeNo());
         if (null == marketPayOrderEntity) {
             log.error("逆向流程-退单操作，不存在的外部交易单号，无法退单 userId:{} outTradeNo:{}", tradeRefundCommandEntity.getUserId(), tradeRefundCommandEntity.getOutTradeNo());
             throw new AppException(ResponseCode.E0104);

@@ -28,6 +28,7 @@ public class ProductPortQuotaPriceTest {
         groupQuote.setDeductionPrice(BigDecimal.ZERO);
         groupQuote.setPayPrice(new BigDecimal("12.00"));
         groupQuote.setTradeOrderStatus(0);
+        groupQuote.setTeamId("team-1");
         when(groupService.lockMarketPayOrder(any())).thenReturn(
                 Response.<LockMarketPayOrderResponseDTO>builder()
                         .code("0000").data(groupQuote).build());

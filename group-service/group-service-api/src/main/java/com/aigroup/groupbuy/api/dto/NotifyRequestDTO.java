@@ -13,7 +13,15 @@ public class NotifyRequestDTO {
 
     /** 组队ID */
     private String teamId;
-    /** 外部单号 */
-    private List<String> outTradeNoList;
+    private Long activityId;
+    private List<Member> members;
+
+    @Data
+    public static class Member {
+        private String userId;
+        private String source;
+        private String channel;
+        private String outTradeNo;
+    }
 
 }

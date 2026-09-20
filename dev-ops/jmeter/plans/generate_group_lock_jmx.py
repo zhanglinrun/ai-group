@@ -9,6 +9,7 @@ enabled during the benchmark.
 
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 
 
@@ -133,7 +134,7 @@ def assert_contains(name: str, needle: str) -> str:
     )
 
 
-def test_data_preprocessor() -> str:
+def test_data_preprocessor(fixed_team: bool = False) -> str:
     script = """import groovy.json.JsonOutput
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
@@ -173,6 +174,23 @@ vars.put('outTradeNo', 'jmeter-lock-' + UUID.randomUUID().toString().replace('-'
 vars.put('internalToken', token)
 vars.put('internalJwt', jwt)
 """
+    if fixed_team:
+        script = script.replace(
+            "vars.put('outTradeNo', 'jmeter-lock-' + UUID.randomUUID().toString().replace('-', ''))",
+            """def runId = props.getProperty('runId')
+if (runId == null || !(runId ==~ /[0-9]{17}/)) {
+    throw new IllegalStateException('Explicit 17-digit -JrunId is required')
+}
+vars.put('outTradeNo', 'jmeter-spike-' + runId + '-' + UUID.randomUUID().toString().replace('-', ''))
+"""
+        ) + """def teamId = props.getProperty('teamId')
+def activityId = props.getProperty('activityId')
+def goodsId = props.getProperty('goodsId')
+if (teamId == null || teamId.isBlank() || activityId == null || !(activityId ==~ /[0-9]+/) ||
+        goodsId == null || goodsId.isBlank()) {
+    throw new IllegalStateException('Explicit -JteamId, -JactivityId and -JgoodsId are required')
+}
+"""
     return (
         el(
             "JSR223PreProcessor",
@@ -191,31 +209,64 @@ vars.put('internalJwt', jwt)
     )
 
 
-def thread_group() -> str:
+def thread_group(fixed_team: bool = False) -> str:
     return (
         el(
             "ThreadGroup",
             {
                 "guiclass": "ThreadGroupGui",
                 "testclass": "ThreadGroup",
-                "testname": "Group lock-only users",
+                "testname": "Fixed-team one-shot spike" if fixed_team else "Group lock-only users",
             },
         )
         + s("ThreadGroup.on_sample_error", "continue")
         + el("elementProp", {"name": "ThreadGroup.main_controller", "elementType": "LoopController"})
-        + b("LoopController.continue_forever", "true")
-        + s("LoopController.loops", "-1")
+        + b("LoopController.continue_forever", "false" if fixed_team else "true")
+        + s("LoopController.loops", "1" if fixed_team else "-1")
         + close("elementProp")
-        + s("ThreadGroup.num_threads", "${__P(threads,20)}")
-        + s("ThreadGroup.ramp_time", "${__P(rampup,1)}")
-        + b("ThreadGroup.scheduler", "true")
-        + s("ThreadGroup.duration", "${__P(duration,60)}")
+        + s("ThreadGroup.num_threads", "${__P(threads,2000)}" if fixed_team else "${__P(threads,20)}")
+        + s("ThreadGroup.ramp_time", "${__P(rampup,0)}" if fixed_team else "${__P(rampup,1)}")
+        + b("ThreadGroup.scheduler", "false" if fixed_team else "true")
+        + ("" if fixed_team else s("ThreadGroup.duration", "${__P(duration,60)}"))
         + s("ThreadGroup.delay", "0")
         + close("ThreadGroup")
     )
 
+def spike_barrier() -> str:
+    return (
+        el("SyncTimer", {"guiclass": "TestBeanGUI", "testclass": "SyncTimer",
+                         "testname": "Release all spike threads together"})
+        + s("groupSize", "${__P(threads,2000)}")
+        + s("timeoutInMs", "120000")
+        + close("SyncTimer")
+    )
 
-def build() -> str:
+
+def assert_fixed_business_code() -> str:
+    script = """import groovy.json.JsonSlurper
+def code = null
+try {
+    code = String.valueOf(new JsonSlurper().parseText(prev.getResponseDataAsString()).code)
+} catch (Exception ignored) {
+    code = null
+}
+vars.put('businessCode', code == null ? '' : code)
+if (!['0000', 'E0005', 'E0006', 'E0008'].contains(code)) {
+    AssertionResult.setFailure(true)
+    AssertionResult.setFailureMessage('Unexpected Group business code: ' + code)
+}
+"""
+    return (
+        el("JSR223Assertion", {"guiclass": "TestBeanGUI", "testclass": "JSR223Assertion",
+                               "testname": "Lock or full-team rejection only"})
+        + s("scriptLanguage", "groovy")
+        + s("script", script)
+        + close("JSR223Assertion")
+    )
+
+
+
+def build(fixed_team: bool = False) -> str:
     body = (
         '{"userId":"${userId}","teamId":null,'
         '"activityId":${__P(activityId,100201)},'
@@ -224,6 +275,10 @@ def build() -> str:
         '"source":"${__P(source,s01)}","channel":"${__P(channel,c01)}",'
         '"outTradeNo":"${outTradeNo}","notifyConfigVO":{"notifyType":"MQ"}}'
     )
+    if fixed_team:
+        body = body.replace('"teamId":null', '"teamId":"${__P(teamId,)}"')
+        body = body.replace('${__P(activityId,100201)}', '${__P(activityId,)}')
+        body = body.replace('${__P(goodsId,9890002)}', '${__P(goodsId,)}')
     return (
         '<?xml version="1.0" encoding="UTF-8"?>'
         + el("jmeterTestPlan", {"version": "1.2", "properties": "5.0", "jmeter": "5.6.3"})
@@ -233,7 +288,7 @@ def build() -> str:
                 {
                     "guiclass": "TestPlanGui",
                     "testclass": "TestPlan",
-                    "testname": "Group lock-order endpoint only",
+                    "testname": "Fixed-team lock spike" if fixed_team else "Group lock-order endpoint only",
                 },
             )
             + s(
@@ -284,15 +339,17 @@ def build() -> str:
                 + close("collectionProp")
                 + close("HeaderManager"),
                 tree(),
-                thread_group(),
+                thread_group(fixed_team),
                 tree(
                     http_post("POST Group lock_market_pay_order", "/api/v1/gbm/trade/lock_market_pay_order", body),
                     tree(
-                        test_data_preprocessor(),
+                        test_data_preprocessor(fixed_team),
                         tree(),
+                        *((spike_barrier(), tree()) if fixed_team else ()),
                         assert_http_200(),
                         tree(),
-                        assert_contains("Lock business code is 0000", '\\"code\\":\\"0000\\"'),
+                        assert_fixed_business_code() if fixed_team else assert_contains(
+                            "Lock business code is 0000", '\\"code\\":\\"0000\\"'),
                         tree(),
                     ),
                 ),
@@ -303,8 +360,11 @@ def build() -> str:
 
 
 def main() -> None:
-    output = Path(__file__).with_name("group-lock-only.jmx")
-    output.write_text(build(), encoding="utf-8")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--fixed-team", action="store_true", help="Generate the opt-in one-shot fixed-team plan")
+    args = parser.parse_args()
+    output = Path(__file__).with_name("group-lock-fixed-team.jmx" if args.fixed_team else "group-lock-only.jmx")
+    output.write_text(build(args.fixed_team), encoding="utf-8")
     print(output)
 
 

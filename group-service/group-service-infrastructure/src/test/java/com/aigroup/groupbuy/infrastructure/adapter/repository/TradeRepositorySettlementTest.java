@@ -101,7 +101,7 @@ public class TradeRepositorySettlementTest {
         when(groupBuyOrderListDao.updateOrderStatus2COMPLETE(any())).thenReturn(0);
         GroupBuyOrderList completedDetail = new GroupBuyOrderList();
         completedDetail.setStatus(TradeOrderStatusEnumVO.COMPLETE.getCode());
-        when(groupBuyOrderListDao.queryGroupBuyOrderRecordByOutTradeNo(any())).thenReturn(completedDetail);
+        when(groupBuyOrderListDao.queryGroupBuyOrderRecordByBusinessKey(any())).thenReturn(completedDetail);
 
         assertNull(tradeRepository.settlementMarketPayOrder(aggregate()));
         Mockito.verify(groupBuyOrderDao, Mockito.never()).updateAddCompleteCount(any());
@@ -114,7 +114,7 @@ public class TradeRepositorySettlementTest {
     @Test
     public void shouldThrowUpdateZeroWhenMemberOrderMissingOrNotComplete() {
         when(groupBuyOrderListDao.updateOrderStatus2COMPLETE(any())).thenReturn(0);
-        when(groupBuyOrderListDao.queryGroupBuyOrderRecordByOutTradeNo(any())).thenReturn(null);
+        when(groupBuyOrderListDao.queryGroupBuyOrderRecordByBusinessKey(any())).thenReturn(null);
 
         try {
             tradeRepository.settlementMarketPayOrder(aggregate());
@@ -122,6 +122,28 @@ public class TradeRepositorySettlementTest {
         } catch (AppException e) {
             assertEquals(ResponseCode.UPDATE_ZERO.getCode(), e.getCode());
         }
+    }
+
+    @Test
+    public void shouldUseFullKeyForSettlementAndReplay() {
+        when(groupBuyOrderListDao.updateOrderStatus2COMPLETE(any())).thenReturn(0);
+        GroupBuyOrderList complete = new GroupBuyOrderList();
+        complete.setStatus(TradeOrderStatusEnumVO.COMPLETE.getCode());
+        when(groupBuyOrderListDao.queryGroupBuyOrderRecordByBusinessKey(any())).thenReturn(complete);
+
+        assertNull(tradeRepository.settlementMarketPayOrder(aggregate()));
+        org.mockito.ArgumentCaptor<GroupBuyOrderList> updated = org.mockito.ArgumentCaptor.forClass(GroupBuyOrderList.class);
+        org.mockito.ArgumentCaptor<GroupBuyOrderList> replay = org.mockito.ArgumentCaptor.forClass(GroupBuyOrderList.class);
+        Mockito.verify(groupBuyOrderListDao).updateOrderStatus2COMPLETE(updated.capture());
+        Mockito.verify(groupBuyOrderListDao).queryGroupBuyOrderRecordByBusinessKey(replay.capture());
+        for (GroupBuyOrderList key : new GroupBuyOrderList[]{updated.getValue(), replay.getValue()}) {
+            assertEquals("u001", key.getUserId());
+            assertEquals("s01", key.getSource());
+            assertEquals("c01", key.getChannel());
+            assertEquals("OT001", key.getOutTradeNo());
+        }
+        Mockito.verify(groupBuyOrderListDao, Mockito.never()).queryGroupBuyOrderRecordByOutTradeNo(any());
+        Mockito.verify(groupBuyOrderDao, Mockito.never()).updateAddCompleteCount(any());
     }
 
     private GroupBuyOrder teamWithStatus(int status) {
@@ -142,6 +164,8 @@ public class TradeRepositorySettlementTest {
                         .build())
                 .tradePaySuccessEntity(TradePaySuccessEntity.builder()
                         .userId("u001")
+                        .source("s01")
+                        .channel("c01")
                         .outTradeNo("OT001")
                         .outTradeTime(new Date())
                         .build())

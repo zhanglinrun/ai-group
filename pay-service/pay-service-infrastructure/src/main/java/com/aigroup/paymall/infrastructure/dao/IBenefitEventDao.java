@@ -27,4 +27,6 @@ public interface IBenefitEventDao {
 
     List<BenefitEvent> queryUnpublished(@Param("limit") int limit);
 
+    List<BenefitEvent> queryDuePublishedGrants(@Param("cutoff") Date cutoff, @Param("limit") int limit);
+
 }
