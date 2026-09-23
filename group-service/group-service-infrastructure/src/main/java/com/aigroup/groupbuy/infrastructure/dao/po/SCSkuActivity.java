@@ -32,4 +32,8 @@ public class SCSkuActivity {
     /** 更新时间 */
     private Date updateTime;
 
+    public static String cacheRedisKey(String source, String channel, String goodsId) {
+        return "group_buy_market_sc_sku_activity_" + source + "_" + channel + "_" + goodsId;
+    }
+
 }

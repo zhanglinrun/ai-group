@@ -3,6 +3,7 @@ package com.aigroup.groupbuy.infrastructure.adapter.repository;
 import com.aigroup.groupbuy.domain.activity.model.valobj.TeamStatisticVO;
 import com.aigroup.groupbuy.infrastructure.dao.IGroupBuyOrderDao;
 import com.aigroup.groupbuy.infrastructure.dao.po.GroupBuyTeamStatistic;
+import com.aigroup.groupbuy.infrastructure.dcc.DCCService;
 import org.junit.Before;
 import org.junit.Test;
 import org.mockito.Mockito;
@@ -15,12 +16,16 @@ public class ActivityRepositoryStatisticTest {
 
     private ActivityRepository repository;
     private IGroupBuyOrderDao groupBuyOrderDao;
+    private DCCService dccService;
 
     @Before
     public void setUp() {
         repository = new ActivityRepository();
         groupBuyOrderDao = Mockito.mock(IGroupBuyOrderDao.class);
+        dccService = Mockito.mock(DCCService.class);
+        when(dccService.isCacheOpenSwitch()).thenReturn(false);
         ReflectionTestUtils.setField(repository, "groupBuyOrderDao", groupBuyOrderDao);
+        ReflectionTestUtils.setField(repository, "dccService", dccService);
     }
 
     @Test

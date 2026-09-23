@@ -5,10 +5,11 @@ import com.aigroup.groupbuy.domain.activity.model.entity.UserGroupBuyOrderDetail
 import com.aigroup.groupbuy.domain.activity.model.valobj.*;
 import com.aigroup.groupbuy.infrastructure.dao.*;
 import com.aigroup.groupbuy.infrastructure.dao.po.*;
-import com.aigroup.groupbuy.infrastructure.cache.MarketConfigLocalCache;
-import com.aigroup.groupbuy.infrastructure.dcc.DCCService;
+import com.aigroup.groupbuy.infrastructure.cache.HallDetailCacheKeys;
 import com.aigroup.groupbuy.infrastructure.redis.IRedisService;
+import org.apache.commons.lang3.StringUtils;
 import org.redisson.api.RBitSet;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Repository;
 
 import jakarta.annotation.Resource;
@@ -31,34 +32,31 @@ public class ActivityRepository extends AbstractRepository implements IActivityR
     @Resource
     private ISCSkuActivityDao skuActivityDao;
     @Resource
-    private IRedisService redisService;
-    @Resource
-    private MarketConfigLocalCache marketConfigLocalCache;
-    @Resource
-    private DCCService dccService;
-    @Resource
     private IGroupBuyOrderDao groupBuyOrderDao;
     @Resource
     private IGroupBuyOrderListDao groupBuyOrderListDao;
 
+    @Value("${group.hall-cache.ttl-ms:5000}")
+    private long hallCacheTtlMs;
+    @Value("${group.hall-cache.progress-pool-size:40}")
+    private int hallProgressPoolSize;
+
+    /** Sentinel userId so SQL "user_id !=" keeps every real team in the shared hall pool. */
+    private static final String HALL_POOL_USER = "__hall_cache_pool__";
+
     @Override
     public GroupBuyActivityDiscountVO queryGroupBuyActivityDiscountVO(Long activityId) {
-        if (dccService.isCacheOpenSwitch()) {
-            return marketConfigLocalCache.getOrLoad(activityDiscountCacheKey(activityId),
-                    () -> loadGroupBuyActivityDiscountVO(activityId));
-        }
         return loadGroupBuyActivityDiscountVO(activityId);
     }
 
     private GroupBuyActivityDiscountVO loadGroupBuyActivityDiscountVO(Long activityId) {
-        // 优先从缓存获取&写缓存，注意如果实现了后台配置，在更新时要更库，删缓存。
+        // Redis Cache Aside；运营更新走删缓存 + 延迟双删。
         GroupBuyActivity groupBuyActivityRes = getFromCacheOrDb(GroupBuyActivity.cacheRedisKey(activityId),
                 () -> groupBuyActivityDao.queryValidGroupBuyActivityId(activityId));
         if (null == groupBuyActivityRes) return null;
 
         String discountId = groupBuyActivityRes.getDiscountId();
 
-        // 优先从缓存获取&写缓存
         GroupBuyDiscount groupBuyDiscountRes = getFromCacheOrDb(GroupBuyDiscount.cacheRedisKey(discountId),
                 () -> groupBuyDiscountDao.queryGroupBuyActivityDiscountByDiscountId(discountId));
         if (null == groupBuyDiscountRes) return null;
@@ -90,15 +88,10 @@ public class ActivityRepository extends AbstractRepository implements IActivityR
 
     @Override
     public SkuVO querySkuByGoodsId(String goodsId) {
-        if (dccService.isCacheOpenSwitch()) {
-            return marketConfigLocalCache.getOrLoad(Sku.cacheRedisKey(goodsId), () -> loadSkuVO(goodsId));
-        }
         return loadSkuVO(goodsId);
     }
 
     private SkuVO loadSkuVO(String goodsId) {
-        // 商品目录与活动、折扣一样属于运营配置。锁单高峰不应为同一 SKU
-        // 反复访问数据库；运营更新会在 GroupBuyAdminController 中逐出该缓存。
         Sku sku = getFromCacheOrDb(Sku.cacheRedisKey(goodsId), () -> skuDao.querySkuByGoodsId(goodsId));
         if (null == sku) return null;
         return SkuVO.builder()
@@ -114,12 +107,17 @@ public class ActivityRepository extends AbstractRepository implements IActivityR
 
     @Override
     public SCSkuActivityVO querySCSkuActivityBySCGoodsId(String source, String channel, String goodsId) {
+        return loadSCSkuActivityVO(source, channel, goodsId);
+    }
+
+    private SCSkuActivityVO loadSCSkuActivityVO(String source, String channel, String goodsId) {
         SCSkuActivity scSkuActivityReq = new SCSkuActivity();
         scSkuActivityReq.setSource(source);
         scSkuActivityReq.setChannel(channel);
         scSkuActivityReq.setGoodsId(goodsId);
 
-        SCSkuActivity scSkuActivity = skuActivityDao.querySCSkuActivityBySCGoodsId(scSkuActivityReq);
+        SCSkuActivity scSkuActivity = getFromCacheOrDb(SCSkuActivity.cacheRedisKey(source, channel, goodsId),
+                () -> skuActivityDao.querySCSkuActivityBySCGoodsId(scSkuActivityReq));
         if (null == scSkuActivity) return null;
 
         return SCSkuActivityVO.builder()
@@ -150,6 +148,14 @@ public class ActivityRepository extends AbstractRepository implements IActivityR
 
     @Override
     public List<UserGroupBuyOrderDetailEntity> queryInProgressUserGroupBuyOrderDetailListByOwner(Long activityId, String userId, Integer ownerCount) {
+        if (!dccService.isCacheOpenSwitch() || activityId == null || StringUtils.isBlank(userId)) {
+            return loadOwnerTeams(activityId, userId, ownerCount);
+        }
+        String key = HallDetailCacheKeys.ownerTeams(activityId, userId);
+        return getFromCacheOrDb(key, () -> loadOwnerTeams(activityId, userId, ownerCount), hallCacheTtlMs);
+    }
+
+    private List<UserGroupBuyOrderDetailEntity> loadOwnerTeams(Long activityId, String userId, Integer ownerCount) {
         // 1. 根据用户ID、活动ID，查询用户参与的拼团队伍
         GroupBuyOrderList groupBuyOrderListReq = new GroupBuyOrderList();
         groupBuyOrderListReq.setActivityId(activityId);
@@ -200,6 +206,47 @@ public class ActivityRepository extends AbstractRepository implements IActivityR
 
     @Override
     public List<UserGroupBuyOrderDetailEntity> queryInProgressUserGroupBuyOrderDetailListByRandom(Long activityId, String userId, Integer randomCount) {
+        if (randomCount == null || randomCount <= 0) {
+            return null;
+        }
+        List<UserGroupBuyOrderDetailEntity> pool;
+        if (dccService.isCacheOpenSwitch() && activityId != null) {
+            String key = HallDetailCacheKeys.progressPool(activityId);
+            int poolSize = Math.max(hallProgressPoolSize, randomCount * 2);
+            pool = getFromCacheOrDb(key, () -> loadProgressPool(activityId, poolSize), hallCacheTtlMs);
+        } else {
+            pool = loadRandomTeams(activityId, userId, randomCount);
+            return pool;
+        }
+        if (pool == null || pool.isEmpty()) {
+            return null;
+        }
+        List<UserGroupBuyOrderDetailEntity> filtered = new ArrayList<>();
+        for (UserGroupBuyOrderDetailEntity item : pool) {
+            if (item == null || StringUtils.isBlank(item.getUserId())) {
+                continue;
+            }
+            if (item.getUserId().equals(userId)) {
+                continue;
+            }
+            filtered.add(item);
+        }
+        if (filtered.isEmpty()) {
+            return null;
+        }
+        if (filtered.size() > randomCount) {
+            Collections.shuffle(filtered);
+            return new ArrayList<>(filtered.subList(0, randomCount));
+        }
+        return filtered;
+    }
+
+    /** Shared activity pool (no per-user filter) used for hall random cards. */
+    private List<UserGroupBuyOrderDetailEntity> loadProgressPool(Long activityId, int poolSize) {
+        return loadRandomTeams(activityId, HALL_POOL_USER, poolSize);
+    }
+
+    private List<UserGroupBuyOrderDetailEntity> loadRandomTeams(Long activityId, String userId, Integer randomCount) {
         // 1. 根据用户ID、活动ID，查询用户参与的拼团队伍
         GroupBuyOrderList groupBuyOrderListReq = new GroupBuyOrderList();
         groupBuyOrderListReq.setActivityId(activityId);
@@ -255,6 +302,14 @@ public class ActivityRepository extends AbstractRepository implements IActivityR
 
     @Override
     public TeamStatisticVO queryTeamStatisticByActivityId(Long activityId) {
+        if (!dccService.isCacheOpenSwitch() || activityId == null) {
+            return loadTeamStatistic(activityId);
+        }
+        return getFromCacheOrDb(HallDetailCacheKeys.teamStatistic(activityId),
+                () -> loadTeamStatistic(activityId), hallCacheTtlMs);
+    }
+
+    private TeamStatisticVO loadTeamStatistic(Long activityId) {
         GroupBuyTeamStatistic statistic = groupBuyOrderDao.queryTeamStatisticByActivityId(activityId);
         if (statistic == null) {
             return new TeamStatisticVO(0, 0, 0);

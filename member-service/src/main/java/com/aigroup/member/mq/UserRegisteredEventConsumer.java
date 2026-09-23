@@ -21,7 +21,7 @@ public class UserRegisteredEventConsumer {
 
     @KafkaListener(
             topics = "${ai-group.kafka.topics.user-registered:auth.user_registered}",
-            groupId = "member-service")
+            groupId = "member-service-user-registered")
     public void consumeUserRegistered(String message, Acknowledgment ack) {
         onUserRegistered(message);
         ack.acknowledge();
@@ -29,7 +29,7 @@ public class UserRegisteredEventConsumer {
 
     @KafkaListener(
             topics = "${ai-group.kafka.topics.user-registered:auth.user_registered}.DLT",
-            groupId = "member-service-dlt",
+            groupId = "member-service-user-registered-dlt",
             containerFactory = "dltKafkaListenerContainerFactory")
     public void consumeUserRegisteredDlt(String message, Acknowledgment ack) {
         onUserRegistered(message);

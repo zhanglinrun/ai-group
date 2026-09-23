@@ -12,10 +12,8 @@ import com.aigroup.groupbuy.infrastructure.dao.po.GroupBuyActivity;
 import com.aigroup.groupbuy.infrastructure.dao.po.GroupBuyDiscount;
 import com.aigroup.groupbuy.infrastructure.dao.po.SCSkuActivity;
 import com.aigroup.groupbuy.infrastructure.dao.po.Sku;
-import com.aigroup.groupbuy.infrastructure.cache.MarketConfigLocalCache;
-import com.aigroup.groupbuy.infrastructure.adapter.repository.ActivityRepository;
+import com.aigroup.groupbuy.infrastructure.cache.MarketConfigCacheSupport;
 import com.aigroup.groupbuy.api.response.Response;
-import com.aigroup.groupbuy.infrastructure.redis.IRedisService;
 import com.aigroup.groupbuy.types.enums.ResponseCode;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
@@ -63,9 +61,7 @@ public class GroupBuyAdminController {
     @Resource
     private ISCSkuActivityDao scSkuActivityDao;
     @Resource
-    private IRedisService redisService;
-    @Resource
-    private MarketConfigLocalCache marketConfigLocalCache;
+    private MarketConfigCacheSupport marketConfigCacheSupport;
     @Resource
     private Map<String, IDiscountCalculateService> discountCalculateServiceMap;
 
@@ -238,17 +234,22 @@ public class GroupBuyAdminController {
                 }
             }
 
-            // 读路径带 Redis 缓存，更新后必须逐出，否则前台仍读旧价
-            redisService.remove(GroupBuyActivity.cacheRedisKey(activityId));
-            redisService.remove(GroupBuyDiscount.cacheRedisKey(activity.getDiscountId()));
-            if (updatedGoodsId != null) {
-                redisService.remove(Sku.cacheRedisKey(updatedGoodsId));
-            }
-            marketConfigLocalCache.invalidate(GroupBuyActivity.cacheRedisKey(activityId));
-            marketConfigLocalCache.invalidate(GroupBuyDiscount.cacheRedisKey(activity.getDiscountId()));
-            marketConfigLocalCache.invalidate(ActivityRepository.activityDiscountCacheKey(activityId));
-            if (updatedGoodsId != null) {
-                marketConfigLocalCache.invalidate(Sku.cacheRedisKey(updatedGoodsId));
+            // Cache Aside: immediate + delayed double-delete; L1 invalidate for this instance.
+            String activityKey = GroupBuyActivity.cacheRedisKey(activityId);
+            String discountKey = GroupBuyDiscount.cacheRedisKey(activity.getDiscountId());
+            String skuKey = updatedGoodsId == null ? null : Sku.cacheRedisKey(updatedGoodsId);
+            SCSkuActivity mappingForCache = findMapping(activityId);
+            String scKey = mappingForCache == null ? null
+                    : SCSkuActivity.cacheRedisKey(mappingForCache.getSource(), mappingForCache.getChannel(),
+                    mappingForCache.getGoodsId());
+            if (skuKey != null && scKey != null) {
+                marketConfigCacheSupport.evictNowAndDelayed(activityKey, discountKey, skuKey, scKey);
+            } else if (skuKey != null) {
+                marketConfigCacheSupport.evictNowAndDelayed(activityKey, discountKey, skuKey);
+            } else if (scKey != null) {
+                marketConfigCacheSupport.evictNowAndDelayed(activityKey, discountKey, scKey);
+            } else {
+                marketConfigCacheSupport.evictNowAndDelayed(activityKey, discountKey);
             }
 
             log.info("admin updated group-buy activity {} body={}", activityId, body.keySet());

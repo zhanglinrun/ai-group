@@ -19,7 +19,7 @@ public class BenefitEventConsumer {
 
     @KafkaListener(
             topics = "${ai-group.kafka.topics.member-benefit:member.benefit.completed}",
-            groupId = "member-service")
+            groupId = "member-service-benefit")
     public void consumeTradeCompleted(String payload, Acknowledgment ack) {
         onTradeCompleted(payload);
         ack.acknowledge();
@@ -27,7 +27,7 @@ public class BenefitEventConsumer {
 
     @KafkaListener(
             topics = "${ai-group.kafka.topics.member-benefit:member.benefit.completed}.DLT",
-            groupId = "member-service-dlt",
+            groupId = "member-service-benefit-dlt",
             containerFactory = "dltKafkaListenerContainerFactory")
     public void consumeTradeCompletedDlt(String payload, Acknowledgment ack) {
         onTradeCompleted(payload);

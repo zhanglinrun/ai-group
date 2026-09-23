@@ -105,6 +105,25 @@ ai-group:
     token: ${AI_GROUP_INTERNAL_TOKEN:}
     auth-enabled: ${AI_GROUP_INTERNAL_AUTH_ENABLED:true}
 
+group:
+  market-config:
+    # campus-dash alignment: Redis-only Cache Aside (no process-local layer)
+    local-cache-ttl-ms: 0
+    redis-ttl-ms: 600000
+    ttl-jitter-ms: 120000
+    null-ttl-ms: 60000
+    shard-count: 4
+    delayed-evict-ms: 500
+    reconcile:
+      local-scheduler-enabled: false
+      sample-size: 100
+      interval-ms: 300000
+      initial-delay-ms: 300000
+  hall-cache:
+    # Hall detail hot reads (team stats + progress pool + owner teams); short TTL + write eviction
+    ttl-ms: 5000
+    progress-pool-size: 40
+
 # XXL-JOB 执行器配置
 xxl:
   job:

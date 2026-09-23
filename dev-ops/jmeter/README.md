@@ -15,7 +15,9 @@ Gateway / Group / Member 的可重复 HTTP 压测入口。报告写入本目录 
 | `run-login-group-order.ps1` | Gateway `8080` | 注册 → 登录 → 创建拼团订单（含 Group 锁单）。**必须** `ALIPAY_ENABLED=false` |
 | `run-group-lock.ps1` | Group `8091` | 直打锁单接口（带内部身份头），测 Group 锁争用 |
 | `run-group-lock-fixed-team.ps1` | Group `8091` | Explicit existing team; 2000 signed users each send one lock request, synchronized spike |
+| `run-settlement-bench.ps1` | Kafka `group.team_success` | 成团结算幂等 + E2E/Pay 切片吞吐；见 [BENCHMARK_SETTLEMENT_2026-09-20.md](BENCHMARK_SETTLEMENT_2026-09-20.md) |
 | `run-quota-ledger.ps1` | Member（默认 `18082`） | 配额账本吞吐；需自行暴露 Member 端口 |
+| `plans/bench_market_config_cache.py` | Group `8091` | 营销配置 Cache Aside A/B：`cacheSwitch` 开关对比命中率与配置回源 P99 |
 
 ## 运行
 
@@ -43,7 +45,17 @@ docker compose -p ai-group-bench --env-file .env `
   -f dev-ops/jmeter/bench-compose.override.yml up -d --build group-service
 ```
 
-该命令会启动 Group 及其 MySQL、Redis、Kafka、Nacos、XXL-JOB 依赖。初次建卷才运行数据库初始化 SQL；不要在已有业务卷上运行尖峰。实测和未覆盖范围见 [压测记录](BENCHMARK_GROUP_LOCK_2026-09-20.md)。
+该命令会启动 Group 及其 MySQL、Redis、Kafka、Nacos、XXL-JOB 依赖。初次建卷才运行数据库初始化 SQL；不要在已有业务卷上运行尖峰。锁单实测见 [压测记录](BENCHMARK_GROUP_LOCK_2026-09-20.md)；营销配置缓存 A/B 见 [缓存压测记录](BENCHMARK_MARKET_CONFIG_CACHE_2026-09-20.md)。
+
+### 营销配置缓存 A/B
+
+```powershell
+$env:AI_GROUP_IDENTITY_SIGNING_SECRET = ...
+$env:AI_GROUP_INTERNAL_TOKEN = ...
+python dev-ops/jmeter/plans/bench_market_config_cache.py --concurrency 300 --requests 15820 --warmup 800
+```
+
+默认打配置探针 `market_config_cache_probe`。大厅详情另缓存活动统计 / 进行中团池 / 本人团列表（短 TTL + 锁单/结算/退款 afterCommit 延迟双删）。指标对齐 campus-dash S3：命中率=`cacheHit/request`，回源降=`dbLoad` 开关对比，延迟取客户端 RTT。原始 `summary.json` 在 `reports/market-config-cache/`。
 
 ### Fixed-team one-shot spike (opt-in)
 

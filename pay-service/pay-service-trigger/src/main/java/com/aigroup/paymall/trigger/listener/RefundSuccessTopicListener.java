@@ -25,7 +25,7 @@ public class RefundSuccessTopicListener {
 
     @KafkaListener(
             topics = "${ai-group.kafka.topics.team-refund:group.team_refund}",
-            groupId = "pay-service")
+            groupId = "pay-service-team-refund")
     public void consume(String message, Acknowledgment ack) {
         listener(message);
         ack.acknowledge();
@@ -33,7 +33,7 @@ public class RefundSuccessTopicListener {
 
     @KafkaListener(
             topics = "${ai-group.kafka.topics.team-refund:group.team_refund}.DLT",
-            groupId = "pay-service-dlt",
+            groupId = "pay-service-team-refund-dlt",
             containerFactory = "dltKafkaListenerContainerFactory")
     public void consumeDlt(String message, Acknowledgment ack) {
         listener(message);

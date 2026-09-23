@@ -1,5 +1,7 @@
 package com.aigroup.groupbuy.infrastructure.adapter.repository;
 
+import com.aigroup.groupbuy.infrastructure.cache.MarketConfigCacheSupport;
+import com.aigroup.groupbuy.infrastructure.cache.MarketConfigReadMetrics;
 import com.aigroup.groupbuy.infrastructure.dcc.DCCService;
 import com.aigroup.groupbuy.infrastructure.redis.IRedisService;
 import org.slf4j.Logger;
@@ -17,42 +19,31 @@ public abstract class AbstractRepository {
 
     @Resource
     protected IRedisService redisService;
-    
+
     @Resource
     protected DCCService dccService;
 
+    @Resource
+    protected MarketConfigCacheSupport marketConfigCacheSupport;
+
+    @Resource
+    protected MarketConfigReadMetrics marketConfigReadMetrics;
+
     /**
-     * 通用缓存处理方法
-     * 优先从缓存获取，缓存不存在则从数据库获取并写入缓存
-     *
-     * @param cacheKey      缓存键
-     * @param dbFallback    数据库查询函数
-     * @param <T>           返回类型
-     * @return              查询结果
+     * Redis-only Cache Aside (campus-dash style). No process-local layer.
      */
     protected <T> T getFromCacheOrDb(String cacheKey, Supplier<T> dbFallback) {
-        // 判断是否开启缓存
-        if (dccService.isCacheOpenSwitch()) {
-            // 从缓存获取
-            T cacheResult = redisService.getValue(cacheKey);
-            // 缓存存在则直接返回
-            if (null != cacheResult) {
-                return cacheResult;
-            }
-            // 缓存不存在则从数据库获取
-            T dbResult = dbFallback.get();
-            // 数据库查询结果为空则直接返回
-            if (null == dbResult) {
-                return null;
-            }
-            // 写入缓存
-            redisService.setValue(cacheKey, dbResult);
-            return dbResult;
-        } else {
-            // 缓存未开启，直接从数据库获取
-            logger.warn("缓存降级 {}", cacheKey);
+        return getFromCacheOrDb(cacheKey, dbFallback, -1L);
+    }
+
+    protected <T> T getFromCacheOrDb(String cacheKey, Supplier<T> dbFallback, long ttlMs) {
+        if (!dccService.isCacheOpenSwitch()) {
+            logger.debug("缓存降级 {}", cacheKey);
+            marketConfigReadMetrics.recordDbLoad();
             return dbFallback.get();
         }
+        return marketConfigCacheSupport.loadThrough(
+                cacheKey, dbFallback, marketConfigReadMetrics::recordDbLoad, ttlMs);
     }
 
 }

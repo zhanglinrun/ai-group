@@ -194,6 +194,9 @@ VALUES
    now(), '', 1, 0, 0),
   (12, 1, 'Pay 权益消费结果对账', now(), now(), 'xiongdoctor', '', 'CRON', '0 0/1 * * * ?',
    'DO_NOTHING', 'FIRST', 'benefitReconciliationJob', '', 'SERIAL_EXECUTION', 0, 0, 'BEAN', '', 'GLUE代码初始化',
+   now(), '', 1, 0, 0),
+  (13, 2, 'Group 营销配置缓存抽样对账', now(), now(), 'xiongdoctor', '', 'CRON', '0 */5 * * * ?',
+   'DO_NOTHING', 'FIRST', 'marketConfigCacheReconcileJob', '', 'SERIAL_EXECUTION', 0, 0, 'BEAN', '', 'GLUE代码初始化',
    now(), '', 1, 0, 0);
 
 -- admin / 123456 (SHA256)

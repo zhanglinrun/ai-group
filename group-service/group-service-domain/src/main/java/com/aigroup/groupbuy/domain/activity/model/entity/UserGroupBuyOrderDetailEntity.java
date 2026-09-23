@@ -5,6 +5,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.io.Serializable;
 import java.util.Date;
 
 /**
@@ -15,7 +16,9 @@ import java.util.Date;
 @Builder
 @AllArgsConstructor
 @NoArgsConstructor
-public class UserGroupBuyOrderDetailEntity {
+public class UserGroupBuyOrderDetailEntity implements Serializable {
+
+    private static final long serialVersionUID = 1L;
 
     /** 用户ID */
     private String userId;

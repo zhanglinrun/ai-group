@@ -5,6 +5,8 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
+import java.io.Serializable;
+
 /**
  * @description 队伍统计值对象
  * @create 2025-02-02 15:21
@@ -13,7 +15,9 @@ import lombok.NoArgsConstructor;
 @Builder
 @AllArgsConstructor
 @NoArgsConstructor
-public class TeamStatisticVO {
+public class TeamStatisticVO implements Serializable {
+
+    private static final long serialVersionUID = 1L;
 
     // 开团队伍数量
     private Integer allTeamCount;

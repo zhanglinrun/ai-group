@@ -84,6 +84,9 @@ class KafkaPublisherConfiguration {
         return factory;
     }
 
+    @Value("${ai-group.kafka.topic-partitions:3}")
+    private int topicPartitions;
+
     @Bean
     NewTopic topicTeamSuccess(@Value("${ai-group.kafka.topics.team-success:group.team_success}") String name) {
         return topic(name);
@@ -124,7 +127,8 @@ class KafkaPublisherConfiguration {
         return topic(name + ".DLT");
     }
 
-    private static NewTopic topic(String name) {
-        return TopicBuilder.name(name).partitions(3).replicas(1).build();
+    private NewTopic topic(String name) {
+        int partitions = Math.max(1, topicPartitions);
+        return TopicBuilder.name(name).partitions(partitions).replicas(1).build();
     }
 }
